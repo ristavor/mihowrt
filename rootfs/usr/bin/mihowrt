@@ -28,22 +28,35 @@ check_required_file /usr/lib/mihowrt/kernel.sh
 . /usr/lib/mihowrt/kernel.sh
 
 run_service() {
-	local pid dns_port cleanup_done=0 stop_requested=0 rc=1
+	local pid dns_port cleanup_done=0 rc=1
 
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
 	ensure_dir "$PKG_STATE_DIR"
 	setup_clash_runtime_dirs || return 1
 
-	trap '
-		stop_requested=1
+	cleanup_service() {
 		if [ "$cleanup_done" -eq 0 ]; then
 			cleanup_runtime_state >/dev/null 2>&1 || true
 			cleanup_done=1
 		fi
-		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
 		rm -f "$SERVICE_PID_FILE"
-	' EXIT INT TERM HUP
+	}
+
+	terminate_service() {
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+		[ -n "$pid" ] && wait "$pid" 2>/dev/null || true
+		cleanup_service
+		exit 0
+	}
+
+	trap '
+		terminate_service
+	' INT TERM HUP
+	trap '
+		cleanup_service
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+	' EXIT
 
 	"$CLASH_BIN" -d "$CLASH_DIR" &
 	pid=$!
@@ -70,18 +83,13 @@ run_service() {
 
 	wait "$pid"
 	rc=$?
-	rm -f "$SERVICE_PID_FILE"
-	if [ "$cleanup_done" -eq 0 ]; then
-		cleanup_runtime_state >/dev/null 2>&1 || true
-		cleanup_done=1
-	fi
+	cleanup_service
 
 	case "$rc" in
 		0) return 0 ;;
 		''|*[!0-9]*) return 1 ;;
 	esac
 
-	[ "$stop_requested" -eq 1 ] && return 0
 	return 1
 }
 

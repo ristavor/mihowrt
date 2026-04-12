@@ -1,5 +1,6 @@
 config settings 'settings'
 	option enabled '1'
+	list source_network_interfaces 'br-lan'
 	option dns_hijack '1'
 	option disable_quic '1'
 	option shutdown_correctly '1'

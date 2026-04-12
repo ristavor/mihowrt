@@ -1,0 +1,123 @@
+#!/bin/ash
+
+check_required_file() {
+	[ -r "$1" ] || {
+		echo "Error: required file '$1' is missing or not readable" >&2
+		exit 1
+	}
+}
+
+check_required_file /lib/functions.sh
+check_required_file /usr/lib/mihowrt/constants.sh
+check_required_file /usr/lib/mihowrt/helpers.sh
+check_required_file /usr/lib/mihowrt/lists.sh
+check_required_file /usr/lib/mihowrt/dns.sh
+check_required_file /usr/lib/mihowrt/nft.sh
+check_required_file /usr/lib/mihowrt/policy.sh
+check_required_file /usr/lib/mihowrt/runtime.sh
+check_required_file /usr/lib/mihowrt/kernel.sh
+
+. /lib/functions.sh
+. /usr/lib/mihowrt/constants.sh
+. /usr/lib/mihowrt/helpers.sh
+. /usr/lib/mihowrt/lists.sh
+. /usr/lib/mihowrt/dns.sh
+. /usr/lib/mihowrt/nft.sh
+. /usr/lib/mihowrt/policy.sh
+. /usr/lib/mihowrt/runtime.sh
+. /usr/lib/mihowrt/kernel.sh
+
+run_service() {
+	local pid dns_port cleanup_done=0 stop_requested=0 rc=1
+
+	load_runtime_config || return 1
+	validate_runtime_config || return 1
+	ensure_dir "$PKG_STATE_DIR"
+	setup_clash_runtime_dirs || return 1
+
+	trap '
+		stop_requested=1
+		if [ "$cleanup_done" -eq 0 ]; then
+			cleanup_runtime_state >/dev/null 2>&1 || true
+			cleanup_done=1
+		fi
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
+		rm -f "$SERVICE_PID_FILE"
+	' EXIT INT TERM HUP
+
+	"$CLASH_BIN" -d "$CLASH_DIR" &
+	pid=$!
+	echo "$pid" > "$SERVICE_PID_FILE"
+
+	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
+	if ! wait_for_mihomo_ready "$dns_port" "$MIHOMO_TPROXY_PORT" "$pid"; then
+		err "Mihomo failed to become ready on DNS port $dns_port and TPROXY port $MIHOMO_TPROXY_PORT"
+		kill "$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+		rm -f "$SERVICE_PID_FILE"
+		return 1
+	fi
+
+	if [ "$ENABLED" = "1" ]; then
+		if ! apply_runtime_state; then
+			err "Failed to apply runtime policy after Mihomo became ready"
+			kill "$pid" 2>/dev/null || true
+			wait "$pid" 2>/dev/null || true
+			rm -f "$SERVICE_PID_FILE"
+			return 1
+		fi
+	fi
+
+	wait "$pid"
+	rc=$?
+	rm -f "$SERVICE_PID_FILE"
+	if [ "$cleanup_done" -eq 0 ]; then
+		cleanup_runtime_state >/dev/null 2>&1 || true
+		cleanup_done=1
+	fi
+
+	case "$rc" in
+		0) return 0 ;;
+		''|*[!0-9]*) return 1 ;;
+	esac
+
+	[ "$stop_requested" -eq 1 ] && return 0
+	return 1
+}
+
+	case "$1" in
+	prepare|start)
+		prepare_runtime_state
+		;;
+	cleanup|stop)
+		cleanup_runtime_state
+		;;
+	recover)
+		recover_runtime_state
+		;;
+	reload)
+		reload_runtime_state
+		;;
+	validate)
+		load_runtime_config && validate_runtime_config
+		;;
+	run-service)
+		run_service
+		;;
+	ensure-kernel)
+		kernel_ensure_installed
+		;;
+	update-kernel)
+		kernel_update
+		;;
+	read-config)
+		read_config_json
+		;;
+	status)
+		status_runtime_state
+		;;
+	*)
+		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|ensure-kernel|update-kernel|read-config|status}" >&2
+		exit 1
+		;;
+esac

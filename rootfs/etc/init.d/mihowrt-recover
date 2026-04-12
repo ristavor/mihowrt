@@ -1,0 +1,11 @@
+#!/bin/sh /etc/rc.common
+
+START=20
+STOP=01
+
+ORCHESTRATOR="/usr/bin/mihowrt"
+
+start() {
+	[ -x "$ORCHESTRATOR" ] || return 0
+	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
+}

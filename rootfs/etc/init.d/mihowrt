@@ -1,0 +1,63 @@
+#!/bin/sh /etc/rc.common
+
+START=21
+STOP=79
+USE_PROCD=1
+
+SERVICE_NAME="mihowrt"
+CLASH_DIR="/opt/clash"
+CLASH_BIN="${CLASH_DIR}/bin/clash"
+CLASH_CONFIG="${CLASH_DIR}/config.yaml"
+ORCHESTRATOR="/usr/bin/mihowrt"
+
+msg() {
+	logger -p daemon.info -t "$SERVICE_NAME" "$*"
+}
+
+start_service() {
+	msg "Starting MihoWRT service..."
+	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
+
+	[ -x "$CLASH_BIN" ] || {
+		msg "ERROR: Mihomo binary not found at $CLASH_BIN"
+		return 1
+	}
+
+	[ -f "$CLASH_CONFIG" ] || {
+		msg "ERROR: Mihomo config not found at $CLASH_CONFIG"
+		return 1
+	}
+
+	if ! "$CLASH_BIN" -d "$CLASH_DIR" -t >/dev/null 2>&1; then
+		msg "ERROR: Mihomo configuration test failed"
+		return 1
+	fi
+
+	"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+
+	procd_open_instance
+	procd_set_param command "$ORCHESTRATOR" run-service
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_set_param respawn 3600 5 5
+	procd_set_param file "$CLASH_CONFIG" /etc/config/mihowrt /opt/clash/lst/always_proxy_dst.txt /opt/clash/lst/always_proxy_src.txt
+	procd_close_instance
+
+	msg "MihoWRT service started"
+}
+
+stop_service() {
+	msg "Stopping MihoWRT service..."
+	"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	msg "MihoWRT service stopped"
+}
+
+reload_service() {
+	msg "Reloading MihoWRT service..."
+	stop
+	start
+}
+
+service_triggers() {
+	procd_add_reload_trigger "mihowrt"
+}

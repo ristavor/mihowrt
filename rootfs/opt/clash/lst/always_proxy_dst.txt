@@ -1,0 +1,4 @@
+# One IPv4 or CIDR per line.
+# Example:
+# 1.1.1.1
+# 8.8.8.0/24

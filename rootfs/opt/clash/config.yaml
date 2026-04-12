@@ -1,0 +1,74 @@
+mode: rule
+tproxy-port: 7894
+ipv6: false
+log-level: silent
+allow-lan: false
+unified-delay: true
+tcp-concurrent: true
+external-controller: 0.0.0.0:9090
+external-ui: ./ui
+external-ui-url: 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip'
+
+dns:
+  enable: true
+  ipv6: false
+  listen: 0.0.0.0:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+  fake-ip-filter-mode: whitelist
+  fake-ip-filter:
+    - rule-set:ru-bundle
+  default-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  proxy-server-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  nameserver:
+    - 77.88.8.8
+    - 77.88.8.1
+
+find-process-mode: off
+
+profile:
+  store-selected: true
+  store-fake-ip: true
+
+routing-mark: 2
+
+proxies:
+  - name: Server
+    type: vless
+    server: X
+    port: X
+    ip-version: ipv4
+    uuid: X
+    network: tcp
+    tls: true
+    udp: true
+    flow: xtls-rprx-vision
+    servername: X
+    reality-opts:
+      public-key: X
+      short-id: X
+      support-x25519mlkem768: true
+    client-fingerprint: chrome
+
+proxy-groups:
+  - name: FALLBACK
+    type: fallback
+    proxies: [Server]
+    url: 'https://www.gstatic.com/generate_204'
+    interval: 300
+
+rule-providers:
+  ru-bundle:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/ru-bundle/rule.mrs
+    path: ./ruleset/ru-bundle.mrs
+    interval: 86400
+
+rules:
+  - MATCH,FALLBACK

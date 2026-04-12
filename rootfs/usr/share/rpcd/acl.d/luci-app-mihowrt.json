@@ -1,0 +1,38 @@
+{
+	"luci-app-mihowrt": {
+		"description": "Grant access to MihoWRT procedures",
+		"read": {
+			"file": {
+				"/opt/clash/config.yaml": [ "read" ],
+				"/opt/clash/bin/clash": [ "read", "stat", "exec" ],
+				"/usr/bin/mihowrt": [ "read", "exec" ],
+				"/opt/clash/lst/always_proxy_dst.txt": [ "read" ],
+				"/opt/clash/lst/always_proxy_src.txt": [ "read" ],
+				"/sbin/logread": [ "exec" ],
+				"/etc/init.d/mihowrt": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "read", "stat", "exec" ],
+				"service": [ "list" ]
+			},
+			"uci": [
+				"mihowrt"
+			]
+		},
+		"write": {
+			"file": {
+				"/opt/clash/config.yaml": [ "write" ],
+				"/usr/bin/mihowrt": [ "exec" ],
+				"/opt/clash/lst/always_proxy_dst.txt": [ "write" ],
+				"/opt/clash/lst/always_proxy_src.txt": [ "write" ],
+				"/etc/init.d/mihowrt": [ "exec" ]
+			},
+			"ubus": {
+				"file": [ "write", "exec" ]
+			},
+			"uci": [
+				"mihowrt"
+			]
+		}
+	}
+}

@@ -1,0 +1,5 @@
+config settings 'settings'
+	option enabled '1'
+	option dns_hijack '1'
+	option disable_quic '1'
+	option shutdown_correctly '1'

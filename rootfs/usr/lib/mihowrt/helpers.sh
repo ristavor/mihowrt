@@ -1,0 +1,417 @@
+#!/bin/ash
+
+log() {
+	logger -p daemon.info -t "mihowrt" "$*"
+}
+
+warn() {
+	logger -p daemon.warn -t "mihowrt" "$*"
+}
+
+err() {
+	logger -p daemon.err -t "mihowrt" "$*"
+}
+
+trim() {
+	local value="$1"
+	value="${value#"${value%%[![:space:]]*}"}"
+	value="${value%"${value##*[![:space:]]}"}"
+	printf '%s' "$value"
+}
+
+ensure_dir() {
+	local dir="$1"
+	[ -d "$dir" ] || mkdir -p "$dir"
+}
+
+remove_path_if_exists() {
+	local path="$1"
+	[ -e "$path" ] || [ -L "$path" ] || return 0
+	rm -rf "$path"
+}
+
+ensure_file() {
+	local path="$1"
+	[ -f "$path" ] || : > "$path"
+}
+
+is_uint() {
+	printf '%s' "$1" | grep -qE '^[0-9]+$'
+}
+
+is_valid_port() {
+	local value="$1"
+	if ! is_uint "$value"; then
+		return 1
+	fi
+
+	[ "$value" -ge 1 ] && [ "$value" -le 65535 ]
+}
+
+is_valid_route_table_id() {
+	local value="$1"
+	if ! is_uint "$value"; then
+		return 1
+	fi
+
+	[ "$value" -ge 1 ] && [ "$value" -le 252 ]
+}
+
+is_valid_route_rule_priority() {
+	local value="$1"
+	if ! is_uint "$value"; then
+		return 1
+	fi
+
+	[ "$value" -ge 1 ] && [ "$value" -le 32765 ]
+}
+
+is_ipv4() {
+	printf '%s' "$1" | grep -qE '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+}
+
+is_ipv4_cidr() {
+	local value="$1"
+	local ip prefix
+
+	case "$value" in
+		*/*)
+			ip="${value%/*}"
+			prefix="${value#*/}"
+			is_ipv4 "$ip" || return 1
+			printf '%s' "$prefix" | grep -qE '^([0-9]|[12][0-9]|3[0-2])$'
+			;;
+		*)
+			is_ipv4 "$value"
+			;;
+	esac
+}
+
+is_dns_listen() {
+	local value="$1"
+	local host port
+
+	case "$value" in
+		*#*)
+			host="$(dns_listen_host "$value")"
+			port="$(dns_listen_port "$value")"
+			[ -n "$host" ] || return 1
+			case "$host" in
+				*'#'*|*[[:space:]]*) return 1 ;;
+			esac
+			is_valid_port "$port"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+dns_listen_host() {
+	printf '%s' "${1%#*}"
+}
+
+dns_listen_port() {
+	printf '%s' "${1##*#}"
+}
+
+normalize_dns_server_target() {
+	local host port
+
+	host="$(dns_listen_host "$1")"
+	port="$(dns_listen_port "$1")"
+
+	case "$host" in
+		''|0.0.0.0|::|'[::]')
+			host="127.0.0.1"
+			;;
+	esac
+
+	printf '%s#%s' "$host" "$port"
+}
+
+port_from_addr() {
+	local value="$1"
+	local host
+	local port
+
+	value="$(trim "$value")"
+	[ -n "$value" ] || return 1
+
+	case "$value" in
+		\[*\]:*)
+			host="${value%%]*}"
+			host="${host#[}"
+			port="${value##*:}"
+			[ -n "$host" ] || return 1
+			;;
+		*:*:*)
+			return 1
+			;;
+		*)
+			port="${value##*:}"
+			[ "$port" != "$value" ] || return 1
+			;;
+	esac
+
+	is_valid_port "$port" || return 1
+
+	printf '%s' "$port"
+}
+
+require_command() {
+	command -v "$1" >/dev/null 2>&1 || {
+		err "Required command missing: $1"
+		return 1
+	}
+}
+
+yaml_cleanup_scalar() {
+	local value="$1"
+
+	value="$(trim "$value")"
+
+	case "$value" in
+		\"*\")
+			value="${value#\"}"
+			value="${value%\"}"
+			printf '%s' "$value"
+			return 0
+			;;
+		\'*\')
+			value="${value#\'}"
+			value="${value%\'}"
+			printf '%s' "$value"
+			return 0
+			;;
+	esac
+
+	value="$(printf '%s\n' "$value" | sed 's/[[:space:]]#.*$//')"
+	value="$(trim "$value")"
+	printf '%s' "$value"
+}
+
+yaml_get_top_level_scalar() {
+	local file="$1"
+	local key="$2"
+	local value
+
+	value="$(awk -v key="$key" '
+		$0 ~ ("^" key ":[[:space:]]*") {
+			sub("^" key ":[[:space:]]*", "", $0)
+			print
+			exit
+		}
+	' "$file" 2>/dev/null)"
+
+	yaml_cleanup_scalar "$value"
+}
+
+yaml_get_dns_scalar() {
+	local file="$1"
+	local key="$2"
+	local value
+
+	value="$(awk -v key="$key" '
+		/^dns:[[:space:]]*($|#)/ {
+			in_dns = 1
+			next
+		}
+		in_dns {
+			if ($0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/) {
+				exit
+			}
+			if ($0 ~ ("^[[:space:]]+" key ":[[:space:]]*")) {
+				sub("^[[:space:]]+" key ":[[:space:]]*", "", $0)
+				print
+				exit
+			}
+		}
+	' "$file" 2>/dev/null)"
+
+	yaml_cleanup_scalar "$value"
+}
+
+append_error() {
+	local message="$1"
+
+	if [ -n "$ERRORS_RAW" ]; then
+		ERRORS_RAW="${ERRORS_RAW}
+$message"
+	else
+		ERRORS_RAW="$message"
+	fi
+}
+
+read_config_json() {
+	local dns_listen_raw dns_port mihomo_dns_listen tproxy_port routing_mark
+	local enhanced_mode catch_fakeip fake_ip_range
+	local external_controller external_controller_tls secret external_ui external_ui_name
+	local ERRORS_RAW=""
+
+	[ -r "$CLASH_CONFIG" ] || {
+		err "Mihomo config missing at $CLASH_CONFIG"
+		return 1
+	}
+
+	require_command jq || return 1
+
+	dns_listen_raw="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'listen')"
+	dns_port=""
+	mihomo_dns_listen=""
+	if [ -z "$dns_listen_raw" ]; then
+		append_error "Missing dns.listen in $CLASH_CONFIG"
+	else
+		dns_port="$(port_from_addr "$dns_listen_raw" 2>/dev/null || true)"
+		if [ -z "$dns_port" ]; then
+			append_error "Invalid dns.listen in $CLASH_CONFIG: $dns_listen_raw"
+		else
+			mihomo_dns_listen="127.0.0.1#$dns_port"
+		fi
+	fi
+
+	tproxy_port="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'tproxy-port')"
+	if [ -z "$tproxy_port" ]; then
+		append_error "Missing tproxy-port in $CLASH_CONFIG"
+	elif ! is_valid_port "$tproxy_port"; then
+		append_error "Invalid tproxy-port in $CLASH_CONFIG: $tproxy_port"
+	fi
+
+	routing_mark="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'routing-mark')"
+	if [ -z "$routing_mark" ]; then
+		append_error "Missing routing-mark in $CLASH_CONFIG"
+	elif ! is_uint "$routing_mark"; then
+		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
+	fi
+
+	enhanced_mode="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'enhanced-mode')"
+	catch_fakeip=0
+	fake_ip_range=""
+	if [ "$enhanced_mode" = "fake-ip" ]; then
+		catch_fakeip=1
+		fake_ip_range="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'fake-ip-range')"
+		if [ -z "$fake_ip_range" ]; then
+			append_error "Missing dns.fake-ip-range in $CLASH_CONFIG while dns.enhanced-mode=fake-ip"
+		elif ! is_ipv4_cidr "$fake_ip_range"; then
+			append_error "Invalid dns.fake-ip-range in $CLASH_CONFIG: $fake_ip_range"
+		fi
+	fi
+
+	external_controller="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-controller')"
+	external_controller_tls="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-controller-tls')"
+	secret="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'secret')"
+	external_ui="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-ui')"
+	external_ui_name="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-ui-name')"
+
+	jq -nc \
+		--arg config_path "$CLASH_CONFIG" \
+		--arg dns_listen_raw "$dns_listen_raw" \
+		--arg dns_port "$dns_port" \
+		--arg mihomo_dns_listen "$mihomo_dns_listen" \
+		--arg tproxy_port "$tproxy_port" \
+		--arg routing_mark "$routing_mark" \
+		--arg enhanced_mode "$enhanced_mode" \
+		--arg catch_fakeip "$catch_fakeip" \
+		--arg fake_ip_range "$fake_ip_range" \
+		--arg external_controller "$external_controller" \
+		--arg external_controller_tls "$external_controller_tls" \
+		--arg secret "$secret" \
+		--arg external_ui "$external_ui" \
+		--arg external_ui_name "$external_ui_name" \
+		--arg errors_raw "$ERRORS_RAW" \
+		'{
+			config_path: $config_path,
+			dns_listen_raw: $dns_listen_raw,
+			dns_port: $dns_port,
+			mihomo_dns_listen: $mihomo_dns_listen,
+			tproxy_port: $tproxy_port,
+			routing_mark: $routing_mark,
+			enhanced_mode: $enhanced_mode,
+			catch_fakeip: ($catch_fakeip == "1"),
+			fake_ip_range: $fake_ip_range,
+			external_controller: $external_controller,
+			external_controller_tls: $external_controller_tls,
+			secret: $secret,
+			external_ui: $external_ui,
+			external_ui_name: $external_ui_name,
+			errors: ($errors_raw | split("\n") | map(select(length > 0)))
+		}' || {
+		err "Failed to normalize config data from $CLASH_CONFIG"
+		return 1
+	}
+}
+
+normalize_version() {
+	printf '%s' "$1" | sed -n 's/.*v\{0,1\}\([0-9][0-9.]*\).*/\1/p'
+}
+
+version_ge() {
+	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
+detect_mihomo_arch() {
+	local release_info distrib_arch
+	release_info="$(cat /etc/openwrt_release 2>/dev/null)"
+	distrib_arch="$(printf '%s\n' "$release_info" | sed -n "s/^DISTRIB_ARCH='\([^']*\)'/\1/p")"
+
+	case "$distrib_arch" in
+		aarch64_*) echo "arm64" ;;
+		x86_64) echo "amd64" ;;
+		i386_*) echo "386" ;;
+		riscv64_*) echo "riscv64" ;;
+		loongarch64_*) echo "loong64" ;;
+		mips64el_*) echo "mips64le" ;;
+		mips64_*) echo "mips64" ;;
+		mipsel_*hardfloat*) echo "mipsle-hardfloat" ;;
+		mipsel_*) echo "mipsle-softfloat" ;;
+		mips_*hardfloat*) echo "mips-hardfloat" ;;
+		mips_*) echo "mips-softfloat" ;;
+		arm_*neon-vfp*) echo "armv7" ;;
+		arm_*neon*|arm_*vfp*) echo "armv6" ;;
+		arm_*) echo "armv5" ;;
+		*) return 1 ;;
+	esac
+}
+
+current_mihomo_version() {
+	[ -x "$CLASH_BIN" ] || return 1
+	"$CLASH_BIN" -v 2>/dev/null | head -n1 | sed -n 's/.* \([vV]\{0,1\}[0-9][0-9.]*\).*/\1/p'
+}
+
+hex_port() {
+	printf '%04X' "$1"
+}
+
+port_listening_tcp() {
+	local port_hex
+	port_hex="$(hex_port "$1")"
+	awk -v port=":$port_hex" '$2 ~ port && $4 == "0A" { found=1 } END { exit(found ? 0 : 1) }' \
+		/proc/net/tcp /proc/net/tcp6 2>/dev/null
+}
+
+port_listening_udp() {
+	local port_hex
+	port_hex="$(hex_port "$1")"
+	awk -v port=":$port_hex" '$2 ~ port { found=1 } END { exit(found ? 0 : 1) }' \
+		/proc/net/udp /proc/net/udp6 2>/dev/null
+}
+
+wait_for_mihomo_ready() {
+	local dns_port="$1"
+	local tproxy_port="$2"
+	local pid="$3"
+	local i=0
+
+	while [ "$i" -lt 30 ]; do
+		kill -0 "$pid" 2>/dev/null || return 1
+
+		if port_listening_udp "$dns_port" && { port_listening_tcp "$tproxy_port" || port_listening_udp "$tproxy_port"; }; then
+			return 0
+		fi
+
+		sleep 1
+		i=$((i + 1))
+	done
+
+	return 1
+}

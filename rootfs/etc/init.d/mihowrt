@@ -48,8 +48,6 @@ start_service() {
 
 stop_service() {
 	msg "Stopping MihoWRT service..."
-	"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
-	msg "MihoWRT service stopped"
 }
 
 reload_service() {

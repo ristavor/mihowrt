@@ -43,14 +43,14 @@ run_service() {
 		rm -f "$SERVICE_PID_FILE"
 	}
 
+	clear_service_traps() {
+		trap - INT TERM HUP
+	}
+
 	trap '
 		stop_requested=1
 		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
 	' INT TERM HUP
-	trap '
-		cleanup_service
-		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
-	' EXIT
 
 	"$CLASH_BIN" -d "$CLASH_DIR" &
 	pid=$!
@@ -61,7 +61,8 @@ run_service() {
 		err "Mihomo failed to become ready on DNS port $dns_port and TPROXY port $MIHOMO_TPROXY_PORT"
 		kill "$pid" 2>/dev/null || true
 		wait "$pid" 2>/dev/null || true
-		rm -f "$SERVICE_PID_FILE"
+		cleanup_service
+		clear_service_traps
 		return 1
 	fi
 
@@ -70,7 +71,8 @@ run_service() {
 			err "Failed to apply runtime policy after Mihomo became ready"
 			kill "$pid" 2>/dev/null || true
 			wait "$pid" 2>/dev/null || true
-			rm -f "$SERVICE_PID_FILE"
+			cleanup_service
+			clear_service_traps
 			return 1
 		fi
 	fi
@@ -82,8 +84,12 @@ run_service() {
 	rc=0
 	wait "$pid" 2>/dev/null || rc=$?
 	cleanup_service
+	clear_service_traps
 
-	[ "$stop_requested" -eq 1 ] && return 0
+	if [ "$stop_requested" -eq 1 ]; then
+		log "MihoWRT service stopped"
+		return 0
+	fi
 
 	case "$rc" in
 		0) return 0 ;;

@@ -9,6 +9,31 @@ Project adds:
 - crash recovery for `dnsmasq` state
 - automatic Mihomo core install if `/opt/clash/bin/clash` is missing
 
+## Quick Install
+
+Run on router:
+
+```sh
+wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+```
+
+or:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+```
+
+Behavior:
+- if `luci-app-mihowrt` is not installed, script downloads latest release and installs it
+- if package is already installed, script asks:
+  - `1. Reinstall/update`
+  - `2. Cancel`
+- for non-interactive reinstall/update:
+
+```sh
+MIHOWRT_FORCE_REINSTALL=1 wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+```
+
 ## How It Works
 
 1. Mihomo user config lives in `/opt/clash/config.yaml`.
@@ -38,7 +63,7 @@ rootfs/usr/lib/mihowrt/
 rootfs/www/luci-static/resources/view/mihowrt/
   LuCI pages
 
-rootfs/www/luci-static/resources/mihomo_podkop/
+rootfs/www/luci-static/resources/mihowrt/
   Shared LuCI helpers
 
 rootfs/opt/clash/config.yaml

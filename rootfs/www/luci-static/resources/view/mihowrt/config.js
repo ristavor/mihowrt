@@ -208,6 +208,10 @@ async function initializeAceEditor(node, content) {
 	editor.setValue(content, -1);
 }
 
+function formatConfigErrors(errors) {
+	return (errors || []).filter(Boolean).join('; ');
+}
+
 return view.extend({
 	load: function() {
 		return L.resolveDefault(fs.read('/opt/clash/config.yaml'), '');
@@ -238,6 +242,13 @@ return view.extend({
 				if (testResult.code !== 0) {
 					await fs.write('/opt/clash/config.yaml', oldValue);
 					ui.addNotification(null, E('p', _('Configuration test failed: %s').format(execErrorDetail(testResult))), 'error');
+					return;
+				}
+
+				const configState = await backendHelper.readConfig();
+				if (configState.errors.length) {
+					await fs.write('/opt/clash/config.yaml', oldValue);
+					ui.addNotification(null, E('p', _('Configuration requirements failed: %s').format(formatConfigErrors(configState.errors))), 'error');
 					return;
 				}
 
@@ -282,7 +293,7 @@ return view.extend({
 				}, running ? _('MihoWRT is running') : _('MihoWRT stopped'))
 			]),
 			E('h2', _('MihoWRT Configuration')),
-			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Policy layer derives runtime ports, routing mark, and fake-ip mode from this file.')),
+			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply.')),
 			editorNode,
 			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 				E('button', {

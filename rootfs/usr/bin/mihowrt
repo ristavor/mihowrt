@@ -47,10 +47,13 @@ run_service() {
 		trap - INT TERM HUP
 	}
 
-	trap '
+	request_service_stop() {
 		stop_requested=1
+		dns_mark_shutdown_state 1
 		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
-	' INT TERM HUP
+	}
+
+	trap 'request_service_stop' INT TERM HUP
 
 	"$CLASH_BIN" -d "$CLASH_DIR" &
 	pid=$!

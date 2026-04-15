@@ -348,13 +348,7 @@ prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
 
-	if [ -x "$ORCHESTRATOR" ]; then
-		log "Restoring system DNS/routing state before update..."
-		if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
-			warn "MihoWRT runtime cleanup failed, trying fallback cleanup"
-		fi
-	fi
-
+	log "Restoring system DNS/routing state before update..."
 	cleanup_runtime_fallback
 	restore_system_dns_defaults 1 || {
 		err "failed to restore system DNS defaults before update"

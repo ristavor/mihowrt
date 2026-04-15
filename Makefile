@@ -3,9 +3,10 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.1
+PKG_VERSION:=0.2.2
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
+PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 
 LUCI_TITLE:=LuCI Support for MihoWRT
 LUCI_DEPENDS:=+luci-base +jq +curl +ca-bundle +nftables +ip-tiny +kmod-nft-tproxy
@@ -84,7 +85,8 @@ endef
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml /tmp/mihowrt-config.yaml.bak
+	rm -f $(PKG_CONFIG_BACKUP_FILE)
+	[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE)
 }
 exit 0
 endef
@@ -92,8 +94,8 @@ endef
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	if [ -f /tmp/mihowrt-config.yaml.bak ]; then
-		mv /tmp/mihowrt-config.yaml.bak /opt/clash/config.yaml
+	if [ -f $(PKG_CONFIG_BACKUP_FILE) ]; then
+		mv $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
 	fi
 	sync_tmp_link() {
 		src="$$1"

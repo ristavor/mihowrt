@@ -98,10 +98,12 @@ download_file() {
 
 latest_asset_url() {
 	fetch_url "$RELEASES_API_URL" |
-		tr '\n' ' ' |
-		sed 's/,/\n/g' |
-		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${PKG_NAME}-[^\"]*\\.apk\\)\".*/\\1/p" |
-		head -n1
+		awk -F'"' -v pkg="$PKG_NAME" '
+			$2 == "browser_download_url" && $4 ~ "/" pkg "-[^/]*\\.apk$" {
+				print $4
+				exit
+			}
+		'
 }
 
 package_installed() {
@@ -162,7 +164,7 @@ service_running() {
 	local pid=""
 
 	if [ -f "$SERVICE_PID_FILE" ]; then
-		pid="$(cat "$SERVICE_PID_FILE" 2>/dev/null || true)"
+		IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
 		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
 	fi
 

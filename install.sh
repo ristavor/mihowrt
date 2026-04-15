@@ -98,12 +98,8 @@ download_file() {
 
 latest_asset_url() {
 	fetch_url "$RELEASES_API_URL" |
-		awk -F'"' -v pkg="$PKG_NAME" '
-			$2 == "browser_download_url" && $4 ~ "/" pkg "-[^/]*\\.apk$" {
-				print $4
-				exit
-			}
-		'
+		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${PKG_NAME}-[^/\"]*\\.apk\\)\".*/\\1/p" |
+		head -n1
 }
 
 package_installed() {

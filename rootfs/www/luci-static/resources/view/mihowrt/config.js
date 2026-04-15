@@ -234,12 +234,14 @@ async function validateSavedConfig() {
 	return null;
 }
 
-async function reloadRunningService() {
-	if (!(await getServiceStatus()))
-		return null;
-
+async function reloadRunningService(wasRunning) {
+	if (!wasRunning)
+		return { reloaded: false, error: null };
 	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
-	return reloadResult.code === 0 ? null : execErrorDetail(reloadResult);
+	return {
+		reloaded: reloadResult.code === 0,
+		error: reloadResult.code === 0 ? null : execErrorDetail(reloadResult)
+	};
 }
 
 return view.extend({
@@ -263,6 +265,7 @@ return view.extend({
 					return;
 				}
 
+				const wasRunning = await getServiceStatus();
 				const value = editor.getValue().trim() + '\n';
 				await fs.write(CLASH_CONFIG, value);
 
@@ -274,12 +277,12 @@ return view.extend({
 
 				notify(_('Configuration saved successfully.'), 'info');
 
-				const reloadError = await reloadRunningService();
-				if (reloadError) {
-					notify(_('Service reload failed: %s').format(reloadError), 'error');
+				const reloadState = await reloadRunningService(wasRunning);
+				if (reloadState.error) {
+					notify(_('Service reload failed: %s').format(reloadState.error), 'error');
 					return;
 				}
-				if (!reloadError && await getServiceStatus())
+				if (reloadState.reloaded)
 					notify(_('Service reloaded successfully.'), 'info');
 
 				window.location.reload();

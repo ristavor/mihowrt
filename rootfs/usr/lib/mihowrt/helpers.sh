@@ -232,6 +232,86 @@ yaml_get_dns_scalar() {
 	yaml_cleanup_scalar "$value"
 }
 
+yaml_get_selected_scalars() {
+	local file="$1"
+
+	awk '
+		function emit(key, line) {
+			if (!seen[key]) {
+				print key "\t" line
+				seen[key] = 1
+			}
+		}
+
+		/^dns:[[:space:]]*($|#)/ {
+			in_dns = 1
+			next
+		}
+
+		{
+			if (in_dns && $0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/) {
+				in_dns = 0
+			}
+
+			if (in_dns) {
+				line = $0
+				if (line ~ /^[[:space:]]+listen:[[:space:]]*/) {
+					sub("^[[:space:]]+listen:[[:space:]]*", "", line)
+					emit("dns.listen", line)
+					next
+				}
+				if (line ~ /^[[:space:]]+enhanced-mode:[[:space:]]*/) {
+					sub("^[[:space:]]+enhanced-mode:[[:space:]]*", "", line)
+					emit("dns.enhanced-mode", line)
+					next
+				}
+				if (line ~ /^[[:space:]]+fake-ip-range:[[:space:]]*/) {
+					sub("^[[:space:]]+fake-ip-range:[[:space:]]*", "", line)
+					emit("dns.fake-ip-range", line)
+					next
+				}
+			}
+
+			line = $0
+			if (line ~ /^tproxy-port:[[:space:]]*/) {
+				sub("^tproxy-port:[[:space:]]*", "", line)
+				emit("tproxy-port", line)
+				next
+			}
+			if (line ~ /^routing-mark:[[:space:]]*/) {
+				sub("^routing-mark:[[:space:]]*", "", line)
+				emit("routing-mark", line)
+				next
+			}
+			if (line ~ /^external-controller:[[:space:]]*/) {
+				sub("^external-controller:[[:space:]]*", "", line)
+				emit("external-controller", line)
+				next
+			}
+			if (line ~ /^external-controller-tls:[[:space:]]*/) {
+				sub("^external-controller-tls:[[:space:]]*", "", line)
+				emit("external-controller-tls", line)
+				next
+			}
+			if (line ~ /^secret:[[:space:]]*/) {
+				sub("^secret:[[:space:]]*", "", line)
+				emit("secret", line)
+				next
+			}
+			if (line ~ /^external-ui:[[:space:]]*/) {
+				sub("^external-ui:[[:space:]]*", "", line)
+				emit("external-ui", line)
+				next
+			}
+			if (line ~ /^external-ui-name:[[:space:]]*/) {
+				sub("^external-ui-name:[[:space:]]*", "", line)
+				emit("external-ui-name", line)
+				next
+			}
+		}
+	' "$file" 2>/dev/null
+}
+
 append_error() {
 	local message="$1"
 
@@ -248,6 +328,7 @@ read_config_json() {
 	local enhanced_mode catch_fakeip fake_ip_range
 	local external_controller external_controller_tls secret external_ui external_ui_name
 	local ERRORS_RAW=""
+	local key raw value
 
 	[ -r "$CLASH_CONFIG" ] || {
 		err "Mihomo config missing at $CLASH_CONFIG"
@@ -256,7 +337,25 @@ read_config_json() {
 
 	require_command jq || return 1
 
-	dns_listen_raw="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'listen')"
+	while IFS="$(printf '\t')" read -r key raw; do
+		value="$(yaml_cleanup_scalar "$raw")"
+
+		case "$key" in
+			dns.listen) dns_listen_raw="$value" ;;
+			dns.enhanced-mode) enhanced_mode="$value" ;;
+			dns.fake-ip-range) fake_ip_range="$value" ;;
+			tproxy-port) tproxy_port="$value" ;;
+			routing-mark) routing_mark="$value" ;;
+			external-controller) external_controller="$value" ;;
+			external-controller-tls) external_controller_tls="$value" ;;
+			secret) secret="$value" ;;
+			external-ui) external_ui="$value" ;;
+			external-ui-name) external_ui_name="$value" ;;
+		esac
+	done <<EOF
+$(yaml_get_selected_scalars "$CLASH_CONFIG")
+EOF
+
 	dns_port=""
 	mihomo_dns_listen=""
 	if [ -z "$dns_listen_raw" ]; then
@@ -270,38 +369,27 @@ read_config_json() {
 		fi
 	fi
 
-	tproxy_port="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'tproxy-port')"
 	if [ -z "$tproxy_port" ]; then
 		append_error "Missing tproxy-port in $CLASH_CONFIG"
 	elif ! is_valid_port "$tproxy_port"; then
 		append_error "Invalid tproxy-port in $CLASH_CONFIG: $tproxy_port"
 	fi
 
-	routing_mark="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'routing-mark')"
 	if [ -z "$routing_mark" ]; then
 		append_error "Missing routing-mark in $CLASH_CONFIG"
 	elif ! is_uint "$routing_mark"; then
 		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
 	fi
 
-	enhanced_mode="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'enhanced-mode')"
 	catch_fakeip=0
-	fake_ip_range=""
 	if [ "$enhanced_mode" = "fake-ip" ]; then
 		catch_fakeip=1
-		fake_ip_range="$(yaml_get_dns_scalar "$CLASH_CONFIG" 'fake-ip-range')"
 		if [ -z "$fake_ip_range" ]; then
 			append_error "Missing dns.fake-ip-range in $CLASH_CONFIG while dns.enhanced-mode=fake-ip"
 		elif ! is_ipv4_cidr "$fake_ip_range"; then
 			append_error "Invalid dns.fake-ip-range in $CLASH_CONFIG: $fake_ip_range"
 		fi
 	fi
-
-	external_controller="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-controller')"
-	external_controller_tls="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-controller-tls')"
-	secret="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'secret')"
-	external_ui="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-ui')"
-	external_ui_name="$(yaml_get_top_level_scalar "$CLASH_CONFIG" 'external-ui-name')"
 
 	jq -nc \
 		--arg config_path "$CLASH_CONFIG" \

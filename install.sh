@@ -6,7 +6,7 @@ REPO_OWNER="ristavor"
 REPO_NAME="mihowrt"
 PKG_NAME="luci-app-mihowrt"
 RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
-TMP_APK="$(mktemp /tmp/${PKG_NAME}.XXXXXX.apk)"
+TMP_APK=""
 
 log() {
 	printf '%s\n' "$*"
@@ -17,54 +17,71 @@ err() {
 }
 
 cleanup() {
-	rm -f "$TMP_APK"
+	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
 }
 
 trap cleanup EXIT
-trap 'cleanup; exit 1' INT TERM HUP
+trap 'exit 1' INT TERM HUP
+
+have_command() {
+	command -v "$1" >/dev/null 2>&1
+}
 
 require_command() {
-	command -v "$1" >/dev/null 2>&1 || {
+	have_command "$1" || {
 		err "required command missing: $1"
 		exit 1
 	}
 }
 
+create_tmp_apk() {
+	TMP_APK="$(mktemp "/tmp/${PKG_NAME}.XXXXXX")"
+}
+
 fetch_url() {
-	if command -v curl >/dev/null 2>&1 && curl -fsL "$1"; then
+	if have_command wget && wget -qO- "$1"; then
 		return 0
 	fi
 
-	if command -v wget >/dev/null 2>&1 && wget -qO- "$1"; then
+	if have_command curl && curl -fsL "$1"; then
 		return 0
 	fi
 
-	err "need curl or wget"
+	err "need wget or curl"
 	exit 1
 }
 
 download_file() {
-	if command -v curl >/dev/null 2>&1 && curl -fL --retry 3 --connect-timeout 10 -o "$2" "$1"; then
+	if have_command wget && wget -qO "$2" "$1"; then
 		return 0
 	fi
 
-	if command -v wget >/dev/null 2>&1 && wget -O "$2" "$1"; then
+	if have_command curl && curl -fsL --retry 3 --connect-timeout 10 -o "$2" "$1"; then
 		return 0
 	fi
 
-	err "need curl or wget"
+	err "need wget or curl"
 	exit 1
 }
 
 latest_asset_url() {
 	fetch_url "$RELEASES_API_URL" |
+		tr '\n' ' ' |
 		sed 's/,/\n/g' |
-		sed -n 's/.*"browser_download_url":[[:space:]]*"\([^"]*\/luci-app-mihowrt-[^"]*\.apk\)".*/\1/p' |
+		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${PKG_NAME}-[^\"]*\\.apk\\)\".*/\\1/p" |
 		head -n1
 }
 
 package_installed() {
-	apk info -e "$PKG_NAME" >/dev/null 2>&1
+	apk list -I "$PKG_NAME" 2>/dev/null | grep -q "^${PKG_NAME}-"
+}
+
+can_prompt() {
+	have_command tty && tty -s >/dev/null 2>&1
+}
+
+apk_supports_force_reinstall() {
+	apk add --help 2>&1 | grep -q -- '--force-reinstall'
 }
 
 prompt_reinstall() {
@@ -74,7 +91,7 @@ prompt_reinstall() {
 		return 0
 	fi
 
-	if ! command -v tty >/dev/null 2>&1 || ! tty -s >/dev/null 2>&1; then
+	if ! can_prompt; then
 		err "${PKG_NAME} already installed. Re-run with MIHOWRT_FORCE_REINSTALL=1 to reinstall/update."
 		return 2
 	fi
@@ -98,14 +115,22 @@ prompt_reinstall() {
 }
 
 install_package() {
-	if [ "${1:-0}" = "1" ]; then
-		log "Installing ${PKG_NAME} from $2"
-		apk add --allow-untrusted --force-reinstall "$2"
+	local reinstall="$1"
+	local apk_path="$2"
+
+	log "Installing ${PKG_NAME} from $apk_path"
+
+	if [ "$reinstall" = "1" ] && apk_supports_force_reinstall; then
+		apk add --allow-untrusted --force-reinstall "$apk_path"
 		return 0
 	fi
 
-	log "Installing ${PKG_NAME} from $2"
-	apk add --allow-untrusted "$2"
+	if [ "$reinstall" = "1" ]; then
+		log "apk add lacks --force-reinstall. Removing installed package first."
+		apk del "$PKG_NAME"
+	fi
+
+	apk add --allow-untrusted "$apk_path"
 }
 
 main() {
@@ -114,6 +139,7 @@ main() {
 	local prompt_rc=0
 
 	require_command apk
+	require_command mktemp
 
 	if package_installed; then
 		if prompt_reinstall; then
@@ -138,6 +164,7 @@ main() {
 		exit 1
 	}
 
+	create_tmp_apk
 	log "Downloading latest release asset..."
 	download_file "$asset_url" "$TMP_APK"
 	install_package "$reinstall" "$TMP_APK"

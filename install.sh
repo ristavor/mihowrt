@@ -13,6 +13,13 @@ WAS_RUNNING=0
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
+DNS_BACKUP_FILE="/etc/mihowrt/dns.backup"
+DNS_BACKUP_NAME="dns.backup"
+DNSMASQ_INIT_SCRIPT="/etc/init.d/dnsmasq"
+DNS_AUTO_RESOLVFILE="/tmp/resolv.conf.d/resolv.conf.auto"
+ROUTE_STATE_FILE="/var/run/mihowrt/route.state"
+NFT_TABLE_NAME="mihomo_podkop"
+NFT_INTERCEPT_MARK="0x00001000"
 
 log() {
 	printf '%s\n' "$*"
@@ -20,6 +27,10 @@ log() {
 
 err() {
 	printf 'Error: %s\n' "$*" >&2
+}
+
+warn() {
+	printf 'Warning: %s\n' "$*" >&2
 }
 
 cleanup() {
@@ -121,6 +132,7 @@ backup_user_state() {
 	backup_file /etc/config/mihowrt mihowrt.uci
 	backup_file /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt
 	backup_file /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt
+	backup_file "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME"
 }
 
 restore_user_state() {
@@ -151,6 +163,151 @@ service_running() {
 	return 1
 }
 
+mark_shutdown_clean() {
+	have_command uci || return 0
+	uci set mihowrt.settings.shutdown_correctly='1' >/dev/null 2>&1 || true
+	uci commit mihowrt >/dev/null 2>&1 || true
+}
+
+restart_dnsmasq() {
+	[ -x "$DNSMASQ_INIT_SCRIPT" ] || return 0
+	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
+}
+
+route_state_read() {
+	local line key value
+
+	ROUTE_TABLE_ID_EFFECTIVE=""
+	ROUTE_RULE_PRIORITY_EFFECTIVE=""
+	[ -f "$ROUTE_STATE_FILE" ] || return 1
+
+	while IFS='=' read -r key value; do
+		case "$key" in
+			ROUTE_TABLE_ID)
+				ROUTE_TABLE_ID_EFFECTIVE="$value"
+				;;
+			ROUTE_RULE_PRIORITY)
+				ROUTE_RULE_PRIORITY_EFFECTIVE="$value"
+				;;
+		esac
+	done < "$ROUTE_STATE_FILE"
+
+	[ -n "$ROUTE_TABLE_ID_EFFECTIVE" ] && [ -n "$ROUTE_RULE_PRIORITY_EFFECTIVE" ]
+}
+
+cleanup_runtime_fallback() {
+	if have_command nft; then
+		nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || true
+	fi
+
+	if have_command ip && route_state_read; then
+		while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$ROUTE_TABLE_ID_EFFECTIVE" priority "$ROUTE_RULE_PRIORITY_EFFECTIVE" 2>/dev/null; do :; done
+		ip route flush table "$ROUTE_TABLE_ID_EFFECTIVE" 2>/dev/null || true
+	fi
+
+	rm -f "$ROUTE_STATE_FILE"
+}
+
+restore_dns_from_backup_file() {
+	local backup_path="$1"
+	local line orig_cachesize="" orig_noresolv="" orig_resolvfile="" server has_servers=0
+
+	[ -f "$backup_path" ] || return 1
+	have_command uci || return 1
+	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
+
+	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
+	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
+
+	while IFS= read -r line; do
+		case "$line" in
+			ORIG_CACHESIZE=*)
+				orig_cachesize="${line#ORIG_CACHESIZE=}"
+				;;
+			ORIG_NORESOLV=*)
+				orig_noresolv="${line#ORIG_NORESOLV=}"
+				;;
+			ORIG_RESOLVFILE=*)
+				orig_resolvfile="${line#ORIG_RESOLVFILE=}"
+				;;
+			ORIG_SERVER=*)
+				server="${line#ORIG_SERVER=}"
+				if [ -n "$server" ]; then
+					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || return 1
+					has_servers=1
+				fi
+				;;
+		esac
+	done < "$backup_path"
+
+	if [ -n "$orig_cachesize" ]; then
+		uci set dhcp.@dnsmasq[0].cachesize="$orig_cachesize" >/dev/null 2>&1 || return 1
+	else
+		uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
+	fi
+
+	if [ -n "$orig_noresolv" ]; then
+		uci set dhcp.@dnsmasq[0].noresolv="$orig_noresolv" >/dev/null 2>&1 || return 1
+	else
+		uci -q delete dhcp.@dnsmasq[0].noresolv >/dev/null 2>&1 || true
+	fi
+
+	if [ -n "$orig_resolvfile" ]; then
+		uci set dhcp.@dnsmasq[0].resolvfile="$orig_resolvfile" >/dev/null 2>&1 || return 1
+	elif [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
+		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || return 1
+		[ "$orig_noresolv" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || return 1
+	fi
+
+	uci commit dhcp >/dev/null 2>&1 || return 1
+	restart_dnsmasq
+	mark_shutdown_clean
+	return 0
+}
+
+restore_dns_defaults_fallback() {
+	have_command uci || return 1
+
+	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
+	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
+	uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
+	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || return 1
+
+	if [ -f "$DNS_AUTO_RESOLVFILE" ]; then
+		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || return 1
+	fi
+
+	uci commit dhcp >/dev/null 2>&1 || return 1
+	restart_dnsmasq
+	mark_shutdown_clean
+	return 0
+}
+
+restore_system_dns_defaults() {
+	local current_noresolv=""
+
+	have_command uci || return 0
+
+	if restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
+		log "System DNS settings restored from MihoWRT backup."
+		return 0
+	fi
+
+	if [ -n "$BACKUP_DIR" ] && restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
+		log "System DNS settings restored from saved MihoWRT backup."
+		return 0
+	fi
+
+	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
+	if [ "$current_noresolv" = "1" ]; then
+		restore_dns_defaults_fallback || return 1
+		log "System DNS settings restored using fallback defaults."
+	fi
+
+	mark_shutdown_clean
+	return 0
+}
+
 prepare_update() {
 	backup_user_state
 
@@ -164,19 +321,52 @@ prepare_update() {
 
 	if [ -x "$ORCHESTRATOR" ]; then
 		log "Restoring system DNS/routing state before update..."
-		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+		if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
+			warn "MihoWRT runtime cleanup failed, trying fallback cleanup"
+		fi
 	fi
+
+	cleanup_runtime_fallback
+	restore_system_dns_defaults || {
+		err "failed to restore system DNS defaults before update"
+		return 1
+	}
 }
 
 restore_runtime_state() {
+	local restarted=0
+
 	if [ "$WAS_ENABLED" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
 		"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
 	fi
 
 	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
 		log "Restarting MihoWRT service..."
-		"$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+		if "$INIT_SCRIPT" restart >/dev/null 2>&1; then
+			restarted=1
+		else
+			warn "failed to restart MihoWRT service after update"
+		fi
 	fi
+
+	if [ "$restarted" = "0" ]; then
+		cleanup_runtime_fallback
+		restore_system_dns_defaults || warn "failed to restore system DNS defaults after update"
+	fi
+}
+
+deactivate_fresh_install() {
+	if [ -x "$INIT_SCRIPT" ]; then
+		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
+		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	fi
+
+	if [ -x "$ORCHESTRATOR" ]; then
+		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	fi
+
+	cleanup_runtime_fallback
+	restore_system_dns_defaults || warn "failed to restore system DNS defaults after fresh install"
 }
 
 prompt_reinstall() {
@@ -281,6 +471,9 @@ main() {
 		log "Restoring saved config and policy state..."
 		restore_user_state
 		restore_runtime_state
+	else
+		log "Fresh install complete. Leaving MihoWRT service disabled."
+		deactivate_fresh_install
 	fi
 }
 

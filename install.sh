@@ -20,6 +20,7 @@ DNS_AUTO_RESOLVFILE="/tmp/resolv.conf.d/resolv.conf.auto"
 ROUTE_STATE_FILE="/var/run/mihowrt/route.state"
 NFT_TABLE_NAME="mihomo_podkop"
 NFT_INTERCEPT_MARK="0x00001000"
+SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
 
 log() {
 	printf '%s\n' "$*"
@@ -36,6 +37,7 @@ warn() {
 cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
 	[ -n "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
+	rm -f "$SKIP_START_FILE"
 }
 
 trap cleanup EXIT
@@ -58,6 +60,14 @@ create_tmp_apk() {
 
 create_backup_dir() {
 	BACKUP_DIR="$(mktemp -d "/tmp/${PKG_NAME}.backup.XXXXXX")"
+}
+
+set_skip_start() {
+	: > "$SKIP_START_FILE"
+}
+
+clear_skip_start() {
+	rm -f "$SKIP_START_FILE"
 }
 
 fetch_url() {
@@ -485,12 +495,14 @@ main() {
 	if [ "$reinstall" = "1" ]; then
 		log "Saving current config and policy state..."
 		prepare_update
+		set_skip_start
 	fi
 
 	create_tmp_apk
 	log "Downloading latest release asset..."
 	download_file "$asset_url" "$TMP_APK"
 	if ! install_package "$reinstall" "$TMP_APK"; then
+		clear_skip_start
 		if [ "$reinstall" = "1" ]; then
 			err "package install failed; restoring saved config and policy state"
 			restore_user_state || err "failed to restore saved config and policy state"
@@ -498,6 +510,7 @@ main() {
 		fi
 		exit 1
 	fi
+	clear_skip_start
 
 	if [ "$reinstall" = "1" ]; then
 		quiesce_postinstall_service

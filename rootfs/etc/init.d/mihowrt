@@ -9,12 +9,18 @@ CLASH_DIR="/opt/clash"
 CLASH_BIN="${CLASH_DIR}/bin/clash"
 CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
+SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 
 msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
 }
 
 start_service() {
+	[ -f "$SKIP_START_FILE" ] && {
+		msg "Skipping MihoWRT service start during package update"
+		return 0
+	}
+
 	msg "Starting MihoWRT service..."
 	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
 

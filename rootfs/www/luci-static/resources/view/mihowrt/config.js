@@ -234,21 +234,18 @@ return view.extend({
 					return;
 				}
 
-				const oldValue = await fs.read('/opt/clash/config.yaml');
 				const value = editor.getValue().trim() + '\n';
 				await fs.write('/opt/clash/config.yaml', value);
 
 				const testResult = await fs.exec('/opt/clash/bin/clash', ['-d', '/opt/clash', '-t']);
 				if (testResult.code !== 0) {
-					await fs.write('/opt/clash/config.yaml', oldValue);
 					ui.addNotification(null, E('p', _('Configuration test failed: %s').format(execErrorDetail(testResult))), 'error');
 					return;
 				}
 
 				const configState = await backendHelper.readConfig();
 				if (configState.errors.length) {
-					await fs.write('/opt/clash/config.yaml', oldValue);
-					ui.addNotification(null, E('p', _('Configuration requirements failed: %s').format(formatConfigErrors(configState.errors))), 'error');
+					ui.addNotification(null, E('p', _('Policy config parse failed. Service start is blocked: %s').format(formatConfigErrors(configState.errors))), 'error');
 					return;
 				}
 

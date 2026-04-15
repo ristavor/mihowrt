@@ -47,8 +47,10 @@ load_runtime_config_from_yaml() {
 
 	config_errors="$(printf '%s\n' "$config_json" | jq -r '.errors[]?')" || return 1
 	if [ -n "$config_errors" ]; then
+		printf '%s\n' "Policy config parse failed:" >&2
 		printf '%s\n' "$config_errors" | while IFS= read -r message; do
 			err "$message"
+			printf '%s\n' "$message" >&2
 		done
 		return 1
 	fi

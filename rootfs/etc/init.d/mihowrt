@@ -28,8 +28,13 @@ start_service() {
 		return 1
 	}
 
-	if ! "$CLASH_BIN" -d "$CLASH_DIR" -t >/dev/null 2>&1; then
+	if ! "$CLASH_BIN" -d "$CLASH_DIR" -t; then
 		msg "ERROR: Mihomo configuration test failed"
+		return 1
+	fi
+
+	if ! "$ORCHESTRATOR" validate; then
+		msg "ERROR: Policy validation failed"
 		return 1
 	fi
 

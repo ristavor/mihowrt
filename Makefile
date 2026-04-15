@@ -83,16 +83,18 @@ endef
 
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
-[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml /tmp/mihowrt-config.yaml.bak
+[ -n "$$IPKG_INSTROOT" ] || {
+	[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml /tmp/mihowrt-config.yaml.bak
+}
 exit 0
 endef
 
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
-if [ -f /tmp/mihowrt-config.yaml.bak ]; then
-	mv /tmp/mihowrt-config.yaml.bak /opt/clash/config.yaml
-fi
 [ -n "$$IPKG_INSTROOT" ] || {
+	if [ -f /tmp/mihowrt-config.yaml.bak ]; then
+		mv /tmp/mihowrt-config.yaml.bak /opt/clash/config.yaml
+	fi
 	sync_tmp_link() {
 		src="$$1"
 		dst="$$2"

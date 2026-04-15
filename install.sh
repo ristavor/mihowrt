@@ -7,6 +7,7 @@ REPO_NAME="mihowrt"
 PKG_NAME="luci-app-mihowrt"
 RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
 TMP_APK=""
+BACKUP_DIR=""
 
 log() {
 	printf '%s\n' "$*"
@@ -18,6 +19,7 @@ err() {
 
 cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
+	[ -n "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
 }
 
 trap cleanup EXIT
@@ -36,6 +38,10 @@ require_command() {
 
 create_tmp_apk() {
 	TMP_APK="$(mktemp "/tmp/${PKG_NAME}.XXXXXX")"
+}
+
+create_backup_dir() {
+	BACKUP_DIR="$(mktemp -d "/tmp/${PKG_NAME}.backup.XXXXXX")"
 }
 
 fetch_url() {
@@ -82,6 +88,39 @@ can_prompt() {
 
 apk_supports_force_reinstall() {
 	apk add --help 2>&1 | grep -q -- '--force-reinstall'
+}
+
+backup_file() {
+	local src="$1"
+	local name="$2"
+
+	[ -f "$src" ] || return 0
+	cp -p "$src" "$BACKUP_DIR/$name"
+}
+
+restore_file() {
+	local name="$1"
+	local dst="$2"
+
+	[ -f "$BACKUP_DIR/$name" ] || return 0
+	mkdir -p "$(dirname "$dst")"
+	cp -p "$BACKUP_DIR/$name" "$dst"
+}
+
+backup_user_state() {
+	create_backup_dir
+	backup_file /opt/clash/config.yaml config.yaml
+	backup_file /etc/config/mihowrt mihowrt.uci
+	backup_file /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt
+	backup_file /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt
+}
+
+restore_user_state() {
+	[ -n "$BACKUP_DIR" ] || return 0
+	restore_file config.yaml /opt/clash/config.yaml
+	restore_file mihowrt.uci /etc/config/mihowrt
+	restore_file always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
+	restore_file always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
 }
 
 prompt_reinstall() {
@@ -164,10 +203,26 @@ main() {
 		exit 1
 	}
 
+	if [ "$reinstall" = "1" ]; then
+		log "Saving current config and policy state..."
+		backup_user_state
+	fi
+
 	create_tmp_apk
 	log "Downloading latest release asset..."
 	download_file "$asset_url" "$TMP_APK"
-	install_package "$reinstall" "$TMP_APK"
+	if ! install_package "$reinstall" "$TMP_APK"; then
+		if [ "$reinstall" = "1" ]; then
+			err "package install failed; restoring saved config and policy state"
+			restore_user_state || err "failed to restore saved config and policy state"
+		fi
+		exit 1
+	fi
+
+	if [ "$reinstall" = "1" ]; then
+		log "Restoring saved config and policy state..."
+		restore_user_state
+	fi
 }
 
 main "$@"

@@ -163,6 +163,18 @@ service_running() {
 	return 1
 }
 
+wait_for_service_stop() {
+	local attempt=0
+
+	while [ "$attempt" -lt 10 ]; do
+		service_running || return 0
+		sleep 1
+		attempt=$((attempt + 1))
+	done
+
+	return 1
+}
+
 mark_shutdown_clean() {
 	have_command uci || return 0
 	uci set mihowrt.settings.shutdown_correctly='1' >/dev/null 2>&1 || true
@@ -342,23 +354,48 @@ prepare_update() {
 	}
 }
 
-restore_runtime_state() {
-	local restarted=0
-
-	if [ "$WAS_ENABLED" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
-		"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
+quiesce_postinstall_service() {
+	if ! service_running; then
+		return 0
 	fi
 
-	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
-		log "Restarting MihoWRT service..."
-		if "$INIT_SCRIPT" restart >/dev/null 2>&1; then
-			restarted=1
+	if [ -x "$INIT_SCRIPT" ]; then
+		log "Stopping auto-started MihoWRT service..."
+		if "$INIT_SCRIPT" stop >/dev/null 2>&1 && wait_for_service_stop; then
+			return 0
+		fi
+		warn "failed to stop auto-started MihoWRT service cleanly"
+	fi
+
+	if [ -x "$ORCHESTRATOR" ]; then
+		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	fi
+
+	cleanup_runtime_fallback
+	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after stopping auto-started service"
+}
+
+restore_runtime_state() {
+	if [ -x "$INIT_SCRIPT" ]; then
+		if [ "$WAS_ENABLED" = "1" ]; then
+			"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
 		else
-			warn "failed to restart MihoWRT service after update"
+			"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
 		fi
 	fi
 
-	if [ "$restarted" = "0" ]; then
+	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
+		log "Starting MihoWRT service..."
+		if "$INIT_SCRIPT" start >/dev/null 2>&1; then
+			return 0
+		fi
+		warn "failed to start MihoWRT service after update"
+		cleanup_runtime_fallback
+		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed service start"
+		return 1
+	fi
+
+	if [ "$WAS_RUNNING" != "1" ]; then
 		cleanup_runtime_fallback
 		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after update"
 	fi
@@ -463,6 +500,7 @@ main() {
 	fi
 
 	if [ "$reinstall" = "1" ]; then
+		quiesce_postinstall_service
 		log "Restoring saved config and policy state..."
 		restore_user_state
 		restore_runtime_state

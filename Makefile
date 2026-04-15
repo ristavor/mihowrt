@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.0
+PKG_VERSION:=0.2.1
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 
@@ -131,7 +131,8 @@ define Package/$(PKG_NAME)/postinst
 	fi
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
-	rm -f /tmp/luci-*
+	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
+	rm -rf /tmp/luci-modulecache 2>/dev/null || true
 }
 exit 0
 endef

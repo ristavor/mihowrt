@@ -80,10 +80,6 @@ run_service() {
 		fi
 	fi
 
-	while kill -0 "$pid" 2>/dev/null; do
-		sleep 1
-	done
-
 	rc=0
 	wait "$pid" 2>/dev/null || rc=$?
 	cleanup_service

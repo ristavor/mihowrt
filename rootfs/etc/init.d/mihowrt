@@ -10,9 +10,22 @@ CLASH_BIN="${CLASH_DIR}/bin/clash"
 CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
+SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
 
 msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
+}
+
+wait_for_stop_complete() {
+	local tries=0
+
+	while [ "$tries" -lt 15 ]; do
+		[ ! -f "$SERVICE_PID_FILE" ] && return 0
+		sleep 1
+		tries=$((tries + 1))
+	done
+
+	return 1
 }
 
 start_service() {
@@ -64,6 +77,7 @@ stop_service() {
 reload_service() {
 	msg "Reloading MihoWRT service..."
 	stop
+	wait_for_stop_complete || msg "WARNING: previous MihoWRT stop still draining during reload"
 	start
 }
 

@@ -83,7 +83,10 @@ package_installed() {
 }
 
 can_prompt() {
-	have_command tty && tty -s >/dev/null 2>&1
+	[ -c /dev/tty ] || return 1
+	: >/dev/tty 2>/dev/null || return 1
+	: </dev/tty 2>/dev/null || return 1
+	return 0
 }
 
 apk_supports_force_reinstall() {
@@ -140,12 +143,13 @@ prompt_reinstall() {
 	printf '%s\n' "2. Cancel" >/dev/tty
 
 	while :; do
-		printf 'Choose [1-2]: ' >/dev/tty
+		printf 'Choose [1-2] (default 1): ' >/dev/tty
 		IFS= read -r choice </dev/tty || {
 			err "failed to read answer from tty"
 			return 2
 		}
 		case "$choice" in
+			'') return 0 ;;
 			1) return 0 ;;
 			2) return 1 ;;
 			*) printf '%s\n' "Enter 1 or 2." >/dev/tty ;;

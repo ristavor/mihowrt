@@ -502,9 +502,11 @@ main() {
 	if ! install_package "$reinstall" "$TMP_APK"; then
 		clear_skip_start
 		if [ "$reinstall" = "1" ]; then
-			err "package install failed; restoring saved config and policy state"
-			restore_user_state || err "failed to restore saved config and policy state"
-			restore_runtime_state
+			err "package install failed; restoring saved config and policy files"
+			restore_user_state || err "failed to restore saved config and policy files"
+			cleanup_runtime_fallback
+			restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after package install failure"
+			warn "MihoWRT service was not restored because package install failed"
 		fi
 		exit 1
 	fi

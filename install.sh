@@ -328,11 +328,6 @@ prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
 
-	if [ -x "$INIT_SCRIPT" ]; then
-		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
-		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-	fi
-
 	if [ -x "$ORCHESTRATOR" ]; then
 		log "Restoring system DNS/routing state before update..."
 		if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
@@ -367,20 +362,6 @@ restore_runtime_state() {
 		cleanup_runtime_fallback
 		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after update"
 	fi
-}
-
-deactivate_fresh_install() {
-	if [ -x "$INIT_SCRIPT" ]; then
-		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
-		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-	fi
-
-	if [ -x "$ORCHESTRATOR" ]; then
-		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
-	fi
-
-	cleanup_runtime_fallback
-	restore_system_dns_defaults || warn "failed to restore system DNS defaults after fresh install"
 }
 
 prompt_reinstall() {
@@ -485,9 +466,6 @@ main() {
 		log "Restoring saved config and policy state..."
 		restore_user_state
 		restore_runtime_state
-	else
-		log "Fresh install complete. Leaving MihoWRT service disabled."
-		deactivate_fresh_install
 	fi
 }
 

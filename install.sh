@@ -8,6 +8,11 @@ PKG_NAME="luci-app-mihowrt"
 RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
 TMP_APK=""
 BACKUP_DIR=""
+WAS_ENABLED=0
+WAS_RUNNING=0
+INIT_SCRIPT="/etc/init.d/mihowrt"
+ORCHESTRATOR="/usr/bin/mihowrt"
+SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
 
 log() {
 	printf '%s\n' "$*"
@@ -126,6 +131,54 @@ restore_user_state() {
 	restore_file always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
 }
 
+service_enabled() {
+	[ -x "$INIT_SCRIPT" ] || return 1
+	"$INIT_SCRIPT" enabled >/dev/null 2>&1
+}
+
+service_running() {
+	local pid=""
+
+	if [ -f "$SERVICE_PID_FILE" ]; then
+		pid="$(cat "$SERVICE_PID_FILE" 2>/dev/null || true)"
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
+	fi
+
+	if have_command pgrep; then
+		pgrep -f "$ORCHESTRATOR run-service" >/dev/null 2>&1 && return 0
+	fi
+
+	return 1
+}
+
+prepare_update() {
+	backup_user_state
+
+	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
+	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
+
+	if [ -x "$INIT_SCRIPT" ]; then
+		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
+		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	fi
+
+	if [ -x "$ORCHESTRATOR" ]; then
+		log "Restoring system DNS/routing state before update..."
+		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	fi
+}
+
+restore_runtime_state() {
+	if [ "$WAS_ENABLED" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
+		"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
+	fi
+
+	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
+		log "Restarting MihoWRT service..."
+		"$INIT_SCRIPT" restart >/dev/null 2>&1 || true
+	fi
+}
+
 prompt_reinstall() {
 	local choice
 
@@ -209,7 +262,7 @@ main() {
 
 	if [ "$reinstall" = "1" ]; then
 		log "Saving current config and policy state..."
-		backup_user_state
+		prepare_update
 	fi
 
 	create_tmp_apk
@@ -219,6 +272,7 @@ main() {
 		if [ "$reinstall" = "1" ]; then
 			err "package install failed; restoring saved config and policy state"
 			restore_user_state || err "failed to restore saved config and policy state"
+			restore_runtime_state
 		fi
 		exit 1
 	fi
@@ -226,6 +280,7 @@ main() {
 	if [ "$reinstall" = "1" ]; then
 		log "Restoring saved config and policy state..."
 		restore_user_state
+		restore_runtime_state
 	fi
 }
 

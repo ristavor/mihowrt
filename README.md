@@ -3,7 +3,7 @@
 LuCI package and policy layer for running Mihomo on OpenWrt APK systems.
 
 Project adds:
-- LuCI pages for service control, logs, policy settings, and `config.yaml` editing
+- LuCI pages for service control, policy settings, and `config.yaml` editing
 - direct-first traffic policy based on `nftables`, `ip rule`, and `dnsmasq`
 - runtime data placement in tmpfs to reduce flash writes
 - crash recovery for `dnsmasq` state

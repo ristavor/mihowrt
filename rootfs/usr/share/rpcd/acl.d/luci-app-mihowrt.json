@@ -8,7 +8,6 @@
 				"/usr/bin/mihowrt": [ "read", "exec" ],
 				"/opt/clash/lst/always_proxy_dst.txt": [ "read" ],
 				"/opt/clash/lst/always_proxy_src.txt": [ "read" ],
-				"/sbin/logread": [ "exec" ],
 				"/etc/init.d/mihowrt": [ "exec" ]
 			},
 			"ubus": {

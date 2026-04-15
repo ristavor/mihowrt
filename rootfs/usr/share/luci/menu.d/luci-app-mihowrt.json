@@ -25,13 +25,5 @@
 			"type": "view",
 			"path": "mihowrt/policy"
 		}
-	},
-	"admin/services/mihowrt/log": {
-		"title": "Log",
-		"order": 30,
-		"action": {
-			"type": "view",
-			"path": "mihowrt/log"
-		}
 	}
 }

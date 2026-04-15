@@ -21,6 +21,8 @@ ROUTE_STATE_FILE="/var/run/mihowrt/route.state"
 NFT_TABLE_NAME="mihomo_podkop"
 NFT_INTERCEPT_MARK="0x00001000"
 SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
+REQUIRED_APK_PACKAGES="${PKG_NAME} luci-base curl ca-bundle nftables ip-tiny jq kmod-nft-tproxy kmod-nf-tproxy"
+MISSING_PACKAGES=""
 
 log() {
 	printf '%s\n' "$*"
@@ -103,7 +105,11 @@ latest_asset_url() {
 }
 
 package_installed() {
-	apk list -I "$PKG_NAME" 2>/dev/null | grep -q "^${PKG_NAME}-"
+	package_present "$PKG_NAME"
+}
+
+package_present() {
+	apk list -I "$1" 2>/dev/null | grep -q "^$1-"
 }
 
 can_prompt() {
@@ -115,6 +121,17 @@ can_prompt() {
 
 apk_supports_force_reinstall() {
 	apk add --help 2>&1 | grep -q -- '--force-reinstall'
+}
+
+verify_required_packages() {
+	local pkg
+
+	MISSING_PACKAGES=""
+	for pkg in $REQUIRED_APK_PACKAGES; do
+		package_present "$pkg" || MISSING_PACKAGES="${MISSING_PACKAGES}${MISSING_PACKAGES:+ }$pkg"
+	done
+
+	[ -z "$MISSING_PACKAGES" ]
 }
 
 backup_file() {
@@ -404,6 +421,29 @@ restore_runtime_state() {
 	fi
 }
 
+handle_install_failure() {
+	local reinstall="$1"
+	local message="$2"
+
+	err "$message"
+	clear_skip_start
+
+	if [ -x "$INIT_SCRIPT" ]; then
+		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	fi
+
+	quiesce_postinstall_service
+	cleanup_runtime_fallback
+	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after incomplete package install"
+
+	if [ "$reinstall" = "1" ]; then
+		restore_user_state || err "failed to restore saved config and policy files"
+	fi
+
+	warn "MihoWRT service was disabled because package install is incomplete"
+	return 1
+}
+
 prompt_reinstall() {
 	local choice
 
@@ -495,17 +535,15 @@ main() {
 	log "Downloading latest release asset..."
 	download_file "$asset_url" "$TMP_APK"
 	if ! install_package "$reinstall" "$TMP_APK"; then
-		clear_skip_start
-		if [ "$reinstall" = "1" ]; then
-			err "package install failed; restoring saved config and policy files"
-			restore_user_state || err "failed to restore saved config and policy files"
-			cleanup_runtime_fallback
-			restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after package install failure"
-			warn "MihoWRT service was not restored because package install failed"
-		fi
+		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
 		exit 1
 	fi
 	clear_skip_start
+
+	if ! verify_required_packages; then
+		handle_install_failure "$reinstall" "package install incomplete; missing packages: $MISSING_PACKAGES"
+		exit 1
+	fi
 
 	if [ "$reinstall" = "1" ]; then
 		quiesce_postinstall_service

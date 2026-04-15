@@ -169,6 +169,14 @@ mark_shutdown_clean() {
 	uci commit mihowrt >/dev/null 2>&1 || true
 }
 
+shutdown_state_dirty() {
+	local shutdown_state=""
+
+	have_command uci || return 1
+	shutdown_state="$(uci -q get mihowrt.settings.shutdown_correctly 2>/dev/null || true)"
+	[ "$shutdown_state" = "0" ]
+}
+
 restart_dnsmasq() {
 	[ -x "$DNSMASQ_INIT_SCRIPT" ] || return 0
 	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
@@ -285,6 +293,7 @@ restore_dns_defaults_fallback() {
 
 restore_system_dns_defaults() {
 	local current_noresolv=""
+	local allow_fallback="${1:-0}"
 
 	have_command uci || return 0
 
@@ -295,6 +304,11 @@ restore_system_dns_defaults() {
 
 	if [ -n "$BACKUP_DIR" ] && restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
 		log "System DNS settings restored from saved MihoWRT backup."
+		return 0
+	fi
+
+	if [ "$allow_fallback" != "1" ] && ! shutdown_state_dirty; then
+		mark_shutdown_clean
 		return 0
 	fi
 
@@ -327,7 +341,7 @@ prepare_update() {
 	fi
 
 	cleanup_runtime_fallback
-	restore_system_dns_defaults || {
+	restore_system_dns_defaults 1 || {
 		err "failed to restore system DNS defaults before update"
 		return 1
 	}
@@ -351,7 +365,7 @@ restore_runtime_state() {
 
 	if [ "$restarted" = "0" ]; then
 		cleanup_runtime_fallback
-		restore_system_dns_defaults || warn "failed to restore system DNS defaults after update"
+		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after update"
 	fi
 }
 

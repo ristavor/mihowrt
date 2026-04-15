@@ -149,6 +149,7 @@ restore_user_state() {
 	restore_file mihowrt.uci /etc/config/mihowrt
 	restore_file always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
 	restore_file always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
+	mark_shutdown_clean
 }
 
 service_enabled() {

@@ -9,10 +9,47 @@ const SRC_LIST_FILE = '/opt/clash/lst/always_proxy_src.txt';
 let dstValueCache = null;
 let srcValueCache = null;
 
+function validateNumericRange(value, label, min, max) {
+	if (!value)
+		return true;
+	if (!/^[0-9]+$/.test(value))
+		return _('%s must be numeric').format(label);
+
+	const parsed = parseInt(value, 10);
+	return parsed >= min && parsed <= max
+		? true
+		: _('%s must be between %s and %s').format(label, min, max);
+}
+
 function normalizeBlock(value) {
 	value = (value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 	value = value.trim();
 	return value ? value + '\n' : '';
+}
+
+function bindTextFileOption(option, cacheName, filePath, description) {
+	option.rows = 18;
+	option.wrap = 'off';
+	option.monospace = true;
+	option.description = description;
+	option.cfgvalue = function() {
+		return cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+	};
+	option.write = function(section_id, value) {
+		const normalized = normalizeBlock(value);
+		if (cacheName === 'dst')
+			dstValueCache = normalized;
+		else
+			srcValueCache = normalized;
+		return fs.write(filePath, normalized);
+	};
+	option.remove = function() {
+		if (cacheName === 'dst')
+			dstValueCache = '';
+		else
+			srcValueCache = '';
+		return fs.write(filePath, '');
+	};
 }
 
 return view.extend({
@@ -56,26 +93,12 @@ return view.extend({
 
 		o = s.option(form.Value, 'route_table_id', _('Route Table ID'));
 		o.validate = function(section_id, value) {
-			if (!value)
-				return true;
-			if (!/^[0-9]+$/.test(value))
-				return _('Route table id must be numeric');
-			const tableId = parseInt(value, 10);
-			if (tableId < 1 || tableId > 252)
-				return _('Route table id must be between 1 and 252');
-			return true;
+			return validateNumericRange(value, _('Route table id'), 1, 252);
 		};
 
 		o = s.option(form.Value, 'route_rule_priority', _('Route Rule Priority'));
 		o.validate = function(section_id, value) {
-			if (!value)
-				return true;
-			if (!/^[0-9]+$/.test(value))
-				return _('Route rule priority must be numeric');
-			const priority = parseInt(value, 10);
-			if (priority < 1 || priority > 32765)
-				return _('Route rule priority must be between 1 and 32765');
-			return true;
+			return validateNumericRange(value, _('Route rule priority'), 1, 32765);
 		};
 
 		o = s.option(form.Flag, 'disable_quic', _('Disable QUIC For Mihomo-Bound Traffic'));
@@ -84,38 +107,10 @@ return view.extend({
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks.');
 
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Always Proxy Destination IP/CIDR'));
-		o.rows = 18;
-		o.wrap = 'off';
-		o.monospace = true;
-		o.description = _('One IPv4 or CIDR per line. Packets with matching destination will be sent into Mihomo.');
-		o.cfgvalue = function() {
-			return dstValueCache || '';
-		};
-		o.write = function(section_id, value) {
-			dstValueCache = normalizeBlock(value);
-			return fs.write(DST_LIST_FILE, dstValueCache);
-		};
-		o.remove = function() {
-			dstValueCache = '';
-			return fs.write(DST_LIST_FILE, '');
-		};
+		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4 or CIDR per line. Packets with matching destination will be sent into Mihomo.'));
 
 		o = s.option(form.TextValue, '_always_proxy_src', _('Always Proxy Source IP/CIDR'));
-		o.rows = 18;
-		o.wrap = 'off';
-		o.monospace = true;
-		o.description = _('One IPv4 or CIDR per line. Packets from matching clients will be sent into Mihomo.');
-		o.cfgvalue = function() {
-			return srcValueCache || '';
-		};
-		o.write = function(section_id, value) {
-			srcValueCache = normalizeBlock(value);
-			return fs.write(SRC_LIST_FILE, srcValueCache);
-		};
-		o.remove = function() {
-			srcValueCache = '';
-			return fs.write(SRC_LIST_FILE, '');
-		};
+		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4 or CIDR per line. Packets from matching clients will be sent into Mihomo.'));
 
 		return m.render();
 	}

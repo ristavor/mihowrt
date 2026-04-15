@@ -1,5 +1,17 @@
 #!/bin/ash
 
+kernel_cleanup_tmp() {
+	rm -f "$1" "$2"
+}
+
+kernel_fetch_url() {
+	curl -fsSL "$1"
+}
+
+kernel_download_file() {
+	curl -fL "$1" -o "$2"
+}
+
 kernel_ensure_installed() {
 	local bindir
 
@@ -18,13 +30,17 @@ kernel_update() {
 	local arch release_json latest_tag latest_ver current_ver asset_name asset_url
 	local tmpdir tmpgz tmpbin
 
+	require_command curl || return 1
+	require_command gzip || return 1
+	require_command jq || return 1
+
 	arch="$(detect_mihomo_arch)" || {
 		err "Unable to detect Mihomo architecture from /etc/openwrt_release"
 		return 1
 	}
 
 	current_ver="$(normalize_version "$(current_mihomo_version)")"
-	release_json="$(curl -fsSL "$MIHOMO_RELEASES_API")" || {
+	release_json="$(kernel_fetch_url "$MIHOMO_RELEASES_API")" || {
 		err "Failed to query Mihomo latest release"
 		return 1
 	}
@@ -54,25 +70,25 @@ kernel_update() {
 	tmpgz="$tmpdir/$asset_name"
 	tmpbin="$tmpdir/clash"
 
-	rm -f "$tmpgz" "$tmpbin"
-	curl -fL "$asset_url" -o "$tmpgz" || {
-		rm -f "$tmpgz" "$tmpbin"
+	kernel_cleanup_tmp "$tmpgz" "$tmpbin"
+	kernel_download_file "$asset_url" "$tmpgz" || {
+		kernel_cleanup_tmp "$tmpgz" "$tmpbin"
 		err "Failed to download Mihomo asset $asset_name"
 		return 1
 	}
 
 	gzip -dc "$tmpgz" > "$tmpbin" || {
-		rm -f "$tmpgz" "$tmpbin"
+		kernel_cleanup_tmp "$tmpgz" "$tmpbin"
 		err "Failed to decompress Mihomo asset"
 		return 1
 	}
 
 	chmod 0755 "$tmpbin" || {
-		rm -f "$tmpgz" "$tmpbin"
+		kernel_cleanup_tmp "$tmpgz" "$tmpbin"
 		return 1
 	}
 	"$tmpbin" -v >/dev/null 2>&1 || {
-		rm -f "$tmpgz" "$tmpbin"
+		kernel_cleanup_tmp "$tmpgz" "$tmpbin"
 		err "Downloaded Mihomo binary failed self-check"
 		return 1
 	}
@@ -81,7 +97,7 @@ kernel_update() {
 		cp -f "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null || true
 	fi
 	mv -f "$tmpbin" "$CLASH_BIN" || {
-		rm -f "$tmpgz" "$tmpbin"
+		kernel_cleanup_tmp "$tmpgz" "$tmpbin"
 		return 1
 	}
 	rm -f "$tmpgz"

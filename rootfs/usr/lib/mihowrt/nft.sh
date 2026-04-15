@@ -12,6 +12,10 @@ nft_emit_line() {
 	printf '%s\n' "$1" >> "$NFT_BATCH_FILE"
 }
 
+nft_cleanup_batch_file() {
+	[ -n "${NFT_BATCH_FILE:-}" ] && rm -f "$NFT_BATCH_FILE"
+}
+
 nft_emit_elements_chunk() {
 	local set_name="$1"
 	local chunk="$2"
@@ -185,32 +189,32 @@ nft_apply_policy() {
 	fi
 
 	nft_emit_base_table || {
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	}
 	nft_emit_interface_set || {
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	}
 	nft_emit_ipv4_file_to_set "$DST_LIST_FILE" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT || {
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	}
 	nft_emit_ipv4_file_to_set "$SRC_LIST_FILE" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT || {
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	}
 	nft_emit_policy_rules || {
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	}
 
 	if ! nft -f "$NFT_BATCH_FILE"; then
-		rm -f "$NFT_BATCH_FILE"
+		nft_cleanup_batch_file
 		return 1
 	fi
 
-	rm -f "$NFT_BATCH_FILE"
+	nft_cleanup_batch_file
 	log "Applied nft policy table $NFT_TABLE_NAME"
 	return 0
 }
@@ -286,20 +290,43 @@ policy_route_resolve_priority() {
 	return 1
 }
 
+policy_route_teardown_ids() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 0
+	[ -n "$route_rule_priority" ] || return 0
+
+	policy_route_delete_rule "$route_table_id" "$route_rule_priority"
+	ip route flush table "$route_table_id" 2>/dev/null || true
+}
+
+policy_route_delete_rule() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 0
+	[ -n "$route_rule_priority" ] || return 0
+
+	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
+}
+
 policy_route_setup() {
 	local route_table_id route_rule_priority
 
 	route_table_id="$(policy_route_resolve_table_id)" || return 1
 	route_rule_priority="$(policy_route_resolve_priority)" || return 1
 
+	policy_route_delete_rule "$route_table_id" "$route_rule_priority"
 	ip route replace local 0.0.0.0/0 dev lo table "$route_table_id" 2>/dev/null || return 1
-	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-	ip rule add fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null || return 1
+	ip rule add fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null || {
+		policy_route_teardown_ids "$route_table_id" "$route_rule_priority"
+		return 1
+	}
 
 	ensure_dir "$PKG_STATE_DIR"
 	if ! printf 'ROUTE_TABLE_ID=%s\nROUTE_RULE_PRIORITY=%s\n' "$route_table_id" "$route_rule_priority" > "$ROUTE_STATE_FILE"; then
-		while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-		ip route flush table "$route_table_id" 2>/dev/null || true
+		policy_route_teardown_ids "$route_table_id" "$route_rule_priority"
 		return 1
 	fi
 	log "Installed policy routing for mark $NFT_INTERCEPT_MARK with table $route_table_id priority $route_rule_priority"
@@ -317,10 +344,7 @@ policy_route_cleanup() {
 		route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
 	fi
 
-	if [ -n "$route_table_id" ] && [ -n "$route_rule_priority" ]; then
-		while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-		ip route flush table "$route_table_id" 2>/dev/null || true
-	fi
+	policy_route_teardown_ids "$route_table_id" "$route_rule_priority"
 
 	rm -f "$ROUTE_STATE_FILE"
 	log "Removed policy routing for mark $NFT_INTERCEPT_MARK"

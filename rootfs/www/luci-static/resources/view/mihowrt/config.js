@@ -8,6 +8,9 @@
 
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
+const CLASH_DIR = '/opt/clash';
+const CLASH_BIN = CLASH_DIR + '/bin/clash';
+const CLASH_CONFIG = CLASH_DIR + '/config.yaml';
 
 let startStopButton = null;
 let editor = null;
@@ -41,9 +44,17 @@ function execErrorDetail(result) {
 	return detail || _('unknown error');
 }
 
-async function handleServiceAction(steps, errorMsg) {
+function notify(message, level) {
+	ui.addNotification(null, E('p', message), level);
+}
+
+function setStartStopDisabled(disabled) {
 	if (startStopButton)
-		startStopButton.disabled = true;
+		startStopButton.disabled = disabled;
+}
+
+async function handleServiceAction(steps, errorMsg) {
+	setStartStopDisabled(true);
 
 	const completed = [];
 	try {
@@ -72,12 +83,11 @@ async function handleServiceAction(steps, errorMsg) {
 		const detail = rollbackErrors.length
 			? _('%s Rollback failed: %s').format(e.message, rollbackErrors.join('; '))
 			: e.message;
-		ui.addNotification(null, E('p', errorMsg.format(detail)), 'error');
+		notify(errorMsg.format(detail), 'error');
 		return false;
 	}
 	finally {
-		if (startStopButton)
-			startStopButton.disabled = false;
+		setStartStopDisabled(false);
 	}
 }
 
@@ -166,7 +176,7 @@ function computeUiPath(externalUiName, externalUi) {
 async function openDashboard() {
 	try {
 		if (!(await getServiceStatus())) {
-			ui.addNotification(null, E('p', _('Service is not running.')), 'error');
+			notify(_('Service is not running.'), 'error');
 			return;
 		}
 
@@ -194,10 +204,10 @@ async function openDashboard() {
 		const url = `${scheme}//${hostPort.host}:${hostPort.port}${uiPath}?${qp.toString()}`;
 		const newWindow = window.open(url, '_blank');
 		if (!newWindow)
-			ui.addNotification(null, E('p', _('Popup was blocked. Please allow popups for this site.')), 'warning');
+			notify(_('Popup was blocked. Please allow popups for this site.'), 'warning');
 	}
 	catch (e) {
-		ui.addNotification(null, E('p', _('Failed to open dashboard: %s').format(e.message)), 'error');
+		notify(_('Failed to open dashboard: %s').format(e.message), 'error');
 	}
 }
 
@@ -212,9 +222,29 @@ function formatConfigErrors(errors) {
 	return (errors || []).filter(Boolean).join('; ');
 }
 
+async function validateSavedConfig() {
+	const testResult = await fs.exec(CLASH_BIN, ['-d', CLASH_DIR, '-t']);
+	if (testResult.code !== 0)
+		return _('Configuration test failed: %s').format(execErrorDetail(testResult));
+
+	const configState = await backendHelper.readConfig();
+	if (configState.errors.length)
+		return _('Policy config parse failed. Service start is blocked: %s').format(formatConfigErrors(configState.errors));
+
+	return null;
+}
+
+async function reloadRunningService() {
+	if (!(await getServiceStatus()))
+		return null;
+
+	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
+	return reloadResult.code === 0 ? null : execErrorDetail(reloadResult);
+}
+
 return view.extend({
 	load: function() {
-		return L.resolveDefault(fs.read('/opt/clash/config.yaml'), '');
+		return L.resolveDefault(fs.read(CLASH_CONFIG), '');
 	},
 
 	render: async function(config) {
@@ -225,50 +255,40 @@ return view.extend({
 		});
 
 		const saveAndApply = async function() {
-			if (startStopButton)
-				startStopButton.disabled = true;
+			setStartStopDisabled(true);
 
 			try {
 				if (!editor) {
-					ui.addNotification(null, E('p', _('Editor is still loading. Please try again in a moment.')), 'warning');
+					notify(_('Editor is still loading. Please try again in a moment.'), 'warning');
 					return;
 				}
 
 				const value = editor.getValue().trim() + '\n';
-				await fs.write('/opt/clash/config.yaml', value);
+				await fs.write(CLASH_CONFIG, value);
 
-				const testResult = await fs.exec('/opt/clash/bin/clash', ['-d', '/opt/clash', '-t']);
-				if (testResult.code !== 0) {
-					ui.addNotification(null, E('p', _('Configuration test failed: %s').format(execErrorDetail(testResult))), 'error');
+				const validationError = await validateSavedConfig();
+				if (validationError) {
+					notify(validationError, 'error');
 					return;
 				}
 
-				const configState = await backendHelper.readConfig();
-				if (configState.errors.length) {
-					ui.addNotification(null, E('p', _('Policy config parse failed. Service start is blocked: %s').format(formatConfigErrors(configState.errors))), 'error');
+				notify(_('Configuration saved successfully.'), 'info');
+
+				const reloadError = await reloadRunningService();
+				if (reloadError) {
+					notify(_('Service reload failed: %s').format(reloadError), 'error');
 					return;
 				}
-
-				ui.addNotification(null, E('p', _('Configuration saved successfully.')), 'info');
-
-				if (await getServiceStatus()) {
-					const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
-					if (reloadResult.code !== 0) {
-						ui.addNotification(null, E('p', _('Service reload failed: %s').format(execErrorDetail(reloadResult))), 'error');
-						return;
-					}
-
-					ui.addNotification(null, E('p', _('Service reloaded successfully.')), 'info');
-				}
+				if (!reloadError && await getServiceStatus())
+					notify(_('Service reloaded successfully.'), 'info');
 
 				window.location.reload();
 			}
 			catch (e) {
-				ui.addNotification(null, E('p', _('Unable to save contents: %s').format(e.message)), 'error');
+				notify(_('Unable to save contents: %s').format(e.message), 'error');
 			}
 			finally {
-				if (startStopButton)
-					startStopButton.disabled = false;
+				setStartStopDisabled(false);
 			}
 		};
 
@@ -302,7 +322,7 @@ return view.extend({
 
 		window.requestAnimationFrame(() => {
 			initializeAceEditor(editorNode, config).catch(e => {
-				ui.addNotification(null, E('p', _('Unable to initialize editor: %s').format(e.message)), 'error');
+				notify(_('Unable to initialize editor: %s').format(e.message), 'error');
 			});
 		});
 

@@ -116,7 +116,7 @@ Service control:
 ## Notes
 
 - `config.yaml` is source of truth for runtime values used by policy layer
-- package expects `nftables`, `ip-tiny`, `jq`, and `kmod-nft-tproxy`
+- package expects `nftables`, `jq`, and `kmod-nft-tproxy`
 - installer uses `wget` or `curl` to fetch package and Mihomo core releases
 - bundled UI is not stored in repo; Mihomo downloads UI from `external-ui-url`
 - config files under `/opt/clash` and `/etc/config` are protected as conffiles

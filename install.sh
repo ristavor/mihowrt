@@ -252,6 +252,20 @@ package_present() {
 	apk list -I "$1" 2>/dev/null | grep -q "^$1-"
 }
 
+package_requirement_present() {
+	case "$1" in
+		nftables)
+			package_present nftables ||
+			package_present nftables-json ||
+			package_present nftables-nojson ||
+			have_command nft
+			;;
+		*)
+			package_present "$1"
+			;;
+	esac
+}
+
 can_prompt() {
 	[ -c /dev/tty ] || return 1
 	: >/dev/tty 2>/dev/null || return 1
@@ -272,7 +286,7 @@ verify_required_packages() {
 
 	MISSING_PACKAGES=""
 	for pkg in $REQUIRED_APK_PACKAGES; do
-		package_present "$pkg" || MISSING_PACKAGES="${MISSING_PACKAGES}${MISSING_PACKAGES:+ }$pkg"
+		package_requirement_present "$pkg" || MISSING_PACKAGES="${MISSING_PACKAGES}${MISSING_PACKAGES:+ }$pkg"
 	done
 
 	[ -z "$MISSING_PACKAGES" ]

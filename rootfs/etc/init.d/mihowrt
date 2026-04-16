@@ -30,7 +30,7 @@ wait_for_stop_complete() {
 
 start_service() {
 	[ -f "$SKIP_START_FILE" ] && {
-		msg "Skipping MihoWRT service start during package update"
+		msg "Skipping MihoWRT service auto-start during installer transaction"
 		return 0
 	}
 

@@ -107,7 +107,7 @@ download_file() {
 }
 
 normalize_version() {
-	printf '%s' "$1" | sed -n 's/.*v\{0,1\}\([0-9][0-9.]*\).*/\1/p'
+	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV'
 }
 
 version_ge() {
@@ -141,7 +141,7 @@ detect_mihomo_arch() {
 
 current_mihomo_version() {
 	[ -x "$CLASH_BIN" ] || return 1
-	"$CLASH_BIN" -v 2>/dev/null | head -n1 | sed -n 's/.* \([vV]\{0,1\}[0-9][0-9.]*\).*/\1/p'
+	"$CLASH_BIN" -v 2>/dev/null | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1
 }
 
 kernel_asset_url() {
@@ -566,11 +566,11 @@ quiesce_postinstall_service() {
 	fi
 
 	if [ -x "$INIT_SCRIPT" ]; then
-		log "Stopping auto-started MihoWRT service..."
+		log "Stopping running MihoWRT service before state restore..."
 		if "$INIT_SCRIPT" stop >/dev/null 2>&1 && wait_for_service_stop; then
 			return 0
 		fi
-		warn "failed to stop auto-started MihoWRT service cleanly"
+		warn "failed to stop running MihoWRT service cleanly"
 	fi
 
 	if [ -x "$ORCHESTRATOR" ]; then

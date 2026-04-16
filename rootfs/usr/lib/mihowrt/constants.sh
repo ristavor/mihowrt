@@ -20,8 +20,6 @@ CACHE_DB_LINK="$CLASH_DIR/cache.db"
 DNS_BACKUP_FILE="$PKG_PERSIST_DIR/dns.backup"
 SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
 ROUTE_STATE_FILE="$PKG_STATE_DIR/route.state"
-KERNEL_UPDATE_TMP_DIR="$PKG_TMP_DIR/kernel-update"
-MIHOMO_RELEASES_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 
 NFT_TABLE_NAME="mihomo_podkop"
 NFT_PROXY_DST_SET="proxy_dst"

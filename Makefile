@@ -3,13 +3,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.3
+PKG_VERSION:=0.2.4
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 
 LUCI_TITLE:=LuCI Support for MihoWRT
-LUCI_DEPENDS:=+luci-base +jq +curl +ca-bundle +nftables +ip-tiny +kmod-nft-tproxy
+LUCI_DEPENDS:=+luci-base +jq +nftables +ip-tiny +kmod-nft-tproxy
 LUCI_PKGARCH:=all
 
 PKG_BUILD_DEPENDS:=luci-base/host

@@ -7,7 +7,7 @@ Project adds:
 - direct-first traffic policy based on `nftables`, `ip rule`, and `dnsmasq`
 - runtime data placement in tmpfs to reduce flash writes
 - crash recovery for `dnsmasq` state
-- automatic Mihomo core install if `/opt/clash/bin/clash` is missing
+- installer-managed Mihomo core install and update
 
 ## Quick Install
 
@@ -24,14 +24,15 @@ curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | 
 ```
 
 Behavior:
-- if `luci-app-mihowrt` is not installed, script downloads latest release and installs it
-- if package is already installed, script asks:
-  - `1. Reinstall/update`
-  - `2. Cancel`
-- for non-interactive reinstall/update:
+- script menu:
+  - `1. Install/update package + kernel`
+  - `2. Install/update kernel only`
+  - `3. Remove package + kernel`
+  - `4. Stop`
+- for non-interactive package install/update:
 
 ```sh
-MIHOWRT_FORCE_REINSTALL=1 wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+MIHOWRT_ACTION=package wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
 ```
 
 ## How It Works
@@ -58,7 +59,7 @@ rootfs/usr/bin/mihowrt
   Main orchestration entrypoint
 
 rootfs/usr/lib/mihowrt/
-  Shell modules for helpers, runtime, DNS, nftables, policy, kernel install
+  Shell modules for helpers, runtime, DNS, nftables, and policy
 
 rootfs/www/luci-static/resources/view/mihowrt/
   LuCI pages
@@ -100,8 +101,6 @@ Main helper:
 /usr/bin/mihowrt reload
 /usr/bin/mihowrt validate
 /usr/bin/mihowrt status
-/usr/bin/mihowrt ensure-kernel
-/usr/bin/mihowrt update-kernel
 /usr/bin/mihowrt read-config
 ```
 
@@ -117,11 +116,12 @@ Service control:
 ## Notes
 
 - `config.yaml` is source of truth for runtime values used by policy layer
-- package expects `nftables`, `ip-tiny`, `jq`, `curl`, `ca-bundle`, and `kmod-nft-tproxy`
+- package expects `nftables`, `ip-tiny`, `jq`, and `kmod-nft-tproxy`
+- installer uses `wget` or `curl` to fetch package and Mihomo core releases
 - bundled UI is not stored in repo; Mihomo downloads UI from `external-ui-url`
 - config files under `/opt/clash` and `/etc/config` are protected as conffiles
 
 ## Known Limits
 
 - full atomic reload for `nft + route rule + dnsmasq` is not implemented yet
-- `update-kernel` still downloads latest release from GitHub without pinned checksum
+- installer kernel update still downloads latest release from GitHub without pinned checksum

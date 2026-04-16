@@ -15,7 +15,6 @@ check_required_file /usr/lib/mihowrt/dns.sh
 check_required_file /usr/lib/mihowrt/nft.sh
 check_required_file /usr/lib/mihowrt/policy.sh
 check_required_file /usr/lib/mihowrt/runtime.sh
-check_required_file /usr/lib/mihowrt/kernel.sh
 
 . /lib/functions.sh
 . /usr/lib/mihowrt/constants.sh
@@ -25,7 +24,6 @@ check_required_file /usr/lib/mihowrt/kernel.sh
 . /usr/lib/mihowrt/nft.sh
 . /usr/lib/mihowrt/policy.sh
 . /usr/lib/mihowrt/runtime.sh
-. /usr/lib/mihowrt/kernel.sh
 
 run_service() {
 	local pid dns_port cleanup_done=0 stop_requested=0 rc=1
@@ -117,12 +115,6 @@ run_service() {
 	run-service)
 		run_service
 		;;
-	ensure-kernel)
-		kernel_ensure_installed
-		;;
-	update-kernel)
-		kernel_update
-		;;
 	read-config)
 		read_config_json
 		;;
@@ -130,7 +122,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|ensure-kernel|update-kernel|read-config|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|read-config|status}" >&2
 		exit 1
 		;;
 esac

@@ -6,10 +6,12 @@ REPO_OWNER="ristavor"
 REPO_NAME="mihowrt"
 PKG_NAME="luci-app-mihowrt"
 RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
+MIHOMO_RELEASES_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 TMP_APK=""
 BACKUP_DIR=""
 WAS_ENABLED=0
 WAS_RUNNING=0
+REINSTALL_HOLD_ACTIVE=0
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
@@ -21,7 +23,12 @@ ROUTE_STATE_FILE="/var/run/mihowrt/route.state"
 NFT_TABLE_NAME="mihomo_podkop"
 NFT_INTERCEPT_MARK="0x00001000"
 SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
-REQUIRED_APK_PACKAGES="${PKG_NAME} luci-base curl ca-bundle nftables ip-tiny jq kmod-nft-tproxy kmod-nf-tproxy"
+CLASH_DIR="/opt/clash"
+CLASH_BIN="${CLASH_DIR}/bin/clash"
+KERNEL_TMP_DIR="/tmp/mihowrt/kernel-update"
+REQUIRED_REPO_PACKAGES="luci-base curl ca-bundle nftables ip-tiny jq kmod-nft-tproxy kmod-nf-tproxy"
+REINSTALL_HOLD_VIRTUAL="${PKG_NAME}-reinstall-deps"
+REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES}"
 MISSING_PACKAGES=""
 
 log() {
@@ -40,6 +47,7 @@ cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
 	[ -n "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
 	rm -f "$SKIP_START_FILE"
+	release_reinstall_dependencies
 }
 
 trap cleanup EXIT
@@ -98,6 +106,138 @@ download_file() {
 	exit 1
 }
 
+normalize_version() {
+	printf '%s' "$1" | sed -n 's/.*v\{0,1\}\([0-9][0-9.]*\).*/\1/p'
+}
+
+version_ge() {
+	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+}
+
+detect_mihomo_arch() {
+	local release_info distrib_arch
+
+	release_info="$(cat /etc/openwrt_release 2>/dev/null || true)"
+	distrib_arch="$(printf '%s\n' "$release_info" | sed -n "s/^DISTRIB_ARCH='\([^']*\)'/\1/p")"
+
+	case "$distrib_arch" in
+		aarch64_*) echo "arm64" ;;
+		x86_64) echo "amd64" ;;
+		i386_*) echo "386" ;;
+		riscv64_*) echo "riscv64" ;;
+		loongarch64_*) echo "loong64" ;;
+		mips64el_*) echo "mips64le" ;;
+		mips64_*) echo "mips64" ;;
+		mipsel_*hardfloat*) echo "mipsle-hardfloat" ;;
+		mipsel_*) echo "mipsle-softfloat" ;;
+		mips_*hardfloat*) echo "mips-hardfloat" ;;
+		mips_*) echo "mips-softfloat" ;;
+		arm_*neon-vfp*) echo "armv7" ;;
+		arm_*neon*|arm_*vfp*) echo "armv6" ;;
+		arm_*) echo "armv5" ;;
+		*) return 1 ;;
+	esac
+}
+
+current_mihomo_version() {
+	[ -x "$CLASH_BIN" ] || return 1
+	"$CLASH_BIN" -v 2>/dev/null | head -n1 | sed -n 's/.* \([vV]\{0,1\}[0-9][0-9.]*\).*/\1/p'
+}
+
+kernel_asset_url() {
+	local release_json="$1"
+	local asset_name="$2"
+
+	printf '%s' "$release_json" |
+		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${asset_name}\\)\".*/\\1/p" |
+		head -n1
+}
+
+kernel_install_or_update() {
+	local arch release_json latest_tag latest_ver current_ver asset_name asset_url
+	local tmpgz tmpbin bindir
+
+	require_command gzip
+
+	arch="$(detect_mihomo_arch)" || {
+		err "unable to detect Mihomo architecture from /etc/openwrt_release"
+		return 1
+	}
+
+	release_json="$(fetch_url "$MIHOMO_RELEASES_API")" || {
+		err "failed to query Mihomo latest release"
+		return 1
+	}
+
+	latest_tag="$(printf '%s' "$release_json" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
+	[ -n "$latest_tag" ] || {
+		err "latest Mihomo release has no tag_name"
+		return 1
+	}
+
+	current_ver="$(normalize_version "$(current_mihomo_version 2>/dev/null || true)")"
+	latest_ver="$(normalize_version "$latest_tag")"
+	if [ -n "$current_ver" ] && [ -n "$latest_ver" ] && version_ge "$current_ver" "$latest_ver"; then
+		log "Mihomo kernel already up to date ($current_ver)"
+		return 0
+	fi
+
+	asset_name="mihomo-linux-${arch}-${latest_tag}.gz"
+	asset_url="$(kernel_asset_url "$release_json" "$asset_name")"
+	[ -n "$asset_url" ] || {
+		err "no Mihomo asset found for architecture $arch"
+		return 1
+	}
+
+	mkdir -p "$KERNEL_TMP_DIR"
+	bindir="${CLASH_BIN%/*}"
+	mkdir -p "$bindir"
+	tmpgz="$KERNEL_TMP_DIR/$asset_name"
+	tmpbin="$KERNEL_TMP_DIR/clash"
+
+	rm -f "$tmpgz" "$tmpbin"
+	download_file "$asset_url" "$tmpgz" || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "failed to download Mihomo asset $asset_name"
+		return 1
+	}
+
+	gzip -dc "$tmpgz" > "$tmpbin" || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "failed to decompress Mihomo asset"
+		return 1
+	}
+
+	chmod 0755 "$tmpbin" || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "failed to chmod Mihomo binary"
+		return 1
+	}
+
+	"$tmpbin" -v >/dev/null 2>&1 || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "downloaded Mihomo binary failed self-check"
+		return 1
+	}
+
+	[ -f "$CLASH_BIN" ] && cp -f "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null || true
+	mv -f "$tmpbin" "$CLASH_BIN" || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "failed to install Mihomo kernel"
+		return 1
+	}
+	rm -f "$tmpgz"
+
+	log "Updated Mihomo kernel to $latest_tag for arch $arch"
+	return 0
+}
+
+kernel_remove() {
+	rm -f "$CLASH_BIN" "$CLASH_BIN.bak"
+	rm -rf "$KERNEL_TMP_DIR"
+	rmdir "${CLASH_BIN%/*}" 2>/dev/null || true
+}
+
 latest_asset_url() {
 	fetch_url "$RELEASES_API_URL" |
 		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${PKG_NAME}-[^/\"]*\\.apk\\)\".*/\\1/p" |
@@ -123,6 +263,10 @@ apk_supports_force_reinstall() {
 	apk add --help 2>&1 | grep -q -- '--force-reinstall'
 }
 
+apk_supports_virtual() {
+	apk add --help 2>&1 | grep -q -- '--virtual'
+}
+
 verify_required_packages() {
 	local pkg
 
@@ -132,6 +276,24 @@ verify_required_packages() {
 	done
 
 	[ -z "$MISSING_PACKAGES" ]
+}
+
+hold_reinstall_dependencies() {
+	apk_supports_virtual || return 1
+
+	if package_present "$REINSTALL_HOLD_VIRTUAL"; then
+		apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
+	fi
+
+	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $REQUIRED_REPO_PACKAGES >/dev/null 2>&1 || return 1
+	REINSTALL_HOLD_ACTIVE=1
+	return 0
+}
+
+release_reinstall_dependencies() {
+	[ "$REINSTALL_HOLD_ACTIVE" = "1" ] || package_present "$REINSTALL_HOLD_VIRTUAL" || return 0
+	apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
+	REINSTALL_HOLD_ACTIVE=0
 }
 
 backup_file() {
@@ -366,6 +528,16 @@ prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
 
+	if apk_supports_virtual; then
+		log "Holding MihoWRT dependencies during reinstall..."
+		hold_reinstall_dependencies || {
+			err "failed to hold required dependencies before reinstall"
+			return 1
+		}
+	else
+		warn "apk add lacks --virtual; reinstall may refresh dependencies"
+	fi
+
 	log "Restoring system DNS/routing state before update..."
 	cleanup_runtime_fallback
 	restore_system_dns_defaults 1 || {
@@ -405,6 +577,14 @@ restore_runtime_state() {
 	fi
 
 	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
+		if service_running; then
+			log "Reloading MihoWRT service..."
+			if "$INIT_SCRIPT" reload >/dev/null 2>&1; then
+				return 0
+			fi
+			warn "failed to reload MihoWRT service after update"
+		fi
+
 		log "Starting MihoWRT service..."
 		if "$INIT_SCRIPT" start >/dev/null 2>&1; then
 			return 0
@@ -427,6 +607,7 @@ handle_install_failure() {
 
 	err "$message"
 	clear_skip_start
+	release_reinstall_dependencies
 
 	if [ -x "$INIT_SCRIPT" ]; then
 		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
@@ -444,33 +625,192 @@ handle_install_failure() {
 	return 1
 }
 
-prompt_reinstall() {
-	local choice
+remove_user_state() {
+	rm -f /etc/apk/protected_paths.d/mihowrt.list
+	rm -f /etc/config/mihowrt
+	rm -f /etc/init.d/mihowrt
+	rm -f /etc/init.d/mihowrt-recover
+	rm -f /opt/clash/config.yaml
+	rm -f /opt/clash/lst/always_proxy_dst.txt
+	rm -f /opt/clash/lst/always_proxy_src.txt
+	rm -f /opt/clash/ruleset
+	rm -f /opt/clash/proxy_providers
+	rm -f /opt/clash/cache.db
+	rm -f /usr/bin/mihowrt
+	rm -rf /usr/lib/mihowrt
+	rm -f /usr/share/luci/menu.d/luci-app-mihowrt.json
+	rm -f /usr/share/rpcd/acl.d/luci-app-mihowrt.json
+	rm -rf /www/luci-static/resources/view/mihowrt
+	rm -rf /www/luci-static/resources/mihowrt
+	rm -rf /tmp/clash
+	rm -rf /tmp/mihowrt
+	rm -rf /var/run/mihowrt
+	rm -rf /etc/mihowrt
+	rmdir /opt/clash/lst 2>/dev/null || true
+	rmdir /opt/clash 2>/dev/null || true
+}
+
+remove_package_and_kernel() {
+	release_reinstall_dependencies
+	clear_skip_start
+
+	if [ -x "$INIT_SCRIPT" ]; then
+		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
+		wait_for_service_stop || true
+	fi
+
+	if [ -x "$ORCHESTRATOR" ]; then
+		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	fi
+
+	cleanup_runtime_fallback
+	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults before removal"
+
+	kernel_remove
+
+	if package_installed; then
+		log "Removing ${PKG_NAME} and unused dependencies..."
+		apk del "$PKG_NAME" || {
+			err "failed to remove ${PKG_NAME}"
+			return 1
+		}
+	fi
+
+	remove_user_state
+	log "Removed MihoWRT package and kernel"
+	return 0
+}
+
+start_fresh_install_service() {
+	[ -x "$INIT_SCRIPT" ] || return 0
+
+	log "Starting MihoWRT service..."
+	"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
+	if "$INIT_SCRIPT" start >/dev/null 2>&1; then
+		return 0
+	fi
+
+	warn "failed to start MihoWRT service after install"
+	cleanup_runtime_fallback
+	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed fresh start"
+	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	return 1
+}
+
+perform_package_action() {
+	local reinstall=0
+	local asset_url=""
+
+	asset_url="$(latest_asset_url)"
+	[ -n "$asset_url" ] || {
+		err "failed to find latest ${PKG_NAME} apk in GitHub release"
+		return 1
+	}
+
+	if package_installed; then
+		reinstall=1
+		log "Saving current config and policy state..."
+		prepare_update || return 1
+	fi
+
+	log "Installing/updating Mihomo kernel..."
+	if ! kernel_install_or_update; then
+		if [ "$reinstall" = "1" ]; then
+			restore_runtime_state || true
+			release_reinstall_dependencies
+		fi
+		err "kernel install/update failed"
+		return 1
+	fi
+
+	set_skip_start
+	create_tmp_apk
+	log "Downloading latest release asset..."
+	download_file "$asset_url" "$TMP_APK"
+	if ! install_package "$reinstall" "$TMP_APK"; then
+		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
+		return 1
+	fi
+	clear_skip_start
+
+	if ! verify_required_packages; then
+		handle_install_failure "$reinstall" "package install incomplete; missing packages: $MISSING_PACKAGES"
+		return 1
+	fi
+
+	if [ "$reinstall" = "1" ]; then
+		quiesce_postinstall_service
+		log "Restoring saved config and policy state..."
+		restore_user_state
+		restore_runtime_state || return 1
+		release_reinstall_dependencies
+		return 0
+	fi
+
+	start_fresh_install_service || return 1
+	return 0
+}
+
+perform_kernel_action() {
+	log "Installing/updating Mihomo kernel..."
+	kernel_install_or_update
+}
+
+resolve_action() {
+	case "${MIHOWRT_ACTION:-}" in
+		'' )
+			;;
+		1|package|pkg|install|update)
+			printf '%s' "package"
+			return 0
+			;;
+		2|kernel|core)
+			printf '%s' "kernel"
+			return 0
+			;;
+		3|remove|delete|uninstall)
+			printf '%s' "remove"
+			return 0
+			;;
+		4|stop|cancel)
+			printf '%s' "stop"
+			return 0
+			;;
+		*)
+			err "invalid MIHOWRT_ACTION: ${MIHOWRT_ACTION}"
+			return 1
+			;;
+	esac
 
 	if [ "${MIHOWRT_FORCE_REINSTALL:-0}" = "1" ]; then
+		printf '%s' "package"
 		return 0
 	fi
 
 	if ! can_prompt; then
-		err "${PKG_NAME} already installed. Re-run with MIHOWRT_FORCE_REINSTALL=1 to reinstall/update."
-		return 2
+		err "no tty. Set MIHOWRT_ACTION=package|kernel|remove|stop"
+		return 1
 	fi
 
-	printf '%s\n' "${PKG_NAME} already installed." >/dev/tty
-	printf '%s\n' "1. Reinstall/update" >/dev/tty
-	printf '%s\n' "2. Cancel" >/dev/tty
+	printf '%s\n' "MihoWRT installer" >/dev/tty
+	printf '%s\n' "1. Install/update package + kernel" >/dev/tty
+	printf '%s\n' "2. Install/update kernel only" >/dev/tty
+	printf '%s\n' "3. Remove package + kernel" >/dev/tty
+	printf '%s\n' "4. Stop" >/dev/tty
 
 	while :; do
-		printf 'Choose [1-2] (default 1): ' >/dev/tty
+		printf 'Choose [1-4] (default 1): ' >/dev/tty
 		IFS= read -r choice </dev/tty || {
 			err "failed to read answer from tty"
-			return 2
+			return 1
 		}
 		case "$choice" in
-			'') return 0 ;;
-			1) return 0 ;;
-			2) return 1 ;;
-			*) printf '%s\n' "Enter 1 or 2." >/dev/tty ;;
+			''|1) printf '%s' "package"; return 0 ;;
+			2) printf '%s' "kernel"; return 0 ;;
+			3) printf '%s' "remove"; return 0 ;;
+			4) printf '%s' "stop"; return 0 ;;
+			*) printf '%s\n' "Enter 1, 2, 3, or 4." >/dev/tty ;;
 		esac
 	done
 }
@@ -495,62 +835,28 @@ install_package() {
 }
 
 main() {
-	local asset_url
-	local reinstall=0
-	local prompt_rc=0
+	local action=""
 
 	require_command apk
 	require_command mktemp
 
-	if package_installed; then
-		if prompt_reinstall; then
-			reinstall=1
-		else
-			prompt_rc="$?"
-			case "$prompt_rc" in
-			1)
-				log "Cancelled."
-				return 0
-				;;
-			*)
-				return 1
-				;;
-			esac
-		fi
-	fi
+	action="$(resolve_action)" || exit 1
 
-	asset_url="$(latest_asset_url)"
-	[ -n "$asset_url" ] || {
-		err "failed to find latest ${PKG_NAME} apk in GitHub release"
-		exit 1
-	}
-
-	if [ "$reinstall" = "1" ]; then
-		log "Saving current config and policy state..."
-		prepare_update
-		set_skip_start
-	fi
-
-	create_tmp_apk
-	log "Downloading latest release asset..."
-	download_file "$asset_url" "$TMP_APK"
-	if ! install_package "$reinstall" "$TMP_APK"; then
-		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
-		exit 1
-	fi
-	clear_skip_start
-
-	if ! verify_required_packages; then
-		handle_install_failure "$reinstall" "package install incomplete; missing packages: $MISSING_PACKAGES"
-		exit 1
-	fi
-
-	if [ "$reinstall" = "1" ]; then
-		quiesce_postinstall_service
-		log "Restoring saved config and policy state..."
-		restore_user_state
-		restore_runtime_state
-	fi
+	case "$action" in
+		package)
+			perform_package_action
+			;;
+		kernel)
+			perform_kernel_action
+			;;
+		remove)
+			remove_package_and_kernel
+			;;
+		stop)
+			log "Stopped."
+			return 0
+			;;
+	esac
 }
 
 main "$@"

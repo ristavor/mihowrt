@@ -127,10 +127,6 @@ define Package/$(PKG_NAME)/postinst
 	sync_tmp_file /opt/clash/cache.db /tmp/clash/cache.db
 	[ -f /opt/clash/lst/always_proxy_dst.txt ] || touch /opt/clash/lst/always_proxy_dst.txt
 	[ -f /opt/clash/lst/always_proxy_src.txt ] || touch /opt/clash/lst/always_proxy_src.txt
-	if ! /usr/bin/mihowrt ensure-kernel; then
-		echo "Failed to install Mihomo core to /opt/clash/bin/clash" >&2
-		exit 1
-	fi
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true

@@ -152,7 +152,7 @@ function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
 		}
 	}
 
-	if (host === '0.0.0.0' || host === '::' || host === '')
+	if (/^(?:127(?:\.\d{1,3}){3}|0\.0\.0\.0|::1|::|localhost)?$/i.test(host))
 		host = fallbackHost;
 
 	return { host, port };

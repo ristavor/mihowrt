@@ -118,13 +118,21 @@ run_service() {
 		init_runtime_layout
 		;;
 	read-config)
+		[ -n "${2:-}" ] && CLASH_CONFIG="$2"
 		read_config_json
+		;;
+	apply-config)
+		[ -n "${2:-}" ] || {
+			echo "Usage: $0 apply-config <temp-config-path>" >&2
+			exit 1
+		}
+		apply_config_file "$2"
 		;;
 	status)
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|apply-config|status}" >&2
 		exit 1
 		;;
 esac

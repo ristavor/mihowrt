@@ -8,9 +8,8 @@
 
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
-const CLASH_DIR = '/opt/clash';
-const CLASH_BIN = CLASH_DIR + '/bin/clash';
-const CLASH_CONFIG = CLASH_DIR + '/config.yaml';
+const CLASH_CONFIG = '/opt/clash/config.yaml';
+const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 
 let startStopButton = null;
 let editor = null;
@@ -218,20 +217,18 @@ async function initializeAceEditor(node, content) {
 	editor.setValue(content, -1);
 }
 
-function formatConfigErrors(errors) {
-	return (errors || []).filter(Boolean).join('; ');
+function makeTempConfigPath() {
+	const suffix = '%d.%s'.format(Date.now(), Math.random().toString(16).slice(2));
+	return '%s.%s.yaml'.format(TMP_CONFIG_PREFIX, suffix);
 }
 
-async function validateSavedConfig() {
-	const testResult = await fs.exec(CLASH_BIN, ['-d', CLASH_DIR, '-t']);
-	if (testResult.code !== 0)
-		return _('Configuration test failed: %s').format(execErrorDetail(testResult));
+async function removeTempConfig(configPath) {
+	if (!configPath)
+		return;
 
-	const configState = await backendHelper.readConfig();
-	if (configState.errors.length)
-		return _('Policy config parse failed. Service start is blocked: %s').format(formatConfigErrors(configState.errors));
-
-	return null;
+	const result = await fs.exec('/bin/sh', ['-c', 'rm -f -- "$1"', 'sh', configPath]);
+	if (result.code !== 0)
+		throw new Error(execErrorDetail(result));
 }
 
 async function restartRunningService(wasRunning) {
@@ -257,6 +254,8 @@ return view.extend({
 		});
 
 		const saveAndApply = async function() {
+			let tempConfigPath = null;
+
 			setStartStopDisabled(true);
 
 			try {
@@ -267,14 +266,10 @@ return view.extend({
 
 				const wasRunning = await getServiceStatus();
 				const value = editor.getValue().trim() + '\n';
-				await fs.write(CLASH_CONFIG, value);
-
-				const validationError = await validateSavedConfig();
-				if (validationError) {
-					notify(validationError, 'error');
-					return;
-				}
-
+				tempConfigPath = makeTempConfigPath();
+				await fs.write(tempConfigPath, value);
+				await backendHelper.applyConfig(tempConfigPath);
+				tempConfigPath = null;
 				notify(_('Configuration saved successfully.'), 'info');
 
 				const restartState = await restartRunningService(wasRunning);
@@ -291,6 +286,15 @@ return view.extend({
 				notify(_('Unable to save contents: %s').format(e.message), 'error');
 			}
 			finally {
+				if (tempConfigPath) {
+					try {
+						await removeTempConfig(tempConfigPath);
+					}
+					catch (e) {
+						notify(_('Failed to remove temporary config: %s').format(e.message), 'warning');
+					}
+				}
+
 				setStartStopDisabled(false);
 			}
 		};

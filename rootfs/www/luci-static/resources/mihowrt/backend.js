@@ -28,11 +28,15 @@ function execErrorDetail(result) {
 	return detail || _('unknown error');
 }
 
-async function readConfig() {
+async function readConfig(configPath) {
 	const state = emptyConfigState();
+	const args = [ 'read-config' ];
+
+	if (configPath)
+		args.push(configPath);
 
 	try {
-		const result = await fs.exec(BACKEND, [ 'read-config' ]);
+		const result = await fs.exec(BACKEND, args);
 
 		if (result.code !== 0) {
 			state.errors = [ execErrorDetail(result) ];
@@ -63,5 +67,12 @@ async function readConfig() {
 }
 
 return baseclass.extend({
-	readConfig: readConfig
+	readConfig: readConfig,
+
+	applyConfig: async function(configPath) {
+		const result = await fs.exec(BACKEND, [ 'apply-config', configPath ]);
+
+		if (result.code !== 0)
+			throw new Error(execErrorDetail(result));
+	}
 });

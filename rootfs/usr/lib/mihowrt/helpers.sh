@@ -429,6 +429,93 @@ EOF
 	}
 }
 
+read_config_json_for_path() {
+	local config_path="$1"
+	local active_config="$CLASH_CONFIG"
+	local rc=0
+
+	CLASH_CONFIG="$config_path"
+	read_config_json || rc=$?
+	CLASH_CONFIG="$active_config"
+	return "$rc"
+}
+
+apply_config_file() {
+	local candidate="$1"
+	local active_config="$CLASH_CONFIG"
+	local target_tmp="${active_config}.tmp.$$"
+	local test_output="" config_json="" config_errors=""
+
+	[ -n "$candidate" ] || {
+		err "temporary config path is required"
+		return 1
+	}
+
+	case "$candidate" in
+		/tmp/*)
+			;;
+		*)
+			err "temporary config must be stored under /tmp"
+			return 1
+			;;
+	esac
+
+	[ -r "$candidate" ] || {
+		err "temporary config missing at $candidate"
+		return 1
+	}
+
+	[ -x "$CLASH_BIN" ] || {
+		err "Mihomo binary missing at $CLASH_BIN"
+		rm -f "$candidate"
+		return 1
+	}
+
+	test_output="$("$CLASH_BIN" -d "$CLASH_DIR" -f "$candidate" -t 2>&1)" || {
+		err "${test_output:-configuration test failed}"
+		rm -f "$candidate"
+		return 1
+	}
+
+	config_json="$(read_config_json_for_path "$candidate")" || {
+		rm -f "$candidate"
+		return 1
+	}
+
+	config_errors="$(printf '%s\n' "$config_json" | jq -r '.errors | join("; ")')" || {
+		err "Failed to inspect normalized config errors for $candidate"
+		rm -f "$candidate"
+		return 1
+	}
+
+	if [ -n "$config_errors" ]; then
+		err "$config_errors"
+		rm -f "$candidate"
+		return 1
+	fi
+
+	mkdir -p "$(dirname "$active_config")" || {
+		err "Failed to prepare config directory for $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	cp -f "$candidate" "$target_tmp" || {
+		err "Failed to stage validated config for $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	mv -f "$target_tmp" "$active_config" || {
+		err "Failed to install validated config to $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	rm -f "$candidate"
+	return 0
+}
+
 normalize_version() {
 	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV'
 }

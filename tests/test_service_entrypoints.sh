@@ -107,6 +107,33 @@ assert_false "run_service should fail when runtime policy apply fails" run_servi
 assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo became ready" "run_service should report runtime apply failure"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
 
+config_override_output="$(
+	set -- read-config "$tmpdir/alt-config.yaml"
+	CLASH_CONFIG="/opt/clash/config.yaml"
+	read_config_json() {
+		printf '%s\n' "$CLASH_CONFIG"
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "$tmpdir/alt-config.yaml" "$config_override_output" "read-config command should accept config path override"
+
+apply_config_output="$(
+	set -- apply-config "$tmpdir/candidate.yaml"
+	apply_config_file() {
+		printf '%s\n' "$1"
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path"
+
 source_init_mihowrt_lib
 
 ORCHESTRATOR="$tmpdir/orchestrator.sh"

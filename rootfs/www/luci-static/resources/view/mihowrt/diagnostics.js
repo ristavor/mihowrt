@@ -81,6 +81,18 @@ return view.extend({
 					backendHelper.readStatus(),
 					backendHelper.readLogs(LOG_LINE_LIMIT)
 				]);
+				const active = status.active && status.active.present
+					? status.active
+					: {
+						enabled: status.enabled,
+						routeTableId: status.routeTableIdEffective || status.routeTableId,
+						routeRulePriority: status.routeRulePriorityEffective || status.routeRulePriority,
+						dnsHijack: status.dnsHijack,
+						disableQuic: status.disableQuic,
+						sourceNetworkInterfaces: status.sourceNetworkInterfaces,
+						alwaysProxyDstCount: status.alwaysProxyDstCount,
+						alwaysProxySrcCount: status.alwaysProxySrcCount
+					};
 
 				setChildren(summaryNode, [
 					E('div', {
@@ -88,27 +100,35 @@ return view.extend({
 					}, [
 						badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
 						badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
-						badge(status.enabled ? _('Policy Enabled') : _('Policy Disabled'), status.enabled),
-						badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid)
+						badge(active.enabled ? _('Applied Policy Enabled') : _('Applied Policy Disabled'), active.enabled),
+						badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
+						badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
+						badge(status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'), status.runtimeMatchesDesired)
 					]),
 					(status.errors && status.errors.length)
 						? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
-						: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))
+						: (!status.runtimeMatchesDesired
+							? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk.'))
+							: (!status.runtimeSafeReloadReady
+								? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
+								: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))))
 				]);
 
 				setChildren(runtimeNode, [
 					E('div', {
 						style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;'
 					}, [
-						renderField(_('Route Table'), status.routeTableId),
-						renderField(_('Route Rule Priority'), status.routeRulePriority),
-						renderField(_('Effective Route Table'), status.routeTableIdEffective || _('not active')),
-						renderField(_('Effective Route Rule Priority'), status.routeRulePriorityEffective || _('not active')),
-						renderField(_('DNS Hijack'), status.dnsHijack ? _('enabled') : _('disabled')),
-						renderField(_('Disable QUIC'), status.disableQuic ? _('enabled') : _('disabled')),
-						renderField(_('Source Interfaces'), status.sourceNetworkInterfaces.length ? status.sourceNetworkInterfaces.join(', ') : _('none')),
-						renderField(_('Always Proxy Dst Count'), String(status.alwaysProxyDstCount)),
-						renderField(_('Always Proxy Src Count'), String(status.alwaysProxySrcCount)),
+						renderField(_('Applied Route Table'), active.routeTableId || _('not active')),
+						renderField(_('Applied Route Rule Priority'), active.routeRulePriority || _('not active')),
+						renderField(_('Configured Route Table'), status.routeTableId),
+						renderField(_('Configured Route Rule Priority'), status.routeRulePriority),
+						renderField(_('Applied DNS Hijack'), active.dnsHijack ? _('enabled') : _('disabled')),
+						renderField(_('Applied Disable QUIC'), active.disableQuic ? _('enabled') : _('disabled')),
+						renderField(_('Applied Source Interfaces'), active.sourceNetworkInterfaces.length ? active.sourceNetworkInterfaces.join(', ') : _('none')),
+						renderField(_('Applied Always Proxy Dst Count'), String(active.alwaysProxyDstCount)),
+						renderField(_('Applied Always Proxy Src Count'), String(active.alwaysProxySrcCount)),
+						renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
+						renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
 						renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),
 						renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
 					])

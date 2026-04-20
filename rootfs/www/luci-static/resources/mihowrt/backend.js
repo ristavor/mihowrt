@@ -40,6 +40,28 @@ function emptyStatusState() {
 		sourceNetworkInterfaces: [],
 		alwaysProxyDstCount: 0,
 		alwaysProxySrcCount: 0,
+		runtimeSnapshotPresent: false,
+		runtimeLiveStatePresent: false,
+		runtimeSafeReloadReady: true,
+		runtimeMatchesDesired: true,
+		active: {
+			present: false,
+			enabled: false,
+			dnsHijack: false,
+			mihomoDnsPort: '',
+			mihomoDnsListen: '',
+			mihomoTproxyPort: '',
+			mihomoRoutingMark: '',
+			routeTableId: '',
+			routeRulePriority: '',
+			disableQuic: false,
+			dnsEnhancedMode: '',
+			catchFakeip: false,
+			fakeIpRange: '',
+			sourceNetworkInterfaces: [],
+			alwaysProxyDstCount: 0,
+			alwaysProxySrcCount: 0
+		},
 		config: emptyConfigState(),
 		errors: []
 	};
@@ -138,6 +160,28 @@ return baseclass.extend({
 			state.sourceNetworkInterfaces = Array.isArray(payload.source_network_interfaces) ? payload.source_network_interfaces.map(String) : [];
 			state.alwaysProxyDstCount = Number(payload.always_proxy_dst_count || 0);
 			state.alwaysProxySrcCount = Number(payload.always_proxy_src_count || 0);
+			state.runtimeSnapshotPresent = !!payload.runtime_snapshot_present;
+			state.runtimeLiveStatePresent = !!payload.runtime_live_state_present;
+			state.runtimeSafeReloadReady = !!payload.runtime_safe_reload_ready;
+			state.runtimeMatchesDesired = !!payload.runtime_matches_desired;
+			state.active = Object.assign(state.active, {
+				present: !!payload.active?.present,
+				enabled: !!payload.active?.enabled,
+				dnsHijack: !!payload.active?.dns_hijack,
+				mihomoDnsPort: String(payload.active?.mihomo_dns_port || ''),
+				mihomoDnsListen: String(payload.active?.mihomo_dns_listen || ''),
+				mihomoTproxyPort: String(payload.active?.mihomo_tproxy_port || ''),
+				mihomoRoutingMark: String(payload.active?.mihomo_routing_mark || ''),
+				routeTableId: String(payload.active?.route_table_id || ''),
+				routeRulePriority: String(payload.active?.route_rule_priority || ''),
+				disableQuic: !!payload.active?.disable_quic,
+				dnsEnhancedMode: String(payload.active?.dns_enhanced_mode || ''),
+				catchFakeip: !!payload.active?.catch_fakeip,
+				fakeIpRange: String(payload.active?.fakeip_range || ''),
+				sourceNetworkInterfaces: Array.isArray(payload.active?.source_network_interfaces) ? payload.active.source_network_interfaces.map(String) : [],
+				alwaysProxyDstCount: Number(payload.active?.always_proxy_dst_count || 0),
+				alwaysProxySrcCount: Number(payload.active?.always_proxy_src_count || 0)
+			});
 			state.config = assignConfigState(emptyConfigState(), payload.config || {});
 			state.errors = Array.isArray(payload.errors) ? payload.errors.map(String) : [];
 			return state;

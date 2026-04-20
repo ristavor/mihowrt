@@ -174,6 +174,10 @@ runtime_snapshot_exists() {
 	return "${TEST_RUNTIME_SNAPSHOT_EXISTS_RC:-1}"
 }
 
+runtime_live_state_present() {
+	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-1}"
+}
+
 runtime_snapshot_restore() {
 	printf 'runtime_snapshot_restore\n' >>"$event_log"
 	return "${TEST_RUNTIME_SNAPSHOT_RESTORE_RC:-0}"
@@ -213,6 +217,7 @@ TEST_VALIDATE_RUNTIME_RC=0
 TEST_APPLY_RUNTIME_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_RUNTIME_SNAPSHOT_RESTORE_RC=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_ROUTE_STATE_SEQUENCE="reload-success"
 TEST_ROUTE_STATE_READ_COUNT=0
 reload_runtime_state
@@ -226,6 +231,7 @@ assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_st
 : > "$event_log"
 TEST_ENABLED=0
 TEST_ROUTE_STATE_SEQUENCE="single"
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 reload_runtime_state
 assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean runtime state when policy layer is disabled"
 assert_file_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should log disabled cleanup path"
@@ -243,6 +249,7 @@ TEST_VALIDATE_RUNTIME_RC=0
 TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_APPLY_RUNTIME_RC=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 assert_false "reload_runtime_state should restore previous runtime state when new apply fails" reload_runtime_state
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should attempt live apply before rollback"
 assert_file_contains "$event_log" "runtime_snapshot_restore" "reload_runtime_state should restore previous runtime snapshot on apply failure"
@@ -253,10 +260,20 @@ TEST_APPLY_RUNTIME_RC=0
 : > "$event_log"
 TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 reload_runtime_state
-assert_file_contains "$event_log" "warn:Runtime snapshot unavailable, using legacy reload path" "reload_runtime_state should warn when safer rollback is unavailable"
+assert_file_contains "$event_log" "warn:Runtime snapshot unavailable; applying policy from clean state" "reload_runtime_state should warn when applying without saved snapshot but no live state exists"
 assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should fall back to legacy cleanup path without snapshot"
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should still apply runtime state after legacy cleanup"
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+assert_false "reload_runtime_state should refuse in-place reload when live state exists without snapshot" reload_runtime_state
+assert_file_contains "$event_log" "err:Runtime snapshot unavailable; refusing in-place reload while live policy state exists" "reload_runtime_state should report blocked reload without snapshot"
+assert_file_not_contains "$event_log" "cleanup_runtime_state" "blocked reload should not tear down live state"
+assert_file_not_contains "$event_log" "apply_runtime_state" "blocked reload should not apply new state"
 
 dns_recovery_needed() {
 	return "${TEST_DNS_RECOVERY_NEEDED_RC:-1}"

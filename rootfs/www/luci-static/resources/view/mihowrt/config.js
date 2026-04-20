@@ -116,16 +116,24 @@ async function pollStatus(targetStatus, timeout = 5000) {
 
 async function toggleService() {
 	const running = await getServiceStatus();
+	const targetStatus = !running;
+
 	if (running) {
 		if (!(await stopService()))
 			return;
-		await pollStatus(false);
 	}
 	else {
 		if (!(await startService()))
 			return;
-		await pollStatus(true);
 	}
+
+	if (!(await pollStatus(targetStatus))) {
+		notify(targetStatus
+			? _('Service start timed out. Check diagnostics and system log.')
+			: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
+		return;
+	}
+
 	window.location.reload();
 }
 

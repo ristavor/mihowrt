@@ -216,6 +216,49 @@ runtime_snapshot_restore() {
 	return 0
 }
 
+runtime_live_state_present() {
+	policy_route_state_read && return 0
+	dns_backup_exists && return 0
+	nft_table_exists && return 0
+	return 1
+}
+
+runtime_snapshot_status_json() {
+	local snapshot_file dst_snapshot src_snapshot
+	local dst_count=0 src_count=0
+
+	require_command jq || return 1
+	runtime_snapshot_exists || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	dst_snapshot="$(runtime_snapshot_dst_file)"
+	src_snapshot="$(runtime_snapshot_src_file)"
+	dst_count="$(count_valid_list_entries "$dst_snapshot")"
+	src_count="$(count_valid_list_entries "$src_snapshot")"
+
+	jq -c \
+		--arg dst_count "$dst_count" \
+		--arg src_count "$src_count" \
+		'{
+			present: true,
+			enabled: (.enabled // false),
+			dns_hijack: (.dns_hijack // false),
+			mihomo_dns_port: (.mihomo_dns_port // ""),
+			mihomo_dns_listen: (.mihomo_dns_listen // ""),
+			mihomo_tproxy_port: (.mihomo_tproxy_port // ""),
+			mihomo_routing_mark: (.mihomo_routing_mark // ""),
+			route_table_id: (.route_table_id_effective // ""),
+			route_rule_priority: (.route_rule_priority_effective // ""),
+			disable_quic: (.disable_quic // false),
+			dns_enhanced_mode: (.dns_enhanced_mode // ""),
+			catch_fakeip: (.catch_fakeip // false),
+			fakeip_range: (.fakeip_range // ""),
+			source_network_interfaces: (.source_network_interfaces // []),
+			always_proxy_dst_count: ($dst_count | tonumber? // 0),
+			always_proxy_src_count: ($src_count | tonumber? // 0)
+		}' "$snapshot_file"
+}
+
 load_runtime_config_from_yaml() {
 	local config_json
 	local config_errors
@@ -376,13 +419,14 @@ recover_runtime_state() {
 reload_runtime_state() {
 	local old_route_table_id="" old_route_rule_priority=""
 	local new_route_table_id="" new_route_rule_priority=""
-	local had_snapshot=0
+	local had_snapshot=0 live_runtime_present=0
 
 	if policy_route_state_read; then
 		old_route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
 		old_route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
 	fi
 	runtime_snapshot_exists && had_snapshot=1 || had_snapshot=0
+	runtime_live_state_present && live_runtime_present=1 || live_runtime_present=0
 
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
@@ -393,8 +437,13 @@ reload_runtime_state() {
 		return 0
 	fi
 
+	if [ "$had_snapshot" -eq 0 ] && [ "$live_runtime_present" -eq 1 ]; then
+		err "Runtime snapshot unavailable; refusing in-place reload while live policy state exists"
+		return 1
+	fi
+
 	if [ "$had_snapshot" -eq 0 ]; then
-		warn "Runtime snapshot unavailable, using legacy reload path"
+		warn "Runtime snapshot unavailable; applying policy from clean state"
 		cleanup_runtime_state
 		apply_runtime_state
 		return $?
@@ -443,10 +492,11 @@ status_json() {
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0
 	local service_enabled=0 service_running=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
-	local config_json="" fallback_config_json=""
+	local config_json="" fallback_config_json="" active_json="" runtime_matches_desired="true"
 	local pkg_config="${PKG_CONFIG:-mihowrt}" clash_config="${CLASH_CONFIG:-/opt/clash/config.yaml}"
 	local dst_list_file="${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}"
 	local src_list_file="${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}"
+	local runtime_snapshot_present=0 runtime_live_present=0 runtime_safe_reload_ready=1
 
 	require_command jq || return 1
 	SOURCE_INTERFACES=""
@@ -493,6 +543,7 @@ status_json() {
 	service_running_state && service_running=1 || service_running=0
 	dns_backup_exists && dns_backup_exists_flag=1 || dns_backup_exists_flag=0
 	dns_backup_valid && dns_backup_valid_flag=1 || dns_backup_valid_flag=0
+	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
 
 	if policy_route_state_read; then
 		route_state_present=1
@@ -500,8 +551,66 @@ status_json() {
 		route_rule_priority_effective="$ROUTE_RULE_PRIORITY_EFFECTIVE"
 	fi
 
+	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
+	if [ -n "$active_json" ]; then
+		runtime_snapshot_present=1
+	else
+		active_json="$(jq -nc '{
+			present: false,
+			enabled: false,
+			dns_hijack: false,
+			mihomo_dns_port: "",
+			mihomo_dns_listen: "",
+			mihomo_tproxy_port: "",
+			mihomo_routing_mark: "",
+			route_table_id: "",
+			route_rule_priority: "",
+			disable_quic: false,
+			dns_enhanced_mode: "",
+			catch_fakeip: false,
+			fakeip_range: "",
+			source_network_interfaces: [],
+			always_proxy_dst_count: 0,
+			always_proxy_src_count: 0
+		}')"
+	fi
+
+	if [ "$runtime_snapshot_present" -eq 0 ] && [ "$runtime_live_present" -eq 1 ]; then
+		runtime_safe_reload_ready=0
+		runtime_matches_desired="false"
+	elif [ "$runtime_snapshot_present" -eq 1 ]; then
+		runtime_matches_desired="$(
+			jq -nr \
+				--argjson config "$config_json" \
+				--argjson active "$active_json" \
+				--arg dns_hijack "$dns_hijack" \
+				--arg route_table_id "$route_table_id" \
+				--arg route_rule_priority "$route_rule_priority" \
+				--arg disable_quic "$disable_quic" \
+				--arg source_interfaces "$source_interfaces" \
+				--arg proxy_dst_count "$proxy_dst_count" \
+				--arg proxy_src_count "$proxy_src_count" \
+				'(
+					($active.dns_hijack == ($dns_hijack == "1")) and
+					($active.disable_quic == ($disable_quic == "1")) and
+					($active.source_network_interfaces == ($source_interfaces | split(" ") | map(select(length > 0)))) and
+					($active.always_proxy_dst_count == ($proxy_dst_count | tonumber? // 0)) and
+					($active.always_proxy_src_count == ($proxy_src_count | tonumber? // 0)) and
+					(($route_table_id == "") or ($active.route_table_id == $route_table_id)) and
+					(($route_rule_priority == "") or ($active.route_rule_priority == $route_rule_priority)) and
+					(($active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
+					(($active.mihomo_tproxy_port // "") == ($config.tproxy_port // "")) and
+					(($active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and
+					(($active.dns_enhanced_mode // "") == ($config.enhanced_mode // "")) and
+					(($active.catch_fakeip // false) == ($config.catch_fakeip // false)) and
+					(($active.fakeip_range // "") == ($config.fake_ip_range // ""))
+				)'
+		)"
+	fi
+
 	jq -nc \
 		--argjson config "$config_json" \
+		--argjson active "$active_json" \
 		--arg enabled "$enabled" \
 		--arg dns_hijack "$dns_hijack" \
 		--arg route_table_id "$route_table_id" \
@@ -517,6 +626,10 @@ status_json() {
 		--arg route_state_present "$route_state_present" \
 		--arg route_table_id_effective "$route_table_id_effective" \
 		--arg route_rule_priority_effective "$route_rule_priority_effective" \
+		--arg runtime_snapshot_present "$runtime_snapshot_present" \
+		--arg runtime_live_present "$runtime_live_present" \
+		--arg runtime_safe_reload_ready "$runtime_safe_reload_ready" \
+		--arg runtime_matches_desired "$runtime_matches_desired" \
 		'{
 			service_enabled: ($service_enabled == "1"),
 			service_running: ($service_running == "1"),
@@ -533,15 +646,30 @@ status_json() {
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0))),
 			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),
 			always_proxy_src_count: ($proxy_src_count | tonumber? // 0),
+			runtime_snapshot_present: ($runtime_snapshot_present == "1"),
+			runtime_live_state_present: ($runtime_live_present == "1"),
+			runtime_safe_reload_ready: ($runtime_safe_reload_ready == "1"),
+			runtime_matches_desired: ($runtime_matches_desired == "true"),
+			active: $active,
 			config: $config,
 			errors: ($config.errors // [])
 		}'
 }
 
 status_runtime_state() {
+	local active_json=""
+	local runtime_snapshot_present=0 runtime_live_present=0 runtime_safe_reload_ready=1 runtime_matches_desired=1
+
 	load_runtime_config || return 1
 	PROXY_DST_COUNT="$(count_valid_list_entries "$DST_LIST_FILE")"
 	PROXY_SRC_COUNT="$(count_valid_list_entries "$SRC_LIST_FILE")"
+	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
+	[ -n "$active_json" ] && runtime_snapshot_present=1 || runtime_snapshot_present=0
+	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
+	if [ "$runtime_snapshot_present" -eq 0 ] && [ "$runtime_live_present" -eq 1 ]; then
+		runtime_safe_reload_ready=0
+		runtime_matches_desired=0
+	fi
 
 	echo "enabled=$ENABLED"
 	echo "mihomo_dns_port=$MIHOMO_DNS_PORT"
@@ -558,4 +686,19 @@ status_runtime_state() {
 	echo "source_network_interfaces=$SOURCE_INTERFACES"
 	echo "always_proxy_dst_count=$PROXY_DST_COUNT"
 	echo "always_proxy_src_count=$PROXY_SRC_COUNT"
+	echo "runtime_snapshot_present=$runtime_snapshot_present"
+	echo "runtime_live_state_present=$runtime_live_present"
+	echo "runtime_safe_reload_ready=$runtime_safe_reload_ready"
+	echo "runtime_matches_desired=$runtime_matches_desired"
+
+	if [ "$runtime_snapshot_present" -eq 1 ]; then
+		echo "active_enabled=$(printf '%s\n' "$active_json" | jq -r 'if .enabled then 1 else 0 end')"
+		echo "active_dns_hijack=$(printf '%s\n' "$active_json" | jq -r 'if .dns_hijack then 1 else 0 end')"
+		echo "active_route_table_id=$(printf '%s\n' "$active_json" | jq -r '.route_table_id // ""')"
+		echo "active_route_rule_priority=$(printf '%s\n' "$active_json" | jq -r '.route_rule_priority // ""')"
+		echo "active_disable_quic=$(printf '%s\n' "$active_json" | jq -r 'if .disable_quic then 1 else 0 end')"
+		echo "active_source_network_interfaces=$(printf '%s\n' "$active_json" | jq -r '(.source_network_interfaces // []) | join(" ")')"
+		echo "active_always_proxy_dst_count=$(printf '%s\n' "$active_json" | jq -r '.always_proxy_dst_count // 0')"
+		echo "active_always_proxy_src_count=$(printf '%s\n' "$active_json" | jq -r '.always_proxy_src_count // 0')"
+	fi
 }

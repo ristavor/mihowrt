@@ -58,6 +58,32 @@ assert_eq "zashboard" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_name
 assert_eq "0" "$(printf '%s\n' "$config_json" | jq -r '.errors | length')" "read_config_json should not emit errors for valid config"
 
 cat > "$CLASH_CONFIG" <<'EOF'
+# parser should keep quoted scalars intact and ignore unrelated nested dns keys
+external-ui-name: "meta cube"
+external-controller: "127.0.0.1:9090#frag"
+external-ui: "./ui bundle"
+secret: "abc#123"
+routing-mark: 100
+tproxy-port: "7894"
+
+dns:
+  fake-ip-filter:
+    - "+.lan"
+  listen: "0.0.0.0:5353"
+  enhanced-mode: fake-ip # inline comment
+  fake-ip-range: "198.18.0.0/15"
+EOF
+
+quoted_json="$(read_config_json)"
+
+assert_eq "5353" "$(printf '%s\n' "$quoted_json" | jq -r '.dns_port')" "read_config_json should parse quoted dns.listen"
+assert_eq "127.0.0.1#5353" "$(printf '%s\n' "$quoted_json" | jq -r '.mihomo_dns_listen')" "read_config_json should normalize quoted dns.listen"
+assert_eq "127.0.0.1:9090#frag" "$(printf '%s\n' "$quoted_json" | jq -r '.external_controller')" "read_config_json should preserve quoted controller with hash"
+assert_eq "abc#123" "$(printf '%s\n' "$quoted_json" | jq -r '.secret')" "read_config_json should preserve quoted secret with hash"
+assert_eq "meta cube" "$(printf '%s\n' "$quoted_json" | jq -r '.external_ui_name')" "read_config_json should preserve spaced external UI name"
+assert_eq "0" "$(printf '%s\n' "$quoted_json" | jq -r '.errors | length')" "read_config_json should ignore unrelated nested dns keys"
+
+cat > "$CLASH_CONFIG" <<'EOF'
 tproxy-port: bad
 
 dns:
@@ -72,5 +98,15 @@ assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contai
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Invalid tproxy-port"))')" "read_config_json should report invalid tproxy-port"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Missing routing-mark"))')" "read_config_json should report missing routing mark"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Missing dns.fake-ip-range"))')" "read_config_json should report missing fake-ip range"
+
+cat > "$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+routing-mark: 2
+dns: *shared_dns
+EOF
+
+alias_json="$(read_config_json)"
+
+assert_eq "true" "$(printf '%s\n' "$alias_json" | jq -r 'any(.errors[]; contains("Missing dns.listen"))')" "read_config_json should fail closed when dns block comes from alias"
 
 pass "config parsing helpers"

@@ -19,6 +19,14 @@ log() {
 	printf 'log:%s\n' "$*" >>"$event_log"
 }
 
+warn() {
+	printf 'warn:%s\n' "$*" >>"$event_log"
+}
+
+err() {
+	printf 'err:%s\n' "$*" >>"$event_log"
+}
+
 ensure_dir() {
 	printf 'ensure_dir:%s\n' "$1" >>"$event_log"
 	mkdir -p "$1"
@@ -54,14 +62,26 @@ policy_route_cleanup() {
 	return "${TEST_POLICY_ROUTE_CLEANUP_RC:-0}"
 }
 
+runtime_snapshot_save() {
+	printf 'runtime_snapshot_save\n' >>"$event_log"
+	return "${TEST_RUNTIME_SNAPSHOT_SAVE_RC:-0}"
+}
+
+runtime_snapshot_clear() {
+	printf 'runtime_snapshot_clear\n' >>"$event_log"
+	return 0
+}
+
 : > "$event_log"
 TEST_NFT_APPLY_RC=0
 TEST_DNS_SETUP_RC=0
+TEST_RUNTIME_SNAPSHOT_SAVE_RC=0
 apply_runtime_state
 assert_file_contains "$event_log" "ensure_dir:$PKG_TMP_DIR" "apply_runtime_state should ensure runtime dir exists"
 assert_file_contains "$event_log" "policy_route_setup" "apply_runtime_state should set up route state"
 assert_file_contains "$event_log" "nft_apply_policy" "apply_runtime_state should apply nftables policy"
 assert_file_contains "$event_log" "dns_setup" "apply_runtime_state should set up DNS hijack"
+assert_file_contains "$event_log" "runtime_snapshot_save" "apply_runtime_state should persist runtime snapshot after success"
 assert_file_contains "$event_log" "log:Prepared direct-first policy state" "apply_runtime_state should log success"
 
 nft_apply_policy() {
@@ -105,11 +125,28 @@ policy_route_cleanup() {
 	return 1
 }
 
+dns_setup() {
+	printf 'dns_setup\n' >>"$event_log"
+	return 0
+}
+
+: > "$event_log"
+TEST_RUNTIME_SNAPSHOT_SAVE_RC=1
+assert_false "apply_runtime_state should fail when runtime snapshot persistence fails" apply_runtime_state
+assert_file_contains "$event_log" "runtime_snapshot_save" "apply_runtime_state should attempt to persist runtime snapshot"
+assert_file_contains "$event_log" "dns_restore" "apply_runtime_state should restore DNS after snapshot persistence failure"
+assert_file_contains "$event_log" "nft_remove_policy" "apply_runtime_state should remove nft policy after snapshot persistence failure"
+assert_file_contains "$event_log" "policy_route_cleanup" "apply_runtime_state should clean route state after snapshot persistence failure"
+assert_file_contains "$event_log" "runtime_snapshot_clear" "apply_runtime_state should drop partial runtime snapshot after snapshot failure"
+assert_file_contains "$event_log" "err:Failed to persist runtime snapshot" "apply_runtime_state should report snapshot persistence failure"
+TEST_RUNTIME_SNAPSHOT_SAVE_RC=0
+
 : > "$event_log"
 cleanup_runtime_state
 assert_file_contains "$event_log" "dns_restore" "cleanup_runtime_state should try DNS restore"
 assert_file_contains "$event_log" "nft_remove_policy" "cleanup_runtime_state should try nft cleanup"
 assert_file_contains "$event_log" "policy_route_cleanup" "cleanup_runtime_state should try route cleanup"
+assert_file_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should clear runtime snapshot"
 assert_file_contains "$event_log" "log:Cleaned up direct-first policy state" "cleanup_runtime_state should log cleanup success"
 
 cleanup_runtime_state() {
@@ -130,21 +167,65 @@ validate_runtime_config() {
 
 apply_runtime_state() {
 	printf 'apply_runtime_state\n' >>"$event_log"
-	return 0
+	return "${TEST_APPLY_RUNTIME_RC:-0}"
+}
+
+runtime_snapshot_exists() {
+	return "${TEST_RUNTIME_SNAPSHOT_EXISTS_RC:-1}"
+}
+
+runtime_snapshot_restore() {
+	printf 'runtime_snapshot_restore\n' >>"$event_log"
+	return "${TEST_RUNTIME_SNAPSHOT_RESTORE_RC:-0}"
+}
+
+policy_route_teardown_ids() {
+	printf 'policy_route_teardown_ids:%s:%s\n' "$1" "$2" >>"$event_log"
+}
+
+policy_route_state_read() {
+	if [ "${TEST_ROUTE_STATE_SEQUENCE:-single}" = "reload-success" ]; then
+		TEST_ROUTE_STATE_READ_COUNT="${TEST_ROUTE_STATE_READ_COUNT:-0}"
+		TEST_ROUTE_STATE_READ_COUNT=$((TEST_ROUTE_STATE_READ_COUNT + 1))
+		case "$TEST_ROUTE_STATE_READ_COUNT" in
+			1)
+				ROUTE_TABLE_ID_EFFECTIVE="200"
+				ROUTE_RULE_PRIORITY_EFFECTIVE="10000"
+				;;
+			2)
+				ROUTE_TABLE_ID_EFFECTIVE="201"
+				ROUTE_RULE_PRIORITY_EFFECTIVE="10001"
+				;;
+			*)
+				return 1
+				;;
+		esac
+		return 0
+	fi
+
+	return 1
 }
 
 : > "$event_log"
 TEST_ENABLED=1
 TEST_LOAD_RUNTIME_RC=0
 TEST_VALIDATE_RUNTIME_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_RUNTIME_SNAPSHOT_RESTORE_RC=0
+TEST_ROUTE_STATE_SEQUENCE="reload-success"
+TEST_ROUTE_STATE_READ_COUNT=0
 reload_runtime_state
 assert_file_contains "$event_log" "load_runtime_config" "reload_runtime_state should load runtime config before changes"
 assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate runtime config before teardown"
-assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean old state after validation"
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply new runtime state when enabled"
+assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_runtime_state should remove previous route ids after successful apply"
+assert_file_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should log successful safer reload"
+assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should not tear down live state before apply when snapshot exists"
 
 : > "$event_log"
 TEST_ENABLED=0
+TEST_ROUTE_STATE_SEQUENCE="single"
 reload_runtime_state
 assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean runtime state when policy layer is disabled"
 assert_file_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should log disabled cleanup path"
@@ -157,6 +238,25 @@ assert_false "reload_runtime_state should fail validation before teardown" reloa
 assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate before returning failure"
 assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should not tear down live state when validation fails"
 TEST_VALIDATE_RUNTIME_RC=0
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_APPLY_RUNTIME_RC=1
+assert_false "reload_runtime_state should restore previous runtime state when new apply fails" reload_runtime_state
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should attempt live apply before rollback"
+assert_file_contains "$event_log" "runtime_snapshot_restore" "reload_runtime_state should restore previous runtime snapshot on apply failure"
+assert_file_contains "$event_log" "err:Failed to apply updated policy; restoring previous runtime state" "reload_runtime_state should log rollback start"
+assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should avoid full cleanup before rollback"
+TEST_APPLY_RUNTIME_RC=0
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+reload_runtime_state
+assert_file_contains "$event_log" "warn:Runtime snapshot unavailable, using legacy reload path" "reload_runtime_state should warn when safer rollback is unavailable"
+assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should fall back to legacy cleanup path without snapshot"
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should still apply runtime state after legacy cleanup"
 
 dns_recovery_needed() {
 	return "${TEST_DNS_RECOVERY_NEEDED_RC:-1}"

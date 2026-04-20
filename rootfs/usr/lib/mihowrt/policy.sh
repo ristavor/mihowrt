@@ -39,6 +39,183 @@ default_source_interface() {
 	detect_lan_interface || printf '%s' 'br-lan'
 }
 
+runtime_snapshot_file() {
+	printf '%s\n' "${RUNTIME_SNAPSHOT_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.snapshot.json}"
+}
+
+runtime_snapshot_dst_file() {
+	printf '%s\n' "${RUNTIME_SNAPSHOT_DST_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/always_proxy_dst.snapshot}"
+}
+
+runtime_snapshot_src_file() {
+	printf '%s\n' "${RUNTIME_SNAPSHOT_SRC_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/always_proxy_src.snapshot}"
+}
+
+runtime_snapshot_exists() {
+	[ -f "$(runtime_snapshot_file)" ] || return 1
+	[ -f "$(runtime_snapshot_dst_file)" ] || return 1
+	[ -f "$(runtime_snapshot_src_file)" ] || return 1
+}
+
+runtime_snapshot_clear() {
+	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)"
+}
+
+runtime_snapshot_copy_file() {
+	local src="$1"
+	local dst="$2"
+
+	if [ -f "$src" ]; then
+		cp -f "$src" "$dst" || return 1
+	else
+		: > "$dst" || return 1
+	fi
+
+	return 0
+}
+
+runtime_snapshot_save() {
+	local snapshot_file dst_snapshot src_snapshot
+	local snapshot_tmp dst_tmp src_tmp
+	local route_table_id="" route_rule_priority=""
+	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+
+	require_command jq || return 1
+	policy_route_state_read || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	dst_snapshot="$(runtime_snapshot_dst_file)"
+	src_snapshot="$(runtime_snapshot_src_file)"
+	route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
+	route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+
+	ensure_dir "$(dirname "$snapshot_file")" || return 1
+	snapshot_tmp="${snapshot_file}.tmp.$$"
+	dst_tmp="${dst_snapshot}.tmp.$$"
+	src_tmp="${src_snapshot}.tmp.$$"
+
+	runtime_snapshot_copy_file "$dst_list_file" "$dst_tmp" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		return 1
+	}
+	runtime_snapshot_copy_file "$src_list_file" "$src_tmp" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		return 1
+	}
+
+	jq -nc \
+		--arg enabled "$ENABLED" \
+		--arg dns_hijack "$DNS_HIJACK" \
+		--arg mihomo_dns_port "$MIHOMO_DNS_PORT" \
+		--arg mihomo_dns_listen "$MIHOMO_DNS_LISTEN" \
+		--arg mihomo_tproxy_port "$MIHOMO_TPROXY_PORT" \
+		--arg mihomo_routing_mark "$MIHOMO_ROUTING_MARK" \
+		--arg route_table_id_effective "$route_table_id" \
+		--arg route_rule_priority_effective "$route_rule_priority" \
+		--arg disable_quic "$DISABLE_QUIC" \
+		--arg dns_enhanced_mode "$DNS_ENHANCED_MODE" \
+		--arg catch_fakeip "$CATCH_FAKEIP" \
+		--arg fakeip_range "$FAKEIP_RANGE" \
+		--arg source_interfaces "$SOURCE_INTERFACES" \
+		'{
+			enabled: ($enabled == "1"),
+			dns_hijack: ($dns_hijack == "1"),
+			mihomo_dns_port: $mihomo_dns_port,
+			mihomo_dns_listen: $mihomo_dns_listen,
+			mihomo_tproxy_port: $mihomo_tproxy_port,
+			mihomo_routing_mark: $mihomo_routing_mark,
+			route_table_id_effective: $route_table_id_effective,
+			route_rule_priority_effective: $route_rule_priority_effective,
+			disable_quic: ($disable_quic == "1"),
+			dns_enhanced_mode: $dns_enhanced_mode,
+			catch_fakeip: ($catch_fakeip == "1"),
+			fakeip_range: $fakeip_range,
+			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
+		}' > "$snapshot_tmp" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		return 1
+	}
+
+	mv -f "$dst_tmp" "$dst_snapshot" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$dst_snapshot"
+		return 1
+	}
+	mv -f "$src_tmp" "$src_snapshot" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$src_snapshot"
+		return 1
+	}
+	mv -f "$snapshot_tmp" "$snapshot_file" || {
+		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		return 1
+	}
+
+	log "Saved runtime snapshot"
+	return 0
+}
+
+runtime_snapshot_load() {
+	local snapshot_file snapshot_json=""
+	local dst_snapshot src_snapshot
+
+	require_command jq || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	dst_snapshot="$(runtime_snapshot_dst_file)"
+	src_snapshot="$(runtime_snapshot_src_file)"
+
+	[ -f "$snapshot_file" ] || return 1
+	[ -f "$dst_snapshot" ] || return 1
+	[ -f "$src_snapshot" ] || return 1
+
+	snapshot_json="$(cat "$snapshot_file")" || return 1
+
+	eval "$(
+		printf '%s\n' "$snapshot_json" | jq -r '
+			@sh "ENABLED=\(if .enabled then 1 else 0 end) DNS_HIJACK=\(if .dns_hijack then 1 else 0 end) MIHOMO_DNS_PORT=\(.mihomo_dns_port // "") MIHOMO_DNS_LISTEN=\(.mihomo_dns_listen // "") MIHOMO_TPROXY_PORT=\(.mihomo_tproxy_port // "") MIHOMO_ROUTING_MARK=\(.mihomo_routing_mark // "") MIHOMO_ROUTE_TABLE_ID=\(.route_table_id_effective // "") MIHOMO_ROUTE_RULE_PRIORITY=\(.route_rule_priority_effective // "") DISABLE_QUIC=\(if .disable_quic then 1 else 0 end) DNS_ENHANCED_MODE=\(.dns_enhanced_mode // "") CATCH_FAKEIP=\(if .catch_fakeip then 1 else 0 end) FAKEIP_RANGE=\(.fakeip_range // "") SOURCE_INTERFACES=\((.source_network_interfaces // []) | join(" "))"
+		'
+	)" || return 1
+
+	POLICY_DST_LIST_FILE="$dst_snapshot"
+	POLICY_SRC_LIST_FILE="$src_snapshot"
+	return 0
+}
+
+runtime_snapshot_restore() {
+	local prev_dst_list_file="" prev_src_list_file=""
+	local prev_dst_list_set=0 prev_src_list_set=0
+	local rc=0
+
+	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
+		prev_dst_list_set=1
+		prev_dst_list_file="$POLICY_DST_LIST_FILE"
+	}
+	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
+		prev_src_list_set=1
+		prev_src_list_file="$POLICY_SRC_LIST_FILE"
+	}
+
+	runtime_snapshot_load || return 1
+	apply_runtime_state_internal || rc=$?
+
+	if [ "$prev_dst_list_set" -eq 1 ]; then
+		POLICY_DST_LIST_FILE="$prev_dst_list_file"
+	else
+		unset POLICY_DST_LIST_FILE
+	fi
+
+	if [ "$prev_src_list_set" -eq 1 ]; then
+		POLICY_SRC_LIST_FILE="$prev_src_list_file"
+	else
+		unset POLICY_SRC_LIST_FILE
+	fi
+
+	[ "$rc" -eq 0 ] || return "$rc"
+
+	log "Restored previous runtime snapshot"
+	return 0
+}
+
 load_runtime_config_from_yaml() {
 	local config_json
 	local config_errors
@@ -146,7 +323,7 @@ prepare_runtime_state() {
 	apply_runtime_state
 }
 
-apply_runtime_state() {
+apply_runtime_state_internal() {
 	ensure_dir "$PKG_TMP_DIR"
 
 	policy_route_setup || return 1
@@ -166,10 +343,26 @@ apply_runtime_state() {
 	return 0
 }
 
+apply_runtime_state() {
+	apply_runtime_state_internal || return 1
+
+	runtime_snapshot_save || {
+		err "Failed to persist runtime snapshot"
+		dns_restore || true
+		nft_remove_policy || true
+		policy_route_cleanup || true
+		runtime_snapshot_clear
+		return 1
+	}
+
+	return 0
+}
+
 cleanup_runtime_state() {
 	dns_restore || true
 	nft_remove_policy || true
 	policy_route_cleanup || true
+	runtime_snapshot_clear
 	log "Cleaned up direct-first policy state"
 	return 0
 }
@@ -181,16 +374,53 @@ recover_runtime_state() {
 }
 
 reload_runtime_state() {
+	local old_route_table_id="" old_route_rule_priority=""
+	local new_route_table_id="" new_route_rule_priority=""
+	local had_snapshot=0
+
+	if policy_route_state_read; then
+		old_route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
+		old_route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+	fi
+	runtime_snapshot_exists && had_snapshot=1 || had_snapshot=0
+
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
-	cleanup_runtime_state
 
 	if [ "$ENABLED" != "1" ]; then
+		cleanup_runtime_state
 		log "Policy layer disabled; runtime state left clean"
 		return 0
 	fi
 
-	apply_runtime_state
+	if [ "$had_snapshot" -eq 0 ]; then
+		warn "Runtime snapshot unavailable, using legacy reload path"
+		cleanup_runtime_state
+		apply_runtime_state
+		return $?
+	fi
+
+	if ! apply_runtime_state; then
+		err "Failed to apply updated policy; restoring previous runtime state"
+		runtime_snapshot_restore || {
+			err "Failed to restore previous runtime state"
+			return 1
+		}
+		return 1
+	fi
+
+	if policy_route_state_read; then
+		new_route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
+		new_route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+	fi
+
+	if [ -n "$old_route_table_id" ] && [ -n "$old_route_rule_priority" ] &&
+		[ "$old_route_table_id:$old_route_rule_priority" != "$new_route_table_id:$new_route_rule_priority" ]; then
+		policy_route_teardown_ids "$old_route_table_id" "$old_route_rule_priority"
+	fi
+
+	log "Reloaded direct-first policy state"
+	return 0
 }
 
 service_enabled_state() {

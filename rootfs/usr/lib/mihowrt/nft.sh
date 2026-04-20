@@ -179,6 +179,9 @@ nft_emit_policy_rules() {
 }
 
 nft_apply_policy() {
+	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+
 	ensure_dir "$PKG_TMP_DIR"
 	NFT_BATCH_FILE="$(mktemp "$PKG_TMP_DIR/nft.XXXXXX")" || return 1
 	NFT_PROXY_DST_COUNT=0
@@ -196,11 +199,11 @@ nft_apply_policy() {
 		nft_cleanup_batch_file
 		return 1
 	}
-	nft_emit_ipv4_file_to_set "$DST_LIST_FILE" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT || {
+	nft_emit_ipv4_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT || {
 		nft_cleanup_batch_file
 		return 1
 	}
-	nft_emit_ipv4_file_to_set "$SRC_LIST_FILE" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT || {
+	nft_emit_ipv4_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT || {
 		nft_cleanup_batch_file
 		return 1
 	}

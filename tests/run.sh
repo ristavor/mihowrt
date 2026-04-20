@@ -15,7 +15,7 @@ printf 'ok - shell syntax\n'
 
 printf '==> js syntax\n'
 if command -v node >/dev/null 2>&1; then
-	node -e "new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/config.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/policy.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/backend.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ace.js','utf8'));"
+	node -e "new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/config.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/policy.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/backend.js','utf8')); new Function(require('fs').readFileSync('$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ace.js','utf8'));"
 	printf 'ok - js syntax\n'
 else
 	printf 'skip - js syntax (node missing)\n'

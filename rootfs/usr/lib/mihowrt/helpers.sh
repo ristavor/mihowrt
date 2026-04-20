@@ -324,9 +324,9 @@ $message"
 }
 
 read_config_json() {
-	local dns_listen_raw dns_port mihomo_dns_listen tproxy_port routing_mark
-	local enhanced_mode catch_fakeip fake_ip_range
-	local external_controller external_controller_tls secret external_ui external_ui_name
+	local dns_listen_raw="" dns_port="" mihomo_dns_listen="" tproxy_port="" routing_mark=""
+	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
+	local external_controller="" external_controller_tls="" secret="" external_ui="" external_ui_name=""
 	local ERRORS_RAW=""
 	local key raw value
 

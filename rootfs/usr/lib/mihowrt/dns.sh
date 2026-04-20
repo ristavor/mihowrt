@@ -7,17 +7,14 @@ dns_backup_exists() {
 dns_backup_valid() {
 	[ -f "$DNS_BACKUP_FILE" ] || return 1
 
-	grep -q '^DNSMASQ_BACKUP=1$' "$DNS_BACKUP_FILE" 2>/dev/null && return 0
+	grep -q '^DNSMASQ_BACKUP=1$' "$DNS_BACKUP_FILE" 2>/dev/null || return 1
 	grep -q '^ORIG_CACHESIZE=' "$DNS_BACKUP_FILE" 2>/dev/null || return 1
 	grep -q '^ORIG_NORESOLV=' "$DNS_BACKUP_FILE" 2>/dev/null || return 1
 	grep -q '^ORIG_RESOLVFILE=' "$DNS_BACKUP_FILE" 2>/dev/null || return 1
 }
 
-dns_mark_shutdown_state() {
-	local value="$1"
-
-	uci set ${PKG_CONFIG}.settings.shutdown_correctly="$value" 2>/dev/null || true
-	uci commit "$PKG_CONFIG" >/dev/null 2>&1 || true
+dns_redirect_active() {
+	[ "$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null)" = "1" ]
 }
 
 dns_cleanup_backup_files() {
@@ -69,22 +66,18 @@ dns_restore_fallback() {
 
 	uci commit dhcp || return 1
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || warn "dnsmasq restart failed during fallback restore"
-	dns_mark_shutdown_state 1
+	dns_cleanup_backup_files
 	return 0
 }
 
 dns_recovery_needed() {
-	local shutdown_correctly
-
-	shutdown_correctly="$(uci -q get ${PKG_CONFIG}.settings.shutdown_correctly 2>/dev/null)"
-	[ "$shutdown_correctly" = "0" ]
+	dns_backup_exists || dns_redirect_active
 }
 
 dns_setup() {
-	local shutdown_correctly dns_target
+	local dns_target
 
-	shutdown_correctly="$(uci -q get ${PKG_CONFIG}.settings.shutdown_correctly 2>/dev/null)"
-	if [ "$shutdown_correctly" != "0" ]; then
+	if ! dns_backup_exists; then
 		if ! dns_backup_state; then
 			err "Failed to persist dnsmasq backup state"
 			return 1
@@ -99,7 +92,6 @@ dns_setup() {
 	uci add_list dhcp.@dnsmasq[0].server="$dns_target" || return 1
 	uci set dhcp.@dnsmasq[0].cachesize='0' || return 1
 	uci set dhcp.@dnsmasq[0].noresolv='1' || return 1
-	dns_mark_shutdown_state 0
 	uci commit dhcp || return 1
 
 	if ! /etc/init.d/dnsmasq restart >/dev/null 2>&1; then
@@ -112,12 +104,10 @@ dns_setup() {
 }
 
 dns_restore() {
-	local orig_cachesize orig_noresolv orig_resolvfile server shutdown_correctly has_servers=0 line
-
-	shutdown_correctly="$(uci -q get ${PKG_CONFIG}.settings.shutdown_correctly 2>/dev/null)"
+	local orig_cachesize orig_noresolv orig_resolvfile server has_servers=0 line
 
 	if ! dns_backup_exists; then
-		if [ "$shutdown_correctly" = "0" ]; then
+		if dns_redirect_active; then
 			return dns_restore_fallback
 		fi
 		log "No dnsmasq backup state found, skipping restore"
@@ -180,7 +170,6 @@ dns_restore() {
 	uci commit dhcp || return 1
 	/etc/init.d/dnsmasq restart >/dev/null 2>&1 || warn "dnsmasq restart failed during restore"
 
-	dns_mark_shutdown_state 1
 	dns_cleanup_backup_files
 	log "dnsmasq settings restored"
 	return 0

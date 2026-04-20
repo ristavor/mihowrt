@@ -342,7 +342,6 @@ restore_user_state() {
 	restore_file mihowrt.uci /etc/config/mihowrt
 	restore_file always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
 	restore_file always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
-	mark_shutdown_clean
 }
 
 service_enabled() {
@@ -377,18 +376,9 @@ wait_for_service_stop() {
 	return 1
 }
 
-mark_shutdown_clean() {
-	have_command uci || return 0
-	uci set mihowrt.settings.shutdown_correctly='1' >/dev/null 2>&1 || true
-	uci commit mihowrt >/dev/null 2>&1 || true
-}
-
-shutdown_state_dirty() {
-	local shutdown_state=""
-
+dns_restore_fallback_needed() {
 	have_command uci || return 1
-	shutdown_state="$(uci -q get mihowrt.settings.shutdown_correctly 2>/dev/null || true)"
-	[ "$shutdown_state" = "0" ]
+	[ "$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)" = "1" ]
 }
 
 restart_dnsmasq() {
@@ -483,7 +473,6 @@ restore_dns_from_backup_file() {
 
 	uci commit dhcp >/dev/null 2>&1 || return 1
 	restart_dnsmasq
-	mark_shutdown_clean
 	return 0
 }
 
@@ -501,7 +490,6 @@ restore_dns_defaults_fallback() {
 
 	uci commit dhcp >/dev/null 2>&1 || return 1
 	restart_dnsmasq
-	mark_shutdown_clean
 	return 0
 }
 
@@ -521,8 +509,7 @@ restore_system_dns_defaults() {
 		return 0
 	fi
 
-	if [ "$allow_fallback" != "1" ] && ! shutdown_state_dirty; then
-		mark_shutdown_clean
+	if [ "$allow_fallback" != "1" ] && ! dns_restore_fallback_needed; then
 		return 0
 	fi
 
@@ -532,7 +519,6 @@ restore_system_dns_defaults() {
 		log "System DNS settings restored using fallback defaults."
 	fi
 
-	mark_shutdown_clean
 	return 0
 }
 

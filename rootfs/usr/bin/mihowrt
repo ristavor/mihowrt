@@ -128,11 +128,17 @@ run_service() {
 		}
 		apply_config_file "$2"
 		;;
+	status-json)
+		status_json
+		;;
+	logs-json)
+		logs_json "${2:-200}"
+		;;
 	status)
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|apply-config|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|apply-config|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

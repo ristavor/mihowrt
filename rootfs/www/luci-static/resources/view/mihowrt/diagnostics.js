@@ -1,0 +1,185 @@
+'use strict';
+'require view';
+'require ui';
+'require mihowrt.backend as backendHelper';
+
+const LOG_LINE_LIMIT = 200;
+
+function badge(text, ok) {
+	return E('span', {
+		class: 'label',
+		style: 'display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;color:white;background-color:' + (ok ? '#5cb85c' : '#d9534f') + ';'
+	}, text);
+}
+
+function renderField(label, value) {
+	return E('div', {
+		style: 'padding:10px 12px;border:1px solid #ddd;border-radius:6px;background:#fff;'
+	}, [
+		E('div', {
+			style: 'font-size:12px;color:#666;margin-bottom:4px;'
+		}, label),
+		E('div', {
+			style: 'font-family:monospace;word-break:break-word;'
+		}, value)
+	]);
+}
+
+function setChildren(node, children) {
+	while (node.firstChild)
+		node.removeChild(node.firstChild);
+
+	children.forEach(child => node.appendChild(child));
+}
+
+function renderErrorList(errors) {
+	if (!errors || !errors.length)
+		return E('div', { style: 'color:#666;' }, _('No errors reported.'));
+
+	return E('ul', { style: 'margin:0;padding-left:20px;' }, errors.map(error =>
+		E('li', { style: 'color:#b94a48;' }, error)
+	));
+}
+
+function renderLogLines(logs) {
+	if (logs.errors && logs.errors.length)
+		return E('div', { style: 'color:#b94a48;' }, logs.errors.join('; '));
+
+	if (!logs.available)
+		return E('div', { style: 'color:#666;' }, _('System log reader is not available on this device.'));
+
+	if (!logs.lines.length)
+		return E('div', { style: 'color:#666;' }, _('No MihoWRT-related log lines found.'));
+
+	return E('pre', {
+		style: 'margin:0;max-height:480px;overflow:auto;padding:14px;border:1px solid #ddd;border-radius:6px;background:#111;color:#e9f6e9;white-space:pre-wrap;word-break:break-word;'
+	}, logs.lines.join('\n'));
+}
+
+return view.extend({
+	load: function() {
+		return Promise.all([
+			backendHelper.readStatus(),
+			backendHelper.readLogs(LOG_LINE_LIMIT)
+		]);
+	},
+
+	render: function(data) {
+		const summaryNode = E('div');
+		const runtimeNode = E('div');
+		const configNode = E('div');
+		const logsNode = E('div');
+		const refreshButton = E('button', {
+			class: 'btn cbi-button-action'
+		}, _('Refresh'));
+
+		const updateView = async function() {
+			refreshButton.disabled = true;
+
+			try {
+				const [status, logs] = await Promise.all([
+					backendHelper.readStatus(),
+					backendHelper.readLogs(LOG_LINE_LIMIT)
+				]);
+
+				setChildren(summaryNode, [
+					E('div', {
+						style: 'display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;'
+					}, [
+						badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
+						badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
+						badge(status.enabled ? _('Policy Enabled') : _('Policy Disabled'), status.enabled),
+						badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid)
+					]),
+					(status.errors && status.errors.length)
+						? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
+						: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))
+				]);
+
+				setChildren(runtimeNode, [
+					E('div', {
+						style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;'
+					}, [
+						renderField(_('Route Table'), status.routeTableId),
+						renderField(_('Route Rule Priority'), status.routeRulePriority),
+						renderField(_('Effective Route Table'), status.routeTableIdEffective || _('not active')),
+						renderField(_('Effective Route Rule Priority'), status.routeRulePriorityEffective || _('not active')),
+						renderField(_('DNS Hijack'), status.dnsHijack ? _('enabled') : _('disabled')),
+						renderField(_('Disable QUIC'), status.disableQuic ? _('enabled') : _('disabled')),
+						renderField(_('Source Interfaces'), status.sourceNetworkInterfaces.length ? status.sourceNetworkInterfaces.join(', ') : _('none')),
+						renderField(_('Always Proxy Dst Count'), String(status.alwaysProxyDstCount)),
+						renderField(_('Always Proxy Src Count'), String(status.alwaysProxySrcCount)),
+						renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),
+						renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
+					])
+				]);
+
+				setChildren(configNode, [
+					E('div', {
+						style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px;'
+					}, [
+						renderField(_('dns.listen -> local'), status.config.mihomoDnsListen || _('missing')),
+						renderField(_('DNS Port'), status.config.dnsPort || _('missing')),
+						renderField(_('TPROXY Port'), status.config.tproxyPort || _('missing')),
+						renderField(_('Routing Mark'), status.config.routingMark || _('missing')),
+						renderField(_('Enhanced Mode'), status.config.enhancedMode || _('none')),
+						renderField(_('Fake-IP Range'), status.config.fakeIpRange || _('none')),
+						renderField(_('External Controller'), status.config.externalController || _('none')),
+						renderField(_('External Controller TLS'), status.config.externalControllerTls || _('none')),
+						renderField(_('External UI Name'), status.config.externalUiName || _('none'))
+					]),
+					E('h3', { style: 'margin:0 0 8px 0;' }, _('Config Parse Errors')),
+					renderErrorList(status.config.errors)
+				]);
+
+				setChildren(logsNode, [
+					E('div', {
+						style: 'margin-bottom:10px;color:#666;'
+					}, _('Last %d MihoWRT-related system log lines.').format(logs.limit || LOG_LINE_LIMIT)),
+					renderLogLines(logs)
+				]);
+			}
+			catch (e) {
+				ui.addNotification(null, E('p', _('Failed to refresh diagnostics: %s').format(e.message)), 'error');
+			}
+			finally {
+				refreshButton.disabled = false;
+			}
+		};
+
+		refreshButton.addEventListener('click', updateView);
+		updateView();
+
+		return E([
+			E('div', {
+				style: 'margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;'
+			}, [
+				E('div', [
+					E('h2', { style: 'margin:0 0 6px 0;' }, _('MihoWRT Diagnostics')),
+					E('p', { class: 'cbi-section-descr', style: 'margin:0;' }, _('Runtime state, parsed config view, and system logs filtered for MihoWRT.'))
+				]),
+				refreshButton
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', { style: 'margin-top:0;' }, _('Summary')),
+				summaryNode
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', { style: 'margin-top:0;' }, _('Runtime')),
+				runtimeNode
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', { style: 'margin-top:0;' }, _('Parsed Config')),
+				configNode
+			]),
+			E('div', { class: 'cbi-section' }, [
+				E('h3', { style: 'margin-top:0;' }, _('Logs')),
+				logsNode
+			])
+		]);
+	},
+
+	handleSaveApply: null,
+	handleSave: null,
+	handleReset: null
+});

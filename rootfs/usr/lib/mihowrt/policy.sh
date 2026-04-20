@@ -193,6 +193,121 @@ reload_runtime_state() {
 	apply_runtime_state
 }
 
+service_enabled_state() {
+	local pkg_name="${PKG_NAME:-mihowrt}"
+
+	[ -x "/etc/init.d/$pkg_name" ] || return 1
+	"/etc/init.d/$pkg_name" enabled >/dev/null 2>&1
+}
+
+service_running_state() {
+	local pid="" pid_file="${SERVICE_PID_FILE:-/var/run/mihowrt/mihomo.pid}"
+
+	[ -f "$pid_file" ] || return 1
+	IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+status_json() {
+	local enabled=1 dns_hijack=1 route_table_id="" route_rule_priority="" disable_quic=0
+	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0
+	local service_enabled=0 service_running=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
+	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
+	local config_json="" fallback_config_json=""
+	local pkg_config="${PKG_CONFIG:-mihowrt}" clash_config="${CLASH_CONFIG:-/opt/clash/config.yaml}"
+	local dst_list_file="${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}"
+	local src_list_file="${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}"
+
+	require_command jq || return 1
+	SOURCE_INTERFACES=""
+
+	config_json="$(read_config_json 2>/dev/null || true)"
+	if [ -z "$config_json" ]; then
+		fallback_config_json="$(jq -nc \
+			--arg config_path "$clash_config" \
+			'{
+				config_path: $config_path,
+				dns_listen_raw: "",
+				dns_port: "",
+				mihomo_dns_listen: "",
+				tproxy_port: "",
+				routing_mark: "",
+				enhanced_mode: "",
+				catch_fakeip: false,
+				fake_ip_range: "",
+				external_controller: "",
+				external_controller_tls: "",
+				secret: "",
+				external_ui: "",
+				external_ui_name: "",
+				errors: ["Failed to read config"]
+			}')"
+		config_json="$fallback_config_json"
+	fi
+
+	if config_load "$pkg_config" 2>/dev/null; then
+		config_get_bool enabled "settings" "enabled" 1
+		config_get_bool dns_hijack "settings" "dns_hijack" 1
+		config_get route_table_id "settings" "route_table_id" ""
+		config_get route_rule_priority "settings" "route_rule_priority" ""
+		config_get_bool disable_quic "settings" "disable_quic" 0
+		config_list_foreach "settings" "source_network_interfaces" append_source_interface
+		source_interfaces="$SOURCE_INTERFACES"
+	fi
+
+	[ -n "$source_interfaces" ] || source_interfaces="$(default_source_interface)"
+	proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
+	proxy_src_count="$(count_valid_list_entries "$src_list_file")"
+
+	service_enabled_state && service_enabled=1 || service_enabled=0
+	service_running_state && service_running=1 || service_running=0
+	dns_backup_exists && dns_backup_exists_flag=1 || dns_backup_exists_flag=0
+	dns_backup_valid && dns_backup_valid_flag=1 || dns_backup_valid_flag=0
+
+	if policy_route_state_read; then
+		route_state_present=1
+		route_table_id_effective="$ROUTE_TABLE_ID_EFFECTIVE"
+		route_rule_priority_effective="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+	fi
+
+	jq -nc \
+		--argjson config "$config_json" \
+		--arg enabled "$enabled" \
+		--arg dns_hijack "$dns_hijack" \
+		--arg route_table_id "$route_table_id" \
+		--arg route_rule_priority "$route_rule_priority" \
+		--arg disable_quic "$disable_quic" \
+		--arg source_interfaces "$source_interfaces" \
+		--arg proxy_dst_count "$proxy_dst_count" \
+		--arg proxy_src_count "$proxy_src_count" \
+		--arg service_enabled "$service_enabled" \
+		--arg service_running "$service_running" \
+		--arg dns_backup_exists "$dns_backup_exists_flag" \
+		--arg dns_backup_valid "$dns_backup_valid_flag" \
+		--arg route_state_present "$route_state_present" \
+		--arg route_table_id_effective "$route_table_id_effective" \
+		--arg route_rule_priority_effective "$route_rule_priority_effective" \
+		'{
+			service_enabled: ($service_enabled == "1"),
+			service_running: ($service_running == "1"),
+			dns_backup_exists: ($dns_backup_exists == "1"),
+			dns_backup_valid: ($dns_backup_valid == "1"),
+			route_state_present: ($route_state_present == "1"),
+			route_table_id_effective: $route_table_id_effective,
+			route_rule_priority_effective: $route_rule_priority_effective,
+			enabled: ($enabled == "1"),
+			dns_hijack: ($dns_hijack == "1"),
+			route_table_id: (if $route_table_id == "" then "auto" else $route_table_id end),
+			route_rule_priority: (if $route_rule_priority == "" then "auto" else $route_rule_priority end),
+			disable_quic: ($disable_quic == "1"),
+			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0))),
+			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),
+			always_proxy_src_count: ($proxy_src_count | tonumber? // 0),
+			config: $config,
+			errors: ($config.errors // [])
+		}'
+}
+
 status_runtime_state() {
 	load_runtime_config || return 1
 	PROXY_DST_COUNT="$(count_valid_list_entries "$DST_LIST_FILE")"

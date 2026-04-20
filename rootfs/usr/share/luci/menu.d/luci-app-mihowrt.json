@@ -25,5 +25,13 @@
 			"type": "view",
 			"path": "mihowrt/policy"
 		}
+	},
+	"admin/services/mihowrt/diagnostics": {
+		"title": "Diagnostics",
+		"order": 30,
+		"action": {
+			"type": "view",
+			"path": "mihowrt/diagnostics"
+		}
 	}
 }

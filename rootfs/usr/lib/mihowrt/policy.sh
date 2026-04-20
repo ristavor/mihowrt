@@ -181,8 +181,16 @@ recover_runtime_state() {
 }
 
 reload_runtime_state() {
+	load_runtime_config || return 1
+	validate_runtime_config || return 1
 	cleanup_runtime_state
-	prepare_runtime_state
+
+	if [ "$ENABLED" != "1" ]; then
+		log "Policy layer disabled; runtime state left clean"
+		return 0
+	fi
+
+	apply_runtime_state
 }
 
 status_runtime_state() {

@@ -28,6 +28,14 @@ wait_for_stop_complete() {
 	return 1
 }
 
+service_running() {
+	local pid=""
+
+	[ -f "$SERVICE_PID_FILE" ] || return 1
+	IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
+	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
 start_service() {
 	[ -f "$SKIP_START_FILE" ] && {
 		msg "Skipping MihoWRT service auto-start during installer transaction"
@@ -75,10 +83,19 @@ stop_service() {
 }
 
 reload_service() {
-	msg "Reloading MihoWRT service..."
-	stop
-	wait_for_stop_complete || msg "WARNING: previous MihoWRT stop still draining during reload"
-	start
+	msg "Reloading MihoWRT policy..."
+
+	if ! service_running; then
+		msg "MihoWRT service is not running; skipping policy reload"
+		return 0
+	fi
+
+	if ! "$ORCHESTRATOR" reload-policy >/dev/null 2>&1; then
+		msg "ERROR: Policy reload failed"
+		return 1
+	fi
+
+	msg "MihoWRT policy reloaded"
 }
 
 service_triggers() {

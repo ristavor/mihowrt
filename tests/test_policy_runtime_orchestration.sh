@@ -117,15 +117,46 @@ cleanup_runtime_state() {
 	return 0
 }
 
-prepare_runtime_state() {
-	printf 'prepare_runtime_state\n' >>"$event_log"
+load_runtime_config() {
+	printf 'load_runtime_config\n' >>"$event_log"
+	ENABLED="${TEST_ENABLED:-1}"
+	return "${TEST_LOAD_RUNTIME_RC:-0}"
+}
+
+validate_runtime_config() {
+	printf 'validate_runtime_config\n' >>"$event_log"
+	return "${TEST_VALIDATE_RUNTIME_RC:-0}"
+}
+
+apply_runtime_state() {
+	printf 'apply_runtime_state\n' >>"$event_log"
 	return 0
 }
 
 : > "$event_log"
+TEST_ENABLED=1
+TEST_LOAD_RUNTIME_RC=0
+TEST_VALIDATE_RUNTIME_RC=0
 reload_runtime_state
-assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean old state first"
-assert_file_contains "$event_log" "prepare_runtime_state" "reload_runtime_state should prepare fresh state after cleanup"
+assert_file_contains "$event_log" "load_runtime_config" "reload_runtime_state should load runtime config before changes"
+assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate runtime config before teardown"
+assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean old state after validation"
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply new runtime state when enabled"
+
+: > "$event_log"
+TEST_ENABLED=0
+reload_runtime_state
+assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean runtime state when policy layer is disabled"
+assert_file_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should log disabled cleanup path"
+assert_file_not_contains "$event_log" "apply_runtime_state" "reload_runtime_state should skip runtime apply when policy layer is disabled"
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_VALIDATE_RUNTIME_RC=1
+assert_false "reload_runtime_state should fail validation before teardown" reload_runtime_state
+assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate before returning failure"
+assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should not tear down live state when validation fails"
+TEST_VALIDATE_RUNTIME_RC=0
 
 dns_recovery_needed() {
 	return "${TEST_DNS_RECOVERY_NEEDED_RC:-1}"

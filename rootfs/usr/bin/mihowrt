@@ -105,7 +105,7 @@ run_service() {
 	recover)
 		recover_runtime_state
 		;;
-	reload)
+	reload|reload-policy)
 		reload_runtime_state
 		;;
 	validate)
@@ -124,7 +124,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|init-layout|read-config|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|status}" >&2
 		exit 1
 		;;
 esac

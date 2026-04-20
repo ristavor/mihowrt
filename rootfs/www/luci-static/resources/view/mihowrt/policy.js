@@ -123,7 +123,7 @@ return view.extend({
 
 		const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
 		if (reloadResult.code !== 0)
-			notify(_('Saved, but failed to reload service: %s').format(execErrorDetail(reloadResult)), 'error');
+			notify(_('Saved, but failed to reload policy: %s').format(execErrorDetail(reloadResult)), 'error');
 	},
 
 	load: function() {

@@ -234,13 +234,13 @@ async function validateSavedConfig() {
 	return null;
 }
 
-async function reloadRunningService(wasRunning) {
+async function restartRunningService(wasRunning) {
 	if (!wasRunning)
-		return { reloaded: false, error: null };
-	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
+		return { restarted: false, error: null };
+	const restartResult = await fs.exec(SERVICE_SCRIPT, ['restart']);
 	return {
-		reloaded: reloadResult.code === 0,
-		error: reloadResult.code === 0 ? null : execErrorDetail(reloadResult)
+		restarted: restartResult.code === 0,
+		error: restartResult.code === 0 ? null : execErrorDetail(restartResult)
 	};
 }
 
@@ -277,13 +277,13 @@ return view.extend({
 
 				notify(_('Configuration saved successfully.'), 'info');
 
-				const reloadState = await reloadRunningService(wasRunning);
-				if (reloadState.error) {
-					notify(_('Service reload failed: %s').format(reloadState.error), 'error');
+				const restartState = await restartRunningService(wasRunning);
+				if (restartState.error) {
+					notify(_('Service restart failed: %s').format(restartState.error), 'error');
 					return;
 				}
-				if (reloadState.reloaded)
-					notify(_('Service reloaded successfully.'), 'info');
+				if (restartState.restarted)
+					notify(_('Service restarted successfully.'), 'info');
 
 				window.location.reload();
 			}

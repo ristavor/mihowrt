@@ -201,11 +201,18 @@ wait_for_stop_complete() {
 
 : > "$msg_log"
 reload_service
-assert_file_contains "$msg_log" "Reloading MihoWRT service..." "reload_service should log reload"
-assert_file_contains "$msg_log" "stop" "reload_service should stop existing service before start"
-assert_file_contains "$msg_log" "wait_for_stop_complete" "reload_service should wait for stop completion"
-assert_file_contains "$msg_log" "WARNING: previous MihoWRT stop still draining during reload" "reload_service should warn when stop drain takes too long"
-assert_file_contains "$msg_log" "start" "reload_service should start service after stop"
+printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+reload_service
+assert_file_contains "$msg_log" "Reloading MihoWRT policy..." "reload_service should log policy reload"
+assert_file_contains "$msg_log" "MihoWRT policy reloaded" "reload_service should log successful policy reload"
+assert_file_contains "$orch_log" "reload-policy" "reload_service should invoke policy-only reload through orchestrator"
+
+: > "$msg_log"
+: > "$orch_log"
+rm -f "$SERVICE_PID_FILE"
+reload_service
+assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy reload" "reload_service should skip policy reload when service is stopped"
+[[ ! -s "$orch_log" ]] || fail "reload_service should not call orchestrator when service is stopped"
 
 (
 	source_init_recover_lib

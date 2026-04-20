@@ -430,7 +430,7 @@ EOF
 }
 
 normalize_version() {
-	printf '%s' "$1" | sed -n 's/.*v\{0,1\}\([0-9][0-9.]*\).*/\1/p'
+	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV'
 }
 
 version_ge() {

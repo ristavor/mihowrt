@@ -31,7 +31,7 @@ run_service() {
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
 	ensure_dir "$PKG_STATE_DIR"
-	setup_clash_runtime_dirs || return 1
+	init_runtime_layout || return 1
 
 	cleanup_service() {
 		if [ "$cleanup_done" -eq 0 ]; then
@@ -47,7 +47,6 @@ run_service() {
 
 	request_service_stop() {
 		stop_requested=1
-		dns_mark_shutdown_state 1
 		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
 	}
 
@@ -115,6 +114,9 @@ run_service() {
 	run-service)
 		run_service
 		;;
+	init-layout)
+		init_runtime_layout
+		;;
 	read-config)
 		read_config_json
 		;;
@@ -122,7 +124,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|read-config|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|validate|run-service|init-layout|read-config|status}" >&2
 		exit 1
 		;;
 esac

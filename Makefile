@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.8
+PKG_VERSION:=0.2.9
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -97,36 +97,7 @@ define Package/$(PKG_NAME)/postinst
 	if [ -f $(PKG_CONFIG_BACKUP_FILE) ]; then
 		mv $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
 	fi
-	sync_tmp_link() {
-		src="$$1"
-		dst="$$2"
-		mkdir -p "$$dst"
-		if [ -d "$$src" ] && [ ! -L "$$src" ]; then
-			cp -a "$$src"/. "$$dst"/ 2>/dev/null || true
-		fi
-		if [ ! -L "$$src" ] || [ "$$(readlink "$$src" 2>/dev/null)" != "$$dst" ]; then
-			rm -rf "$$src"
-			ln -s "$$dst" "$$src"
-		fi
-	}
-	sync_tmp_file() {
-		src="$$1"
-		dst="$$2"
-		mkdir -p "$$(dirname "$$dst")"
-		if [ -f "$$src" ] && [ ! -L "$$src" ]; then
-			cp -a "$$src" "$$dst" 2>/dev/null || true
-		fi
-		if [ ! -L "$$src" ] || [ "$$(readlink "$$src" 2>/dev/null)" != "$$dst" ]; then
-			rm -rf "$$src"
-			ln -s "$$dst" "$$src"
-		fi
-	}
-	mkdir -p /opt/clash/lst
-	sync_tmp_link /opt/clash/ruleset /tmp/clash/ruleset
-	sync_tmp_link /opt/clash/proxy_providers /tmp/clash/proxy_providers
-	sync_tmp_file /opt/clash/cache.db /tmp/clash/cache.db
-	[ -f /opt/clash/lst/always_proxy_dst.txt ] || touch /opt/clash/lst/always_proxy_dst.txt
-	[ -f /opt/clash/lst/always_proxy_src.txt ] || touch /opt/clash/lst/always_proxy_src.txt
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true

@@ -51,3 +51,8 @@ setup_clash_runtime_dirs() {
 	log "Runtime dirs/files set to tmpfs"
 	return 0
 }
+
+init_runtime_layout() {
+	ensure_policy_files || return 1
+	setup_clash_runtime_dirs
+}

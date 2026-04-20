@@ -376,11 +376,6 @@ wait_for_service_stop() {
 	return 1
 }
 
-dns_restore_fallback_needed() {
-	have_command uci || return 1
-	[ "$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)" = "1" ]
-}
-
 restart_dnsmasq() {
 	[ -x "$DNSMASQ_INIT_SCRIPT" ] || return 0
 	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
@@ -509,7 +504,7 @@ restore_system_dns_defaults() {
 		return 0
 	fi
 
-	if [ "$allow_fallback" != "1" ] && ! dns_restore_fallback_needed; then
+	if [ "$allow_fallback" != "1" ]; then
 		return 0
 	fi
 

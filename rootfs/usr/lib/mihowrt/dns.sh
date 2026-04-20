@@ -13,10 +13,6 @@ dns_backup_valid() {
 	grep -q '^ORIG_RESOLVFILE=' "$DNS_BACKUP_FILE" 2>/dev/null || return 1
 }
 
-dns_redirect_active() {
-	[ "$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null)" = "1" ]
-}
-
 dns_cleanup_backup_files() {
 	rm -f "$DNS_BACKUP_FILE"
 }
@@ -52,7 +48,7 @@ dns_backup_state() {
 dns_restore_fallback() {
 	local resolvfile
 
-	warn "dnsmasq backup state missing, applying fallback recovery"
+	warn "dnsmasq backup state unavailable, applying fallback recovery"
 
 	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null || true
 	uci -q delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true
@@ -71,7 +67,7 @@ dns_restore_fallback() {
 }
 
 dns_recovery_needed() {
-	dns_backup_exists || dns_redirect_active
+	dns_backup_exists
 }
 
 dns_setup() {
@@ -107,9 +103,6 @@ dns_restore() {
 	local orig_cachesize orig_noresolv orig_resolvfile server has_servers=0 line
 
 	if ! dns_backup_exists; then
-		if dns_redirect_active; then
-			return dns_restore_fallback
-		fi
 		log "No dnsmasq backup state found, skipping restore"
 		return 0
 	fi

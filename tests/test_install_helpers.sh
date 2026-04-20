@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source "$(dirname "$0")/testlib.sh"
+
+tmpdir="$(make_temp_dir)"
+trap 'rm -rf "$tmpdir"' EXIT
+
+tmpbin="$tmpdir/bin"
+mkdir -p "$tmpbin"
+
+cat > "$tmpbin/cat" <<'EOF'
+#!/usr/bin/env bash
+if [[ "${1:-}" == "/etc/openwrt_release" ]]; then
+	printf "%s\n" "${TEST_OPENWRT_RELEASE:-}"
+else
+	exec /bin/cat "$@"
+fi
+EOF
+
+chmod +x "$tmpbin/cat"
+export PATH="$tmpbin:$PATH"
+export TEST_OPENWRT_RELEASE="DISTRIB_ARCH='x86_64'"
+export CLASH_BIN="$tmpdir/clash"
+
+cat > "$CLASH_BIN" <<'EOF'
+#!/usr/bin/env bash
+printf 'Mihomo Meta %s\n' 'v1.19.3'
+EOF
+chmod +x "$CLASH_BIN"
+
+source_install_lib
+
+CLASH_BIN="$tmpdir/clash"
+
+assert_eq "1.2.3" "$(normalize_version 'mihomo v1.2.3 build')" "installer normalize_version strips prefix"
+assert_true "installer version_ge should accept equal versions" version_ge "1.2.3" "1.2.3"
+assert_false "installer version_ge should reject older versions" version_ge "1.2.2" "1.2.3"
+assert_eq "amd64" "$(detect_mihomo_arch)" "installer detect_mihomo_arch maps x86_64"
+assert_eq "v1.19.3" "$(current_mihomo_version)" "installer current_mihomo_version reads binary version"
+
+release_json='{"assets":[{"browser_download_url":"https://example.com/mihomo-linux-amd64-v1.19.3.gz"}]}'
+assert_eq "https://example.com/mihomo-linux-amd64-v1.19.3.gz" "$(kernel_asset_url "$release_json" "mihomo-linux-amd64-v1.19.3.gz")" "kernel_asset_url extracts matching asset"
+
+fetch_url() {
+	printf '%s\n' '{"assets":[{"browser_download_url":"https://example.com/luci-app-mihowrt-0.2.10.apk"}]}'
+}
+assert_eq "https://example.com/luci-app-mihowrt-0.2.10.apk" "$(latest_asset_url)" "latest_asset_url extracts APK URL"
+
+package_present() {
+	[[ "$1" == "nftables-json" ]]
+}
+have_command() {
+	return 1
+}
+assert_true "package_requirement_present should accept nftables provider variants" package_requirement_present "nftables"
+
+package_present() {
+	[[ "$1" == "jq" ]]
+}
+assert_true "package_requirement_present should accept ordinary package presence" package_requirement_present "jq"
+
+package_requirement_present() {
+	[[ "$1" == "pkg1" ]]
+}
+REQUIRED_APK_PACKAGES="pkg1 pkg2 pkg3"
+assert_false "verify_required_packages should fail when packages are missing" verify_required_packages
+assert_eq "pkg2 pkg3" "$MISSING_PACKAGES" "verify_required_packages should list missing packages"
+
+MIHOWRT_ACTION="kernel"
+assert_eq "kernel" "$(resolve_action)" "resolve_action should honor explicit env action"
+MIHOWRT_ACTION="remove"
+assert_eq "remove" "$(resolve_action)" "resolve_action should map remove action"
+MIHOWRT_ACTION="stop"
+assert_eq "stop" "$(resolve_action)" "resolve_action should map stop action"
+
+unset MIHOWRT_ACTION
+MIHOWRT_FORCE_REINSTALL="1"
+assert_eq "package" "$(resolve_action)" "resolve_action should use force reinstall without tty"
+
+MIHOWRT_FORCE_REINSTALL="0"
+can_prompt() {
+	return 1
+}
+assert_false "resolve_action should fail without tty and without explicit action" resolve_action >/dev/null 2>&1
+
+MIHOWRT_ACTION="bogus"
+assert_false "resolve_action should reject invalid actions" resolve_action >/dev/null 2>&1
+
+pass "installer helper logic"

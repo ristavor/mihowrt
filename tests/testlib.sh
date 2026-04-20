@@ -45,6 +45,16 @@ assert_file_contains() {
 	grep -qF -- "$needle" "$file" || fail "$message"
 }
 
+assert_file_not_contains() {
+	local file="$1"
+	local needle="$2"
+	local message="$3"
+
+	if grep -qF -- "$needle" "$file"; then
+		fail "$message"
+	fi
+}
+
 assert_symlink_target() {
 	local path="$1"
 	local expected="$2"
@@ -58,4 +68,30 @@ assert_symlink_target() {
 
 make_temp_dir() {
 	mktemp -d "${TMPDIR:-/tmp}/mihowrt-tests.XXXXXX"
+}
+
+source_install_lib() {
+	# shellcheck disable=SC1090
+	source <(sed '/^main "\$@"$/d' "$ROOT_DIR/install.sh")
+	trap - EXIT INT TERM HUP
+}
+
+source_mihowrt_cli_lib() {
+	# shellcheck disable=SC1090
+	source <(
+		sed \
+			-e '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			-e '/^	case "\$1" in$/,$d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+}
+
+source_init_mihowrt_lib() {
+	# shellcheck disable=SC1090
+	source <(sed '1d' "$ROOT_DIR/rootfs/etc/init.d/mihowrt")
+}
+
+source_init_recover_lib() {
+	# shellcheck disable=SC1090
+	source <(sed '1d' "$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover")
 }

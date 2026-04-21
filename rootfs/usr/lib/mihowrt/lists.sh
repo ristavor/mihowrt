@@ -2,8 +2,6 @@
 
 ensure_policy_files() {
 	ensure_dir "$LIST_DIR"
-	ensure_file "$DST_LIST_FILE"
-	ensure_file "$SRC_LIST_FILE"
 }
 
 count_valid_list_entries() {

@@ -71,8 +71,9 @@ FAKEIP_RANGE="198.18.0.0/15"
 SOURCE_INTERFACES="br-lan wg0"
 
 assert_true "validate_runtime_config should accept valid runtime values" validate_runtime_config
-[[ -f "$DST_LIST_FILE" ]] || fail "validate_runtime_config should create destination list file"
-[[ -f "$SRC_LIST_FILE" ]] || fail "validate_runtime_config should create source list file"
+[[ -d "$LIST_DIR" ]] || fail "validate_runtime_config should ensure list directory exists"
+[[ ! -e "$DST_LIST_FILE" ]] || fail "validate_runtime_config should not auto-create destination list file"
+[[ ! -e "$SRC_LIST_FILE" ]] || fail "validate_runtime_config should not auto-create source list file"
 
 SOURCE_INTERFACES="bad/iface"
 assert_false "validate_runtime_config should reject invalid interface names" validate_runtime_config

@@ -39,8 +39,9 @@ source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime.sh"
 
 init_runtime_layout
 
-[[ -f "$DST_LIST_FILE" ]] || fail "destination policy list missing"
-[[ -f "$SRC_LIST_FILE" ]] || fail "source policy list missing"
+[[ -d "$LIST_DIR" ]] || fail "policy list directory missing"
+[[ ! -e "$DST_LIST_FILE" ]] || fail "destination policy list should not be auto-created"
+[[ ! -e "$SRC_LIST_FILE" ]] || fail "source policy list should not be auto-created"
 assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "ruleset link target mismatch"
 assert_symlink_target "$PROXY_PROVIDERS_LINK" "$PROXY_PROVIDERS_TMPFS" "proxy providers link target mismatch"
 assert_symlink_target "$CACHE_DB_LINK" "$CACHE_DB_TMPFS" "cache db link target mismatch"

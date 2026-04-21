@@ -398,39 +398,68 @@ restart_dnsmasq() {
 	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
 }
 
-dns_flatten_lines() {
-	local line out="" sep="" tab=""
+ensure_dns_state_helpers() {
+	local script_dir=""
+	local helper_path=""
 
-	tab="$(printf '\t')"
-	while IFS= read -r line; do
-		[ -n "$line" ] || continue
-		out="${out}${sep}${line}"
-		sep="$tab"
+	command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
+
+	for helper_path in \
+		"/usr/lib/mihowrt/helpers.sh" \
+		"./rootfs/usr/lib/mihowrt/helpers.sh"
+	do
+		if [ -r "$helper_path" ]; then
+			# shellcheck disable=SC1090
+			. "$helper_path"
+			command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
+		fi
 	done
 
-	printf '%s' "$out"
-}
+	case "${0:-}" in
+		/*|*/*)
+			script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)" || script_dir=""
+			;;
+	esac
+	if [ -n "$script_dir" ] && [ -r "$script_dir/rootfs/usr/lib/mihowrt/helpers.sh" ]; then
+		# shellcheck disable=SC1090
+		. "$script_dir/rootfs/usr/lib/mihowrt/helpers.sh"
+		command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
+	fi
 
-dns_current_servers_flat() {
-	uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
-}
+	dns_flatten_lines() {
+		local line out="" sep="" tab=""
 
-dnsmasq_state_matches() {
-	local expected_cachesize="$1"
-	local expected_noresolv="$2"
-	local expected_resolvfile="$3"
-	local expected_servers="$4"
-	local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
+		tab="$(printf '\t')"
+		while IFS= read -r line; do
+			[ -n "$line" ] || continue
+			out="${out}${sep}${line}"
+			sep="$tab"
+		done
 
-	current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
-	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
-	current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
-	current_servers="$(dns_current_servers_flat)"
+		printf '%s' "$out"
+	}
 
-	[ "$current_cachesize" = "$expected_cachesize" ] || return 1
-	[ "$current_noresolv" = "$expected_noresolv" ] || return 1
-	[ "$current_resolvfile" = "$expected_resolvfile" ] || return 1
-	[ "$current_servers" = "$expected_servers" ]
+	dns_current_servers_flat() {
+		uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
+	}
+
+	dnsmasq_state_matches() {
+		local expected_cachesize="$1"
+		local expected_noresolv="$2"
+		local expected_resolvfile="$3"
+		local expected_servers="$4"
+		local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
+
+		current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
+		current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
+		current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+		current_servers="$(dns_current_servers_flat)"
+
+		[ "$current_cachesize" = "$expected_cachesize" ] || return 1
+		[ "$current_noresolv" = "$expected_noresolv" ] || return 1
+		[ "$current_resolvfile" = "$expected_resolvfile" ] || return 1
+		[ "$current_servers" = "$expected_servers" ]
+	}
 }
 
 route_state_read() {
@@ -474,6 +503,7 @@ restore_dns_from_backup_file() {
 
 	[ -f "$backup_path" ] || return 1
 	have_command uci || return 1
+	ensure_dns_state_helpers || return 1
 	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
 
 	tab="$(printf '\t')"
@@ -552,6 +582,7 @@ restore_dns_defaults_fallback() {
 	local resolvfile=""
 
 	have_command uci || return 1
+	ensure_dns_state_helpers || return 1
 
 	if [ -f "$DNS_AUTO_RESOLVFILE" ]; then
 		resolvfile="$DNS_AUTO_RESOLVFILE"

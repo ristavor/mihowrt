@@ -112,6 +112,9 @@ run_service() {
 	reload|reload-policy)
 		reload_runtime_state
 		;;
+	service-running)
+		service_running_state
+		;;
 	validate)
 		load_runtime_config && validate_runtime_config
 		;;
@@ -142,7 +145,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|validate|run-service|init-layout|read-config|apply-config|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|validate|run-service|init-layout|read-config|apply-config|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

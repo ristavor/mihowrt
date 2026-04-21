@@ -12,6 +12,10 @@ err() {
 	logger -p daemon.err -t "mihowrt" "$*"
 }
 
+have_command() {
+	command -v "$1" >/dev/null 2>&1
+}
+
 trim() {
 	local value="$1"
 	value="${value#"${value%%[![:space:]]*}"}"
@@ -160,10 +164,34 @@ port_from_addr() {
 }
 
 require_command() {
-	command -v "$1" >/dev/null 2>&1 || {
+	have_command "$1" || {
 		err "Required command missing: $1"
 		return 1
 	}
+}
+
+process_running_state() {
+	local pid_file="$1"
+	local run_pattern="${2:-}"
+	local pid=""
+
+	if [ -f "$pid_file" ]; then
+		IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
+		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
+	fi
+
+	if [ -n "$run_pattern" ] && have_command pgrep; then
+		pgrep -f "$run_pattern" >/dev/null 2>&1 && return 0
+	fi
+
+	return 1
+}
+
+service_running_state() {
+	local pid_file="${SERVICE_PID_FILE:-/var/run/mihowrt/mihomo.pid}"
+	local run_pattern="${SERVICE_RUN_PATTERN:-${ORCHESTRATOR:-/usr/bin/mihowrt} run-service}"
+
+	process_running_state "$pid_file" "$run_pattern"
 }
 
 yaml_cleanup_scalar() {

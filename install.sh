@@ -350,6 +350,10 @@ service_enabled() {
 }
 
 service_running() {
+	if [ -x "$ORCHESTRATOR" ] && "$ORCHESTRATOR" service-running >/dev/null 2>&1; then
+		return 0
+	fi
+
 	local pid=""
 
 	if [ -f "$SERVICE_PID_FILE" ]; then

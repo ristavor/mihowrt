@@ -29,11 +29,8 @@ wait_for_stop_complete() {
 }
 
 service_running() {
-	local pid=""
-
-	[ -f "$SERVICE_PID_FILE" ] || return 1
-	IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
-	[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+	[ -x "$ORCHESTRATOR" ] || return 1
+	"$ORCHESTRATOR" service-running >/dev/null 2>&1
 }
 
 start_service() {

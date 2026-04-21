@@ -160,11 +160,16 @@ export TEST_ORCH_LOG="$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
 export TEST_CLASH_TEST_RC=0
+export TEST_SERVICE_PID_FILE="$SERVICE_PID_FILE"
 
 cat > "$ORCHESTRATOR" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_ORCH_LOG"
 case "${1:-}" in
+	service-running)
+		[ -f "${TEST_SERVICE_PID_FILE:-}" ] && exit 0
+		exit 1
+		;;
 	validate)
 		exit "${TEST_ORCH_VALIDATE_RC:-0}"
 		;;
@@ -263,6 +268,7 @@ printf '%s\n' "$$" > "$SERVICE_PID_FILE"
 reload_service
 assert_file_contains "$msg_log" "Reloading MihoWRT policy..." "reload_service should log policy reload"
 assert_file_contains "$msg_log" "MihoWRT policy reloaded" "reload_service should log successful policy reload"
+assert_file_contains "$orch_log" "service-running" "reload_service should check service state through orchestrator"
 assert_file_contains "$orch_log" "reload-policy" "reload_service should invoke policy-only reload through orchestrator"
 
 : > "$msg_log"
@@ -270,7 +276,8 @@ assert_file_contains "$orch_log" "reload-policy" "reload_service should invoke p
 rm -f "$SERVICE_PID_FILE"
 reload_service
 assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy reload" "reload_service should skip policy reload when service is stopped"
-[[ ! -s "$orch_log" ]] || fail "reload_service should not call orchestrator when service is stopped"
+assert_file_contains "$orch_log" "service-running" "reload_service should still ask orchestrator for service state when service is stopped"
+assert_file_not_contains "$orch_log" "reload-policy" "reload_service should not invoke policy reload when service is stopped"
 
 (
 	source_init_recover_lib

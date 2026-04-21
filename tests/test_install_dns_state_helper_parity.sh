@@ -18,16 +18,24 @@ extract_install_dns_helper() {
 			-e 's/\<dns_flatten_lines\>/install_dns_flatten_lines/g' \
 			-e 's/\<dns_current_servers_flat\>/install_dns_current_servers_flat/g' \
 			-e 's/\<dnsmasq_state_matches\>/install_dnsmasq_state_matches/g' \
+			-e 's/\<is_uint_value\>/install_is_uint_value/g' \
 			-e 's/\<is_valid_port_value\>/install_is_valid_port_value/g' \
+			-e 's/\<is_dns_listen_value\>/install_is_dns_listen_value/g' \
 			-e 's/\<dns_current_state_looks_hijacked\>/install_dns_current_state_looks_hijacked/g' \
+			-e 's/\<dns_backup_mihomo_target\>/install_dns_backup_mihomo_target/g' \
+			-e 's/\<dns_backup_file_valid_for_restore\>/install_dns_backup_file_valid_for_restore/g' \
 			-e 's/^[[:space:]]//'
 }
 
 eval "$(extract_install_dns_helper dns_flatten_lines)"
 eval "$(extract_install_dns_helper dns_current_servers_flat)"
 eval "$(extract_install_dns_helper dnsmasq_state_matches)"
+eval "$(extract_install_dns_helper is_uint_value)"
 eval "$(extract_install_dns_helper is_valid_port_value)"
+eval "$(extract_install_dns_helper is_dns_listen_value)"
 eval "$(extract_install_dns_helper dns_current_state_looks_hijacked)"
+eval "$(extract_install_dns_helper dns_backup_mihomo_target)"
+eval "$(extract_install_dns_helper dns_backup_file_valid_for_restore)"
 
 have_command() {
 	[[ "${1:-}" == "uci" ]]
@@ -62,6 +70,14 @@ assert_eq "$(trim '  value  ')" "$(trim_value '  value  ')" "trim_value should s
 assert_eq "$(yaml_cleanup_scalar ' \"[::]:7874\" # comment ')" "$(yaml_cleanup_scalar_value ' \"[::]:7874\" # comment ')" "yaml_cleanup_scalar_value should stay in sync with runtime scalar cleanup"
 assert_eq "$(port_from_addr '[::]:7874')" "$(port_from_addr_value '[::]:7874')" "port_from_addr_value should stay in sync with runtime port parser"
 assert_eq "$(normalize_dns_server_target '0.0.0.0#7874')" "$(normalize_dns_server_target_value '0.0.0.0:7874')" "normalize_dns_server_target_value should stay in sync with runtime target normalization"
+assert_true "runtime is_uint should accept integers" is_uint "123"
+assert_true "installer is_uint_value should accept integers" install_is_uint_value "123"
+assert_false "runtime is_uint should reject non-integers" is_uint "12x"
+assert_false "installer is_uint_value should reject non-integers" install_is_uint_value "12x"
+assert_true "runtime is_dns_listen should accept host#port" is_dns_listen "127.0.0.1#7874"
+assert_true "installer is_dns_listen_value should accept host#port" install_is_dns_listen_value "127.0.0.1#7874"
+assert_false "runtime is_dns_listen should reject malformed targets" is_dns_listen "bad-target"
+assert_false "installer is_dns_listen_value should reject malformed targets" install_is_dns_listen_value "bad-target"
 
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
@@ -98,5 +114,56 @@ assert_false "installer dns_current_state_looks_hijacked should reject invalid p
 TEST_UCI_SERVERS="1.1.1.1#54"
 assert_false "runtime dns_current_state_looks_hijacked should reject unrelated external DNS target" dns_current_state_looks_hijacked
 assert_false "installer dns_current_state_looks_hijacked should reject unrelated external DNS target" install_dns_current_state_looks_hijacked
+
+cat > "$tmpdir/valid.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+assert_true "runtime dns_backup_file_valid should accept valid backup" dns_backup_file_valid "$tmpdir/valid.backup"
+assert_true "installer dns_backup_file_valid_for_restore should accept valid backup" install_dns_backup_file_valid_for_restore "$tmpdir/valid.backup"
+assert_eq "127.0.0.1#7874" "$(install_dns_backup_mihomo_target "$tmpdir/valid.backup")" "installer dns_backup_mihomo_target should read valid target"
+
+cat > "$tmpdir/legacy-empty-target.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+assert_true "runtime dns_backup_file_valid should treat empty target as absent metadata" dns_backup_file_valid "$tmpdir/legacy-empty-target.backup"
+assert_true "installer dns_backup_file_valid_for_restore should treat empty target as absent metadata" install_dns_backup_file_valid_for_restore "$tmpdir/legacy-empty-target.backup"
+assert_false "installer dns_backup_mihomo_target should reject empty target metadata" install_dns_backup_mihomo_target "$tmpdir/legacy-empty-target.backup"
+
+cat > "$tmpdir/invalid-noresolv.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=maybe
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+assert_false "runtime dns_backup_file_valid should reject invalid ORIG_NORESOLV" dns_backup_file_valid "$tmpdir/invalid-noresolv.backup"
+assert_false "installer dns_backup_file_valid_for_restore should reject invalid ORIG_NORESOLV" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-noresolv.backup"
+
+cat > "$tmpdir/invalid-cachesize.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=abc
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+assert_false "runtime dns_backup_file_valid should reject invalid ORIG_CACHESIZE" dns_backup_file_valid "$tmpdir/invalid-cachesize.backup"
+assert_false "installer dns_backup_file_valid_for_restore should reject invalid ORIG_CACHESIZE" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-cachesize.backup"
+
+cat > "$tmpdir/invalid-target.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=bad-target
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+assert_false "runtime dns_backup_file_valid should reject invalid MIHOMO_DNS_TARGET" dns_backup_file_valid "$tmpdir/invalid-target.backup"
+assert_false "installer dns_backup_file_valid_for_restore should reject invalid MIHOMO_DNS_TARGET" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-target.backup"
+assert_false "installer dns_backup_mihomo_target should reject invalid target metadata" install_dns_backup_mihomo_target "$tmpdir/invalid-target.backup"
 
 pass "installer dns-state helper parity"

@@ -758,11 +758,20 @@ dns_backup_mihomo_target() {
 dns_backup_expected_target() {
 	local backup_path="$1"
 	local config_path="${2:-}"
-	local mihomo_target=""
+	local line="" mihomo_target="" has_target_line=0
 
-	if grep -q '^MIHOMO_DNS_TARGET=' "$backup_path" 2>/dev/null; then
-		mihomo_target="$(dns_backup_mihomo_target "$backup_path" 2>/dev/null || true)"
-		[ -n "$mihomo_target" ] || return 1
+	while IFS= read -r line; do
+		case "$line" in
+			MIHOMO_DNS_TARGET=*)
+				has_target_line=1
+				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
+				break
+				;;
+		esac
+	done < "$backup_path"
+
+	if [ "$has_target_line" = "1" ] && [ -n "$mihomo_target" ]; then
+		is_dns_listen_value "$mihomo_target" || return 1
 		printf '%s\n' "$mihomo_target"
 		return 0
 	fi
@@ -779,7 +788,7 @@ dns_backup_expected_target() {
 
 dns_backup_file_valid_for_restore() {
 	local backup_path="$1"
-	local line="" orig_cachesize="" orig_noresolv="" has_target=0
+	local line="" orig_cachesize="" orig_noresolv="" mihomo_target="" has_target_line=0
 
 	[ -f "$backup_path" ] || return 1
 
@@ -791,7 +800,8 @@ dns_backup_file_valid_for_restore() {
 	while IFS= read -r line; do
 		case "$line" in
 			MIHOMO_DNS_TARGET=*)
-				has_target=1
+				has_target_line=1
+				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
 				;;
 			ORIG_CACHESIZE=*)
 				orig_cachesize="${line#ORIG_CACHESIZE=}"
@@ -815,8 +825,8 @@ dns_backup_file_valid_for_restore() {
 			;;
 	esac
 
-	if [ "$has_target" = "1" ]; then
-		dns_backup_mihomo_target "$backup_path" >/dev/null 2>&1 || return 1
+	if [ "$has_target_line" = "1" ] && [ -n "$mihomo_target" ]; then
+		is_dns_listen_value "$mihomo_target" || return 1
 	fi
 
 	return 0

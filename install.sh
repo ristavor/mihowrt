@@ -27,9 +27,12 @@ SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
 CLASH_DIR="/opt/clash"
 CLASH_BIN="${CLASH_DIR}/bin/clash"
 KERNEL_TMP_DIR="/tmp/mihowrt/kernel-update"
-REQUIRED_REPO_PACKAGES="luci-base nftables jq kmod-nft-tproxy kmod-nf-tproxy"
+COMMON_REPO_PACKAGES="luci-base nftables jq"
+TPROXY_REPO_PACKAGES="kmod-nft-tproxy kmod-nf-tproxy"
+TPROXY_REQUIREMENT_NAME="kmod-tproxy-any"
+REQUIRED_REPO_PACKAGES="${COMMON_REPO_PACKAGES}"
 REINSTALL_HOLD_VIRTUAL="${PKG_NAME}-reinstall-deps"
-REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES}"
+REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES} ${TPROXY_REQUIREMENT_NAME}"
 MISSING_PACKAGES=""
 
 log() {
@@ -277,10 +280,35 @@ package_requirement_present() {
 			package_present nftables-nojson ||
 			have_command nft
 			;;
+		"$TPROXY_REQUIREMENT_NAME")
+			package_present kmod-nft-tproxy ||
+			package_present kmod-nf-tproxy
+			;;
 		*)
 			package_present "$1"
 			;;
 	esac
+}
+
+resolve_tproxy_hold_package() {
+	if package_present kmod-nft-tproxy; then
+		printf '%s\n' "kmod-nft-tproxy"
+		return 0
+	fi
+
+	if package_present kmod-nf-tproxy; then
+		printf '%s\n' "kmod-nf-tproxy"
+		return 0
+	fi
+
+	printf '%s\n' "kmod-nft-tproxy"
+}
+
+reinstall_hold_packages() {
+	local tproxy_pkg=""
+
+	tproxy_pkg="$(resolve_tproxy_hold_package)" || return 1
+	printf '%s %s\n' "$COMMON_REPO_PACKAGES" "$tproxy_pkg"
 }
 
 can_prompt() {
@@ -310,13 +338,16 @@ verify_required_packages() {
 }
 
 hold_reinstall_dependencies() {
+	local hold_packages=""
+
 	apk_supports_virtual || return 1
+	hold_packages="$(reinstall_hold_packages)" || return 1
 
 	if package_present "$REINSTALL_HOLD_VIRTUAL"; then
 		apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
 	fi
 
-	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $REQUIRED_REPO_PACKAGES >/dev/null 2>&1 || return 1
+	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $hold_packages >/dev/null 2>&1 || return 1
 	REINSTALL_HOLD_ACTIVE=1
 	return 0
 }
@@ -765,6 +796,12 @@ restore_runtime_state() {
 	fi
 }
 
+rollback_reinstall_state() {
+	[ "${1:-0}" = "1" ] || return 0
+	restore_runtime_state || true
+	release_reinstall_dependencies
+}
+
 handle_install_failure() {
 	local reinstall="$1"
 	local message="$2"
@@ -800,8 +837,8 @@ remove_user_state() {
 	rm -f /opt/clash/config.yaml
 	rm -f /opt/clash/lst/always_proxy_dst.txt
 	rm -f /opt/clash/lst/always_proxy_src.txt
-	rm -f /opt/clash/ruleset
-	rm -f /opt/clash/proxy_providers
+	rm -rf /opt/clash/ruleset
+	rm -rf /opt/clash/proxy_providers
 	rm -f /opt/clash/cache.db
 	rm -f /usr/bin/mihowrt
 	rm -rf /usr/lib/mihowrt
@@ -882,31 +919,35 @@ perform_package_action() {
 		reinstall=1
 		log "Saving current config and policy state..."
 		if ! prepare_update; then
-			restore_runtime_state || true
-			release_reinstall_dependencies
+			rollback_reinstall_state "$reinstall"
 			return 1
 		fi
 	fi
 
 	log "Installing/updating Mihomo kernel..."
 	if ! kernel_install_or_update; then
-		if [ "$reinstall" = "1" ]; then
-			restore_runtime_state || true
-			release_reinstall_dependencies
-		fi
+		rollback_reinstall_state "$reinstall"
 		err "kernel install/update failed"
 		return 1
 	fi
 
-	set_skip_start
-	create_tmp_apk
+	if ! set_skip_start; then
+		rollback_reinstall_state "$reinstall"
+		err "failed to set skip-start marker"
+		return 1
+	fi
+
+	if ! create_tmp_apk; then
+		clear_skip_start
+		rollback_reinstall_state "$reinstall"
+		err "failed to allocate temporary apk path"
+		return 1
+	fi
+
 	log "Downloading latest release asset..."
 	if ! download_file "$asset_url" "$TMP_APK"; then
 		clear_skip_start
-		if [ "$reinstall" = "1" ]; then
-			restore_runtime_state || true
-			release_reinstall_dependencies
-		fi
+		rollback_reinstall_state "$reinstall"
 		err "failed to download latest ${PKG_NAME} apk"
 		return 1
 	fi

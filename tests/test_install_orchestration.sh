@@ -349,6 +349,40 @@ prepare_update() {
 	return 0
 }
 
+: > "$event_log"
+set_skip_start() {
+	printf 'set_skip_start\n' >>"$event_log"
+	return 1
+}
+assert_false "perform_package_action should fail when skip-start marker setup fails" perform_package_action
+assert_file_contains "$event_log" "set_skip_start" "perform_package_action should try setting skip-start marker"
+assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after skip-start failure"
+assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after skip-start failure"
+assert_file_not_contains "$event_log" "create_tmp_apk" "perform_package_action should stop before tmp apk allocation on skip-start failure"
+
+set_skip_start() {
+	printf 'set_skip_start\n' >>"$event_log"
+}
+
+create_tmp_apk() {
+	printf 'create_tmp_apk\n' >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+assert_false "perform_package_action should fail when tmp apk allocation fails" perform_package_action
+assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before tmp apk allocation"
+assert_file_contains "$event_log" "create_tmp_apk" "perform_package_action should try allocating temporary apk path"
+assert_file_contains "$event_log" "clear_skip_start" "perform_package_action should clear skip-start after tmp apk allocation failure"
+assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after tmp apk allocation failure"
+assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after tmp apk allocation failure"
+assert_file_not_contains "$event_log" "download_file:https://example.com/luci-app-mihowrt.apk:$tmpdir/downloaded.apk" "perform_package_action should stop before download after tmp apk allocation failure"
+
+create_tmp_apk() {
+	TMP_APK="$tmpdir/downloaded.apk"
+	printf 'create_tmp_apk\n' >>"$event_log"
+}
+
 download_file() {
 	printf 'download_file:%s:%s\n' "$1" "$2" >>"$event_log"
 	return 1

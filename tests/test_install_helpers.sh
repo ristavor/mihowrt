@@ -61,6 +61,17 @@ package_present() {
 }
 assert_true "package_requirement_present should accept ordinary package presence" package_requirement_present "jq"
 
+package_present() {
+	[[ "$1" == "kmod-nf-tproxy" ]]
+}
+assert_true "package_requirement_present should accept alternate tproxy kmod name" package_requirement_present "$TPROXY_REQUIREMENT_NAME"
+assert_eq "kmod-nf-tproxy" "$(resolve_tproxy_hold_package)" "resolve_tproxy_hold_package should prefer installed alternate kmod name"
+
+package_present() {
+	return 1
+}
+assert_eq "$COMMON_REPO_PACKAGES kmod-nft-tproxy" "$(reinstall_hold_packages)" "reinstall_hold_packages should fall back to preferred tproxy kmod name"
+
 package_requirement_present() {
 	[[ "$1" == "pkg1" ]]
 }
@@ -87,5 +98,21 @@ assert_false "resolve_action should fail without tty and without explicit action
 
 MIHOWRT_ACTION="bogus"
 assert_false "resolve_action should reject invalid actions" resolve_action >/dev/null 2>&1
+
+rm_log="$tmpdir/rm.log"
+rm() {
+	printf '%s\n' "$*" >>"$rm_log"
+	return 0
+}
+rmdir() {
+	printf 'rmdir %s\n' "$*" >>"$rm_log"
+	return 0
+}
+: > "$rm_log"
+remove_user_state
+assert_file_contains "$rm_log" "-rf /opt/clash/ruleset" "remove_user_state should remove ruleset directory safely"
+assert_file_contains "$rm_log" "-rf /opt/clash/proxy_providers" "remove_user_state should remove provider directory safely"
+assert_file_not_contains "$rm_log" "-f /opt/clash/ruleset" "remove_user_state should not use rm -f for ruleset directory"
+assert_file_not_contains "$rm_log" "-f /opt/clash/proxy_providers" "remove_user_state should not use rm -f for provider directory"
 
 pass "installer helper logic"

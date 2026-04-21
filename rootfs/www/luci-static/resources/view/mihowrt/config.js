@@ -1,10 +1,9 @@
 'use strict';
 'require view';
 'require fs';
-'require ui';
-'require rpc';
 'require mihowrt.ace as aceHelper';
 'require mihowrt.backend as backendHelper';
+'require mihowrt.ui as mihowrtUi';
 
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
@@ -14,37 +13,10 @@ const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 let startStopButton = null;
 let editor = null;
 
-const callServiceList = rpc.declare({
-	object: 'service',
-	method: 'list',
-	params: ['name'],
-	expect: { '': {} }
-});
-
-async function getServiceStatus() {
-	try {
-		const services = await callServiceList(SERVICE_NAME);
-		const instances = services[SERVICE_NAME]?.instances || {};
-		return Object.values(instances)[0]?.running || false;
-	} catch (e) {
-		return false;
-	}
-}
-
 async function runServiceAction(action) {
 	const result = await fs.exec(SERVICE_SCRIPT, [action]);
-	if (result.code !== 0) {
-		throw new Error(execErrorDetail(result));
-	}
-}
-
-function execErrorDetail(result) {
-	const detail = String(result?.stderr || result?.stdout || '').trim();
-	return detail || _('unknown error');
-}
-
-function notify(message, level) {
-	ui.addNotification(null, E('p', message), level);
+	if (result.code !== 0)
+		throw new Error(mihowrtUi.execErrorDetail(result));
 }
 
 function setStartStopDisabled(disabled) {
@@ -82,7 +54,7 @@ async function handleServiceAction(steps, errorMsg) {
 		const detail = rollbackErrors.length
 			? _('%s Rollback failed: %s').format(e.message, rollbackErrors.join('; '))
 			: e.message;
-		notify(errorMsg.format(detail), 'error');
+		mihowrtUi.notify(errorMsg.format(detail), 'error');
 		return false;
 	}
 	finally {
@@ -107,7 +79,7 @@ async function stopService() {
 async function pollStatus(targetStatus, timeout = 5000) {
 	const startTime = Date.now();
 	while (Date.now() - startTime < timeout) {
-		if (await getServiceStatus() === targetStatus)
+		if (await mihowrtUi.getServiceStatus(SERVICE_NAME) === targetStatus)
 			return true;
 		await new Promise(resolve => setTimeout(resolve, 500));
 	}
@@ -115,7 +87,7 @@ async function pollStatus(targetStatus, timeout = 5000) {
 }
 
 async function toggleService() {
-	const running = await getServiceStatus();
+	const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 	const targetStatus = !running;
 
 	if (running) {
@@ -128,7 +100,7 @@ async function toggleService() {
 	}
 
 	if (!(await pollStatus(targetStatus))) {
-		notify(targetStatus
+		mihowrtUi.notify(targetStatus
 			? _('Service start timed out. Check diagnostics and system log.')
 			: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
 		return;
@@ -182,8 +154,8 @@ function computeUiPath(externalUiName, externalUi) {
 
 async function openDashboard() {
 	try {
-		if (!(await getServiceStatus())) {
-			notify(_('Service is not running.'), 'error');
+		if (!(await mihowrtUi.getServiceStatus(SERVICE_NAME))) {
+			mihowrtUi.notify(_('Service is not running.'), 'error');
 			return;
 		}
 
@@ -211,10 +183,10 @@ async function openDashboard() {
 		const url = `${scheme}//${hostPort.host}:${hostPort.port}${uiPath}?${qp.toString()}`;
 		const newWindow = window.open(url, '_blank');
 		if (!newWindow)
-			notify(_('Popup was blocked. Please allow popups for this site.'), 'warning');
+			mihowrtUi.notify(_('Popup was blocked. Please allow popups for this site.'), 'warning');
 	}
 	catch (e) {
-		notify(_('Failed to open dashboard: %s').format(e.message), 'error');
+		mihowrtUi.notify(_('Failed to open dashboard: %s').format(e.message), 'error');
 	}
 }
 
@@ -236,7 +208,7 @@ async function removeTempConfig(configPath) {
 
 	const result = await fs.exec('/bin/sh', ['-c', 'rm -f -- "$1"', 'sh', configPath]);
 	if (result.code !== 0)
-		throw new Error(execErrorDetail(result));
+		throw new Error(mihowrtUi.execErrorDetail(result));
 }
 
 async function restartRunningService(wasRunning) {
@@ -245,7 +217,7 @@ async function restartRunningService(wasRunning) {
 	const restartResult = await fs.exec(SERVICE_SCRIPT, ['restart']);
 	return {
 		restarted: restartResult.code === 0,
-		error: restartResult.code === 0 ? null : execErrorDetail(restartResult)
+		error: restartResult.code === 0 ? null : mihowrtUi.execErrorDetail(restartResult)
 	};
 }
 
@@ -255,7 +227,7 @@ return view.extend({
 	},
 
 	render: async function(config) {
-		const running = await getServiceStatus();
+		const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'
@@ -268,30 +240,30 @@ return view.extend({
 
 			try {
 				if (!editor) {
-					notify(_('Editor is still loading. Please try again in a moment.'), 'warning');
+					mihowrtUi.notify(_('Editor is still loading. Please try again in a moment.'), 'warning');
 					return;
 				}
 
-				const wasRunning = await getServiceStatus();
+				const wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 				const value = editor.getValue().trim() + '\n';
 				tempConfigPath = makeTempConfigPath();
 				await fs.write(tempConfigPath, value);
 				await backendHelper.applyConfig(tempConfigPath);
 				tempConfigPath = null;
-				notify(_('Configuration saved successfully.'), 'info');
+				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
 
 				const restartState = await restartRunningService(wasRunning);
 				if (restartState.error) {
-					notify(_('Service restart failed: %s').format(restartState.error), 'error');
+					mihowrtUi.notify(_('Service restart failed: %s').format(restartState.error), 'error');
 					return;
 				}
 				if (restartState.restarted)
-					notify(_('Service restarted successfully.'), 'info');
+					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
 
 				window.location.reload();
 			}
 			catch (e) {
-				notify(_('Unable to save contents: %s').format(e.message), 'error');
+				mihowrtUi.notify(_('Unable to save contents: %s').format(e.message), 'error');
 			}
 			finally {
 				if (tempConfigPath) {
@@ -299,7 +271,7 @@ return view.extend({
 						await removeTempConfig(tempConfigPath);
 					}
 					catch (e) {
-						notify(_('Failed to remove temporary config: %s').format(e.message), 'warning');
+						mihowrtUi.notify(_('Failed to remove temporary config: %s').format(e.message), 'warning');
 					}
 				}
 
@@ -337,7 +309,7 @@ return view.extend({
 
 		window.requestAnimationFrame(() => {
 			initializeAceEditor(editorNode, config).catch(e => {
-				notify(_('Unable to initialize editor: %s').format(e.message), 'error');
+				mihowrtUi.notify(_('Unable to initialize editor: %s').format(e.message), 'error');
 			});
 		});
 

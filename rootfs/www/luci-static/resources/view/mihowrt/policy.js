@@ -4,7 +4,7 @@
 'require uci';
 'require fs';
 'require ui';
-'require rpc';
+'require mihowrt.ui as mihowrtUi';
 
 const DST_LIST_FILE = '/opt/clash/lst/always_proxy_dst.txt';
 const SRC_LIST_FILE = '/opt/clash/lst/always_proxy_src.txt';
@@ -17,24 +17,6 @@ let srcValueCache = null;
 let policyMap = null;
 let dstListOption = null;
 let srcListOption = null;
-
-const callServiceList = rpc.declare({
-	object: 'service',
-	method: 'list',
-	params: ['name'],
-	expect: { '': {} }
-});
-
-async function getServiceStatus() {
-	try {
-		const services = await callServiceList(SERVICE_NAME);
-		const instances = services[SERVICE_NAME]?.instances || {};
-		return Object.values(instances)[0]?.running || false;
-	}
-	catch (e) {
-		return false;
-	}
-}
 
 function validateNumericRange(value, label, min, max) {
 	if (!value)
@@ -52,15 +34,6 @@ function normalizeBlock(value) {
 	value = (value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 	value = value.trim();
 	return value ? value + '\n' : '';
-}
-
-function execErrorDetail(result) {
-	const detail = String(result?.stderr || result?.stdout || '').trim();
-	return detail || _('unknown error');
-}
-
-function notify(message, level) {
-	ui.addNotification(null, E('p', message), level);
 }
 
 function currentNormalizedListValue(option) {
@@ -108,7 +81,7 @@ return view.extend({
 
 	handleSaveApply: async function(ev, mode) {
 		const listChanged = hasListValueChanges();
-		const wasRunning = listChanged ? await getServiceStatus() : false;
+		const wasRunning = listChanged ? await mihowrtUi.getServiceStatus(SERVICE_NAME) : false;
 
 		await this.handleSave(ev);
 
@@ -123,7 +96,7 @@ return view.extend({
 
 		const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
 		if (reloadResult.code !== 0)
-			notify(_('Saved, but failed to reload policy: %s').format(execErrorDetail(reloadResult)), 'error');
+			mihowrtUi.notify(_('Saved, but failed to reload policy: %s').format(mihowrtUi.execErrorDetail(reloadResult)), 'error');
 	},
 
 	load: function() {

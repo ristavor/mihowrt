@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.28
+PKG_VERSION:=0.2.29
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -95,7 +95,11 @@ define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	if [ -f $(PKG_CONFIG_BACKUP_FILE) ]; then
-		mv $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
+		if [ ! -f /opt/clash/config.yaml ] || ! cmp -s $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml; then
+			mv $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
+		else
+			rm -f $(PKG_CONFIG_BACKUP_FILE)
+		fi
 	fi
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true

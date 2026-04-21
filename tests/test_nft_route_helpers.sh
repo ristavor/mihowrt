@@ -46,6 +46,14 @@ nft_emit_ipv4_file_to_set "$list_file" "proxy_dst" NFT_PROXY_DST_COUNT
 assert_eq "2" "${NFT_PROXY_DST_COUNT}" "nft_emit_ipv4_file_to_set should return valid entry count"
 assert_file_contains "$NFT_BATCH_FILE" "add element inet mihomo_podkop proxy_dst { 1.1.1.1,2.2.2.0/24 }" "nft_emit_ipv4_file_to_set should emit nft batch line"
 
+rm -f "$list_file"
+: > "$NFT_BATCH_FILE"
+NFT_PROXY_DST_COUNT=99
+assert_eq "0" "$(count_valid_list_entries "$list_file")" "count_valid_list_entries should treat missing file as empty list"
+nft_emit_ipv4_file_to_set "$list_file" "proxy_dst" NFT_PROXY_DST_COUNT
+assert_eq "0" "${NFT_PROXY_DST_COUNT}" "nft_emit_ipv4_file_to_set should treat deleted list file as empty"
+[[ ! -s "$NFT_BATCH_FILE" ]] || fail "nft_emit_ipv4_file_to_set should not emit rules for deleted list file"
+
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000

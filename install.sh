@@ -405,8 +405,8 @@ ensure_dns_state_helpers() {
 	command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
 
 	for helper_path in \
-		"/usr/lib/mihowrt/helpers.sh" \
-		"./rootfs/usr/lib/mihowrt/helpers.sh"
+		"/usr/lib/mihowrt/dns-state.sh" \
+		"./rootfs/usr/lib/mihowrt/dns-state.sh"
 	do
 		if [ -r "$helper_path" ]; then
 			# shellcheck disable=SC1090
@@ -420,9 +420,9 @@ ensure_dns_state_helpers() {
 			script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)" || script_dir=""
 			;;
 	esac
-	if [ -n "$script_dir" ] && [ -r "$script_dir/rootfs/usr/lib/mihowrt/helpers.sh" ]; then
+	if [ -n "$script_dir" ] && [ -r "$script_dir/rootfs/usr/lib/mihowrt/dns-state.sh" ]; then
 		# shellcheck disable=SC1090
-		. "$script_dir/rootfs/usr/lib/mihowrt/helpers.sh"
+		. "$script_dir/rootfs/usr/lib/mihowrt/dns-state.sh"
 		command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
 	fi
 

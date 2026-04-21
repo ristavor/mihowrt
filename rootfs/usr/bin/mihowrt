@@ -10,6 +10,7 @@ check_required_file() {
 check_required_file /lib/functions.sh
 check_required_file /usr/lib/mihowrt/constants.sh
 check_required_file /usr/lib/mihowrt/helpers.sh
+check_required_file /usr/lib/mihowrt/dns-state.sh
 check_required_file /usr/lib/mihowrt/lists.sh
 check_required_file /usr/lib/mihowrt/dns.sh
 check_required_file /usr/lib/mihowrt/nft.sh
@@ -19,6 +20,7 @@ check_required_file /usr/lib/mihowrt/runtime.sh
 . /lib/functions.sh
 . /usr/lib/mihowrt/constants.sh
 . /usr/lib/mihowrt/helpers.sh
+. /usr/lib/mihowrt/dns-state.sh
 . /usr/lib/mihowrt/lists.sh
 . /usr/lib/mihowrt/dns.sh
 . /usr/lib/mihowrt/nft.sh

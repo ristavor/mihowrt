@@ -18,6 +18,7 @@ export MIHOMO_DNS_LISTEN="0.0.0.0#7874"
 export DNS_AUTO_RESOLVFILE="$tmpdir/resolv.conf.auto"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns-state.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns.sh"
 
 log() {

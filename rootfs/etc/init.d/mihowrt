@@ -75,7 +75,7 @@ start_service() {
 	procd_set_param file "$CLASH_CONFIG" /etc/config/mihowrt /opt/clash/lst/always_proxy_dst.txt /opt/clash/lst/always_proxy_src.txt
 	procd_close_instance
 
-	msg "MihoWRT service started"
+	msg "MihoWRT service registered with procd"
 }
 
 stop_service() {

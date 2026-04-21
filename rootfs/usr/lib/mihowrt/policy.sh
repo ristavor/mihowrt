@@ -687,14 +687,17 @@ load_status_desired_state_json() {
 load_status_runtime_state_json() {
 	local config_json="${1:-}"
 	local service_enabled=0 service_running=0 service_ready=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
+	local dns_recovery_backup_active_flag=0 dns_recovery_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
 	local runtime_snapshot_present=0 runtime_snapshot_valid=0 runtime_live_present=0 active_json="" runtime_errors_raw=""
 	local dns_port="" tproxy_port=""
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
-	dns_backup_exists && dns_backup_exists_flag=1 || dns_backup_exists_flag=0
-	dns_backup_valid && dns_backup_valid_flag=1 || dns_backup_valid_flag=0
+	dns_persist_backup_exists && dns_backup_exists_flag=1 || dns_backup_exists_flag=0
+	dns_persist_backup_valid && dns_backup_valid_flag=1 || dns_backup_valid_flag=0
+	dns_backup_exists && dns_recovery_backup_active_flag=1 || dns_recovery_backup_active_flag=0
+	dns_backup_valid && dns_recovery_backup_valid_flag=1 || dns_recovery_backup_valid_flag=0
 	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
 
 	if [ -n "$config_json" ]; then
@@ -731,6 +734,8 @@ load_status_runtime_state_json() {
 		--arg service_ready "$service_ready" \
 		--arg dns_backup_exists "$dns_backup_exists_flag" \
 		--arg dns_backup_valid "$dns_backup_valid_flag" \
+		--arg dns_recovery_backup_active "$dns_recovery_backup_active_flag" \
+		--arg dns_recovery_backup_valid "$dns_recovery_backup_valid_flag" \
 		--arg route_state_present "$route_state_present" \
 		--arg route_table_id_effective "$route_table_id_effective" \
 		--arg route_rule_priority_effective "$route_rule_priority_effective" \
@@ -744,6 +749,8 @@ load_status_runtime_state_json() {
 			service_ready: ($service_ready == "1"),
 			dns_backup_exists: ($dns_backup_exists == "1"),
 			dns_backup_valid: ($dns_backup_valid == "1"),
+			dns_recovery_backup_active: ($dns_recovery_backup_active == "1"),
+			dns_recovery_backup_valid: ($dns_recovery_backup_valid == "1"),
 			route_state_present: ($route_state_present == "1"),
 			route_table_id_effective: $route_table_id_effective,
 			route_rule_priority_effective: $route_rule_priority_effective,
@@ -818,6 +825,8 @@ emit_status_json() {
 			service_ready: $runtime.service_ready,
 			dns_backup_exists: $runtime.dns_backup_exists,
 			dns_backup_valid: $runtime.dns_backup_valid,
+			dns_recovery_backup_active: $runtime.dns_recovery_backup_active,
+			dns_recovery_backup_valid: $runtime.dns_recovery_backup_valid,
 			route_state_present: $runtime.route_state_present,
 			route_table_id_effective: $runtime.route_table_id_effective,
 			route_rule_priority_effective: $runtime.route_rule_priority_effective,

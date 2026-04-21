@@ -29,8 +29,10 @@ function emptyStatusState() {
 		serviceEnabled: false,
 		serviceRunning: false,
 		serviceReady: false,
-			dnsBackupExists: false,
-			dnsBackupValid: false,
+		dnsBackupExists: false,
+		dnsBackupValid: false,
+		dnsRecoveryBackupActive: false,
+		dnsRecoveryBackupValid: false,
 		routeStatePresent: false,
 		routeTableIdEffective: '',
 		routeRulePriorityEffective: '',
@@ -147,13 +149,15 @@ return baseclass.extend({
 				return state;
 			}
 
-				const payload = JSON.parse(result.stdout || '{}');
-				state.available = true;
-				state.serviceEnabled = !!payload.service_enabled;
-				state.serviceRunning = !!payload.service_running;
-				state.serviceReady = !!payload.service_ready;
-				state.dnsBackupExists = !!payload.dns_backup_exists;
+			const payload = JSON.parse(result.stdout || '{}');
+			state.available = true;
+			state.serviceEnabled = !!payload.service_enabled;
+			state.serviceRunning = !!payload.service_running;
+			state.serviceReady = !!payload.service_ready;
+			state.dnsBackupExists = !!payload.dns_backup_exists;
 			state.dnsBackupValid = !!payload.dns_backup_valid;
+			state.dnsRecoveryBackupActive = !!payload.dns_recovery_backup_active;
+			state.dnsRecoveryBackupValid = !!payload.dns_recovery_backup_valid;
 			state.routeStatePresent = !!payload.route_state_present;
 			state.routeTableIdEffective = String(payload.route_table_id_effective || '');
 			state.routeRulePriorityEffective = String(payload.route_rule_priority_effective || '');

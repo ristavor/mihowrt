@@ -12,6 +12,10 @@ dns_persist_backup_exists() {
 	[ -f "$DNS_BACKUP_FILE" ]
 }
 
+dns_persist_backup_valid() {
+	dns_backup_file_valid "$DNS_BACKUP_FILE"
+}
+
 dns_backup_file_valid() {
 	local backup_path="$1"
 
@@ -140,7 +144,7 @@ dns_current_state_looks_hijacked() {
 
 dns_persist_backup_recovery_needed() {
 	dns_persist_backup_exists || return 1
-	dns_backup_file_valid "$DNS_BACKUP_FILE" || return 1
+	dns_persist_backup_valid || return 1
 	dns_current_state_looks_hijacked || return 1
 	dns_backup_file_matches_current "$DNS_BACKUP_FILE" && return 1
 	return 0
@@ -232,9 +236,11 @@ dns_restore_fallback() {
 	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null || true
 	uci -q delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true
 	uci -q delete dhcp.@dnsmasq[0].cachesize 2>/dev/null || true
-	uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || true
+	uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || return 1
 
-	[ -n "$resolvfile" ] && uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" 2>/dev/null || true
+	if [ -n "$resolvfile" ]; then
+		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" 2>/dev/null || return 1
+	fi
 
 	uci commit dhcp || return 1
 	dns_restart_service || warn "dnsmasq restart failed during fallback restore"
@@ -310,33 +316,34 @@ dns_restore() {
 
 	uci -q delete dhcp.@dnsmasq[0].server 2>/dev/null || true
 	uci -q delete dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true
-	server_sep=""
 	while IFS= read -r line; do
 		case "$line" in
 			ORIG_SERVER=*)
 				server="${line#ORIG_SERVER=}"
-				[ -n "$server" ] && uci add_list dhcp.@dnsmasq[0].server="$server"
+				if [ -n "$server" ]; then
+					uci add_list dhcp.@dnsmasq[0].server="$server" || return 1
+				fi
 				;;
 		esac
 	done < "$backup_path"
 
 	if [ -n "$DNS_BACKUP_EXPECTED_CACHESIZE" ]; then
-		uci set dhcp.@dnsmasq[0].cachesize="$DNS_BACKUP_EXPECTED_CACHESIZE" 2>/dev/null
+		uci set dhcp.@dnsmasq[0].cachesize="$DNS_BACKUP_EXPECTED_CACHESIZE" 2>/dev/null || return 1
 	else
 		uci -q delete dhcp.@dnsmasq[0].cachesize 2>/dev/null || true
 	fi
 
 	if [ -n "$DNS_BACKUP_EXPECTED_NORESOLV" ]; then
-		uci set dhcp.@dnsmasq[0].noresolv="$DNS_BACKUP_EXPECTED_NORESOLV" 2>/dev/null
+		uci set dhcp.@dnsmasq[0].noresolv="$DNS_BACKUP_EXPECTED_NORESOLV" 2>/dev/null || return 1
 	else
 		uci -q delete dhcp.@dnsmasq[0].noresolv 2>/dev/null || true
 	fi
 
 	if [ -n "$DNS_BACKUP_EXPECTED_RESOLVFILE" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_BACKUP_EXPECTED_RESOLVFILE" 2>/dev/null
+		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_BACKUP_EXPECTED_RESOLVFILE" 2>/dev/null || return 1
 	elif [ "$DNS_BACKUP_EXPECTED_HAS_SERVERS" -eq 0 ] && [ -f "${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" 2>/dev/null
-		[ "$DNS_BACKUP_EXPECTED_NORESOLV" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null
+		uci set dhcp.@dnsmasq[0].resolvfile="${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" 2>/dev/null || return 1
+		[ "$DNS_BACKUP_EXPECTED_NORESOLV" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || return 1
 	fi
 
 	uci commit dhcp || return 1

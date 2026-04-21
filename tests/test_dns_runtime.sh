@@ -46,6 +46,8 @@ dns_restart_service() {
 }
 
 uci() {
+	local cmd=""
+
 	if [[ "${1:-}" == "-q" && "${2:-}" == "get" ]]; then
 		case "${3:-}" in
 			'dhcp.@dnsmasq[0].cachesize')
@@ -69,24 +71,29 @@ uci() {
 	fi
 
 	if [[ "${1:-}" == "-q" && "${2:-}" == "delete" ]]; then
-		printf 'delete %s\n' "${3:-}" >>"$uci_log"
+		cmd="delete ${3:-}"
+		printf '%s\n' "$cmd" >>"$uci_log"
+		[[ -n "${TEST_FAIL_UCI_CMD:-}" && "$cmd" == "$TEST_FAIL_UCI_CMD" ]] && return 1
 		return 0
 	fi
 
 	case "${1:-}" in
 		add_list)
-			printf 'add_list %s\n' "${2:-}" >>"$uci_log"
+			cmd="add_list ${2:-}"
 			;;
 		set)
-			printf 'set %s\n' "${2:-}" >>"$uci_log"
+			cmd="set ${2:-}"
 			;;
 		commit)
-			printf 'commit %s\n' "${2:-}" >>"$uci_log"
+			cmd="commit ${2:-}"
 			;;
 		*)
 			return 1
 			;;
 	esac
+
+	printf '%s\n' "$cmd" >>"$uci_log"
+	[[ -n "${TEST_FAIL_UCI_CMD:-}" && "$cmd" == "$TEST_FAIL_UCI_CMD" ]] && return 1
 
 	return 0
 }
@@ -143,6 +150,27 @@ dns_restore
 [[ ! -e "$runtime_backup_file" ]] || fail "dns_restore should clear runtime backup marker after clean restore"
 [[ -e "$backup_file" ]] || fail "dns_restore should keep persistent backup cache after clean restore"
 
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="1000"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE="/tmp/original.resolv"
+TEST_CURRENT_SERVERS=$'1.1.1.1\n9.9.9.9'
+dns_backup_state
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="add_list dhcp.@dnsmasq[0].server=1.1.1.1"
+assert_false "dns_restore should fail when restoring dnsmasq server list fails" dns_restore
+assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore should not commit partial restore after mutator failure"
+[[ ! -s "$dns_log" ]] || fail "dns_restore should not restart dnsmasq after mutator failure"
+assert_file_not_contains "$event_log" "log:dnsmasq settings restored" "dns_restore should not report success after mutator failure"
+[[ -e "$runtime_backup_file" ]] || fail "dns_restore should keep runtime backup after restore failure"
+unset TEST_FAIL_UCI_CMD
+
 : > "$uci_log"
 : > "$dns_log"
 : > "$event_log"
@@ -162,6 +190,22 @@ assert_file_contains "$dns_log" "restart" "dns_restore fallback should restart d
 
 mkdir -p "$(dirname "$runtime_backup_file")"
 : > "$runtime_backup_file"
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+: > "$DNS_AUTO_RESOLVFILE"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="set dhcp.@dnsmasq[0].noresolv=0"
+assert_false "dns_restore_fallback should fail when restoring noresolv fails" dns_restore_fallback
+assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore_fallback should not commit partial fallback restore"
+[[ ! -s "$dns_log" ]] || fail "dns_restore_fallback should not restart dnsmasq after fallback mutator failure"
+assert_file_not_contains "$event_log" "log:dnsmasq fallback state already active" "dns_restore_fallback should not claim no-op success on write failure"
+[[ -e "$runtime_backup_file" ]] || fail "dns_restore_fallback should keep runtime backup after failure"
+unset TEST_FAIL_UCI_CMD
+
 : > "$uci_log"
 : > "$dns_log"
 : > "$DNS_AUTO_RESOLVFILE"

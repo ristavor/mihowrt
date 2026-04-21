@@ -93,6 +93,14 @@ dns_backup_valid() {
 	return 0
 }
 
+dns_persist_backup_exists() {
+	return 0
+}
+
+dns_persist_backup_valid() {
+	return 0
+}
+
 policy_route_state_read() {
 	ROUTE_TABLE_ID_EFFECTIVE="201"
 	ROUTE_RULE_PRIORITY_EFFECTIVE="10010"
@@ -128,6 +136,8 @@ assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_running')" 
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_enabled')" "status_json should expose boot-enabled state"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_ready')" "status_json should expose service readiness"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.dns_backup_valid')" "status_json should expose dns backup validity"
+assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.dns_recovery_backup_active')" "status_json should expose active dns recovery backup state"
+assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.dns_recovery_backup_valid')" "status_json should expose active dns recovery backup validity"
 assert_eq "auto" "$(printf '%s\n' "$status_output" | jq -r '.route_table_id')" "status_json should map empty route table to auto"
 assert_eq "10010" "$(printf '%s\n' "$status_output" | jq -r '.route_rule_priority')" "status_json should expose configured route rule priority"
 assert_eq "201" "$(printf '%s\n' "$status_output" | jq -r '.route_table_id_effective')" "status_json should expose effective route table id"

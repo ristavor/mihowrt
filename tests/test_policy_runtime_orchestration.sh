@@ -403,6 +403,14 @@ dns_backup_valid() {
 	return 1
 }
 
+dns_persist_backup_exists() {
+	return 1
+}
+
+dns_persist_backup_valid() {
+	return 1
+}
+
 read_config_json() {
 	cat <<'EOF'
 {"config_path":"/opt/clash/config.yaml","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15","external_controller":"","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","errors":[]}

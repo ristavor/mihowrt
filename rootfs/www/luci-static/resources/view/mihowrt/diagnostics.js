@@ -132,7 +132,7 @@ return view.extend({
 					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
 					badge(status.serviceReady ? _('Service Ready') : _('Service Not Ready'), status.serviceReady),
 					renderAppliedPolicyBadge(status, active),
-					badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
+					badge(status.dnsBackupValid ? _('DNS Backup Cache Valid') : _('DNS Backup Cache Invalid/Missing'), status.dnsBackupValid),
 					badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
 					badge(
 						status.runtimeSnapshotValid
@@ -181,7 +181,9 @@ return view.extend({
 					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
 					renderField(_('Runtime Snapshot Valid'), status.runtimeSnapshotValid ? _('yes') : _('no')),
 					renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
-					renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),
+					renderField(_('DNS Backup Cached'), status.dnsBackupExists ? _('yes') : _('no')),
+					renderField(_('DNS Recovery Backup Active'), status.dnsRecoveryBackupActive ? _('yes') : _('no')),
+					renderField(_('DNS Recovery Backup Valid'), status.dnsRecoveryBackupValid ? _('yes') : _('no')),
 					renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
 				])
 			]);

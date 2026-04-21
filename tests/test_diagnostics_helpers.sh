@@ -157,4 +157,19 @@ EOF
 status_runtime_output_drift="$(status_runtime_state)"
 assert_eq "0" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report drift when applied snapshot differs from desired config"
 
+config_load() {
+	return 1
+}
+
+runtime_snapshot_status_json() {
+	return 1
+}
+
+status_output_no_uci="$(status_json)"
+assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_table_id')" "status_json should not pretend route table config exists when UCI load fails"
+assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_rule_priority')" "status_json should not pretend route rule config exists when UCI load fails"
+assert_eq "0" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.source_network_interfaces | length')" "status_json should not invent source interfaces when UCI load fails"
+assert_eq "false" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.runtime_matches_desired')" "status_json should not claim desired/runtime parity when UCI load fails"
+assert_eq "true" "$(printf '%s\n' "$status_output_no_uci" | jq -r 'any(.errors[]; contains("Failed to read /etc/config/mihowrt"))')" "status_json should surface UCI load failure"
+
 pass "diagnostics helpers"

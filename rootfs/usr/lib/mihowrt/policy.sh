@@ -565,7 +565,7 @@ service_running_state() {
 }
 
 status_json() {
-	local enabled=1 dns_hijack=1 route_table_id="" route_rule_priority="" disable_quic=0
+	local enabled=0 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0
 	local service_enabled=0 service_running=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
@@ -574,6 +574,7 @@ status_json() {
 	local dst_list_file="${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}"
 	local src_list_file="${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}"
 	local runtime_snapshot_present=0 runtime_live_present=0 runtime_safe_reload_ready=1
+	local settings_loaded=0 status_errors_raw=""
 
 	require_command jq || return 1
 	SOURCE_INTERFACES=""
@@ -603,6 +604,7 @@ status_json() {
 	fi
 
 	if config_load "$pkg_config" 2>/dev/null; then
+		settings_loaded=1
 		config_get_bool enabled "settings" "enabled" 1
 		config_get_bool dns_hijack "settings" "dns_hijack" 1
 		config_get route_table_id "settings" "route_table_id" ""
@@ -610,9 +612,13 @@ status_json() {
 		config_get_bool disable_quic "settings" "disable_quic" 0
 		config_list_foreach "settings" "source_network_interfaces" append_source_interface
 		source_interfaces="$SOURCE_INTERFACES"
+	else
+		status_errors_raw="Failed to read /etc/config/$pkg_config"
 	fi
 
-	[ -n "$source_interfaces" ] || source_interfaces="$(default_source_interface)"
+	if [ "$settings_loaded" -eq 1 ] && [ -z "$source_interfaces" ]; then
+		source_interfaces="$(default_source_interface)"
+	fi
 	proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
 	proxy_src_count="$(count_valid_list_entries "$src_list_file")"
 
@@ -652,7 +658,9 @@ status_json() {
 		}')"
 	fi
 
-	if [ "$runtime_snapshot_present" -eq 0 ] && [ "$runtime_live_present" -eq 1 ]; then
+	if [ "$settings_loaded" -eq 0 ]; then
+		runtime_matches_desired="false"
+	elif [ "$runtime_snapshot_present" -eq 0 ] && [ "$runtime_live_present" -eq 1 ]; then
 		runtime_safe_reload_ready=0
 		runtime_matches_desired="false"
 	elif [ "$runtime_snapshot_present" -eq 1 ]; then
@@ -707,6 +715,8 @@ status_json() {
 		--arg runtime_live_present "$runtime_live_present" \
 		--arg runtime_safe_reload_ready "$runtime_safe_reload_ready" \
 		--arg runtime_matches_desired "$runtime_matches_desired" \
+		--arg settings_loaded "$settings_loaded" \
+		--arg status_errors_raw "$status_errors_raw" \
 		'{
 			service_enabled: ($service_enabled == "1"),
 			service_running: ($service_running == "1"),
@@ -717,8 +727,8 @@ status_json() {
 			route_rule_priority_effective: $route_rule_priority_effective,
 			enabled: ($enabled == "1"),
 			dns_hijack: ($dns_hijack == "1"),
-			route_table_id: (if $route_table_id == "" then "auto" else $route_table_id end),
-			route_rule_priority: (if $route_rule_priority == "" then "auto" else $route_rule_priority end),
+			route_table_id: (if $settings_loaded != "1" then "unavailable" elif $route_table_id == "" then "auto" else $route_table_id end),
+			route_rule_priority: (if $settings_loaded != "1" then "unavailable" elif $route_rule_priority == "" then "auto" else $route_rule_priority end),
 			disable_quic: ($disable_quic == "1"),
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0))),
 			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),
@@ -729,7 +739,7 @@ status_json() {
 			runtime_matches_desired: ($runtime_matches_desired == "true"),
 			active: $active,
 			config: $config,
-			errors: ($config.errors // [])
+			errors: (($config.errors // []) + ($status_errors_raw | split("\n") | map(select(length > 0))))
 		}'
 }
 

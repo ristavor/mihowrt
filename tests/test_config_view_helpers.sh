@@ -13,20 +13,25 @@ const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
 const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
 const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
+const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 
 if (!hostMatch)
 	throw new Error('normalizeHostPortFromAddr() not found');
 if (!editorMatch)
 	throw new Error('editorContentForSave() not found');
+if (!busyMatch)
+	throw new Error('controlsBusy() not found');
 
 const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
 const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
+const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
 const context = {};
 vm.createContext(context);
-vm.runInContext(`${hostFnSource}\n${editorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.editorContentForSave = editorContentForSave;`, context);
+vm.runInContext(`let serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${editorFnSource}\n${busyFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
 
 const normalize = context.normalizeHostPortFromAddr;
 const editorContentForSave = context.editorContentForSave;
+const controlsBusy = context.controlsBusy;
 const fallbackHost = 'router.lan';
 const fallbackPort = '9090';
 
@@ -52,6 +57,12 @@ assertHostPort('', fallbackHost, fallbackPort, 'Empty controller should keep fal
 assertEq(editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
 assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
 assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
+context.setBusyFlags(false, false);
+assertEq(String(controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
+context.setBusyFlags(true, false);
+assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
+context.setBusyFlags(false, true);
+assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save is running');
 EOF
 
 pass "config view helpers"

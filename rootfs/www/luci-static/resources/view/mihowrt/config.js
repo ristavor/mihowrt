@@ -11,7 +11,26 @@ const CLASH_CONFIG = '/opt/clash/config.yaml';
 const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 
 let startStopButton = null;
+let dashboardButton = null;
+let saveApplyButton = null;
 let editor = null;
+let serviceActionInFlight = false;
+let saveInFlight = false;
+
+function controlsBusy() {
+	return serviceActionInFlight || saveInFlight;
+}
+
+function updateControlDisabledState() {
+	const disabled = controlsBusy();
+
+	if (startStopButton)
+		startStopButton.disabled = disabled;
+	if (dashboardButton)
+		dashboardButton.disabled = disabled;
+	if (saveApplyButton)
+		saveApplyButton.disabled = disabled;
+}
 
 async function runServiceAction(action) {
 	const result = await fs.exec(SERVICE_SCRIPT, [action]);
@@ -19,13 +38,9 @@ async function runServiceAction(action) {
 		throw new Error(mihowrtUi.execErrorDetail(result));
 }
 
-function setStartStopDisabled(disabled) {
-	if (startStopButton)
-		startStopButton.disabled = disabled;
-}
-
 async function handleServiceAction(steps, errorMsg) {
-	setStartStopDisabled(true);
+	serviceActionInFlight = true;
+	updateControlDisabledState();
 
 	const completed = [];
 	try {
@@ -58,7 +73,8 @@ async function handleServiceAction(steps, errorMsg) {
 		return false;
 	}
 	finally {
-		setStartStopDisabled(false);
+		serviceActionInFlight = false;
+		updateControlDisabledState();
 	}
 }
 
@@ -87,6 +103,9 @@ async function pollStatus(targetStatus, timeout = 5000) {
 }
 
 async function toggleService() {
+	if (controlsBusy())
+		return;
+
 	const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 	const targetStatus = !running;
 
@@ -240,7 +259,11 @@ return view.extend({
 		const saveAndApply = async function() {
 			let tempConfigPath = null;
 
-			setStartStopDisabled(true);
+			if (controlsBusy())
+				return;
+
+			saveInFlight = true;
+			updateControlDisabledState();
 
 			try {
 				if (!editor) {
@@ -279,7 +302,8 @@ return view.extend({
 					}
 				}
 
-				setStartStopDisabled(false);
+				saveInFlight = false;
+				updateControlDisabledState();
 			}
 		};
 
@@ -287,10 +311,10 @@ return view.extend({
 			E('div', {
 				style: 'margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
 			}, [
-				E('button', {
+				(dashboardButton = E('button', {
 					class: 'btn',
 					click: openDashboard
-				}, _('Open Dashboard')),
+				}, _('Open Dashboard'))),
 				(startStopButton = E('button', {
 					class: 'btn',
 					click: toggleService
@@ -302,14 +326,16 @@ return view.extend({
 			]),
 			E('h2', _('MihoWRT Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply.')),
-			editorNode,
-			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
-				E('button', {
-					class: 'btn cbi-button-apply',
-					click: saveAndApply
-				}, _('Save & Apply Configuration'))
-			])
-		]);
+				editorNode,
+				E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
+					(saveApplyButton = E('button', {
+						class: 'btn cbi-button-apply',
+						click: saveAndApply
+					}, _('Save & Apply Configuration')))
+				])
+			]);
+
+		updateControlDisabledState();
 
 		window.requestAnimationFrame(() => {
 			initializeAceEditor(editorNode, config).catch(e => {

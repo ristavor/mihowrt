@@ -74,13 +74,14 @@ apply_runtime_state() {
 
 cleanup_runtime_state() {
 	printf 'cleanup_runtime_state\n' >>"$cli_log"
-	return 0
+	return "${TEST_CLEANUP_RUNTIME_RC:-0}"
 }
 
 : > "$cli_log"
 TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
+TEST_CLEANUP_RUNTIME_RC=0
 run_service
 assert_file_contains "$cli_log" "load_runtime_config" "run_service should load runtime config"
 assert_file_contains "$cli_log" "validate_runtime_config" "run_service should validate runtime config"
@@ -93,8 +94,18 @@ assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clea
 
 : > "$cli_log"
 TEST_ENABLED=1
+TEST_WAIT_READY_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_CLEANUP_RUNTIME_RC=1
+assert_false "run_service should fail when runtime cleanup fails on exit" run_service
+assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should still attempt runtime cleanup before failing"
+[[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file even when cleanup fails"
+
+: > "$cli_log"
+TEST_ENABLED=1
 TEST_WAIT_READY_RC=1
 TEST_APPLY_RUNTIME_RC=0
+TEST_CLEANUP_RUNTIME_RC=0
 assert_false "run_service should fail when Mihomo readiness probe fails" run_service
 assert_file_contains "$cli_log" "err:Mihomo failed to become ready on DNS port 7874 and TPROXY port 7894" "run_service should report readiness failure"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after readiness failure"
@@ -104,6 +115,7 @@ assert_file_not_contains "$cli_log" "apply_runtime_state" "run_service should no
 TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=1
+TEST_CLEANUP_RUNTIME_RC=0
 assert_false "run_service should fail when runtime policy apply fails" run_service
 assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo became ready" "run_service should report runtime apply failure"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
@@ -145,6 +157,9 @@ SKIP_START_FILE="$tmpdir/skip-start"
 SERVICE_PID_FILE="$tmpdir/init.pid"
 
 export TEST_ORCH_LOG="$orch_log"
+export TEST_ORCH_VALIDATE_RC=0
+export TEST_ORCH_CLEANUP_RC=0
+export TEST_CLASH_TEST_RC=0
 
 cat > "$ORCHESTRATOR" <<'EOF'
 #!/usr/bin/env bash
@@ -153,7 +168,10 @@ case "${1:-}" in
 	validate)
 		exit "${TEST_ORCH_VALIDATE_RC:-0}"
 		;;
-	recover|cleanup|run-service)
+	cleanup)
+		exit "${TEST_ORCH_CLEANUP_RC:-0}"
+		;;
+	recover|run-service)
 		exit 0
 		;;
 esac
@@ -193,8 +211,9 @@ procd_close_instance() {
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
-TEST_ORCH_VALIDATE_RC=0
-TEST_CLASH_TEST_RC=0
+export TEST_ORCH_VALIDATE_RC=0
+export TEST_ORCH_CLEANUP_RC=0
+export TEST_CLASH_TEST_RC=0
 rm -f "$SKIP_START_FILE"
 start_service
 assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service should log service start"
@@ -205,6 +224,15 @@ assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start
 assert_file_contains "$procd_log" "set:file $CLASH_CONFIG /etc/config/mihowrt /opt/clash/lst/always_proxy_dst.txt /opt/clash/lst/always_proxy_src.txt" "start_service should register config and list file triggers"
 assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim readiness before runtime start completes"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
+
+: > "$msg_log"
+: > "$procd_log"
+: > "$orch_log"
+export TEST_ORCH_CLEANUP_RC=1
+assert_false "start_service should fail when stale runtime cleanup fails" start_service
+assert_file_contains "$msg_log" "ERROR: Failed to clean stale runtime state" "start_service should report stale runtime cleanup failure"
+[[ ! -s "$procd_log" ]] || fail "start_service should not register procd instance when cleanup fails"
+export TEST_ORCH_CLEANUP_RC=0
 
 : > "$msg_log"
 : > "$procd_log"

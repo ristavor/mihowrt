@@ -65,7 +65,10 @@ start_service() {
 		return 1
 	fi
 
-	"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+	if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
+		msg "ERROR: Failed to clean stale runtime state"
+		return 1
+	fi
 
 	procd_open_instance
 	procd_set_param command "$ORCHESTRATOR" run-service

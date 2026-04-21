@@ -17,6 +17,7 @@ let serviceStatusBadge = null;
 let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
+let savedConfigContent = '';
 
 function controlsBusy() {
 	return serviceActionInFlight || saveInFlight;
@@ -286,6 +287,7 @@ return view.extend({
 
 	render: async function(config) {
 		const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
+		savedConfigContent = editorContentForSave(config);
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'
@@ -308,10 +310,16 @@ return view.extend({
 
 				const wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 				const value = editorContentForSave(editor.getValue());
+				if (value === savedConfigContent) {
+					mihowrtUi.notify(_('Configuration is unchanged.'), 'info');
+					return;
+				}
+
 				tempConfigPath = makeTempConfigPath();
 				await fs.write(tempConfigPath, value);
 				await backendHelper.applyConfig(tempConfigPath);
 				tempConfigPath = null;
+				savedConfigContent = value;
 				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
 
 				const restartState = await restartRunningService(wasRunning);
@@ -321,10 +329,14 @@ return view.extend({
 					return;
 				}
 				if (restartState.restarted) {
-					if (!(await pollStatus(true)))
-						mihowrtUi.notify(_('Service restart is still in progress. Check diagnostics if it does not recover soon.'), 'warning');
+					const restartSettled = await pollStatus(true);
+					const runningAfterRestart = await refreshServiceState();
 
-					await refreshServiceState();
+					if (!restartSettled && !runningAfterRestart) {
+						mihowrtUi.notify(_('Service restart is still in progress. Check diagnostics if it does not recover soon.'), 'warning');
+						return;
+					}
+
 					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
 				}
 				else {

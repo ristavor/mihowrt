@@ -59,6 +59,9 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 	};
 	option.write = function(section_id, value) {
 		const normalized = normalizeBlock(value);
+		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+		if (normalized === current)
+			return Promise.resolve();
 		if (cacheName === 'dst')
 			dstValueCache = normalized;
 		else
@@ -66,6 +69,9 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 		return fs.write(filePath, normalized);
 	};
 	option.remove = function() {
+		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+		if (!current)
+			return Promise.resolve();
 		if (cacheName === 'dst')
 			dstValueCache = '';
 		else

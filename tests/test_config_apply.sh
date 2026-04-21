@@ -75,6 +75,15 @@ cmp -s "$CLASH_CONFIG" "$tmpdir/expected.yaml" || fail "apply_config_file should
 [[ ! -e "$candidate_valid" ]] || fail "apply_config_file should remove temp candidate after success"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after success"
 
+candidate_same="$tmpdir/candidate-same.yaml"
+cp "$CLASH_CONFIG" "$candidate_same"
+before_mtime="$(stat -c %Y "$CLASH_CONFIG")"
+sleep 1
+apply_config_file "$candidate_same"
+after_mtime="$(stat -c %Y "$CLASH_CONFIG")"
+assert_eq "$before_mtime" "$after_mtime" "apply_config_file should skip replacing identical config to avoid extra flash writes"
+[[ ! -e "$candidate_same" ]] || fail "apply_config_file should remove temp candidate after identical-config no-op"
+
 cp "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml"
 candidate_parse="$tmpdir/candidate-parse.yaml"
 cat > "$candidate_parse" <<'EOF'

@@ -528,6 +528,11 @@ apply_config_file() {
 		return 1
 	}
 
+	if [ -f "$active_config" ] && cmp -s "$candidate" "$active_config" 2>/dev/null; then
+		rm -f "$candidate"
+		return 0
+	fi
+
 	cp -f "$candidate" "$target_tmp" || {
 		err "Failed to stage validated config for $active_config"
 		rm -f "$candidate" "$target_tmp"

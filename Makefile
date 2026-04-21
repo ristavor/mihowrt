@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.24
+PKG_VERSION:=0.2.25
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak

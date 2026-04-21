@@ -147,6 +147,7 @@ status_output_no_snapshot="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should report missing runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_safe_reload_ready')" "status_json should block safe reload when live state lacks snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim runtime/config parity without snapshot"
+assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.active.present')" "status_json should not invent applied runtime state without snapshot"
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'

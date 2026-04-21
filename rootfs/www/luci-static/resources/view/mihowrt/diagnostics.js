@@ -56,6 +56,48 @@ function renderLogLines(logs) {
 	}, logs.lines.join('\n'));
 }
 
+function renderAppliedPolicyBadge(active) {
+	if (!active.present)
+		return badge(_('Applied Runtime Not Active'), false);
+
+	return badge(active.enabled ? _('Applied Policy Enabled') : _('Applied Policy Disabled'), active.enabled);
+}
+
+function renderAppliedBoolean(value) {
+	if (value == null)
+		return _('not active');
+
+	return value ? _('enabled') : _('disabled');
+}
+
+function renderAppliedList(values) {
+	if (!values)
+		return _('not active');
+
+	return values.length ? values.join(', ') : _('none');
+}
+
+function renderAppliedCount(value) {
+	return value == null ? _('not active') : String(value);
+}
+
+function deriveAppliedState(status) {
+	if (status.active && status.active.present)
+		return status.active;
+
+	return {
+		present: false,
+		enabled: false,
+		routeTableId: '',
+		routeRulePriority: '',
+		dnsHijack: null,
+		disableQuic: null,
+		sourceNetworkInterfaces: null,
+		alwaysProxyDstCount: null,
+		alwaysProxySrcCount: null
+	};
+}
+
 return view.extend({
 	load: function() {
 		return Promise.all([
@@ -74,18 +116,7 @@ return view.extend({
 		}, _('Refresh'));
 
 		const renderState = function(status, logs) {
-			const active = status.active && status.active.present
-				? status.active
-				: {
-					enabled: status.enabled,
-					routeTableId: status.routeTableIdEffective || status.routeTableId,
-					routeRulePriority: status.routeRulePriorityEffective || status.routeRulePriority,
-					dnsHijack: status.dnsHijack,
-					disableQuic: status.disableQuic,
-					sourceNetworkInterfaces: status.sourceNetworkInterfaces,
-					alwaysProxyDstCount: status.alwaysProxyDstCount,
-					alwaysProxySrcCount: status.alwaysProxySrcCount
-				};
+			const active = deriveAppliedState(status);
 
 			setChildren(summaryNode, [
 				E('div', {
@@ -93,18 +124,25 @@ return view.extend({
 				}, [
 					badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
 					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
-					badge(active.enabled ? _('Applied Policy Enabled') : _('Applied Policy Disabled'), active.enabled),
+					renderAppliedPolicyBadge(active),
 					badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
 					badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
-					badge(status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'), status.runtimeMatchesDesired)
+					badge(
+						active.present
+							? (status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'))
+							: _('Runtime Not Active'),
+						active.present && status.runtimeMatchesDesired
+					)
 				]),
 				(status.errors && status.errors.length)
 					? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
+					: (!active.present
+						? E('div', { style: 'color:#666;' }, _('No applied runtime state is active right now.'))
 					: (!status.runtimeMatchesDesired
 						? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk.'))
 						: (!status.runtimeSafeReloadReady
 							? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
-							: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))))
+							: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.')))))
 			]);
 
 			setChildren(runtimeNode, [
@@ -115,11 +153,11 @@ return view.extend({
 					renderField(_('Applied Route Rule Priority'), active.routeRulePriority || _('not active')),
 					renderField(_('Configured Route Table'), status.routeTableId),
 					renderField(_('Configured Route Rule Priority'), status.routeRulePriority),
-					renderField(_('Applied DNS Hijack'), active.dnsHijack ? _('enabled') : _('disabled')),
-					renderField(_('Applied Disable QUIC'), active.disableQuic ? _('enabled') : _('disabled')),
-					renderField(_('Applied Source Interfaces'), active.sourceNetworkInterfaces.length ? active.sourceNetworkInterfaces.join(', ') : _('none')),
-					renderField(_('Applied Always Proxy Dst Count'), String(active.alwaysProxyDstCount)),
-					renderField(_('Applied Always Proxy Src Count'), String(active.alwaysProxySrcCount)),
+					renderField(_('Applied DNS Hijack'), renderAppliedBoolean(active.dnsHijack)),
+					renderField(_('Applied Disable QUIC'), renderAppliedBoolean(active.disableQuic)),
+					renderField(_('Applied Source Interfaces'), renderAppliedList(active.sourceNetworkInterfaces)),
+					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
+					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
 					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
 					renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
 					renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),

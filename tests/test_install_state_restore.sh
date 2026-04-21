@@ -93,4 +93,49 @@ assert_file_contains "$restore_log" "mihowrt.uci|/etc/config/mihowrt" "restore_u
 assert_file_contains "$restore_log" "always_proxy_dst.txt|/opt/clash/lst/always_proxy_dst.txt" "restore_user_state should restore destination list"
 assert_file_contains "$restore_log" "always_proxy_src.txt|/opt/clash/lst/always_proxy_src.txt" "restore_user_state should restore source list"
 
+create_backup_dir() {
+	printf 'create_backup_dir\n' >>"$backup_log"
+	return 1
+}
+
+backup_file_or_mark_missing() {
+	printf 'backup:%s|%s\n' "$1" "$2" >>"$backup_log"
+	return 0
+}
+
+: > "$backup_log"
+assert_false "backup_user_state should fail when create_backup_dir fails" backup_user_state
+assert_file_contains "$backup_log" "create_backup_dir" "backup_user_state should attempt to create backup dir first"
+assert_file_not_contains "$backup_log" "backup:/opt/clash/config.yaml|config.yaml" "backup_user_state should stop after create_backup_dir failure"
+
+create_backup_dir() {
+	printf 'create_backup_dir\n' >>"$backup_log"
+	BACKUP_DIR="$tmpdir/backup-short-circuit"
+	mkdir -p "$BACKUP_DIR"
+}
+
+backup_fail_count=0
+backup_file_or_mark_missing() {
+	backup_fail_count=$((backup_fail_count + 1))
+	printf 'backup:%s|%s\n' "$1" "$2" >>"$backup_log"
+	[ "$backup_fail_count" -eq 1 ] && return 1
+	return 0
+}
+
+: > "$backup_log"
+assert_false "backup_user_state should fail on first backup write error" backup_user_state
+assert_eq "1" "$backup_fail_count" "backup_user_state should stop after first backup write error"
+
+restore_fail_count=0
+restore_file_or_remove() {
+	restore_fail_count=$((restore_fail_count + 1))
+	printf 'restore:%s|%s\n' "$1" "$2" >>"$restore_log"
+	[ "$restore_fail_count" -eq 1 ] && return 1
+	return 0
+}
+
+: > "$restore_log"
+assert_false "restore_user_state should fail on first restore error" restore_user_state
+assert_eq "1" "$restore_fail_count" "restore_user_state should stop after first restore error"
+
 pass "installer backup and restore state helpers"

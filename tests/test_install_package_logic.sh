@@ -42,4 +42,19 @@ install_package 1 "/tmp/pkg.apk"
 assert_file_contains "$APK_LOG" "del $PKG_NAME" "reinstall without force support should remove old package first"
 assert_file_contains "$APK_LOG" "add --allow-untrusted /tmp/pkg.apk" "reinstall without force support should add package after removal"
 
+: > "$APK_LOG"
+apk() {
+	printf '%s\n' "$*" >>"$APK_LOG"
+	case "$1" in
+		del) return 1 ;;
+		add) return 0 ;;
+	esac
+}
+apk_supports_force_reinstall() {
+	return 1
+}
+assert_false "install_package should fail when apk del fails" install_package 1 "/tmp/pkg.apk"
+assert_file_contains "$APK_LOG" "del $PKG_NAME" "install_package should still try removing old package first"
+assert_file_not_contains "$APK_LOG" "add --allow-untrusted /tmp/pkg.apk" "install_package should stop when apk del fails"
+
 pass "installer package install branches"

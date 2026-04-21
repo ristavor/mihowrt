@@ -389,20 +389,20 @@ preserve_backup_dir() {
 }
 
 backup_user_state() {
-	create_backup_dir
-	backup_file_or_mark_missing /opt/clash/config.yaml config.yaml
-	backup_file_or_mark_missing /etc/config/mihowrt mihowrt.uci
-	backup_file_or_mark_missing /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt
-	backup_file_or_mark_missing /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt
-	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME"
+	create_backup_dir || return 1
+	backup_file_or_mark_missing /opt/clash/config.yaml config.yaml || return 1
+	backup_file_or_mark_missing /etc/config/mihowrt mihowrt.uci || return 1
+	backup_file_or_mark_missing /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt || return 1
+	backup_file_or_mark_missing /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt || return 1
+	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME" || return 1
 }
 
 restore_user_state() {
 	[ -n "$BACKUP_DIR" ] || return 0
-	restore_file_or_remove config.yaml /opt/clash/config.yaml
-	restore_file_or_remove mihowrt.uci /etc/config/mihowrt
-	restore_file_or_remove always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
-	restore_file_or_remove always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
+	restore_file_or_remove config.yaml /opt/clash/config.yaml || return 1
+	restore_file_or_remove mihowrt.uci /etc/config/mihowrt || return 1
+	restore_file_or_remove always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt || return 1
+	restore_file_or_remove always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || return 1
 }
 
 service_enabled() {
@@ -1017,7 +1017,7 @@ install_package() {
 
 	if [ "$reinstall" = "1" ]; then
 		log "apk add lacks --force-reinstall. Removing installed package first."
-		apk del "$PKG_NAME"
+		apk del "$PKG_NAME" || return 1
 	fi
 
 	apk add --allow-untrusted "$apk_path"

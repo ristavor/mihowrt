@@ -11,17 +11,22 @@ const vm = require('vm');
 
 const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
-const match = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
+const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
+const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
 
-if (!match)
+if (!hostMatch)
 	throw new Error('normalizeHostPortFromAddr() not found');
+if (!editorMatch)
+	throw new Error('editorContentForSave() not found');
 
-const fnSource = match[0].replace(/\n\nfunction computeUiPath$/, '');
+const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
+const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
 const context = {};
 vm.createContext(context);
-vm.runInContext(`${fnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;`, context);
+vm.runInContext(`${hostFnSource}\n${editorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.editorContentForSave = editorContentForSave;`, context);
 
 const normalize = context.normalizeHostPortFromAddr;
+const editorContentForSave = context.editorContentForSave;
 const fallbackHost = 'router.lan';
 const fallbackPort = '9090';
 
@@ -44,6 +49,9 @@ assertHostPort('0.0.0.0:9090', fallbackHost, '9090', 'Wildcard IPv4 should use L
 assertHostPort('[::]:9090', fallbackHost, '9090', 'Wildcard IPv6 should use LuCI host');
 assertHostPort('192.168.1.10:9090', '192.168.1.10', '9090', 'Remote controller host should stay unchanged');
 assertHostPort('', fallbackHost, fallbackPort, 'Empty controller should keep fallback host/port');
+assertEq(editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
+assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
+assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
 EOF
 
 pass "config view helpers"

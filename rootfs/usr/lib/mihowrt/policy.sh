@@ -462,12 +462,29 @@ apply_runtime_state() {
 }
 
 cleanup_runtime_state() {
-	dns_restore || true
-	nft_remove_policy || true
-	policy_route_cleanup || true
+	local rc=0
+
+	dns_restore || {
+		err "Failed to restore dnsmasq state during cleanup"
+		rc=1
+	}
+	nft_remove_policy || {
+		err "Failed to remove nft policy during cleanup"
+		rc=1
+	}
+	policy_route_cleanup || {
+		err "Failed to remove policy routing during cleanup"
+		rc=1
+	}
 	runtime_snapshot_clear
-	log "Cleaned up direct-first policy state"
-	return 0
+
+	if [ "$rc" -eq 0 ]; then
+		log "Cleaned up direct-first policy state"
+		return 0
+	fi
+
+	err "Direct-first policy cleanup incomplete"
+	return 1
 }
 
 recover_runtime_state() {
@@ -492,7 +509,7 @@ reload_runtime_state() {
 	validate_runtime_config || return 1
 
 	if [ "$ENABLED" != "1" ]; then
-		cleanup_runtime_state
+		cleanup_runtime_state || return 1
 		log "Policy layer disabled; runtime state left clean"
 		return 0
 	fi
@@ -504,7 +521,7 @@ reload_runtime_state() {
 
 	if [ "$had_snapshot" -eq 0 ]; then
 		warn "Runtime snapshot unavailable; applying policy from clean state"
-		cleanup_runtime_state
+		cleanup_runtime_state || return 1
 		apply_runtime_state
 		return $?
 	fi
@@ -717,48 +734,40 @@ status_json() {
 }
 
 status_runtime_state() {
-	local active_json=""
-	local runtime_snapshot_present=0 runtime_live_present=0 runtime_safe_reload_ready=1 runtime_matches_desired=1
+	local status_json_output=""
 
-	load_runtime_config || return 1
-	PROXY_DST_COUNT="$(count_valid_list_entries "$DST_LIST_FILE")"
-	PROXY_SRC_COUNT="$(count_valid_list_entries "$SRC_LIST_FILE")"
-	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
-	[ -n "$active_json" ] && runtime_snapshot_present=1 || runtime_snapshot_present=0
-	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
-	if [ "$runtime_snapshot_present" -eq 0 ] && [ "$runtime_live_present" -eq 1 ]; then
-		runtime_safe_reload_ready=0
-		runtime_matches_desired=0
-	fi
+	require_command jq || return 1
+	status_json_output="$(status_json)" || return 1
 
-	echo "enabled=$ENABLED"
-	echo "mihomo_dns_port=$MIHOMO_DNS_PORT"
-	echo "mihomo_dns_listen=$MIHOMO_DNS_LISTEN"
-	echo "dns_hijack=$DNS_HIJACK"
-	echo "mihomo_tproxy_port=$MIHOMO_TPROXY_PORT"
-	echo "mihomo_routing_mark=$MIHOMO_ROUTING_MARK"
-	echo "route_table_id=${MIHOMO_ROUTE_TABLE_ID:-auto}"
-	echo "route_rule_priority=${MIHOMO_ROUTE_RULE_PRIORITY:-auto}"
-	echo "disable_quic=$DISABLE_QUIC"
-	echo "dns_enhanced_mode=${DNS_ENHANCED_MODE:-}"
-	echo "catch_fakeip=$CATCH_FAKEIP"
-	echo "fakeip_range=$FAKEIP_RANGE"
-	echo "source_network_interfaces=$SOURCE_INTERFACES"
-	echo "always_proxy_dst_count=$PROXY_DST_COUNT"
-	echo "always_proxy_src_count=$PROXY_SRC_COUNT"
-	echo "runtime_snapshot_present=$runtime_snapshot_present"
-	echo "runtime_live_state_present=$runtime_live_present"
-	echo "runtime_safe_reload_ready=$runtime_safe_reload_ready"
-	echo "runtime_matches_desired=$runtime_matches_desired"
-
-	if [ "$runtime_snapshot_present" -eq 1 ]; then
-		echo "active_enabled=$(printf '%s\n' "$active_json" | jq -r 'if .enabled then 1 else 0 end')"
-		echo "active_dns_hijack=$(printf '%s\n' "$active_json" | jq -r 'if .dns_hijack then 1 else 0 end')"
-		echo "active_route_table_id=$(printf '%s\n' "$active_json" | jq -r '.route_table_id // ""')"
-		echo "active_route_rule_priority=$(printf '%s\n' "$active_json" | jq -r '.route_rule_priority // ""')"
-		echo "active_disable_quic=$(printf '%s\n' "$active_json" | jq -r 'if .disable_quic then 1 else 0 end')"
-		echo "active_source_network_interfaces=$(printf '%s\n' "$active_json" | jq -r '(.source_network_interfaces // []) | join(" ")')"
-		echo "active_always_proxy_dst_count=$(printf '%s\n' "$active_json" | jq -r '.always_proxy_dst_count // 0')"
-		echo "active_always_proxy_src_count=$(printf '%s\n' "$active_json" | jq -r '.always_proxy_src_count // 0')"
-	fi
+	printf '%s\n' "$status_json_output" | jq -r '
+		"enabled=\(if .enabled then 1 else 0 end)",
+		"mihomo_dns_port=\(.config.dns_port // "")",
+		"mihomo_dns_listen=\(.config.mihomo_dns_listen // "")",
+		"dns_hijack=\(if .dns_hijack then 1 else 0 end)",
+		"mihomo_tproxy_port=\(.config.tproxy_port // "")",
+		"mihomo_routing_mark=\(.config.routing_mark // "")",
+		"route_table_id=\(.route_table_id // "auto")",
+		"route_rule_priority=\(.route_rule_priority // "auto")",
+		"disable_quic=\(if .disable_quic then 1 else 0 end)",
+		"dns_enhanced_mode=\(.config.enhanced_mode // "")",
+		"catch_fakeip=\(if .config.catch_fakeip then 1 else 0 end)",
+		"fakeip_range=\(.config.fake_ip_range // "")",
+		"source_network_interfaces=\((.source_network_interfaces // []) | join(" "))",
+		"always_proxy_dst_count=\(.always_proxy_dst_count // 0)",
+		"always_proxy_src_count=\(.always_proxy_src_count // 0)",
+		"runtime_snapshot_present=\(if .runtime_snapshot_present then 1 else 0 end)",
+		"runtime_live_state_present=\(if .runtime_live_state_present then 1 else 0 end)",
+		"runtime_safe_reload_ready=\(if .runtime_safe_reload_ready then 1 else 0 end)",
+		"runtime_matches_desired=\(if .runtime_matches_desired then 1 else 0 end)",
+		(if .runtime_snapshot_present then
+			"active_enabled=\(if .active.enabled then 1 else 0 end)",
+			"active_dns_hijack=\(if .active.dns_hijack then 1 else 0 end)",
+			"active_route_table_id=\(.active.route_table_id // "")",
+			"active_route_rule_priority=\(.active.route_rule_priority // "")",
+			"active_disable_quic=\(if .active.disable_quic then 1 else 0 end)",
+			"active_source_network_interfaces=\((.active.source_network_interfaces // []) | join(" "))",
+			"active_always_proxy_dst_count=\(.active.always_proxy_dst_count // 0)",
+			"active_always_proxy_src_count=\(.active.always_proxy_src_count // 0)"
+		else empty end)
+	'
 }

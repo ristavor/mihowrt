@@ -142,12 +142,15 @@ assert_file_contains "$event_log" "err:Failed to persist runtime snapshot" "appl
 TEST_RUNTIME_SNAPSHOT_SAVE_RC=0
 
 : > "$event_log"
-cleanup_runtime_state
+assert_false "cleanup_runtime_state should fail when any teardown step fails" cleanup_runtime_state
 assert_file_contains "$event_log" "dns_restore" "cleanup_runtime_state should try DNS restore"
 assert_file_contains "$event_log" "nft_remove_policy" "cleanup_runtime_state should try nft cleanup"
 assert_file_contains "$event_log" "policy_route_cleanup" "cleanup_runtime_state should try route cleanup"
 assert_file_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should clear runtime snapshot"
-assert_file_contains "$event_log" "log:Cleaned up direct-first policy state" "cleanup_runtime_state should log cleanup success"
+assert_file_contains "$event_log" "err:Failed to restore dnsmasq state during cleanup" "cleanup_runtime_state should report dns cleanup failure"
+assert_file_contains "$event_log" "err:Failed to remove nft policy during cleanup" "cleanup_runtime_state should report nft cleanup failure"
+assert_file_contains "$event_log" "err:Failed to remove policy routing during cleanup" "cleanup_runtime_state should report route cleanup failure"
+assert_file_contains "$event_log" "err:Direct-first policy cleanup incomplete" "cleanup_runtime_state should report partial cleanup"
 
 cleanup_runtime_state() {
 	printf 'cleanup_runtime_state\n' >>"$event_log"
@@ -318,6 +321,66 @@ count_valid_list_entries() {
 	else
 		printf '3\n'
 	fi
+}
+
+require_command() {
+	return 0
+}
+
+config_load() {
+	return 0
+}
+
+config_get_bool() {
+	case "$3" in
+		enabled) printf -v "$1" '%s' "1" ;;
+		dns_hijack) printf -v "$1" '%s' "1" ;;
+		disable_quic) printf -v "$1" '%s' "0" ;;
+	esac
+}
+
+config_get() {
+	case "$3" in
+		route_table_id) printf -v "$1" '%s' "" ;;
+		route_rule_priority) printf -v "$1" '%s' "" ;;
+	esac
+}
+
+config_list_foreach() {
+	"$3" "br-lan"
+	"$3" "wg0"
+}
+
+default_source_interface() {
+	printf 'br-lan\n'
+}
+
+service_enabled_state() {
+	return 1
+}
+
+service_running_state() {
+	return 1
+}
+
+dns_backup_exists() {
+	return 1
+}
+
+dns_backup_valid() {
+	return 1
+}
+
+read_config_json() {
+	cat <<'EOF'
+{"config_path":"/opt/clash/config.yaml","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15","external_controller":"","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","errors":[]}
+EOF
+}
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
 }
 
 status_output="$(status_runtime_state)"

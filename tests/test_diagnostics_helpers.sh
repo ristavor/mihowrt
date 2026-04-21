@@ -124,6 +124,10 @@ assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.runtime_safe_reload
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.runtime_matches_desired')" "status_json should report runtime/config parity"
 assert_eq "201" "$(printf '%s\n' "$status_output" | jq -r '.active.route_table_id')" "status_json should expose applied runtime route table id"
 
+status_runtime_output="$(status_runtime_state)"
+assert_eq "1" "$(printf '%s\n' "$status_runtime_output" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report desired/runtime parity when snapshot matches"
+assert_eq "201" "$(printf '%s\n' "$status_runtime_output" | sed -n 's/^active_route_table_id=//p')" "status_runtime_state should expose applied route table id"
+
 logs_output="$(logs_json 2)"
 assert_eq "true" "$(printf '%s\n' "$logs_output" | jq -r '.available')" "logs_json should report available logread command"
 assert_eq "2" "$(printf '%s\n' "$logs_output" | jq -r '.limit')" "logs_json should preserve limit"
@@ -143,5 +147,14 @@ status_output_no_snapshot="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should report missing runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_safe_reload_ready')" "status_json should block safe reload when live state lacks snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim runtime/config parity without snapshot"
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":true,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
+}
+
+status_runtime_output_drift="$(status_runtime_state)"
+assert_eq "0" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report drift when applied snapshot differs from desired config"
 
 pass "diagnostics helpers"

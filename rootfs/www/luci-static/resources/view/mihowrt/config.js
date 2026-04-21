@@ -197,6 +197,10 @@ async function initializeAceEditor(node, content) {
 	editor.setValue(content, -1);
 }
 
+function editorContentForSave(value) {
+	return value == null ? '' : String(value);
+}
+
 function makeTempConfigPath() {
 	const suffix = '%d.%s'.format(Date.now(), Math.random().toString(16).slice(2));
 	return '%s.%s.yaml'.format(TMP_CONFIG_PREFIX, suffix);
@@ -245,7 +249,7 @@ return view.extend({
 				}
 
 				const wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME);
-				const value = editor.getValue().trim() + '\n';
+				const value = editorContentForSave(editor.getValue());
 				tempConfigPath = makeTempConfigPath();
 				await fs.write(tempConfigPath, value);
 				await backendHelper.applyConfig(tempConfigPath);

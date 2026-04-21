@@ -209,6 +209,11 @@ async function openDashboard() {
 		}
 
 		const config = await backendHelper.readConfig();
+		if (config.errors && config.errors.length) {
+			mihowrtUi.notify(_('Unable to open dashboard: %s').format(config.errors.join('; ')), 'error');
+			return;
+		}
+
 		const ec = config.externalController;
 		const ecTls = config.externalControllerTls;
 		const secret = config.secret;

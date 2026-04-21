@@ -42,8 +42,8 @@ function emptyStatusState() {
 		alwaysProxySrcCount: 0,
 		runtimeSnapshotPresent: false,
 		runtimeLiveStatePresent: false,
-		runtimeSafeReloadReady: true,
-		runtimeMatchesDesired: true,
+		runtimeSafeReloadReady: false,
+		runtimeMatchesDesired: false,
 		active: {
 			present: false,
 			enabled: false,

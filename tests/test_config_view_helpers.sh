@@ -12,6 +12,8 @@ const vm = require('vm');
 const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
 const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
+const uiPathMatch = source.match(/function computeUiPath[\s\S]*?\n}\n\nasync function openDashboard/);
+const dashboardMatch = source.match(/async function openDashboard[\s\S]*?\n}\n\nasync function initializeAceEditor/);
 const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
 const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
@@ -20,6 +22,10 @@ const serviceColorMatch = source.match(/function serviceBadgeColor[\s\S]*?\n}\n\
 
 if (!hostMatch)
 	throw new Error('normalizeHostPortFromAddr() not found');
+if (!uiPathMatch)
+	throw new Error('computeUiPath() not found');
+if (!dashboardMatch)
+	throw new Error('openDashboard() not found');
 if (!editorMatch)
 	throw new Error('editorContentForSave() not found');
 if (!busyMatch)
@@ -34,6 +40,8 @@ if (source.includes('window.location.reload()'))
 	throw new Error('config.js should not do full page reloads after local actions');
 
 const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
+const uiPathFnSource = uiPathMatch[0].replace(/\n\nasync function openDashboard$/, '');
+const dashboardFnSource = dashboardMatch[0].replace(/\n\nasync function initializeAceEditor$/, '');
 const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
 const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
 const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');
@@ -41,7 +49,7 @@ const serviceTextFnSource = serviceTextMatch[0].replace(/\n\nfunction serviceBad
 const serviceColorFnSource = serviceColorMatch[0].replace(/\n\nfunction applyServiceState$/, '');
 const context = {};
 vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nlet serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${editorFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
 
 const normalize = context.normalizeHostPortFromAddr;
 const editorContentForSave = context.editorContentForSave;
@@ -86,6 +94,41 @@ context.setBusyFlags(true, false);
 assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
 context.setBusyFlags(false, true);
 assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save is running');
+
+(async () => {
+	const notifications = [];
+	let openedUrl = null;
+	const dashboardContext = {
+		...context,
+		SERVICE_NAME: 'mihowrt',
+		backendHelper: {
+			readConfig: async() => ({ errors: ['Failed to read config'] })
+		},
+		mihowrtUi: {
+			getServiceStatus: async() => true,
+			notify: (message, level) => notifications.push({ message, level })
+		},
+		window: {
+			location: { hostname: fallbackHost },
+			open: (url) => {
+				openedUrl = url;
+				return {};
+			}
+		},
+		URLSearchParams
+	};
+
+	vm.createContext(dashboardContext);
+	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\nglobalThis.openDashboard = openDashboard;`, dashboardContext);
+	await dashboardContext.openDashboard();
+	assertEq(String(openedUrl), 'null', 'openDashboard should not open guessed URL when config has errors');
+	assertEq(notifications.length, 1, 'openDashboard should emit one notification when config has errors');
+	assertEq(notifications[0].level, 'error', 'openDashboard should surface config errors as error notification');
+	if (!String(notifications[0].message).includes('Failed to read config'))
+		throw new Error('openDashboard should include backend config error details');
+})().catch(err => {
+	throw err;
+});
 EOF
 
 pass "config view helpers"

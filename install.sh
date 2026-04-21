@@ -540,6 +540,38 @@ is_valid_port_value() {
 	[ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 
+is_uint_value() {
+	case "${1:-}" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
+is_dns_listen_value() {
+	local value="$1"
+	local host="" port=""
+
+	case "$value" in
+		*#*)
+			host="${value%#*}"
+			port="${value##*#}"
+			[ -n "$host" ] || return 1
+			case "$host" in
+				*'#'*|*[[:space:]]*)
+					return 1
+					;;
+			esac
+			is_valid_port_value "$port"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 trim_value() {
 	printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
@@ -719,6 +751,7 @@ dns_backup_mihomo_target() {
 	done < "$backup_path"
 
 	[ -n "$mihomo_target" ] || return 1
+	is_dns_listen_value "$mihomo_target" || return 1
 	printf '%s\n' "$mihomo_target"
 }
 
@@ -726,6 +759,13 @@ dns_backup_expected_target() {
 	local backup_path="$1"
 	local config_path="${2:-}"
 	local mihomo_target=""
+
+	if grep -q '^MIHOMO_DNS_TARGET=' "$backup_path" 2>/dev/null; then
+		mihomo_target="$(dns_backup_mihomo_target "$backup_path" 2>/dev/null || true)"
+		[ -n "$mihomo_target" ] || return 1
+		printf '%s\n' "$mihomo_target"
+		return 0
+	fi
 
 	mihomo_target="$(dns_backup_mihomo_target "$backup_path" 2>/dev/null || true)"
 	if [ -n "$mihomo_target" ]; then
@@ -735,6 +775,51 @@ dns_backup_expected_target() {
 
 	[ -n "$config_path" ] || return 1
 	config_mihomo_dns_target_from_path "$config_path"
+}
+
+dns_backup_file_valid_for_restore() {
+	local backup_path="$1"
+	local line="" orig_cachesize="" orig_noresolv="" has_target=0
+
+	[ -f "$backup_path" ] || return 1
+
+	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
+	grep -q '^ORIG_CACHESIZE=' "$backup_path" 2>/dev/null || return 1
+	grep -q '^ORIG_NORESOLV=' "$backup_path" 2>/dev/null || return 1
+	grep -q '^ORIG_RESOLVFILE=' "$backup_path" 2>/dev/null || return 1
+
+	while IFS= read -r line; do
+		case "$line" in
+			MIHOMO_DNS_TARGET=*)
+				has_target=1
+				;;
+			ORIG_CACHESIZE=*)
+				orig_cachesize="${line#ORIG_CACHESIZE=}"
+				;;
+			ORIG_NORESOLV=*)
+				orig_noresolv="${line#ORIG_NORESOLV=}"
+				;;
+		esac
+	done < "$backup_path"
+
+	if [ -n "$orig_cachesize" ] && ! is_uint_value "$orig_cachesize"; then
+		return 1
+	fi
+
+	case "$orig_noresolv" in
+		''|0|1)
+			:
+			;;
+		*)
+			return 1
+			;;
+	esac
+
+	if [ "$has_target" = "1" ]; then
+		dns_backup_mihomo_target "$backup_path" >/dev/null 2>&1 || return 1
+	fi
+
+	return 0
 }
 
 seed_dns_backup_target_metadata() {
@@ -818,7 +903,7 @@ restore_dns_from_backup_file() {
 	[ -f "$backup_path" ] || return 1
 	have_command uci || return 1
 	ensure_dns_state_helpers || return 1
-	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
+	dns_backup_file_valid_for_restore "$backup_path" || return 1
 
 	tab="$(printf '\t')"
 

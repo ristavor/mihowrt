@@ -115,6 +115,55 @@ EOF
 seed_dns_backup_target_metadata "$legacy_seed_backup" "$legacy_seed_config"
 assert_file_contains "$legacy_seed_backup" "MIHOMO_DNS_TARGET=192.168.70.1#7874" "seed_dns_backup_target_metadata should migrate legacy backups using config target"
 
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=maybe
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject invalid ORIG_NORESOLV values" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for invalid ORIG_NORESOLV"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for invalid ORIG_NORESOLV"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=abc
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject non-numeric ORIG_CACHESIZE values" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for invalid ORIG_CACHESIZE"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for invalid ORIG_CACHESIZE"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=bad-target
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject invalid MIHOMO_DNS_TARGET values" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for invalid MIHOMO_DNS_TARGET"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for invalid MIHOMO_DNS_TARGET"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+ORIG_SERVER=9.9.9.9
+EOF
+
 : > "$UCI_LOG"
 : > "$DNS_LOG"
 restore_dns_from_backup_file "$backup_file"

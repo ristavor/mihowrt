@@ -69,4 +69,31 @@ after_persist_mtime="$(stat -c %Y "$DNS_BACKUP_FILE")"
 assert_eq "$before_persist_mtime" "$after_persist_mtime" "dns_backup_state should skip rewriting identical persistent backup cache"
 assert_true "dns backup should reactivate after runtime copy returns" dns_backup_exists
 
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=maybe
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+EOF
+assert_false "dns_persist_backup_valid should reject invalid ORIG_NORESOLV values" dns_persist_backup_valid
+
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=abc
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+EOF
+assert_false "dns_persist_backup_valid should reject non-numeric ORIG_CACHESIZE values" dns_persist_backup_valid
+
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=bad-target
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+EOF
+assert_false "dns_persist_backup_valid should reject invalid MIHOMO_DNS_TARGET values" dns_persist_backup_valid
+
 pass "dns backup runtime/cache semantics"

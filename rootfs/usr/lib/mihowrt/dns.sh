@@ -16,8 +16,30 @@ dns_persist_backup_valid() {
 	dns_backup_file_valid "$DNS_BACKUP_FILE"
 }
 
-dns_backup_file_valid() {
+dns_backup_parsed_state_valid() {
+	if [ -n "$DNS_BACKUP_EXPECTED_CACHESIZE" ] && ! is_uint "$DNS_BACKUP_EXPECTED_CACHESIZE"; then
+		return 1
+	fi
+
+	case "$DNS_BACKUP_EXPECTED_NORESOLV" in
+		''|0|1)
+			:
+			;;
+		*)
+			return 1
+			;;
+	esac
+
+	if [ -n "$DNS_BACKUP_MIHOMO_TARGET" ] && ! is_dns_listen "$DNS_BACKUP_MIHOMO_TARGET"; then
+		return 1
+	fi
+
+	return 0
+}
+
+dns_backup_parse_expected_state() {
 	local backup_path="$1"
+	local line server tab="" server_sep=""
 
 	[ -f "$backup_path" ] || return 1
 
@@ -25,34 +47,6 @@ dns_backup_file_valid() {
 	grep -q '^ORIG_CACHESIZE=' "$backup_path" 2>/dev/null || return 1
 	grep -q '^ORIG_NORESOLV=' "$backup_path" 2>/dev/null || return 1
 	grep -q '^ORIG_RESOLVFILE=' "$backup_path" 2>/dev/null || return 1
-}
-
-dns_backup_exists() {
-	dns_runtime_backup_exists && return 0
-	dns_persist_backup_recovery_needed
-}
-
-dns_backup_valid() {
-	local runtime_backup=""
-
-	runtime_backup="$(dns_runtime_backup_file)"
-	dns_backup_file_valid "$runtime_backup" && return 0
-	dns_persist_backup_recovery_needed
-}
-
-dns_restart_service() {
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
-}
-
-dns_cleanup_backup_files() {
-	rm -f "$(dns_runtime_backup_file)"
-}
-
-dns_backup_read_expected_state() {
-	local backup_path="$1"
-	local line server tab="" server_sep=""
-
-	dns_backup_file_valid "$backup_path" || return 1
 
 	DNS_BACKUP_EXPECTED_CACHESIZE=''
 	DNS_BACKUP_EXPECTED_NORESOLV=''
@@ -92,14 +86,45 @@ dns_backup_read_expected_state() {
 		esac
 	done < "$backup_path"
 
+	dns_backup_parsed_state_valid || return 1
+
 	DNS_BACKUP_EXPECTED_TARGET_NORESOLV="$DNS_BACKUP_EXPECTED_NORESOLV"
 	DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE="$DNS_BACKUP_EXPECTED_RESOLVFILE"
 	if [ -z "$DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE" ] &&
 		[ "$DNS_BACKUP_EXPECTED_HAS_SERVERS" -eq 0 ] &&
 		[ -f "${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" ]; then
 		DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE="${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}"
-		[ "$DNS_BACKUP_EXPECTED_NORESOLV" = "1" ] || DNS_BACKUP_EXPECTED_TARGET_NORESOLV='0'
+			[ "$DNS_BACKUP_EXPECTED_NORESOLV" = "1" ] || DNS_BACKUP_EXPECTED_TARGET_NORESOLV='0'
 	fi
+}
+
+dns_backup_file_valid() {
+	dns_backup_parse_expected_state "$1" >/dev/null 2>&1
+}
+
+dns_backup_exists() {
+	dns_runtime_backup_exists && return 0
+	dns_persist_backup_recovery_needed
+}
+
+dns_backup_valid() {
+	local runtime_backup=""
+
+	runtime_backup="$(dns_runtime_backup_file)"
+	dns_backup_file_valid "$runtime_backup" && return 0
+	dns_persist_backup_recovery_needed
+}
+
+dns_restart_service() {
+	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+}
+
+dns_cleanup_backup_files() {
+	rm -f "$(dns_runtime_backup_file)"
+}
+
+dns_backup_read_expected_state() {
+	dns_backup_parse_expected_state "$1"
 }
 
 dns_current_state_looks_hijacked() {

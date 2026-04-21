@@ -13,6 +13,7 @@ const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 let startStopButton = null;
 let dashboardButton = null;
 let saveApplyButton = null;
+let serviceStatusBadge = null;
 let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
@@ -102,6 +103,34 @@ async function pollStatus(targetStatus, timeout = 5000) {
 	return false;
 }
 
+function serviceToggleLabel(running) {
+	return running ? _('Stop Service') : _('Start Service');
+}
+
+function serviceBadgeText(running) {
+	return running ? _('MihoWRT is running') : _('MihoWRT stopped');
+}
+
+function serviceBadgeColor(running) {
+	return running ? '#5cb85c' : '#d9534f';
+}
+
+function applyServiceState(running) {
+	if (startStopButton)
+		startStopButton.textContent = serviceToggleLabel(running);
+
+	if (serviceStatusBadge) {
+		serviceStatusBadge.textContent = serviceBadgeText(running);
+		serviceStatusBadge.style.backgroundColor = serviceBadgeColor(running);
+	}
+}
+
+async function refreshServiceState() {
+	const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
+	applyServiceState(running);
+	return running;
+}
+
 async function toggleService() {
 	if (controlsBusy())
 		return;
@@ -119,13 +148,14 @@ async function toggleService() {
 	}
 
 	if (!(await pollStatus(targetStatus))) {
+		await refreshServiceState();
 		mihowrtUi.notify(targetStatus
 			? _('Service start timed out. Check diagnostics and system log.')
 			: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
 		return;
 	}
 
-	window.location.reload();
+	applyServiceState(targetStatus);
 }
 
 function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
@@ -281,13 +311,20 @@ return view.extend({
 
 				const restartState = await restartRunningService(wasRunning);
 				if (restartState.error) {
+					await refreshServiceState();
 					mihowrtUi.notify(_('Service restart failed: %s').format(restartState.error), 'error');
 					return;
 				}
-				if (restartState.restarted)
-					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
+				if (restartState.restarted) {
+					if (!(await pollStatus(true)))
+						mihowrtUi.notify(_('Service restart is still in progress. Check diagnostics if it does not recover soon.'), 'warning');
 
-				window.location.reload();
+					await refreshServiceState();
+					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
+				}
+				else {
+					await refreshServiceState();
+				}
 			}
 			catch (e) {
 				mihowrtUi.notify(_('Unable to save contents: %s').format(e.message), 'error');
@@ -318,11 +355,11 @@ return view.extend({
 				(startStopButton = E('button', {
 					class: 'btn',
 					click: toggleService
-				}, running ? _('Stop Service') : _('Start Service'))),
-				E('span', {
+				}, serviceToggleLabel(running))),
+				(serviceStatusBadge = E('span', {
 					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (running ? '#5cb85c' : '#d9534f') + ';'
-				}, running ? _('MihoWRT is running') : _('MihoWRT stopped'))
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceBadgeColor(running) + ';'
+				}, serviceBadgeText(running)))
 			]),
 			E('h2', _('MihoWRT Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply.')),

@@ -25,13 +25,16 @@ if (!bindMatch)
 const normalizeFnSource = normalizeMatch[0].replace(/\n\nfunction currentNormalizedListValue$/, '');
 const syncFnSource = syncMatch[0].replace(/\n\nfunction hasListValueChanges$/, '');
 const bindFnSource = bindMatch[0].replace(/\n\nreturn view.extend$/, '');
-const context = {
-	fs: {
-		writeCalls: [],
-		write(path, value) {
-			this.writeCalls.push({ path, value });
-			return Promise.resolve();
-		}
+	const context = {
+		writeError: null,
+		fs: {
+			writeCalls: [],
+			write(path, value) {
+				if (context.writeError)
+					return Promise.reject(new Error(context.writeError));
+				this.writeCalls.push({ path, value });
+				return Promise.resolve();
+			}
 	}
 };
 
@@ -51,19 +54,48 @@ vm.runInContext(`let dstValueCache = null; let srcValueCache = null;\n${normaliz
 		throw new Error('bindTextFileOption.write should persist changed content once');
 	if (context.fs.writeCalls[0].value !== '2.2.2.2\n')
 		throw new Error('bindTextFileOption.write should normalize changed content');
-	if (context.getDstCache() !== '2.2.2.2\n')
-		throw new Error('bindTextFileOption.write should update cache after changed content');
+		if (context.getDstCache() !== '2.2.2.2\n')
+			throw new Error('bindTextFileOption.write should update cache after changed content');
 
-	context.fs.writeCalls.length = 0;
-	context.setSrcCache('');
-	const removeOption = {};
-	context.bindTextFileOption(removeOption, 'src', '/opt/clash/lst/always_proxy_src.txt', 'desc');
-	await removeOption.remove();
-	if (context.fs.writeCalls.length !== 0)
-		throw new Error('bindTextFileOption.remove should skip no-op empty writes');
+		context.writeError = 'disk full';
+		let writeFailed = false;
+		try {
+			await option.write('settings', '4.4.4.4');
+		}
+		catch (e) {
+			writeFailed = e.message === 'disk full';
+		}
+		if (!writeFailed)
+			throw new Error('bindTextFileOption.write should reject when fs.write fails');
+		if (context.getDstCache() !== '2.2.2.2\n')
+			throw new Error('bindTextFileOption.write should keep cache unchanged on write failure');
+		context.writeError = null;
 
-	context.setDstCache('stale\n');
-	context.setSrcCache('old\n');
+		context.fs.writeCalls.length = 0;
+		context.setSrcCache('');
+		const removeOption = {};
+		context.bindTextFileOption(removeOption, 'src', '/opt/clash/lst/always_proxy_src.txt', 'desc');
+		await removeOption.remove();
+		if (context.fs.writeCalls.length !== 0)
+			throw new Error('bindTextFileOption.remove should skip no-op empty writes');
+
+		context.setSrcCache('erase-me\n');
+		context.writeError = 'permission denied';
+		let removeFailed = false;
+		try {
+			await removeOption.remove();
+		}
+		catch (e) {
+			removeFailed = e.message === 'permission denied';
+		}
+		if (!removeFailed)
+			throw new Error('bindTextFileOption.remove should reject when fs.write fails');
+		if (context.getSrcCache() !== 'erase-me\n')
+			throw new Error('bindTextFileOption.remove should keep cache unchanged on write failure');
+		context.writeError = null;
+
+		context.setDstCache('stale\n');
+		context.setSrcCache('old\n');
 	context.syncListCaches(' 3.3.3.3\r\n', '');
 	if (context.getDstCache() !== '3.3.3.3\n')
 		throw new Error('syncListCaches should refresh destination cache from latest file contents');

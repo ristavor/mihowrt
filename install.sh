@@ -540,6 +540,120 @@ is_valid_port_value() {
 	[ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }
 
+trim_value() {
+	printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+yaml_cleanup_scalar_value() {
+	local value="$1"
+
+	value="$(trim_value "$value")"
+
+	case "$value" in
+		\"*\")
+			value="${value#\"}"
+			value="${value%\"}"
+			printf '%s' "$value"
+			return 0
+			;;
+		\'*\')
+			value="${value#\'}"
+			value="${value%\'}"
+			printf '%s' "$value"
+			return 0
+			;;
+	esac
+
+	value="$(printf '%s\n' "$value" | sed 's/[[:space:]]#.*$//')"
+	trim_value "$value"
+}
+
+port_from_addr_value() {
+	local value="$1"
+	local host="" port=""
+
+	value="$(trim_value "$value")"
+	[ -n "$value" ] || return 1
+
+	case "$value" in
+		\[*\]:*)
+			host="${value%%]*}"
+			host="${host#[}"
+			port="${value##*:}"
+			[ -n "$host" ] || return 1
+			;;
+		*:*:*)
+			return 1
+			;;
+		*)
+			port="${value##*:}"
+			[ "$port" != "$value" ] || return 1
+			;;
+	esac
+
+	is_valid_port_value "$port" || return 1
+	printf '%s' "$port"
+}
+
+normalize_dns_server_target_value() {
+	local value="$1"
+	local host="" port=""
+
+	value="$(trim_value "$value")"
+	[ -n "$value" ] || return 1
+	port="$(port_from_addr_value "$value")" || return 1
+
+	case "$value" in
+		\[*\]:*)
+			host="${value%%]*}"
+			host="${host#[}"
+			;;
+		*)
+			host="${value%:*}"
+			;;
+	esac
+
+	host="$(trim_value "$host")"
+	case "$host" in
+		''|0.0.0.0|::|'[::]')
+			host="127.0.0.1"
+			;;
+	esac
+
+	printf '%s#%s\n' "$host" "$port"
+}
+
+config_mihomo_dns_target_from_path() {
+	local config_path="$1"
+	local dns_listen_raw=""
+
+	[ -r "$config_path" ] || return 1
+
+	dns_listen_raw="$(awk '
+		/^dns:[[:space:]]*($|#)/ {
+			in_dns = 1
+			next
+		}
+
+		{
+			if (in_dns && $0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/) {
+				in_dns = 0
+			}
+
+			if (in_dns && $0 ~ /^[[:space:]]+listen:[[:space:]]*/) {
+				sub("^[[:space:]]+listen:[[:space:]]*", "", $0)
+				print
+				exit
+			}
+		}
+	' "$config_path" 2>/dev/null || true)"
+
+	dns_listen_raw="$(yaml_cleanup_scalar_value "$dns_listen_raw")"
+	[ -n "$dns_listen_raw" ] || return 1
+
+	normalize_dns_server_target_value "$dns_listen_raw"
+}
+
 dns_current_state_looks_hijacked() {
 	local expected_target="${1:-}" current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 	local current_host="" current_port="" tab=""
@@ -608,8 +722,30 @@ dns_backup_mihomo_target() {
 	printf '%s\n' "$mihomo_target"
 }
 
+dns_backup_expected_target() {
+	local backup_path="$1"
+	local config_path="${2:-}"
+	local mihomo_target=""
+
+	mihomo_target="$(dns_backup_mihomo_target "$backup_path" 2>/dev/null || true)"
+	if [ -n "$mihomo_target" ]; then
+		printf '%s\n' "$mihomo_target"
+		return 0
+	fi
+
+	[ -n "$config_path" ] || return 1
+	config_mihomo_dns_target_from_path "$config_path"
+}
+
 revert_dhcp_changes() {
 	uci revert dhcp >/dev/null 2>&1 || true
+}
+
+delete_dhcp_option_if_present() {
+	local option="$1"
+
+	uci -q get "$option" >/dev/null 2>&1 || return 0
+	uci -q delete "$option" >/dev/null 2>&1
 }
 
 route_state_read() {
@@ -691,8 +827,14 @@ restore_dns_from_backup_file() {
 		return 0
 	fi
 
-	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
-	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
+	delete_dhcp_option_if_present dhcp.@dnsmasq[0].server || {
+		revert_dhcp_changes
+		return 1
+	}
+	delete_dhcp_option_if_present dhcp.@dnsmasq[0].resolvfile || {
+		revert_dhcp_changes
+		return 1
+	}
 	while IFS= read -r line; do
 		case "$line" in
 			ORIG_SERVER=*)
@@ -713,7 +855,10 @@ restore_dns_from_backup_file() {
 			return 1
 		}
 	else
-		uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
+		delete_dhcp_option_if_present dhcp.@dnsmasq[0].cachesize || {
+			revert_dhcp_changes
+			return 1
+		}
 	fi
 
 	if [ -n "$orig_noresolv" ]; then
@@ -722,7 +867,10 @@ restore_dns_from_backup_file() {
 			return 1
 		}
 	else
-		uci -q delete dhcp.@dnsmasq[0].noresolv >/dev/null 2>&1 || true
+		delete_dhcp_option_if_present dhcp.@dnsmasq[0].noresolv || {
+			revert_dhcp_changes
+			return 1
+		}
 	fi
 
 	if [ -n "$orig_resolvfile" ]; then
@@ -763,9 +911,18 @@ restore_dns_defaults_fallback() {
 		return 0
 	fi
 
-	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
-	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
-	uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
+	delete_dhcp_option_if_present dhcp.@dnsmasq[0].server || {
+		revert_dhcp_changes
+		return 1
+	}
+	delete_dhcp_option_if_present dhcp.@dnsmasq[0].resolvfile || {
+		revert_dhcp_changes
+		return 1
+	}
+	delete_dhcp_option_if_present dhcp.@dnsmasq[0].cachesize || {
+		revert_dhcp_changes
+		return 1
+	}
 	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || {
 		revert_dhcp_changes
 		return 1
@@ -790,17 +947,25 @@ restore_system_dns_defaults() {
 	local current_noresolv=""
 	local allow_fallback="${1:-0}"
 	local backup_target=""
+	local active_config_path="${CLASH_DIR}/config.yaml"
+	local backup_config_path=""
 
 	have_command uci || return 0
 
-	backup_target="$(dns_backup_mihomo_target "$DNS_BACKUP_FILE" 2>/dev/null || true)"
+	backup_target="$(dns_backup_expected_target "$DNS_BACKUP_FILE" "$active_config_path" 2>/dev/null || true)"
 	if dns_current_state_looks_hijacked "$backup_target" && restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
 		log "System DNS settings restored from MihoWRT backup."
 		return 0
 	fi
 
 	backup_target=""
-	[ -n "$BACKUP_DIR" ] && backup_target="$(dns_backup_mihomo_target "$BACKUP_DIR/$DNS_BACKUP_NAME" 2>/dev/null || true)"
+	backup_config_path="${BACKUP_DIR}/config.yaml"
+	if [ -n "$BACKUP_DIR" ]; then
+		backup_target="$(dns_backup_expected_target "$BACKUP_DIR/$DNS_BACKUP_NAME" "$backup_config_path" 2>/dev/null || true)"
+		if [ -z "$backup_target" ]; then
+			backup_target="$(dns_backup_expected_target "$BACKUP_DIR/$DNS_BACKUP_NAME" "$active_config_path" 2>/dev/null || true)"
+		fi
+	fi
 	if [ -n "$BACKUP_DIR" ] && dns_current_state_looks_hijacked "$backup_target" &&
 		restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
 		log "System DNS settings restored from saved MihoWRT backup."

@@ -62,26 +62,28 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 	option.cfgvalue = function() {
 		return cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
 	};
-	option.write = function(section_id, value) {
+	option.write = async function(section_id, value) {
 		const normalized = normalizeBlock(value);
 		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
 		if (normalized === current)
-			return Promise.resolve();
+			return;
+
+		await fs.write(filePath, normalized);
 		if (cacheName === 'dst')
 			dstValueCache = normalized;
 		else
 			srcValueCache = normalized;
-		return fs.write(filePath, normalized);
 	};
-	option.remove = function() {
+	option.remove = async function() {
 		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
 		if (!current)
-			return Promise.resolve();
+			return;
+
+		await fs.write(filePath, '');
 		if (cacheName === 'dst')
 			dstValueCache = '';
 		else
 			srcValueCache = '';
-		return fs.write(filePath, '');
 	};
 }
 

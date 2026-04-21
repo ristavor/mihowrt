@@ -179,6 +179,20 @@ unset TEST_FAIL_UCI_CMD
 : > "$uci_log"
 : > "$dns_log"
 : > "$event_log"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="delete dhcp.@dnsmasq[0].server"
+assert_false "dns_restore should fail when clearing existing dnsmasq server state fails" dns_restore
+assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore should not commit when delete mutator fails"
+assert_file_contains "$uci_log" "revert dhcp" "dns_restore should revert staged dhcp changes after delete failure"
+[[ ! -s "$dns_log" ]] || fail "dns_restore should not restart dnsmasq after delete failure"
+unset TEST_FAIL_UCI_CMD
+
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
 : > "$DNS_AUTO_RESOLVFILE"
 rm -f "$backup_file" "$runtime_backup_file"
 TEST_CURRENT_CACHESIZE="0"
@@ -214,6 +228,20 @@ unset TEST_FAIL_UCI_CMD
 
 : > "$uci_log"
 : > "$dns_log"
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="delete dhcp.@dnsmasq[0].server"
+assert_false "dns_restore_fallback should fail when clearing hijacked dnsmasq servers fails" dns_restore_fallback
+assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore_fallback should not commit when delete mutator fails"
+assert_file_contains "$uci_log" "revert dhcp" "dns_restore_fallback should revert staged dhcp changes after delete failure"
+[[ ! -s "$dns_log" ]] || fail "dns_restore_fallback should not restart dnsmasq after delete failure"
+unset TEST_FAIL_UCI_CMD
+
+: > "$uci_log"
+: > "$dns_log"
 : > "$DNS_AUTO_RESOLVFILE"
 TEST_CURRENT_CACHESIZE=""
 TEST_CURRENT_NORESOLV="0"
@@ -243,5 +271,29 @@ dns_restore
 [[ ! -s "$uci_log" ]] || fail "dns_restore should ignore cached backup when dnsmasq points to unrelated external DNS target"
 [[ ! -s "$dns_log" ]] || fail "dns_restore should not restart dnsmasq for unrelated external DNS target"
 assert_file_contains "$event_log" "log:No dnsmasq recovery backup found, skipping restore" "dns_restore should skip unrelated external DNS target without fallback"
+
+read_config_json() {
+	printf '%s\n' '{"mihomo_dns_listen":"192.168.50.1#7874","errors":[]}'
+}
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+EOF
+rm -f "$runtime_backup_file"
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+MIHOMO_DNS_LISTEN=""
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="192.168.50.1#7874"
+assert_true "dns_restore should recover from old backup format using current config target" dns_restore
+assert_file_contains "$uci_log" "add_list dhcp.@dnsmasq[0].server=1.1.1.1" "dns_restore should still restore old backup format when config reveals Mihomo target"
+assert_file_contains "$event_log" "log:dnsmasq settings restored" "dns_restore should report success for old backup recovery"
 
 pass "runtime DNS no-op paths"

@@ -58,6 +58,7 @@ uci() {
 
 	if [[ "${1:-}" == "-q" && "${2:-}" == "delete" ]]; then
 		printf 'delete %s\n' "${3:-}" >>"$UCI_LOG"
+		[[ -n "$TEST_FAIL_UCI_CMD" && "delete ${3:-}" == "$TEST_FAIL_UCI_CMD" ]] && return 1
 		return 0
 	fi
 
@@ -135,6 +136,19 @@ assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_from_backup_file shou
 [[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq after mutator failure"
 TEST_FAIL_UCI_CMD=""
 
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="delete dhcp.@dnsmasq[0].server"
+assert_false "restore_dns_from_backup_file should fail when clearing existing dnsmasq server state fails" restore_dns_from_backup_file "$backup_file"
+assert_file_not_contains "$UCI_LOG" "commit dhcp" "restore_dns_from_backup_file should not commit after delete failure"
+assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_from_backup_file should revert staged dhcp changes after delete failure"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq after delete failure"
+TEST_FAIL_UCI_CMD=""
+
 rm -f "$backup_file"
 : > "$UCI_LOG"
 : > "$DNS_LOG"
@@ -171,6 +185,27 @@ assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults should re
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+cat > "$BACKUP_DIR/$DNS_BACKUP_NAME" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=4096
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/legacy.resolv
+EOF
+cat > "$BACKUP_DIR/config.yaml" <<'EOF'
+dns:
+  listen: 192.168.50.1:7874
+EOF
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="192.168.50.1#7874"
+restore_system_dns_defaults 0
+assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].cachesize=4096" "restore_system_dns_defaults should recover old backup format using saved config target"
+assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=/tmp/legacy.resolv" "restore_system_dns_defaults should restore old backup format when saved config reveals Mihomo target"
+assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults should restart dnsmasq for old backup recovery"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
 TEST_CURRENT_CACHESIZE="0"
 TEST_CURRENT_NORESOLV="1"
 TEST_CURRENT_RESOLVFILE=""
@@ -200,6 +235,19 @@ assert_false "restore_dns_defaults_fallback should fail when noresolv restore fa
 assert_file_not_contains "$UCI_LOG" "commit dhcp" "restore_dns_defaults_fallback should not commit partial fallback restore"
 assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_defaults_fallback should revert staged dhcp changes after failure"
 [[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should not restart dnsmasq after fallback failure"
+TEST_FAIL_UCI_CMD=""
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="delete dhcp.@dnsmasq[0].server"
+assert_false "restore_dns_defaults_fallback should fail when clearing hijacked dnsmasq servers fails" restore_dns_defaults_fallback
+assert_file_not_contains "$UCI_LOG" "commit dhcp" "restore_dns_defaults_fallback should not commit after delete failure"
+assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_defaults_fallback should revert staged dhcp changes after delete failure"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should not restart dnsmasq after delete failure"
 TEST_FAIL_UCI_CMD=""
 
 : > "$UCI_LOG"

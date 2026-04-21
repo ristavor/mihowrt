@@ -220,7 +220,17 @@ kernel_install_or_update() {
 		return 1
 	}
 
-	[ -f "$CLASH_BIN" ] && cp -f "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null || true
+	if [ -f "$CLASH_BIN" ] && cmp -s "$tmpbin" "$CLASH_BIN" 2>/dev/null; then
+		rm -f "$tmpgz" "$tmpbin"
+		log "Downloaded Mihomo kernel is identical to installed binary"
+		return 0
+	fi
+
+	if [ -f "$CLASH_BIN" ]; then
+		if [ ! -f "$CLASH_BIN.bak" ] || ! cmp -s "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null; then
+			cp -f "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null || true
+		fi
+	fi
 	mv -f "$tmpbin" "$CLASH_BIN" || {
 		rm -f "$tmpgz" "$tmpbin"
 		err "failed to install Mihomo kernel"

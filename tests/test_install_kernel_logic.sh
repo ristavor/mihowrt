@@ -34,13 +34,20 @@ EOF
 chmod +x "$asset_script"
 gzip -c "$asset_script" > "$asset_gz"
 
-cat > "$CLASH_BIN" <<'EOF'
+write_kernel_script() {
+	local path="$1"
+	local version="$2"
+
+	cat > "$path" <<EOF
 #!/usr/bin/env bash
-if [[ "${1:-}" == "-v" ]]; then
-	printf 'Mihomo Meta v1.19.4\n'
+if [[ "\${1:-}" == "-v" ]]; then
+	printf 'Mihomo Meta v%s\n' '$version'
 fi
 EOF
-chmod +x "$CLASH_BIN"
+	chmod +x "$path"
+}
+
+write_kernel_script "$CLASH_BIN" "1.19.4"
 
 fetch_url() {
 	printf '%s\n' '{"tag_name":"v1.19.4","assets":[{"browser_download_url":"https://example.com/mihomo-linux-amd64-v1.19.4.gz"}]}'
@@ -54,13 +61,7 @@ download_file() {
 kernel_install_or_update
 assert_file_contains "$KERNEL_LOG" "Mihomo kernel already up to date (1.19.4)" "kernel_install_or_update should skip download for current kernel"
 
-cat > "$CLASH_BIN" <<'EOF'
-#!/usr/bin/env bash
-if [[ "${1:-}" == "-v" ]]; then
-	printf 'Mihomo Meta v1.19.3\n'
-fi
-EOF
-chmod +x "$CLASH_BIN"
+write_kernel_script "$CLASH_BIN" "1.19.3"
 
 download_file() {
 	cp "$asset_gz" "$2"
@@ -72,5 +73,31 @@ assert_file_contains "$KERNEL_LOG" "Updated Mihomo kernel to v1.19.4 for arch am
 assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_install_or_update should install downloaded kernel"
 [[ -x "$CLASH_BIN.bak" ]] || fail "kernel_install_or_update should keep backup of previous kernel"
 assert_eq "v1.19.3" "$("$CLASH_BIN.bak" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_install_or_update should preserve previous kernel in backup"
+
+write_kernel_script "$CLASH_BIN" "1.19.3"
+write_kernel_script "$asset_script" "1.19.3"
+gzip -c "$asset_script" > "$asset_gz"
+write_kernel_script "$CLASH_BIN.bak" "0.0.1"
+backup_before_identical_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
+
+: > "$KERNEL_LOG"
+kernel_install_or_update
+assert_file_contains "$KERNEL_LOG" "Downloaded Mihomo kernel is identical to installed binary" "kernel_install_or_update should skip replacing identical downloaded kernel"
+assert_eq "v1.19.3" "$(current_mihomo_version)" "kernel_install_or_update should keep installed kernel when downloaded binary is identical"
+backup_after_identical_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
+assert_eq "$backup_before_identical_mtime" "$backup_after_identical_mtime" "kernel_install_or_update should not rewrite backup when identical download is skipped"
+
+write_kernel_script "$asset_script" "1.19.4"
+gzip -c "$asset_script" > "$asset_gz"
+write_kernel_script "$CLASH_BIN" "1.19.3"
+cp "$CLASH_BIN" "$CLASH_BIN.bak"
+touch -d '2024-01-01 00:00:00' "$CLASH_BIN.bak"
+backup_before_upgrade_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
+
+: > "$KERNEL_LOG"
+kernel_install_or_update
+backup_after_upgrade_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
+assert_eq "$backup_before_upgrade_mtime" "$backup_after_upgrade_mtime" "kernel_install_or_update should skip rewriting identical backup copy"
+assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_install_or_update should still install newer kernel when backup already matches current"
 
 pass "installer kernel update branches"

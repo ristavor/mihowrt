@@ -129,6 +129,8 @@ normalize_version() {
 	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV'
 }
 
+# Keep in sync with rootfs/usr/lib/mihowrt/helpers.sh.
+# Installer duplicates these helpers so remote bootstrap stays standalone.
 version_ge() {
 	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
 }

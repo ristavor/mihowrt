@@ -488,7 +488,7 @@ cleanup_runtime_state() {
 }
 
 recover_runtime_state() {
-	dns_recovery_needed || return 0
+	runtime_live_state_present || return 0
 	log "Recovering runtime state after unclean shutdown"
 	cleanup_runtime_state
 }
@@ -733,9 +733,12 @@ compare_status_runtime_state_json() {
 			),
 			runtime_matches_desired: (
 				if ($desired.settings_loaded | not) then false
+				elif ($desired.enabled | not) then
+					(($runtime.runtime_snapshot_present | not) and ($runtime.runtime_live_state_present | not))
 				elif (($runtime.runtime_snapshot_present | not) and $runtime.runtime_live_state_present) then false
 				elif $runtime.runtime_snapshot_present then
 					(
+						($runtime.active.enabled == $desired.enabled) and
 						($runtime.active.dns_hijack == $desired.dns_hijack) and
 						($runtime.active.disable_quic == $desired.disable_quic) and
 						($runtime.active.source_network_interfaces == $desired.source_network_interfaces) and
@@ -745,15 +748,15 @@ compare_status_runtime_state_json() {
 						(($desired.route_rule_priority_raw == "") or ($runtime.active.route_rule_priority == $desired.route_rule_priority_raw)) and
 						(($runtime.active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
 						(($runtime.active.mihomo_tproxy_port // "") == ($config.tproxy_port // "")) and
-						(($runtime.active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and
-						(($runtime.active.dns_enhanced_mode // "") == ($config.enhanced_mode // "")) and
-						(($runtime.active.catch_fakeip // false) == ($config.catch_fakeip // false)) and
-						(($runtime.active.fakeip_range // "") == ($config.fake_ip_range // ""))
-					)
-				else true
-				end
-			)
-		}'
+							(($runtime.active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and
+							(($runtime.active.dns_enhanced_mode // "") == ($config.enhanced_mode // "")) and
+							(($runtime.active.catch_fakeip // false) == ($config.catch_fakeip // false)) and
+							(($runtime.active.fakeip_range // "") == ($config.fake_ip_range // ""))
+						)
+					else false
+					end
+				)
+			}'
 }
 
 emit_status_json() {

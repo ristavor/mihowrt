@@ -41,7 +41,7 @@ config_load() {
 
 config_get_bool() {
 	case "$3" in
-		enabled) printf -v "$1" '%s' "1" ;;
+		enabled) printf -v "$1" '%s' "${TEST_ENABLED_SETTING:-1}" ;;
 		dns_hijack) printf -v "$1" '%s' "1" ;;
 		disable_quic) printf -v "$1" '%s' "0" ;;
 	esac
@@ -94,7 +94,7 @@ policy_route_state_read() {
 }
 
 runtime_live_state_present() {
-	return 0
+	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"
 }
 
 runtime_snapshot_status_json() {
@@ -109,6 +109,8 @@ read_config_json() {
 EOF
 }
 
+TEST_ENABLED_SETTING=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 status_output="$(status_json)"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_running')" "status_json should expose running service state"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_enabled')" "status_json should expose boot-enabled state"
@@ -136,18 +138,30 @@ assert_eq "Mon Jan  1 00:00:02 2026 daemon.warn mihowrt[321]: warning line" "$(p
 assert_eq "Mon Jan  1 00:00:04 2026 daemon.info mihowrt: last line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[1]')" "logs_json should keep latest matching line"
 
 runtime_live_state_present() {
-	return 0
+	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"
 }
 
 runtime_snapshot_status_json() {
 	return 1
 }
 
+TEST_ENABLED_SETTING=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 status_output_no_snapshot="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should report missing runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_safe_reload_ready')" "status_json should block safe reload when live state lacks snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim runtime/config parity without snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.active.present')" "status_json should not invent applied runtime state without snapshot"
+
+TEST_ENABLED_SETTING=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
+status_output_no_runtime="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when policy should be enabled but runtime is clean"
+
+TEST_ENABLED_SETTING=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
+status_output_disabled_clean="$(status_json)"
+assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should treat disabled policy and clean runtime as matching"
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
@@ -155,8 +169,19 @@ runtime_snapshot_status_json() {
 EOF
 }
 
+TEST_ENABLED_SETTING=1
 status_runtime_output_drift="$(status_runtime_state)"
 assert_eq "0" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report drift when applied snapshot differs from desired config"
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
+}
+
+TEST_ENABLED_SETTING=0
+status_output_disabled_with_active="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_disabled_with_active" | jq -r '.runtime_matches_desired')" "status_json should report drift when disabled policy still has active runtime snapshot"
 
 config_load() {
 	return 1

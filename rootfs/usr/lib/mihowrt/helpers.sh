@@ -610,7 +610,7 @@ detect_mihomo_arch() {
 
 current_mihomo_version() {
 	[ -x "$CLASH_BIN" ] || return 1
-	"$CLASH_BIN" -v 2>/dev/null | head -n1 | sed -n 's/.* \([vV]\{0,1\}[0-9][0-9.]*\).*/\1/p'
+	"$CLASH_BIN" -v 2>/dev/null | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1
 }
 
 hex_port() {

@@ -16,9 +16,10 @@ const uiPathMatch = source.match(/function computeUiPath[\s\S]*?\n}\n\nasync fun
 const dashboardMatch = source.match(/async function openDashboard[\s\S]*?\n}\n\nasync function initializeAceEditor/);
 const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
 const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
-const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
+const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceEnabledToggleLabel/);
+const serviceEnabledLabelMatch = source.match(/function serviceEnabledToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
 const serviceTextMatch = source.match(/function serviceBadgeText[\s\S]*?\n}\n\nfunction serviceBadgeColor/);
-const serviceColorMatch = source.match(/function serviceBadgeColor[\s\S]*?\n}\n\nfunction applyServiceState/);
+const serviceColorMatch = source.match(/function serviceBadgeColor[\s\S]*?\n}\n\nfunction serviceEnabledBadgeText/);
 
 if (!hostMatch)
 	throw new Error('normalizeHostPortFromAddr() not found');
@@ -32,6 +33,8 @@ if (!busyMatch)
 	throw new Error('controlsBusy() not found');
 if (!serviceLabelMatch)
 	throw new Error('serviceToggleLabel() not found');
+if (!serviceEnabledLabelMatch)
+	throw new Error('serviceEnabledToggleLabel() not found');
 if (!serviceTextMatch)
 	throw new Error('serviceBadgeText() not found');
 if (!serviceColorMatch)
@@ -44,17 +47,19 @@ const uiPathFnSource = uiPathMatch[0].replace(/\n\nasync function openDashboard$
 const dashboardFnSource = dashboardMatch[0].replace(/\n\nasync function initializeAceEditor$/, '');
 const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
 const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
-const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');
+const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceEnabledToggleLabel$/, '');
+const serviceEnabledLabelFnSource = serviceEnabledLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');
 const serviceTextFnSource = serviceTextMatch[0].replace(/\n\nfunction serviceBadgeColor$/, '');
-const serviceColorFnSource = serviceColorMatch[0].replace(/\n\nfunction applyServiceState$/, '');
+const serviceColorFnSource = serviceColorMatch[0].replace(/\n\nfunction serviceEnabledBadgeText$/, '');
 const context = {};
 vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceEnabledLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceEnabledToggleLabel = serviceEnabledToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
 
 const normalize = context.normalizeHostPortFromAddr;
 const editorContentForSave = context.editorContentForSave;
 const controlsBusy = context.controlsBusy;
 const serviceToggleLabel = context.serviceToggleLabel;
+const serviceEnabledToggleLabel = context.serviceEnabledToggleLabel;
 const serviceBadgeText = context.serviceBadgeText;
 const serviceBadgeColor = context.serviceBadgeColor;
 const fallbackHost = 'router.lan';
@@ -84,6 +89,8 @@ assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should no
 assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
 assertEq(serviceToggleLabel(true), 'Stop Service', 'serviceToggleLabel should render running action');
 assertEq(serviceToggleLabel(false), 'Start Service', 'serviceToggleLabel should render stopped action');
+assertEq(serviceEnabledToggleLabel(true), 'Disable At Boot', 'serviceEnabledToggleLabel should render disable-boot action');
+assertEq(serviceEnabledToggleLabel(false), 'Enable At Boot', 'serviceEnabledToggleLabel should render enable-boot action');
 assertEq(serviceBadgeText(true), 'MihoWRT is running', 'serviceBadgeText should render running badge');
 assertEq(serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
 assertEq(serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');

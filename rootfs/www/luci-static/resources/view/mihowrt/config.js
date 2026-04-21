@@ -11,9 +11,11 @@ const CLASH_CONFIG = '/opt/clash/config.yaml';
 const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 
 let startStopButton = null;
+let enableDisableButton = null;
 let dashboardButton = null;
 let saveApplyButton = null;
 let serviceStatusBadge = null;
+let serviceEnabledBadge = null;
 let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
@@ -28,6 +30,8 @@ function updateControlDisabledState() {
 
 	if (startStopButton)
 		startStopButton.disabled = disabled;
+	if (enableDisableButton)
+		enableDisableButton.disabled = disabled;
 	if (dashboardButton)
 		dashboardButton.disabled = disabled;
 	if (saveApplyButton)
@@ -82,16 +86,22 @@ async function handleServiceAction(steps, errorMsg) {
 
 async function startService() {
 	return handleServiceAction([
-		{ action: 'start', rollback: 'stop' },
-		{ action: 'enable', rollback: 'disable' }
-	], _('Unable to start and enable service: %s'));
+		{ action: 'start', rollback: 'stop' }
+	], _('Unable to start service: %s'));
 }
 
 async function stopService() {
 	return handleServiceAction([
-		{ action: 'stop', rollback: 'start' },
-		{ action: 'disable', rollback: 'enable' }
-	], _('Unable to stop and disable service: %s'));
+		{ action: 'stop', rollback: 'start' }
+	], _('Unable to stop service: %s'));
+}
+
+async function setServiceEnabled(enabled) {
+	return handleServiceAction([
+		{ action: enabled ? 'enable' : 'disable' }
+	], enabled
+		? _('Unable to enable service at boot: %s')
+		: _('Unable to disable service at boot: %s'));
 }
 
 async function pollStatus(targetStatus, timeout = 5000) {
@@ -108,6 +118,10 @@ function serviceToggleLabel(running) {
 	return running ? _('Stop Service') : _('Start Service');
 }
 
+function serviceEnabledToggleLabel(enabled) {
+	return enabled ? _('Disable At Boot') : _('Enable At Boot');
+}
+
 function serviceBadgeText(running) {
 	return running ? _('MihoWRT is running') : _('MihoWRT stopped');
 }
@@ -116,30 +130,53 @@ function serviceBadgeColor(running) {
 	return running ? '#5cb85c' : '#d9534f';
 }
 
-function applyServiceState(running) {
+function serviceEnabledBadgeText(enabled) {
+	return enabled ? _('Enabled at boot') : _('Disabled at boot');
+}
+
+function serviceEnabledBadgeColor(enabled) {
+	return enabled ? '#5cb85c' : '#d9534f';
+}
+
+function applyServiceState(running, enabled) {
 	if (startStopButton)
 		startStopButton.textContent = serviceToggleLabel(running);
+	if (enableDisableButton)
+		enableDisableButton.textContent = serviceEnabledToggleLabel(enabled);
 
 	if (serviceStatusBadge) {
 		serviceStatusBadge.textContent = serviceBadgeText(running);
 		serviceStatusBadge.style.backgroundColor = serviceBadgeColor(running);
 	}
+
+	if (serviceEnabledBadge) {
+		serviceEnabledBadge.textContent = serviceEnabledBadgeText(enabled);
+		serviceEnabledBadge.style.backgroundColor = serviceEnabledBadgeColor(enabled);
+	}
+}
+
+async function readServiceState() {
+	const status = await backendHelper.readStatus();
+	return {
+		running: !!status.serviceRunning,
+		enabled: !!status.serviceEnabled
+	};
 }
 
 async function refreshServiceState() {
-	const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
-	applyServiceState(running);
-	return running;
+	const state = await readServiceState();
+	applyServiceState(state.running, state.enabled);
+	return state;
 }
 
 async function toggleService() {
 	if (controlsBusy())
 		return;
 
-	const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
-	const targetStatus = !running;
+	const state = await readServiceState();
+	const targetStatus = !state.running;
 
-	if (running) {
+	if (state.running) {
 		if (!(await stopService()))
 			return;
 	}
@@ -156,7 +193,18 @@ async function toggleService() {
 		return;
 	}
 
-	applyServiceState(targetStatus);
+	await refreshServiceState();
+}
+
+async function toggleServiceEnabled() {
+	if (controlsBusy())
+		return;
+
+	const state = await readServiceState();
+	if (!(await setServiceEnabled(!state.enabled)))
+		return;
+
+	await refreshServiceState();
 }
 
 function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
@@ -286,7 +334,7 @@ return view.extend({
 	},
 
 	render: async function(config) {
-		const running = await mihowrtUi.getServiceStatus(SERVICE_NAME);
+		const serviceState = await readServiceState();
 		savedConfigContent = editorContentForSave(config);
 		const editorNode = E('div', {
 			id: 'editor',
@@ -332,7 +380,7 @@ return view.extend({
 					const restartSettled = await pollStatus(true);
 					const runningAfterRestart = await refreshServiceState();
 
-					if (!restartSettled && !runningAfterRestart) {
+					if (!restartSettled && !runningAfterRestart.running) {
 						mihowrtUi.notify(_('Service restart is still in progress. Check diagnostics if it does not recover soon.'), 'warning');
 						return;
 					}
@@ -372,11 +420,19 @@ return view.extend({
 				(startStopButton = E('button', {
 					class: 'btn',
 					click: toggleService
-				}, serviceToggleLabel(running))),
+				}, serviceToggleLabel(serviceState.running))),
+				(enableDisableButton = E('button', {
+					class: 'btn',
+					click: toggleServiceEnabled
+				}, serviceEnabledToggleLabel(serviceState.enabled))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceBadgeColor(running) + ';'
-				}, serviceBadgeText(running)))
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceBadgeColor(serviceState.running) + ';'
+				}, serviceBadgeText(serviceState.running))),
+				(serviceEnabledBadge = E('span', {
+					class: 'label',
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceEnabledBadgeColor(serviceState.enabled) + ';'
+				}, serviceEnabledBadgeText(serviceState.enabled)))
 			]),
 			E('h2', _('MihoWRT Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply.')),
@@ -389,6 +445,7 @@ return view.extend({
 				])
 			]);
 
+		applyServiceState(serviceState.running, serviceState.enabled);
 		updateControlDisabledState();
 
 		window.requestAnimationFrame(() => {

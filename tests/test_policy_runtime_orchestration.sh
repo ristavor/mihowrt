@@ -289,13 +289,22 @@ cleanup_runtime_state() {
 
 : > "$event_log"
 TEST_DNS_RECOVERY_NEEDED_RC=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 recover_runtime_state
-[[ ! -s "$event_log" ]] || fail "recover_runtime_state should stay idle when no DNS recovery is needed"
+[[ ! -s "$event_log" ]] || fail "recover_runtime_state should stay idle when runtime state is already clean"
+
+: > "$event_log"
+TEST_DNS_RECOVERY_NEEDED_RC=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+recover_runtime_state
+assert_file_contains "$event_log" "log:Recovering runtime state after unclean shutdown" "recover_runtime_state should log crash recovery"
+assert_file_contains "$event_log" "cleanup_runtime_state" "recover_runtime_state should clean live runtime state after crash even without DNS backup"
 
 : > "$event_log"
 TEST_DNS_RECOVERY_NEEDED_RC=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 recover_runtime_state
-assert_file_contains "$event_log" "log:Recovering runtime state after unclean shutdown" "recover_runtime_state should log crash recovery"
+assert_file_contains "$event_log" "log:Recovering runtime state after unclean shutdown" "recover_runtime_state should still log crash recovery when DNS backup survives"
 assert_file_contains "$event_log" "cleanup_runtime_state" "recover_runtime_state should clean runtime state after crash"
 
 load_runtime_config() {

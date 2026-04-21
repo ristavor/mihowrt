@@ -102,19 +102,24 @@ assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when servi
 context.setBusyFlags(false, true);
 assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save is running');
 
-(async () => {
-	const notifications = [];
-	let openedUrl = null;
-	const dashboardContext = {
-		...context,
-		SERVICE_NAME: 'mihowrt',
-		backendHelper: {
-			readConfig: async() => ({ errors: ['Failed to read config'] })
-		},
-		mihowrtUi: {
-			getServiceStatus: async() => true,
-			notify: (message, level) => notifications.push({ message, level })
-		},
+	(async () => {
+		const notifications = [];
+		let openedUrl = null;
+		let probedScript = null;
+		const dashboardContext = {
+			...context,
+			SERVICE_NAME: 'mihowrt',
+			SERVICE_SCRIPT: '/etc/init.d/mihowrt',
+			backendHelper: {
+				readConfig: async() => ({ errors: ['Failed to read config'] })
+			},
+			mihowrtUi: {
+				getServiceStatus: async(serviceName, serviceScript) => {
+					probedScript = `${serviceName}:${serviceScript}`;
+					return true;
+				},
+				notify: (message, level) => notifications.push({ message, level })
+			},
 		window: {
 			location: { hostname: fallbackHost },
 			open: (url) => {
@@ -128,14 +133,52 @@ assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save 
 	vm.createContext(dashboardContext);
 	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\nglobalThis.openDashboard = openDashboard;`, dashboardContext);
 	await dashboardContext.openDashboard();
-	assertEq(String(openedUrl), 'null', 'openDashboard should not open guessed URL when config has errors');
-	assertEq(notifications.length, 1, 'openDashboard should emit one notification when config has errors');
-	assertEq(notifications[0].level, 'error', 'openDashboard should surface config errors as error notification');
-	if (!String(notifications[0].message).includes('Failed to read config'))
-		throw new Error('openDashboard should include backend config error details');
-})().catch(err => {
-	throw err;
-});
+		assertEq(String(openedUrl), 'null', 'openDashboard should not open guessed URL when config has errors');
+		assertEq(notifications.length, 1, 'openDashboard should emit one notification when config has errors');
+		assertEq(notifications[0].level, 'error', 'openDashboard should surface config errors as error notification');
+		assertEq(probedScript, 'mihowrt:/etc/init.d/mihowrt', 'openDashboard should probe service with init script fallback context');
+		if (!String(notifications[0].message).includes('Failed to read config'))
+			throw new Error('openDashboard should include backend config error details');
+
+		const ipv6Notifications = [];
+		let ipv6OpenedUrl = null;
+		const ipv6Context = {
+			...context,
+			SERVICE_NAME: 'mihowrt',
+			SERVICE_SCRIPT: '/etc/init.d/mihowrt',
+			backendHelper: {
+				readConfig: async() => ({
+					errors: [],
+					externalController: '[2001:db8::1]:9090',
+					externalControllerTls: '',
+					secret: 'top-secret',
+					externalUi: '',
+					externalUiName: 'zashboard'
+				})
+			},
+			mihowrtUi: {
+				getServiceStatus: async() => true,
+				notify: (message, level) => ipv6Notifications.push({ message, level })
+			},
+			window: {
+				location: { hostname: fallbackHost },
+				open: (url) => {
+					ipv6OpenedUrl = url;
+					return {};
+				}
+			},
+			URLSearchParams
+		};
+
+		vm.createContext(ipv6Context);
+		vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\nglobalThis.openDashboard = openDashboard;`, ipv6Context);
+		await ipv6Context.openDashboard();
+		assertEq(ipv6Notifications.length, 0, 'openDashboard should not warn on valid IPv6 controller config');
+		if (!String(ipv6OpenedUrl).startsWith('http://[2001:db8::1]:9090/zashboard/?'))
+			throw new Error(`openDashboard should keep IPv6 host bracketed, got '${ipv6OpenedUrl}'`);
+	})().catch(err => {
+		throw err;
+	});
 EOF
 
 pass "config view helpers"

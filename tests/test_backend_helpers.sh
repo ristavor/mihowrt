@@ -31,6 +31,8 @@ if (state.available !== false)
 	throw new Error('emptyStatusState should default available to false');
 if (state.serviceReady !== false)
 	throw new Error('emptyStatusState should default serviceReady to false');
+if (state.runtimeSnapshotValid !== false)
+	throw new Error('emptyStatusState should default runtimeSnapshotValid to false');
 if (state.runtimeSafeReloadReady !== false)
 	throw new Error('emptyStatusState should default runtimeSafeReloadReady to false');
 if (state.runtimeMatchesDesired !== false)

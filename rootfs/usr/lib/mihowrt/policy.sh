@@ -57,6 +57,11 @@ runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_src_file)" ] || return 1
 }
 
+runtime_snapshot_valid() {
+	runtime_snapshot_exists || return 1
+	runtime_snapshot_status_json >/dev/null 2>&1
+}
+
 runtime_snapshot_clear() {
 	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)"
 }
@@ -496,13 +501,14 @@ recover_runtime_state() {
 reload_runtime_state() {
 	local old_route_table_id="" old_route_rule_priority=""
 	local new_route_table_id="" new_route_rule_priority=""
-	local had_snapshot=0 live_runtime_present=0
+	local had_snapshot=0 snapshot_files_present=0 live_runtime_present=0
 
 	if policy_route_state_read; then
 		old_route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
 		old_route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
 	fi
-	runtime_snapshot_exists && had_snapshot=1 || had_snapshot=0
+	runtime_snapshot_exists && snapshot_files_present=1 || snapshot_files_present=0
+	runtime_snapshot_valid && had_snapshot=1 || had_snapshot=0
 	runtime_live_state_present && live_runtime_present=1 || live_runtime_present=0
 
 	load_runtime_config || return 1
@@ -512,6 +518,18 @@ reload_runtime_state() {
 		cleanup_runtime_state || return 1
 		log "Policy layer disabled; runtime state left clean"
 		return 0
+	fi
+
+	if [ "$had_snapshot" -eq 0 ] && [ "$snapshot_files_present" -eq 1 ]; then
+		if [ "$live_runtime_present" -eq 1 ]; then
+			err "Runtime snapshot invalid; refusing in-place reload while live policy state exists"
+			return 1
+		fi
+
+		warn "Runtime snapshot invalid; applying policy from clean state"
+		cleanup_runtime_state || return 1
+		apply_runtime_state
+		return $?
 	fi
 
 	if [ "$had_snapshot" -eq 0 ] && [ "$live_runtime_present" -eq 1 ]; then
@@ -670,7 +688,7 @@ load_status_runtime_state_json() {
 	local config_json="${1:-}"
 	local service_enabled=0 service_running=0 service_ready=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
-	local runtime_snapshot_present=0 runtime_live_present=0 active_json=""
+	local runtime_snapshot_present=0 runtime_snapshot_valid=0 runtime_live_present=0 active_json="" runtime_errors_raw=""
 	local dns_port="" tproxy_port=""
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
@@ -694,10 +712,15 @@ load_status_runtime_state_json() {
 		route_rule_priority_effective="$ROUTE_RULE_PRIORITY_EFFECTIVE"
 	fi
 
-	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
-	if [ -n "$active_json" ]; then
+	if active_json="$(runtime_snapshot_status_json 2>&1)"; then
 		runtime_snapshot_present=1
+		runtime_snapshot_valid=1
 	else
+		runtime_snapshot_exists && runtime_snapshot_present=1 || runtime_snapshot_present=0
+		if [ "$runtime_snapshot_present" -eq 1 ]; then
+			runtime_errors_raw="$(trim "$active_json")"
+			[ -n "$runtime_errors_raw" ] || runtime_errors_raw="Runtime snapshot is present but invalid"
+		fi
 		active_json="$(status_default_active_json)"
 	fi
 
@@ -712,7 +735,9 @@ load_status_runtime_state_json() {
 		--arg route_table_id_effective "$route_table_id_effective" \
 		--arg route_rule_priority_effective "$route_rule_priority_effective" \
 		--arg runtime_snapshot_present "$runtime_snapshot_present" \
+		--arg runtime_snapshot_valid "$runtime_snapshot_valid" \
 		--arg runtime_live_present "$runtime_live_present" \
+		--arg runtime_errors_raw "$runtime_errors_raw" \
 		'{
 			service_enabled: ($service_enabled == "1"),
 			service_running: ($service_running == "1"),
@@ -723,8 +748,10 @@ load_status_runtime_state_json() {
 			route_table_id_effective: $route_table_id_effective,
 			route_rule_priority_effective: $route_rule_priority_effective,
 			runtime_snapshot_present: ($runtime_snapshot_present == "1"),
+			runtime_snapshot_valid: ($runtime_snapshot_valid == "1"),
 			runtime_live_state_present: ($runtime_live_present == "1"),
-			active: $active
+			active: $active,
+			errors: ($runtime_errors_raw | split("\n") | map(select(length > 0)))
 		}'
 }
 
@@ -740,12 +767,14 @@ compare_status_runtime_state_json() {
 		'{
 			runtime_safe_reload_ready: (
 				if ($desired.settings_loaded | not) then true
+				elif ($runtime.runtime_snapshot_present and ($runtime.runtime_snapshot_valid | not) and $runtime.runtime_live_state_present) then false
 				elif (($runtime.runtime_snapshot_present | not) and $runtime.runtime_live_state_present) then false
 				else true
 				end
 			),
 			runtime_matches_desired: (
 				if ($desired.settings_loaded | not) then false
+				elif ($runtime.runtime_snapshot_present and ($runtime.runtime_snapshot_valid | not)) then false
 				elif ($desired.enabled | not) then
 					(($runtime.runtime_snapshot_present | not) and ($runtime.runtime_live_state_present | not))
 				elif (($runtime.runtime_snapshot_present | not) and $runtime.runtime_live_state_present) then false
@@ -761,10 +790,10 @@ compare_status_runtime_state_json() {
 						(($desired.route_rule_priority_raw == "") or ($runtime.active.route_rule_priority == $desired.route_rule_priority_raw)) and
 						(($runtime.active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
 						(($runtime.active.mihomo_tproxy_port // "") == ($config.tproxy_port // "")) and
-							(($runtime.active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and
-							(($runtime.active.dns_enhanced_mode // "") == ($config.enhanced_mode // "")) and
-							(($runtime.active.catch_fakeip // false) == ($config.catch_fakeip // false)) and
-							(($runtime.active.fakeip_range // "") == ($config.fake_ip_range // ""))
+						(($runtime.active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and
+						(($runtime.active.dns_enhanced_mode // "") == ($config.enhanced_mode // "")) and
+						(($runtime.active.catch_fakeip // false) == ($config.catch_fakeip // false)) and
+						(($runtime.active.fakeip_range // "") == ($config.fake_ip_range // ""))
 						)
 					else false
 					end
@@ -801,12 +830,13 @@ emit_status_json() {
 			always_proxy_dst_count: $desired.always_proxy_dst_count,
 			always_proxy_src_count: $desired.always_proxy_src_count,
 			runtime_snapshot_present: $runtime.runtime_snapshot_present,
+			runtime_snapshot_valid: $runtime.runtime_snapshot_valid,
 			runtime_live_state_present: $runtime.runtime_live_state_present,
 			runtime_safe_reload_ready: $comparison.runtime_safe_reload_ready,
 			runtime_matches_desired: $comparison.runtime_matches_desired,
 			active: $runtime.active,
 			config: $config,
-			errors: (($config.errors // []) + ($desired.errors // []))
+			errors: (($config.errors // []) + ($desired.errors // []) + ($runtime.errors // []))
 		}'
 }
 
@@ -845,6 +875,7 @@ status_runtime_state() {
 		"always_proxy_dst_count=\(.always_proxy_dst_count // 0)",
 		"always_proxy_src_count=\(.always_proxy_src_count // 0)",
 		"runtime_snapshot_present=\(if .runtime_snapshot_present then 1 else 0 end)",
+		"runtime_snapshot_valid=\(if .runtime_snapshot_valid then 1 else 0 end)",
 		"runtime_live_state_present=\(if .runtime_live_state_present then 1 else 0 end)",
 		"runtime_safe_reload_ready=\(if .runtime_safe_reload_ready then 1 else 0 end)",
 		"runtime_matches_desired=\(if .runtime_matches_desired then 1 else 0 end)",

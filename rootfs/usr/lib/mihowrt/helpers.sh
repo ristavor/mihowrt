@@ -225,47 +225,6 @@ yaml_cleanup_scalar() {
 	printf '%s' "$value"
 }
 
-yaml_get_top_level_scalar() {
-	local file="$1"
-	local key="$2"
-	local value
-
-	value="$(awk -v key="$key" '
-		$0 ~ ("^" key ":[[:space:]]*") {
-			sub("^" key ":[[:space:]]*", "", $0)
-			print
-			exit
-		}
-	' "$file" 2>/dev/null)"
-
-	yaml_cleanup_scalar "$value"
-}
-
-yaml_get_dns_scalar() {
-	local file="$1"
-	local key="$2"
-	local value
-
-	value="$(awk -v key="$key" '
-		/^dns:[[:space:]]*($|#)/ {
-			in_dns = 1
-			next
-		}
-		in_dns {
-			if ($0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/) {
-				exit
-			}
-			if ($0 ~ ("^[[:space:]]+" key ":[[:space:]]*")) {
-				sub("^[[:space:]]+" key ":[[:space:]]*", "", $0)
-				print
-				exit
-			}
-		}
-	' "$file" 2>/dev/null)"
-
-	yaml_cleanup_scalar "$value"
-}
-
 yaml_get_selected_scalars() {
 	local file="$1"
 

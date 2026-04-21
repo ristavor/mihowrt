@@ -12,14 +12,18 @@ const vm = require('vm');
 const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/policy.js'), 'utf8');
 const normalizeMatch = source.match(/function normalizeBlock[\s\S]*?\n}\n\nfunction currentNormalizedListValue/);
+const syncMatch = source.match(/function syncListCaches[\s\S]*?\n}\n\nfunction hasListValueChanges/);
 const bindMatch = source.match(/function bindTextFileOption[\s\S]*?\n}\n\nreturn view.extend/);
 
 if (!normalizeMatch)
 	throw new Error('normalizeBlock() not found');
+if (!syncMatch)
+	throw new Error('syncListCaches() not found');
 if (!bindMatch)
 	throw new Error('bindTextFileOption() not found');
 
 const normalizeFnSource = normalizeMatch[0].replace(/\n\nfunction currentNormalizedListValue$/, '');
+const syncFnSource = syncMatch[0].replace(/\n\nfunction hasListValueChanges$/, '');
 const bindFnSource = bindMatch[0].replace(/\n\nreturn view.extend$/, '');
 const context = {
 	fs: {
@@ -32,7 +36,7 @@ const context = {
 };
 
 vm.createContext(context);
-vm.runInContext(`let dstValueCache = null; let srcValueCache = null;\n${normalizeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };`, context);
+vm.runInContext(`let dstValueCache = null; let srcValueCache = null;\n${normalizeFnSource}\n${syncFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };`, context);
 
 (async () => {
 	const option = {};
@@ -57,9 +61,17 @@ vm.runInContext(`let dstValueCache = null; let srcValueCache = null;\n${normaliz
 	await removeOption.remove();
 	if (context.fs.writeCalls.length !== 0)
 		throw new Error('bindTextFileOption.remove should skip no-op empty writes');
-})().catch(err => {
-	throw err;
-});
+
+	context.setDstCache('stale\n');
+	context.setSrcCache('old\n');
+	context.syncListCaches(' 3.3.3.3\r\n', '');
+	if (context.getDstCache() !== '3.3.3.3\n')
+		throw new Error('syncListCaches should refresh destination cache from latest file contents');
+	if (context.getSrcCache() !== '')
+		throw new Error('syncListCaches should refresh source cache from latest file contents');
+	})().catch(err => {
+		throw err;
+	});
 EOF
 
 pass "policy view helpers"

@@ -327,7 +327,7 @@ function computeUiPath(externalUiName, externalUi) {
 
 async function openDashboard() {
 	try {
-		if (!(await mihowrtUi.getServiceStatus(SERVICE_NAME))) {
+		if (!(await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT))) {
 			mihowrtUi.notify(_('Service is not running.'), 'error');
 			return;
 		}
@@ -358,7 +358,10 @@ async function openDashboard() {
 		qp.set('hostname', hostPort.host);
 		qp.set('port', hostPort.port);
 
-		const url = `${scheme}//${hostPort.host}:${hostPort.port}${uiPath}?${qp.toString()}`;
+		const safeHost = hostPort.host.includes(':') && !hostPort.host.startsWith('[')
+			? `[${hostPort.host}]`
+			: hostPort.host;
+		const url = `${scheme}//${safeHost}:${hostPort.port}${uiPath}?${qp.toString()}`;
 		const newWindow = window.open(url, '_blank');
 		if (!newWindow)
 			mihowrtUi.notify(_('Popup was blocked. Please allow popups for this site.'), 'warning');
@@ -437,10 +440,18 @@ return view.extend({
 					return;
 				}
 
-				const wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME);
 				const value = editorContentForSave(editor.getValue());
 				if (value === savedConfigContent) {
 					mihowrtUi.notify(_('Configuration is unchanged.'), 'info');
+					return;
+				}
+
+				let wasRunning = false;
+				try {
+					wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT);
+				}
+				catch (e) {
+					mihowrtUi.notify(_('Unable to determine service state before apply: %s').format(e.message), 'error');
 					return;
 				}
 

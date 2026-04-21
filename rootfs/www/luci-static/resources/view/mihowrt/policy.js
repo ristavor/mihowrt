@@ -40,6 +40,11 @@ function currentNormalizedListValue(option) {
 	return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : '';
 }
 
+function syncListCaches(dstValue, srcValue) {
+	dstValueCache = normalizeBlock(dstValue || '');
+	srcValueCache = normalizeBlock(srcValue || '');
+}
+
 function hasListValueChanges() {
 	return currentNormalizedListValue(dstListOption) !== (dstValueCache || '') ||
 		currentNormalizedListValue(srcListOption) !== (srcValueCache || '');
@@ -87,7 +92,17 @@ return view.extend({
 
 	handleSaveApply: async function(ev, mode) {
 		const listChanged = hasListValueChanges();
-		const wasRunning = listChanged ? await mihowrtUi.getServiceStatus(SERVICE_NAME) : false;
+		let wasRunning = false;
+
+		if (listChanged) {
+			try {
+				wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT);
+			}
+			catch (e) {
+				mihowrtUi.notify(_('Unable to determine service state before reload: %s').format(e.message), 'error');
+				return;
+			}
+		}
 
 		await this.handleSave(ev);
 
@@ -114,10 +129,7 @@ return view.extend({
 	},
 
 	render: function(data) {
-		if (dstValueCache == null)
-			dstValueCache = normalizeBlock(data[1] || '');
-		if (srcValueCache == null)
-			srcValueCache = normalizeBlock(data[2] || '');
+		syncListCaches(data[1], data[2]);
 
 		const m = new form.Map('mihowrt', _('MihoWRT Policy'), _('Direct-first policy layer. External DNS/53 from selected interfaces can be hijacked to Mihomo DNS.'));
 		policyMap = m;

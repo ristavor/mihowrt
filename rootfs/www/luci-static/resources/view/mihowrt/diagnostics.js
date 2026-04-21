@@ -57,6 +57,9 @@ function renderLogLines(logs) {
 }
 
 function renderAppliedPolicyBadge(status, active) {
+	if (status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
+		return badge(_('Applied Runtime Snapshot Invalid'), false);
+
 	if (status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
 		return badge(_('Applied Runtime Untracked'), false);
 
@@ -125,21 +128,29 @@ return view.extend({
 				E('div', {
 					style: 'display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;'
 				}, [
-						badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
-						badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
-						badge(status.serviceReady ? _('Service Ready') : _('Service Not Ready'), status.serviceReady),
-						renderAppliedPolicyBadge(status, active),
-						badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
+					badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
+					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
+					badge(status.serviceReady ? _('Service Ready') : _('Service Not Ready'), status.serviceReady),
+					renderAppliedPolicyBadge(status, active),
+					badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
 					badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
 					badge(
-						(status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
+						status.runtimeSnapshotValid
+							? _('Runtime Snapshot Valid')
+							: (status.runtimeSnapshotPresent ? _('Runtime Snapshot Invalid') : _('Runtime Snapshot Missing')),
+						status.runtimeSnapshotValid
+					),
+					badge(
+						(status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
+							? _('Runtime Snapshot Invalid')
+							: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
 							? _('Runtime State Untracked')
 							: (active.present
 							? (status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'))
-							: _('Runtime Not Active')),
-						active.present && status.runtimeMatchesDesired
+							: _('Runtime Not Active'))),
+						active.present && status.runtimeMatchesDesired && status.runtimeSnapshotValid
 					)
-				]),
+					]),
 					(status.errors && status.errors.length)
 						? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
 						: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
@@ -165,10 +176,11 @@ return view.extend({
 					renderField(_('Applied Disable QUIC'), renderAppliedBoolean(active.disableQuic)),
 					renderField(_('Applied Source Interfaces'), renderAppliedList(active.sourceNetworkInterfaces)),
 					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
-						renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
-						renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
-						renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
-						renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
+					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
+					renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
+					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
+					renderField(_('Runtime Snapshot Valid'), status.runtimeSnapshotValid ? _('yes') : _('no')),
+					renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
 					renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),
 					renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
 				])

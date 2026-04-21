@@ -323,6 +323,9 @@ restore_file() {
 	local dst="$2"
 
 	[ -f "$BACKUP_DIR/$name" ] || return 0
+	if [ -f "$dst" ] && cmp -s "$BACKUP_DIR/$name" "$dst" 2>/dev/null; then
+		return 0
+	fi
 	mkdir -p "$(dirname "$dst")"
 	cp -p "$BACKUP_DIR/$name" "$dst"
 }

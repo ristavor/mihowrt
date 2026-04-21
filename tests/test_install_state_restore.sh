@@ -24,6 +24,16 @@ assert_file_contains "$BACKUP_DIR/copy.txt" "user-data" "backup_file should copy
 restore_file "copy.txt" "$copy_dst"
 assert_file_contains "$copy_dst" "user-data" "restore_file should restore backed up file"
 
+copy_same_dst="$tmpdir/dest/same-output.txt"
+printf 'same-data\n' > "$BACKUP_DIR/same.txt"
+printf 'same-data\n' > "$copy_same_dst"
+touch -d '2020-01-01 00:00:00' "$BACKUP_DIR/same.txt"
+touch -d '2024-01-01 00:00:00' "$copy_same_dst"
+before_same_mtime="$(stat -c %Y "$copy_same_dst")"
+restore_file "same.txt" "$copy_same_dst"
+after_same_mtime="$(stat -c %Y "$copy_same_dst")"
+assert_eq "$before_same_mtime" "$after_same_mtime" "restore_file should skip rewriting identical persistent files"
+
 create_backup_dir() {
 	BACKUP_DIR="$tmpdir/backup-user-state"
 	mkdir -p "$BACKUP_DIR"

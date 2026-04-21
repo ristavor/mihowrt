@@ -541,7 +541,7 @@ is_valid_port_value() {
 }
 
 dns_current_state_looks_hijacked() {
-	local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
+	local expected_target="${1:-}" current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 	local current_host="" current_port="" tab=""
 
 	have_command uci || return 1
@@ -573,7 +573,43 @@ dns_current_state_looks_hijacked() {
 			;;
 	esac
 
+	if [ -n "$expected_target" ]; then
+		[ "$current_servers" = "$expected_target" ] || return 1
+	else
+		case "$current_host" in
+			127.0.0.1|::1|localhost)
+				:
+				;;
+			*)
+				return 1
+				;;
+		esac
+	fi
+
 	return 0
+}
+
+dns_backup_mihomo_target() {
+	local backup_path="$1"
+	local line="" mihomo_target=""
+
+	[ -f "$backup_path" ] || return 1
+
+	while IFS= read -r line; do
+		case "$line" in
+			MIHOMO_DNS_TARGET=*)
+				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
+				break
+				;;
+		esac
+	done < "$backup_path"
+
+	[ -n "$mihomo_target" ] || return 1
+	printf '%s\n' "$mihomo_target"
+}
+
+revert_dhcp_changes() {
+	uci revert dhcp >/dev/null 2>&1 || true
 }
 
 route_state_read() {
@@ -662,32 +698,53 @@ restore_dns_from_backup_file() {
 			ORIG_SERVER=*)
 				server="${line#ORIG_SERVER=}"
 				if [ -n "$server" ]; then
-					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || return 1
+					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || {
+						revert_dhcp_changes
+						return 1
+					}
 				fi
 				;;
 		esac
 	done < "$backup_path"
 
 	if [ -n "$orig_cachesize" ]; then
-		uci set dhcp.@dnsmasq[0].cachesize="$orig_cachesize" >/dev/null 2>&1 || return 1
+		uci set dhcp.@dnsmasq[0].cachesize="$orig_cachesize" >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
 	else
 		uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
 	fi
 
 	if [ -n "$orig_noresolv" ]; then
-		uci set dhcp.@dnsmasq[0].noresolv="$orig_noresolv" >/dev/null 2>&1 || return 1
+		uci set dhcp.@dnsmasq[0].noresolv="$orig_noresolv" >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
 	else
 		uci -q delete dhcp.@dnsmasq[0].noresolv >/dev/null 2>&1 || true
 	fi
 
 	if [ -n "$orig_resolvfile" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$orig_resolvfile" >/dev/null 2>&1 || return 1
+		uci set dhcp.@dnsmasq[0].resolvfile="$orig_resolvfile" >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
 	elif [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || return 1
-		[ "$orig_noresolv" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || return 1
+		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
+		[ "$orig_noresolv" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
 	fi
 
-	uci commit dhcp >/dev/null 2>&1 || return 1
+	uci commit dhcp >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
 	restart_dnsmasq
 	return 0
 }
@@ -709,13 +766,22 @@ restore_dns_defaults_fallback() {
 	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
 	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
 	uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
-	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || return 1
+	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
 
 	if [ -n "$resolvfile" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" >/dev/null 2>&1 || return 1
+		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" >/dev/null 2>&1 || {
+			revert_dhcp_changes
+			return 1
+		}
 	fi
 
-	uci commit dhcp >/dev/null 2>&1 || return 1
+	uci commit dhcp >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
 	restart_dnsmasq
 	return 0
 }
@@ -723,15 +789,19 @@ restore_dns_defaults_fallback() {
 restore_system_dns_defaults() {
 	local current_noresolv=""
 	local allow_fallback="${1:-0}"
+	local backup_target=""
 
 	have_command uci || return 0
 
-	if dns_current_state_looks_hijacked && restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
+	backup_target="$(dns_backup_mihomo_target "$DNS_BACKUP_FILE" 2>/dev/null || true)"
+	if dns_current_state_looks_hijacked "$backup_target" && restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
 		log "System DNS settings restored from MihoWRT backup."
 		return 0
 	fi
 
-	if [ -n "$BACKUP_DIR" ] && dns_current_state_looks_hijacked &&
+	backup_target=""
+	[ -n "$BACKUP_DIR" ] && backup_target="$(dns_backup_mihomo_target "$BACKUP_DIR/$DNS_BACKUP_NAME" 2>/dev/null || true)"
+	if [ -n "$BACKUP_DIR" ] && dns_current_state_looks_hijacked "$backup_target" &&
 		restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
 		log "System DNS settings restored from saved MihoWRT backup."
 		return 0

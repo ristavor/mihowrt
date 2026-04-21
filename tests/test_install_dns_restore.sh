@@ -31,6 +31,8 @@ log() {
 	:
 }
 
+TEST_FAIL_UCI_CMD=""
+
 uci() {
 	if [[ "${1:-}" == "-q" && "${2:-}" == "get" ]]; then
 		case "${3:-}" in
@@ -62,12 +64,18 @@ uci() {
 	case "${1:-}" in
 		add_list)
 			printf 'add_list %s\n' "${2:-}" >>"$UCI_LOG"
+			[[ -n "$TEST_FAIL_UCI_CMD" && "add_list ${2:-}" == "$TEST_FAIL_UCI_CMD" ]] && return 1
 			;;
 		set)
 			printf 'set %s\n' "${2:-}" >>"$UCI_LOG"
+			[[ -n "$TEST_FAIL_UCI_CMD" && "set ${2:-}" == "$TEST_FAIL_UCI_CMD" ]] && return 1
 			;;
 		commit)
 			printf 'commit %s\n' "${2:-}" >>"$UCI_LOG"
+			[[ -n "$TEST_FAIL_UCI_CMD" && "commit ${2:-}" == "$TEST_FAIL_UCI_CMD" ]] && return 1
+			;;
+		revert)
+			printf 'revert %s\n' "${2:-}" >>"$UCI_LOG"
 			;;
 		*)
 			return 1
@@ -83,6 +91,7 @@ restart_dnsmasq() {
 
 cat > "$backup_file" <<'EOF'
 DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=1
 ORIG_RESOLVFILE=/tmp/original.resolv
@@ -113,6 +122,19 @@ restore_dns_from_backup_file "$backup_file"
 [[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should skip no-op dhcp writes when state already matches backup"
 [[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should skip dnsmasq restart when state already matches backup"
 
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="add_list dhcp.@dnsmasq[0].server=1.1.1.1"
+assert_false "restore_dns_from_backup_file should fail when restoring dnsmasq server list fails" restore_dns_from_backup_file "$backup_file"
+assert_file_not_contains "$UCI_LOG" "commit dhcp" "restore_dns_from_backup_file should not commit partial restore after mutator failure"
+assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_from_backup_file should revert staged dhcp changes after restore failure"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq after mutator failure"
+TEST_FAIL_UCI_CMD=""
+
 rm -f "$backup_file"
 : > "$UCI_LOG"
 : > "$DNS_LOG"
@@ -132,6 +154,7 @@ mkdir -p "$tmpdir/saved-backup"
 BACKUP_DIR="$tmpdir/saved-backup"
 cat > "$BACKUP_DIR/$DNS_BACKUP_NAME" <<'EOF'
 DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=4096
 ORIG_NORESOLV=0
 ORIG_RESOLVFILE=/tmp/saved.resolv
@@ -148,6 +171,16 @@ assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults should re
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="1.1.1.1#54"
+restore_system_dns_defaults 0
+[[ ! -s "$UCI_LOG" ]] || fail "restore_system_dns_defaults should ignore unrelated external DNS target"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_system_dns_defaults should not restart dnsmasq for unrelated external DNS target"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
 TEST_CURRENT_CACHESIZE=""
 TEST_CURRENT_NORESOLV="0"
 TEST_CURRENT_RESOLVFILE="$DNS_AUTO_RESOLVFILE"
@@ -155,6 +188,19 @@ TEST_CURRENT_SERVERS=""
 restore_dns_defaults_fallback
 [[ ! -s "$UCI_LOG" ]] || fail "restore_dns_defaults_fallback should skip no-op dhcp writes when defaults already active"
 [[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should skip dnsmasq restart when defaults already active"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_FAIL_UCI_CMD="set dhcp.@dnsmasq[0].noresolv=0"
+assert_false "restore_dns_defaults_fallback should fail when noresolv restore fails" restore_dns_defaults_fallback
+assert_file_not_contains "$UCI_LOG" "commit dhcp" "restore_dns_defaults_fallback should not commit partial fallback restore"
+assert_file_contains "$UCI_LOG" "revert dhcp" "restore_dns_defaults_fallback should revert staged dhcp changes after failure"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should not restart dnsmasq after fallback failure"
+TEST_FAIL_UCI_CMD=""
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"

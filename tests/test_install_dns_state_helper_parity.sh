@@ -80,4 +80,8 @@ TEST_UCI_SERVERS="127.0.0.1#99999"
 assert_false "runtime dns_current_state_looks_hijacked should reject invalid port" dns_current_state_looks_hijacked
 assert_false "installer dns_current_state_looks_hijacked should reject invalid port" install_dns_current_state_looks_hijacked
 
+TEST_UCI_SERVERS="1.1.1.1#54"
+assert_false "runtime dns_current_state_looks_hijacked should reject unrelated external DNS target" dns_current_state_looks_hijacked
+assert_false "installer dns_current_state_looks_hijacked should reject unrelated external DNS target" install_dns_current_state_looks_hijacked
+
 pass "installer dns-state helper parity"

@@ -87,6 +87,9 @@ uci() {
 		commit)
 			cmd="commit ${2:-}"
 			;;
+		revert)
+			cmd="revert ${2:-}"
+			;;
 		*)
 			return 1
 			;;
@@ -100,6 +103,7 @@ uci() {
 
 cat > "$backup_file" <<'EOF'
 DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=1
 ORIG_RESOLVFILE=/tmp/original.resolv
@@ -166,6 +170,7 @@ TEST_CURRENT_SERVERS="127.0.0.1#7874"
 TEST_FAIL_UCI_CMD="add_list dhcp.@dnsmasq[0].server=1.1.1.1"
 assert_false "dns_restore should fail when restoring dnsmasq server list fails" dns_restore
 assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore should not commit partial restore after mutator failure"
+assert_file_contains "$uci_log" "revert dhcp" "dns_restore should revert staged dhcp changes after restore failure"
 [[ ! -s "$dns_log" ]] || fail "dns_restore should not restart dnsmasq after mutator failure"
 assert_file_not_contains "$event_log" "log:dnsmasq settings restored" "dns_restore should not report success after mutator failure"
 [[ -e "$runtime_backup_file" ]] || fail "dns_restore should keep runtime backup after restore failure"
@@ -201,6 +206,7 @@ TEST_CURRENT_SERVERS="127.0.0.1#7874"
 TEST_FAIL_UCI_CMD="set dhcp.@dnsmasq[0].noresolv=0"
 assert_false "dns_restore_fallback should fail when restoring noresolv fails" dns_restore_fallback
 assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore_fallback should not commit partial fallback restore"
+assert_file_contains "$uci_log" "revert dhcp" "dns_restore_fallback should revert staged dhcp changes after failure"
 [[ ! -s "$dns_log" ]] || fail "dns_restore_fallback should not restart dnsmasq after fallback mutator failure"
 assert_file_not_contains "$event_log" "log:dnsmasq fallback state already active" "dns_restore_fallback should not claim no-op success on write failure"
 [[ -e "$runtime_backup_file" ]] || fail "dns_restore_fallback should keep runtime backup after failure"
@@ -217,5 +223,25 @@ dns_restore_fallback
 [[ ! -s "$uci_log" ]] || fail "dns_restore_fallback should skip no-op dhcp writes when fallback state is already active"
 [[ ! -s "$dns_log" ]] || fail "dns_restore_fallback should skip dnsmasq restart when fallback state is already active"
 [[ ! -e "$runtime_backup_file" ]] || fail "dns_restore_fallback should remove runtime backup marker after no-op fallback"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+EOF
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="1.1.1.1#54"
+dns_restore
+[[ ! -s "$uci_log" ]] || fail "dns_restore should ignore cached backup when dnsmasq points to unrelated external DNS target"
+[[ ! -s "$dns_log" ]] || fail "dns_restore should not restart dnsmasq for unrelated external DNS target"
+assert_file_contains "$event_log" "log:No dnsmasq recovery backup found, skipping restore" "dns_restore should skip unrelated external DNS target without fallback"
 
 pass "runtime DNS no-op paths"

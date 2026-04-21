@@ -37,6 +37,7 @@ export PKG_PERSIST_DIR="$tmpdir/etc/mihowrt"
 export PKG_STATE_DIR="$tmpdir/run"
 export DNS_BACKUP_FILE="$PKG_PERSIST_DIR/dns.backup"
 export DNS_RUNTIME_BACKUP_FILE="$PKG_STATE_DIR/dns.backup"
+export MIHOMO_DNS_LISTEN="0.0.0.0#7874"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns-state.sh"
@@ -49,6 +50,7 @@ dns_backup_state
 [[ -f "$DNS_BACKUP_FILE" ]] || fail "dns backup file missing"
 [[ -f "$DNS_RUNTIME_BACKUP_FILE" ]] || fail "runtime dns backup file missing"
 assert_file_contains "$DNS_BACKUP_FILE" "DNSMASQ_BACKUP=1" "backup marker missing"
+assert_file_contains "$DNS_BACKUP_FILE" "MIHOMO_DNS_TARGET=127.0.0.1#7874" "Mihomo DNS target metadata missing"
 assert_file_contains "$DNS_BACKUP_FILE" "ORIG_SERVER=1.1.1.1" "first DNS server missing"
 assert_file_contains "$DNS_BACKUP_FILE" "ORIG_SERVER=9.9.9.9" "second DNS server missing"
 assert_true "dns backup should validate" dns_backup_valid

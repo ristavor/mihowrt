@@ -388,6 +388,41 @@ restart_dnsmasq() {
 	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
 }
 
+dns_flatten_lines() {
+	local line out="" sep="" tab=""
+
+	tab="$(printf '\t')"
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		out="${out}${sep}${line}"
+		sep="$tab"
+	done
+
+	printf '%s' "$out"
+}
+
+dns_current_servers_flat() {
+	uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
+}
+
+dnsmasq_state_matches() {
+	local expected_cachesize="$1"
+	local expected_noresolv="$2"
+	local expected_resolvfile="$3"
+	local expected_servers="$4"
+	local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
+
+	current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
+	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
+	current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+	current_servers="$(dns_current_servers_flat)"
+
+	[ "$current_cachesize" = "$expected_cachesize" ] || return 1
+	[ "$current_noresolv" = "$expected_noresolv" ] || return 1
+	[ "$current_resolvfile" = "$expected_resolvfile" ] || return 1
+	[ "$current_servers" = "$expected_servers" ]
+}
+
 route_state_read() {
 	local line key value
 
@@ -424,14 +459,14 @@ cleanup_runtime_fallback() {
 
 restore_dns_from_backup_file() {
 	local backup_path="$1"
-	local line orig_cachesize="" orig_noresolv="" orig_resolvfile="" server has_servers=0
+	local line orig_cachesize="" orig_noresolv="" orig_resolvfile="" target_noresolv="" target_resolvfile=""
+	local server has_servers=0 expected_servers="" server_sep="" tab=""
 
 	[ -f "$backup_path" ] || return 1
 	have_command uci || return 1
 	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
 
-	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
-	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
+	tab="$(printf '\t')"
 
 	while IFS= read -r line; do
 		case "$line" in
@@ -447,8 +482,33 @@ restore_dns_from_backup_file() {
 			ORIG_SERVER=*)
 				server="${line#ORIG_SERVER=}"
 				if [ -n "$server" ]; then
-					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || return 1
+					expected_servers="${expected_servers}${server_sep}${server}"
+					server_sep="$tab"
 					has_servers=1
+				fi
+				;;
+		esac
+	done < "$backup_path"
+
+	target_noresolv="$orig_noresolv"
+	target_resolvfile="$orig_resolvfile"
+	if [ -z "$target_resolvfile" ] && [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
+		target_resolvfile="$DNS_AUTO_RESOLVFILE"
+		[ "$orig_noresolv" = "1" ] || target_noresolv='0'
+	fi
+
+	if dnsmasq_state_matches "$orig_cachesize" "$target_noresolv" "$target_resolvfile" "$expected_servers"; then
+		return 0
+	fi
+
+	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
+	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
+	while IFS= read -r line; do
+		case "$line" in
+			ORIG_SERVER=*)
+				server="${line#ORIG_SERVER=}"
+				if [ -n "$server" ]; then
+					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || return 1
 				fi
 				;;
 		esac
@@ -479,15 +539,25 @@ restore_dns_from_backup_file() {
 }
 
 restore_dns_defaults_fallback() {
+	local resolvfile=""
+
 	have_command uci || return 1
+
+	if [ -f "$DNS_AUTO_RESOLVFILE" ]; then
+		resolvfile="$DNS_AUTO_RESOLVFILE"
+	fi
+
+	if dnsmasq_state_matches "" "0" "$resolvfile" ""; then
+		return 0
+	fi
 
 	uci -q delete dhcp.@dnsmasq[0].server >/dev/null 2>&1 || true
 	uci -q delete dhcp.@dnsmasq[0].resolvfile >/dev/null 2>&1 || true
 	uci -q delete dhcp.@dnsmasq[0].cachesize >/dev/null 2>&1 || true
 	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || return 1
 
-	if [ -f "$DNS_AUTO_RESOLVFILE" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || return 1
+	if [ -n "$resolvfile" ]; then
+		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" >/dev/null 2>&1 || return 1
 	fi
 
 	uci commit dhcp >/dev/null 2>&1 || return 1

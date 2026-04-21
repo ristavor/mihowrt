@@ -34,8 +34,20 @@ log() {
 uci() {
 	if [[ "${1:-}" == "-q" && "${2:-}" == "get" ]]; then
 		case "${3:-}" in
+			'dhcp.@dnsmasq[0].cachesize')
+				printf '%s\n' "${TEST_CURRENT_CACHESIZE:-}"
+				return 0
+				;;
 			'dhcp.@dnsmasq[0].noresolv')
-				printf '%s\n' "${TEST_UCI_NORESOLV:-0}"
+				printf '%s\n' "${TEST_CURRENT_NORESOLV:-${TEST_UCI_NORESOLV:-0}}"
+				return 0
+				;;
+			'dhcp.@dnsmasq[0].resolvfile')
+				printf '%s\n' "${TEST_CURRENT_RESOLVFILE:-}"
+				return 0
+				;;
+			'dhcp.@dnsmasq[0].server')
+				printf '%s\n' "${TEST_CURRENT_SERVERS:-}"
 				return 0
 				;;
 		esac
@@ -91,10 +103,22 @@ assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=/tmp/original.r
 assert_file_contains "$UCI_LOG" "commit dhcp" "restore_dns_from_backup_file should commit dhcp config"
 assert_file_contains "$DNS_LOG" "restart" "restore_dns_from_backup_file should restart dnsmasq"
 
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="1000"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE="/tmp/original.resolv"
+TEST_CURRENT_SERVERS=$'1.1.1.1\n9.9.9.9'
+restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should skip no-op dhcp writes when state already matches backup"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should skip dnsmasq restart when state already matches backup"
+
 rm -f "$backup_file"
 : > "$UCI_LOG"
 : > "$DNS_LOG"
 TEST_UCI_NORESOLV="1"
+unset TEST_CURRENT_CACHESIZE TEST_CURRENT_RESOLVFILE TEST_CURRENT_SERVERS
+TEST_CURRENT_NORESOLV="1"
 restore_system_dns_defaults 1
 assert_file_contains "$UCI_LOG" "delete dhcp.@dnsmasq[0].server" "restore_system_dns_defaults fallback should clear servers"
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].noresolv=0" "restore_system_dns_defaults fallback should disable noresolv"
@@ -120,7 +144,19 @@ assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults should re
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE=""
+TEST_CURRENT_NORESOLV="0"
+TEST_CURRENT_RESOLVFILE="$DNS_AUTO_RESOLVFILE"
+TEST_CURRENT_SERVERS=""
+restore_dns_defaults_fallback
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_defaults_fallback should skip no-op dhcp writes when defaults already active"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should skip dnsmasq restart when defaults already active"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
 TEST_UCI_NORESOLV="1"
+unset TEST_CURRENT_CACHESIZE TEST_CURRENT_RESOLVFILE TEST_CURRENT_SERVERS
+TEST_CURRENT_NORESOLV="1"
 BACKUP_DIR=""
 restore_system_dns_defaults 0
 [[ ! -s "$UCI_LOG" ]] || fail "restore_system_dns_defaults should not touch dhcp config without allow_fallback"

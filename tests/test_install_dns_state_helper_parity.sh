@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source "$(dirname "$0")/testlib.sh"
+
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns-state.sh"
+
+extract_install_dns_helper() {
+	local function_name="$1"
+	sed -n "/^[[:space:]]${function_name}() {$/,/^[[:space:]]}$/p" "$ROOT_DIR/install.sh" |
+		sed \
+			-e "1s/^[[:space:]]${function_name}()/install_${function_name}()/" \
+			-e 's/\<dns_flatten_lines\>/install_dns_flatten_lines/g' \
+			-e 's/\<dns_current_servers_flat\>/install_dns_current_servers_flat/g' \
+			-e 's/\<dnsmasq_state_matches\>/install_dnsmasq_state_matches/g' \
+			-e 's/^[[:space:]]//'
+}
+
+eval "$(extract_install_dns_helper dns_flatten_lines)"
+eval "$(extract_install_dns_helper dns_current_servers_flat)"
+eval "$(extract_install_dns_helper dnsmasq_state_matches)"
+
+uci() {
+	case "${1:-} ${2:-} ${3:-}" in
+		"-q get dhcp.@dnsmasq[0].cachesize")
+			printf '%s\n' "${TEST_UCI_CACHESIZE:-}"
+			;;
+		"-q get dhcp.@dnsmasq[0].noresolv")
+			printf '%s\n' "${TEST_UCI_NORESOLV:-}"
+			;;
+		"-q get dhcp.@dnsmasq[0].resolvfile")
+			printf '%s\n' "${TEST_UCI_RESOLVFILE:-}"
+			;;
+		"-q get dhcp.@dnsmasq[0].server")
+			printf '%b' "${TEST_UCI_SERVERS:-}"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
+assert_eq "$(printf '1.1.1.1\n2.2.2.2\n' | dns_flatten_lines)" "$(printf '1.1.1.1\n2.2.2.2\n' | install_dns_flatten_lines)" "dns_flatten_lines should stay in sync with installer fallback"
+
+TEST_UCI_CACHESIZE="0"
+TEST_UCI_NORESOLV="1"
+TEST_UCI_RESOLVFILE=""
+TEST_UCI_SERVERS=$'127.0.0.1#7874\n9.9.9.9#53\n'
+
+assert_eq "$(dns_current_servers_flat)" "$(install_dns_current_servers_flat)" "dns_current_servers_flat should stay in sync with installer fallback"
+assert_true "runtime dnsmasq_state_matches should match expected values" dnsmasq_state_matches "0" "1" "" $'127.0.0.1#7874\t9.9.9.9#53'
+assert_true "installer dnsmasq_state_matches should match expected values" install_dnsmasq_state_matches "0" "1" "" $'127.0.0.1#7874\t9.9.9.9#53'
+assert_false "runtime dnsmasq_state_matches should reject drift" dnsmasq_state_matches "0" "0" "" $'127.0.0.1#7874\t9.9.9.9#53'
+assert_false "installer dnsmasq_state_matches should reject drift" install_dnsmasq_state_matches "0" "0" "" $'127.0.0.1#7874\t9.9.9.9#53'
+
+pass "installer dns-state helper parity"

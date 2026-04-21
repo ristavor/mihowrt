@@ -667,15 +667,26 @@ load_status_desired_state_json() {
 }
 
 load_status_runtime_state_json() {
-	local service_enabled=0 service_running=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
+	local config_json="${1:-}"
+	local service_enabled=0 service_running=0 service_ready=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
 	local runtime_snapshot_present=0 runtime_live_present=0 active_json=""
+	local dns_port="" tproxy_port=""
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
 	dns_backup_exists && dns_backup_exists_flag=1 || dns_backup_exists_flag=0
 	dns_backup_valid && dns_backup_valid_flag=1 || dns_backup_valid_flag=0
 	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
+
+	if [ -n "$config_json" ]; then
+		dns_port="$(printf '%s\n' "$config_json" | jq -r '.dns_port // ""' 2>/dev/null || true)"
+		tproxy_port="$(printf '%s\n' "$config_json" | jq -r '.tproxy_port // ""' 2>/dev/null || true)"
+	fi
+
+	if [ "$service_running" = "1" ] && mihomo_ready_state "$dns_port" "$tproxy_port"; then
+		service_ready=1
+	fi
 
 	if policy_route_state_read; then
 		route_state_present=1
@@ -694,6 +705,7 @@ load_status_runtime_state_json() {
 		--argjson active "$active_json" \
 		--arg service_enabled "$service_enabled" \
 		--arg service_running "$service_running" \
+		--arg service_ready "$service_ready" \
 		--arg dns_backup_exists "$dns_backup_exists_flag" \
 		--arg dns_backup_valid "$dns_backup_valid_flag" \
 		--arg route_state_present "$route_state_present" \
@@ -704,6 +716,7 @@ load_status_runtime_state_json() {
 		'{
 			service_enabled: ($service_enabled == "1"),
 			service_running: ($service_running == "1"),
+			service_ready: ($service_ready == "1"),
 			dns_backup_exists: ($dns_backup_exists == "1"),
 			dns_backup_valid: ($dns_backup_valid == "1"),
 			route_state_present: ($route_state_present == "1"),
@@ -773,6 +786,7 @@ emit_status_json() {
 		'{
 			service_enabled: $runtime.service_enabled,
 			service_running: $runtime.service_running,
+			service_ready: $runtime.service_ready,
 			dns_backup_exists: $runtime.dns_backup_exists,
 			dns_backup_valid: $runtime.dns_backup_valid,
 			route_state_present: $runtime.route_state_present,
@@ -802,7 +816,7 @@ status_json() {
 	require_command jq || return 1
 	config_json="$(load_status_config_json)" || return 1
 	desired_json="$(load_status_desired_state_json)" || return 1
-	runtime_json="$(load_status_runtime_state_json)" || return 1
+	runtime_json="$(load_status_runtime_state_json "$config_json")" || return 1
 	comparison_json="$(compare_status_runtime_state_json "$config_json" "$desired_json" "$runtime_json")" || return 1
 	emit_status_json "$config_json" "$desired_json" "$runtime_json" "$comparison_json"
 }
@@ -813,9 +827,10 @@ status_runtime_state() {
 	require_command jq || return 1
 	status_json_output="$(status_json)" || return 1
 
-	printf '%s\n' "$status_json_output" | jq -r '
-		"enabled=\(if .enabled then 1 else 0 end)",
-		"mihomo_dns_port=\(.config.dns_port // "")",
+		printf '%s\n' "$status_json_output" | jq -r '
+			"enabled=\(if .enabled then 1 else 0 end)",
+			"service_ready=\(if .service_ready then 1 else 0 end)",
+			"mihomo_dns_port=\(.config.dns_port // "")",
 		"mihomo_dns_listen=\(.config.mihomo_dns_listen // "")",
 		"dns_hijack=\(if .dns_hijack then 1 else 0 end)",
 		"mihomo_tproxy_port=\(.config.tproxy_port // "")",

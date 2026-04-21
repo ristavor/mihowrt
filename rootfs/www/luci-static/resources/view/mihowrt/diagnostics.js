@@ -56,7 +56,10 @@ function renderLogLines(logs) {
 	}, logs.lines.join('\n'));
 }
 
-function renderAppliedPolicyBadge(active) {
+function renderAppliedPolicyBadge(status, active) {
+	if (status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
+		return badge(_('Applied Runtime Untracked'), false);
+
 	if (!active.present)
 		return badge(_('Applied Runtime Not Active'), false);
 
@@ -122,27 +125,32 @@ return view.extend({
 				E('div', {
 					style: 'display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;'
 				}, [
-					badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
-					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
-					renderAppliedPolicyBadge(active),
-					badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
+						badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
+						badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
+						badge(status.serviceReady ? _('Service Ready') : _('Service Not Ready'), status.serviceReady),
+						renderAppliedPolicyBadge(status, active),
+						badge(status.dnsBackupValid ? _('DNS Backup Valid') : _('DNS Backup Invalid/Missing'), status.dnsBackupValid),
 					badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
 					badge(
-						active.present
+						(status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
+							? _('Runtime State Untracked')
+							: (active.present
 							? (status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'))
-							: _('Runtime Not Active'),
+							: _('Runtime Not Active')),
 						active.present && status.runtimeMatchesDesired
 					)
 				]),
-				(status.errors && status.errors.length)
-					? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
-					: (!active.present
-						? E('div', { style: 'color:#666;' }, _('No applied runtime state is active right now.'))
-					: (!status.runtimeMatchesDesired
-						? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk.'))
-						: (!status.runtimeSafeReloadReady
-							? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
-							: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.')))))
+					(status.errors && status.errors.length)
+						? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
+						: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
+							? E('div', { style: 'color:#b94a48;' }, _('Live runtime state exists, but runtime snapshot is missing. Diagnostics are partial and safe reload stays blocked.'))
+						: (!active.present
+							? E('div', { style: 'color:#666;' }, _('No applied runtime snapshot is active right now.'))
+						: (!status.runtimeMatchesDesired
+							? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk.'))
+							: (!status.runtimeSafeReloadReady
+								? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
+								: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))))))
 			]);
 
 			setChildren(runtimeNode, [
@@ -157,9 +165,10 @@ return view.extend({
 					renderField(_('Applied Disable QUIC'), renderAppliedBoolean(active.disableQuic)),
 					renderField(_('Applied Source Interfaces'), renderAppliedList(active.sourceNetworkInterfaces)),
 					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
-					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
-					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
-					renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
+						renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
+						renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
+						renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
+						renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
 					renderField(_('DNS Backup Exists'), status.dnsBackupExists ? _('yes') : _('no')),
 					renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
 				])

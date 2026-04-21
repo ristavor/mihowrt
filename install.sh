@@ -492,6 +492,8 @@ ensure_dns_state_helpers() {
 		command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
 	fi
 
+	# Standalone installer fallback. Keep behavior in sync with
+	# rootfs/usr/lib/mihowrt/dns-state.sh.
 	dns_flatten_lines() {
 		local line out="" sep="" tab=""
 

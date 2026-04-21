@@ -65,4 +65,29 @@ assert_true "service_running_state should fall back to pgrep when pid file is mi
 export TEST_PGREP_RC=1
 assert_false "service_running_state should fail when neither pid nor pgrep match exists" service_running_state
 
+service_running_state() {
+	return "${TEST_SERVICE_RUNNING_RC:-0}"
+}
+
+port_listening_udp() {
+	[[ "$1" == "${TEST_DNS_PORT_READY:-}" ]]
+}
+
+port_listening_tcp() {
+	[[ "$1" == "${TEST_TPROXY_PORT_TCP_READY:-}" ]]
+}
+
+TEST_DNS_PORT_READY="7874"
+TEST_TPROXY_PORT_TCP_READY="7894"
+assert_true "mihomo_ready_state should accept ready UDP+TCP listeners" mihomo_ready_state "7874" "7894"
+TEST_TPROXY_PORT_TCP_READY=""
+port_listening_udp() {
+	[[ "$1" == "7874" || "$1" == "7894" ]]
+}
+assert_true "mihomo_ready_state should accept ready UDP+UDP listeners" mihomo_ready_state "7874" "7894"
+TEST_SERVICE_RUNNING_RC=1
+assert_false "mihomo_ready_state should fail when service is not running" mihomo_ready_state "7874" "7894"
+TEST_SERVICE_RUNNING_RC=0
+assert_false "mihomo_ready_state should reject invalid ports" mihomo_ready_state "bad" "7894"
+
 pass "helpers version and arch checks"

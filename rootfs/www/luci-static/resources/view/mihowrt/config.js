@@ -9,6 +9,8 @@ const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 const CLASH_CONFIG = '/opt/clash/config.yaml';
 const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
+const SERVICE_STATE_POLL_INTERVAL_MS = 500;
+const SERVICE_STATE_TIMEOUT_MS = 35000;
 
 let startStopButton = null;
 let enableDisableButton = null;
@@ -20,6 +22,11 @@ let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
 let savedConfigContent = '';
+let lastServiceState = {
+	running: false,
+	enabled: false,
+	ready: false
+};
 
 function controlsBusy() {
 	return serviceActionInFlight || saveInFlight;
@@ -104,14 +111,33 @@ async function setServiceEnabled(enabled) {
 		: _('Unable to disable service at boot: %s'));
 }
 
-async function pollStatus(targetStatus, timeout = 5000) {
+function serviceStateErrorDetail(status) {
+	const errors = Array.isArray(status?.errors) ? status.errors.map(String).filter(Boolean) : [];
+	return errors.join('; ') || _('unknown error');
+}
+
+async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 	const startTime = Date.now();
+	let lastError = null;
+
 	while (Date.now() - startTime < timeout) {
-		if (await mihowrtUi.getServiceStatus(SERVICE_NAME) === targetStatus)
-			return true;
-		await new Promise(resolve => setTimeout(resolve, 500));
+		try {
+			const state = await readServiceState();
+			lastError = null;
+			if (predicate(state))
+				return state;
+		}
+		catch (e) {
+			lastError = e;
+		}
+
+		await new Promise(resolve => setTimeout(resolve, SERVICE_STATE_POLL_INTERVAL_MS));
 	}
-	return false;
+
+	if (lastError)
+		throw lastError;
+
+	return null;
 }
 
 function serviceToggleLabel(running) {
@@ -157,23 +183,52 @@ function applyServiceState(running, enabled) {
 
 async function readServiceState() {
 	const status = await backendHelper.readStatus();
-	return {
+
+	if (!status.available)
+		throw new Error(serviceStateErrorDetail(status));
+
+	lastServiceState = {
 		running: !!status.serviceRunning,
-		enabled: !!status.serviceEnabled
+		enabled: !!status.serviceEnabled,
+		ready: !!status.serviceReady
+	};
+
+	return {
+		running: lastServiceState.running,
+		enabled: lastServiceState.enabled,
+		ready: lastServiceState.ready
 	};
 }
 
-async function refreshServiceState() {
-	const state = await readServiceState();
-	applyServiceState(state.running, state.enabled);
-	return state;
+async function refreshServiceState(notifyOnError = true) {
+	try {
+		const state = await readServiceState();
+		applyServiceState(state.running, state.enabled);
+		return state;
+	}
+	catch (e) {
+		applyServiceState(lastServiceState.running, lastServiceState.enabled);
+		if (notifyOnError)
+			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		return lastServiceState;
+	}
 }
 
 async function toggleService() {
+	let state = null;
+
 	if (controlsBusy())
 		return;
 
-	const state = await readServiceState();
+	try {
+		state = await readServiceState();
+	}
+	catch (e) {
+		await refreshServiceState(false);
+		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		return;
+	}
+
 	const targetStatus = !state.running;
 
 	if (state.running) {
@@ -185,22 +240,42 @@ async function toggleService() {
 			return;
 	}
 
-	if (!(await pollStatus(targetStatus))) {
-		await refreshServiceState();
+	let settledState = null;
+	try {
+		settledState = await pollServiceState(state => targetStatus ? state.ready : !state.running);
+	}
+	catch (e) {
+		await refreshServiceState(false);
+		mihowrtUi.notify(_('Unable to confirm service state: %s').format(e.message), 'warning');
+		return;
+	}
+
+	if (!settledState) {
+		await refreshServiceState(false);
 		mihowrtUi.notify(targetStatus
 			? _('Service start timed out. Check diagnostics and system log.')
 			: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
 		return;
 	}
 
-	await refreshServiceState();
+	applyServiceState(settledState.running, settledState.enabled);
 }
 
 async function toggleServiceEnabled() {
+	let state = null;
+
 	if (controlsBusy())
 		return;
 
-	const state = await readServiceState();
+	try {
+		state = await readServiceState();
+	}
+	catch (e) {
+		await refreshServiceState(false);
+		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		return;
+	}
+
 	if (!(await setServiceEnabled(!state.enabled)))
 		return;
 
@@ -334,7 +409,13 @@ return view.extend({
 	},
 
 	render: async function(config) {
-		const serviceState = await readServiceState();
+		let serviceState = lastServiceState;
+		try {
+			serviceState = await readServiceState();
+		}
+		catch (e) {
+			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		}
 		savedConfigContent = editorContentForSave(config);
 		const editorNode = E('div', {
 			id: 'editor',
@@ -377,14 +458,24 @@ return view.extend({
 					return;
 				}
 				if (restartState.restarted) {
-					const restartSettled = await pollStatus(true);
-					const runningAfterRestart = await refreshServiceState();
+					let restartSettled = null;
 
-					if (!restartSettled && !runningAfterRestart.running) {
+					try {
+						restartSettled = await pollServiceState(state => state.ready);
+					}
+					catch (e) {
+						await refreshServiceState(false);
+						mihowrtUi.notify(_('Unable to confirm service restart: %s').format(e.message), 'warning');
+						return;
+					}
+
+					if (!restartSettled) {
+						await refreshServiceState(false);
 						mihowrtUi.notify(_('Service restart is still in progress. Check diagnostics if it does not recover soon.'), 'warning');
 						return;
 					}
 
+					applyServiceState(restartSettled.running, restartSettled.enabled);
 					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
 				}
 				else {

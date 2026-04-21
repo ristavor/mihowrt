@@ -189,6 +189,17 @@ service_running_state() {
 	process_running_state "$pid_file" "$run_pattern"
 }
 
+mihomo_ready_state() {
+	local dns_port="$1"
+	local tproxy_port="$2"
+
+	service_running_state || return 1
+	is_valid_port "$dns_port" || return 1
+	is_valid_port "$tproxy_port" || return 1
+
+	port_listening_udp "$dns_port" && { port_listening_tcp "$tproxy_port" || port_listening_udp "$tproxy_port"; }
+}
+
 yaml_cleanup_scalar() {
 	local value="$1"
 

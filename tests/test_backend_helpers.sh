@@ -27,6 +27,10 @@ vm.runInContext(`${emptyConfigFnSource}\n${emptyStatusFnSource}\nglobalThis.empt
 
 const state = context.emptyStatusState();
 
+if (state.available !== false)
+	throw new Error('emptyStatusState should default available to false');
+if (state.serviceReady !== false)
+	throw new Error('emptyStatusState should default serviceReady to false');
 if (state.runtimeSafeReloadReady !== false)
 	throw new Error('emptyStatusState should default runtimeSafeReloadReady to false');
 if (state.runtimeMatchesDesired !== false)

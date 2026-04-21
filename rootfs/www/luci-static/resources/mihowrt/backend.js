@@ -25,10 +25,12 @@ function emptyConfigState() {
 
 function emptyStatusState() {
 	return {
+		available: false,
 		serviceEnabled: false,
 		serviceRunning: false,
-		dnsBackupExists: false,
-		dnsBackupValid: false,
+		serviceReady: false,
+			dnsBackupExists: false,
+			dnsBackupValid: false,
 		routeStatePresent: false,
 		routeTableIdEffective: '',
 		routeRulePriorityEffective: '',
@@ -144,10 +146,12 @@ return baseclass.extend({
 				return state;
 			}
 
-			const payload = JSON.parse(result.stdout || '{}');
-			state.serviceEnabled = !!payload.service_enabled;
-			state.serviceRunning = !!payload.service_running;
-			state.dnsBackupExists = !!payload.dns_backup_exists;
+				const payload = JSON.parse(result.stdout || '{}');
+				state.available = true;
+				state.serviceEnabled = !!payload.service_enabled;
+				state.serviceRunning = !!payload.service_running;
+				state.serviceReady = !!payload.service_ready;
+				state.dnsBackupExists = !!payload.dns_backup_exists;
 			state.dnsBackupValid = !!payload.dns_backup_valid;
 			state.routeStatePresent = !!payload.route_state_present;
 			state.routeTableIdEffective = String(payload.route_table_id_effective || '');

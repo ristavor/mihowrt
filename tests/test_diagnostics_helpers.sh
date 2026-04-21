@@ -79,6 +79,12 @@ service_running_state() {
 	return 0
 }
 
+mihomo_ready_state() {
+	[ -n "${1:-}" ] || return 1
+	[ -n "${2:-}" ] || return 1
+	return "${TEST_SERVICE_READY_RC:-0}"
+}
+
 dns_backup_exists() {
 	return 0
 }
@@ -111,9 +117,11 @@ EOF
 
 TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_SERVICE_READY_RC=0
 status_output="$(status_json)"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_running')" "status_json should expose running service state"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_enabled')" "status_json should expose boot-enabled state"
+assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_ready')" "status_json should expose service readiness"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.dns_backup_valid')" "status_json should expose dns backup validity"
 assert_eq "auto" "$(printf '%s\n' "$status_output" | jq -r '.route_table_id')" "status_json should map empty route table to auto"
 assert_eq "10010" "$(printf '%s\n' "$status_output" | jq -r '.route_rule_priority')" "status_json should expose configured route rule priority"
@@ -147,6 +155,7 @@ runtime_snapshot_status_json() {
 
 TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_SERVICE_READY_RC=0
 status_output_no_snapshot="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should report missing runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_safe_reload_ready')" "status_json should block safe reload when live state lacks snapshot"
@@ -155,11 +164,13 @@ assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.active
 
 TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
+TEST_SERVICE_READY_RC=0
 status_output_no_runtime="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when policy should be enabled but runtime is clean"
 
 TEST_ENABLED_SETTING=0
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
+TEST_SERVICE_READY_RC=0
 status_output_disabled_clean="$(status_json)"
 assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should treat disabled policy and clean runtime as matching"
 
@@ -170,8 +181,10 @@ EOF
 }
 
 TEST_ENABLED_SETTING=1
+TEST_SERVICE_READY_RC=0
 status_runtime_output_drift="$(status_runtime_state)"
 assert_eq "0" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report drift when applied snapshot differs from desired config"
+assert_eq "1" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^service_ready=//p')" "status_runtime_state should expose service readiness"
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
@@ -180,6 +193,7 @@ EOF
 }
 
 TEST_ENABLED_SETTING=0
+TEST_SERVICE_READY_RC=0
 status_output_disabled_with_active="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_disabled_with_active" | jq -r '.runtime_matches_desired')" "status_json should report drift when disabled policy still has active runtime snapshot"
 
@@ -195,6 +209,7 @@ status_output_no_uci="$(status_json)"
 assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_table_id')" "status_json should not pretend route table config exists when UCI load fails"
 assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_rule_priority')" "status_json should not pretend route rule config exists when UCI load fails"
 assert_eq "0" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.source_network_interfaces | length')" "status_json should not invent source interfaces when UCI load fails"
+assert_eq "true" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.service_ready')" "status_json should still expose readiness when Mihomo listeners are healthy"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.runtime_matches_desired')" "status_json should not claim desired/runtime parity when UCI load fails"
 assert_eq "true" "$(printf '%s\n' "$status_output_no_uci" | jq -r 'any(.errors[]; contains("Failed to read /etc/config/mihowrt"))')" "status_json should surface UCI load failure"
 

@@ -109,6 +109,10 @@ restore_user_state() {
 	return 0
 }
 
+preserve_backup_dir() {
+	printf 'preserve_backup_dir\n' >>"$event_log"
+}
+
 wait_for_service_stop() {
 	printf 'wait_for_service_stop\n' >>"$event_log"
 	return 0
@@ -196,6 +200,16 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "handle_instal
 assert_file_contains "$event_log" "restore_user_state" "handle_install_failure should restore saved state on reinstall"
 
 : > "$event_log"
+restore_user_state() {
+	printf 'restore_user_state\n' >>"$event_log"
+	return 1
+}
+assert_false "handle_install_failure should still fail when restore_user_state fails" handle_install_failure 1 "restore broke"
+assert_file_contains "$event_log" "restore_user_state" "handle_install_failure should try restoring saved state on reinstall"
+assert_file_contains "$event_log" "preserve_backup_dir" "handle_install_failure should preserve backup dir when restore fails"
+assert_file_contains "$event_log" "err:failed to restore saved config and policy files" "handle_install_failure should report restore failure"
+
+: > "$event_log"
 : > "$init_log"
 TEST_INIT_START_RC=0
 start_fresh_install_service
@@ -267,6 +281,10 @@ restore_user_state() {
 	return 0
 }
 
+preserve_backup_dir() {
+	printf 'preserve_backup_dir\n' >>"$event_log"
+}
+
 restore_runtime_state() {
 	printf 'restore_runtime_state\n' >>"$event_log"
 	return 0
@@ -297,6 +315,23 @@ assert_file_contains "$event_log" "restore_runtime_state" "perform_package_actio
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after reinstall"
 assert_file_not_contains "$event_log" "start_fresh_install_service" "perform_package_action should not use fresh-install branch for reinstall"
 
+prepare_update() {
+	printf 'prepare_update\n' >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+assert_false "perform_package_action should fail when prepare_update fails" perform_package_action
+assert_file_contains "$event_log" "prepare_update" "perform_package_action should attempt prepare_update on reinstall"
+assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after prepare_update failure"
+assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after prepare_update failure"
+assert_file_not_contains "$event_log" "kernel_install_or_update" "perform_package_action should not continue after prepare_update failure"
+
+prepare_update() {
+	printf 'prepare_update\n' >>"$event_log"
+	return 0
+}
+
 download_file() {
 	printf 'download_file:%s:%s\n' "$1" "$2" >>"$event_log"
 	return 1
@@ -315,6 +350,24 @@ assert_file_not_contains "$event_log" "install_package:1:$tmpdir/downloaded.apk"
 download_file() {
 	printf 'download_file:%s:%s\n' "$1" "$2" >>"$event_log"
 	: > "$2"
+}
+
+restore_user_state() {
+	printf 'restore_user_state\n' >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+assert_false "perform_package_action should fail when restore_user_state fails" perform_package_action
+assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should still quiesce service before restore"
+assert_file_contains "$event_log" "restore_user_state" "perform_package_action should try restoring saved state"
+assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when restore fails"
+assert_file_contains "$event_log" "err:failed to restore saved config and policy state" "perform_package_action should report restore failure"
+assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after restore failure"
+
+restore_user_state() {
+	printf 'restore_user_state\n' >>"$event_log"
+	return 0
 }
 
 verify_required_packages() {

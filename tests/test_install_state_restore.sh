@@ -41,6 +41,22 @@ backup_file_or_mark_missing "$tmpdir/absent.txt" "missing.txt"
 restore_file_or_remove "missing.txt" "$missing_dst"
 assert_false "restore_file_or_remove should preserve deleted user file state" test -e "$missing_dst"
 
+release_reinstall_dependencies() {
+	:
+}
+
+warn() {
+	:
+}
+
+preserved_backup_dir="$tmpdir/preserved-backup"
+mkdir -p "$preserved_backup_dir"
+BACKUP_DIR="$preserved_backup_dir"
+PRESERVE_BACKUP_DIR=0
+preserve_backup_dir
+cleanup
+assert_true "cleanup should keep preserved backup directory" test -d "$preserved_backup_dir"
+
 create_backup_dir() {
 	BACKUP_DIR="$tmpdir/backup-user-state"
 	mkdir -p "$BACKUP_DIR"

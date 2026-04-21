@@ -12,6 +12,7 @@ BACKUP_DIR=""
 WAS_ENABLED=0
 WAS_RUNNING=0
 REINSTALL_HOLD_ACTIVE=0
+PRESERVE_BACKUP_DIR=0
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
@@ -45,7 +46,9 @@ warn() {
 
 cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
-	[ -n "$BACKUP_DIR" ] && rm -rf "$BACKUP_DIR"
+	if [ -n "$BACKUP_DIR" ] && [ "$PRESERVE_BACKUP_DIR" != "1" ]; then
+		rm -rf "$BACKUP_DIR"
+	fi
 	rm -f "$SKIP_START_FILE"
 	release_reinstall_dependencies
 }
@@ -376,6 +379,15 @@ restore_file_or_remove() {
 	restore_file "$name" "$dst"
 }
 
+preserve_backup_dir() {
+	[ -n "$BACKUP_DIR" ] || return 0
+	[ -d "$BACKUP_DIR" ] || return 0
+	[ "$PRESERVE_BACKUP_DIR" = "1" ] && return 0
+
+	PRESERVE_BACKUP_DIR=1
+	warn "preserved backup dir: $BACKUP_DIR"
+}
+
 backup_user_state() {
 	create_backup_dir
 	backup_file_or_mark_missing /opt/clash/config.yaml config.yaml
@@ -672,7 +684,10 @@ restore_system_dns_defaults() {
 }
 
 prepare_update() {
-	backup_user_state
+	backup_user_state || {
+		err "failed to back up current config and policy state"
+		return 1
+	}
 
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
@@ -767,7 +782,10 @@ handle_install_failure() {
 	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after incomplete package install"
 
 	if [ "$reinstall" = "1" ]; then
-		restore_user_state || err "failed to restore saved config and policy files"
+		if ! restore_user_state; then
+			preserve_backup_dir
+			err "failed to restore saved config and policy files"
+		fi
 	fi
 
 	warn "MihoWRT service was disabled because package install is incomplete"
@@ -863,7 +881,11 @@ perform_package_action() {
 	if package_installed; then
 		reinstall=1
 		log "Saving current config and policy state..."
-		prepare_update || return 1
+		if ! prepare_update; then
+			restore_runtime_state || true
+			release_reinstall_dependencies
+			return 1
+		fi
 	fi
 
 	log "Installing/updating Mihomo kernel..."
@@ -902,7 +924,11 @@ perform_package_action() {
 	if [ "$reinstall" = "1" ]; then
 		quiesce_postinstall_service
 		log "Restoring saved config and policy state..."
-		restore_user_state
+		if ! restore_user_state; then
+			preserve_backup_dir
+			err "failed to restore saved config and policy state"
+			return 1
+		fi
 		restore_runtime_state || return 1
 		release_reinstall_dependencies
 		return 0

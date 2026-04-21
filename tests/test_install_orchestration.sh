@@ -14,7 +14,7 @@ orch_log="$tmpdir/orch.log"
 export TEST_INIT_LOG="$init_log"
 export TEST_ORCH_LOG="$orch_log"
 export TEST_INIT_ENABLED_RC=1
-export TEST_INIT_RELOAD_RC=0
+export TEST_INIT_RESTART_RC=0
 export TEST_INIT_START_RC=0
 
 source_install_lib
@@ -29,8 +29,8 @@ case "${1:-}" in
 	enabled)
 		exit "${TEST_INIT_ENABLED_RC:-1}"
 		;;
-	reload)
-		exit "${TEST_INIT_RELOAD_RC:-0}"
+	restart)
+		exit "${TEST_INIT_RESTART_RC:-0}"
 		;;
 	start)
 		exit "${TEST_INIT_START_RC:-0}"
@@ -143,15 +143,15 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "prepare_updat
 : > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=0
-TEST_INIT_RELOAD_RC=0
+TEST_INIT_RESTART_RC=0
 TEST_INIT_START_RC=0
 WAS_ENABLED=1
 WAS_RUNNING=1
 restore_runtime_state
 assert_file_contains "$init_log" "enable" "restore_runtime_state should re-enable service when previously enabled"
-assert_file_contains "$init_log" "reload" "restore_runtime_state should reload running service"
-assert_file_not_contains "$init_log" "start" "restore_runtime_state should not start when reload succeeds"
-assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should not tear down state after successful reload"
+assert_file_contains "$init_log" "restart" "restore_runtime_state should restart running service"
+assert_eq "0" "$(grep -c '^start$' "$init_log" || true)" "restore_runtime_state should not start when restart succeeds"
+assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should not tear down state after successful restart"
 
 : > "$event_log"
 : > "$init_log"
@@ -162,7 +162,7 @@ WAS_RUNNING=1
 restore_runtime_state
 assert_file_contains "$init_log" "disable" "restore_runtime_state should disable service when it was previously disabled"
 assert_file_contains "$init_log" "start" "restore_runtime_state should start stopped service"
-assert_file_not_contains "$init_log" "reload" "restore_runtime_state should skip reload when service is no longer running"
+assert_file_not_contains "$init_log" "restart" "restore_runtime_state should skip restart when service is no longer running"
 
 : > "$event_log"
 : > "$init_log"

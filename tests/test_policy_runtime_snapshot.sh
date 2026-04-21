@@ -70,6 +70,32 @@ assert_eq "wg0" "$(jq -r '.source_network_interfaces[1]' "$snapshot_file")" "run
 assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save should snapshot destination list contents"
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should snapshot source list contents"
 
+TEST_FAIL_MV_DEST=""
+mv() {
+	local dest="${@: -1}"
+
+	if [ -n "$TEST_FAIL_MV_DEST" ] && [ "$dest" = "$TEST_FAIL_MV_DEST" ]; then
+		TEST_FAIL_MV_DEST=""
+		return 1
+	fi
+
+	command mv "$@"
+}
+
+cat > "$DST_LIST_FILE" <<'EOF'
+9.9.9.9
+EOF
+
+cat > "$SRC_LIST_FILE" <<'EOF'
+8.8.8.8
+EOF
+
+TEST_FAIL_MV_DEST="$snapshot_file"
+assert_false "runtime_snapshot_save should fail cleanly when final snapshot move fails" runtime_snapshot_save
+assert_eq "201" "$(jq -r '.route_table_id_effective' "$snapshot_file")" "runtime_snapshot_save should preserve previous snapshot json on failure"
+assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save should preserve previous destination snapshot on failure"
+assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should preserve previous source snapshot on failure"
+
 ENABLED=0
 DNS_HIJACK=0
 MIHOMO_DNS_PORT=""

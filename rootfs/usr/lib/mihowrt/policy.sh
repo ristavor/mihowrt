@@ -61,6 +61,10 @@ runtime_snapshot_clear() {
 	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)"
 }
 
+runtime_snapshot_cleanup_files() {
+	rm -f "$@"
+}
+
 runtime_snapshot_copy_file() {
 	local src="$1"
 	local dst="$2"
@@ -74,9 +78,46 @@ runtime_snapshot_copy_file() {
 	return 0
 }
 
+runtime_snapshot_backup_file() {
+	local src="$1"
+	local backup="$2"
+
+	[ -f "$src" ] || return 0
+	cp -f "$src" "$backup" || return 1
+	return 0
+}
+
+runtime_snapshot_restore_file() {
+	local dst="$1"
+	local backup="$2"
+
+	if [ -f "$backup" ]; then
+		mv -f "$backup" "$dst" 2>/dev/null || cp -f "$backup" "$dst" || return 1
+	else
+		rm -f "$dst"
+	fi
+
+	return 0
+}
+
+runtime_snapshot_restore_backups() {
+	local snapshot_file="$1"
+	local dst_snapshot="$2"
+	local src_snapshot="$3"
+	local snapshot_backup="$4"
+	local dst_backup="$5"
+	local src_backup="$6"
+
+	runtime_snapshot_restore_file "$snapshot_file" "$snapshot_backup" || true
+	runtime_snapshot_restore_file "$dst_snapshot" "$dst_backup" || true
+	runtime_snapshot_restore_file "$src_snapshot" "$src_backup" || true
+	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup"
+}
+
 runtime_snapshot_save() {
 	local snapshot_file dst_snapshot src_snapshot
 	local snapshot_tmp dst_tmp src_tmp
+	local snapshot_backup dst_backup src_backup
 	local route_table_id="" route_rule_priority=""
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
@@ -94,13 +135,16 @@ runtime_snapshot_save() {
 	snapshot_tmp="${snapshot_file}.tmp.$$"
 	dst_tmp="${dst_snapshot}.tmp.$$"
 	src_tmp="${src_snapshot}.tmp.$$"
+	snapshot_backup="${snapshot_file}.bak.$$"
+	dst_backup="${dst_snapshot}.bak.$$"
+	src_backup="${src_snapshot}.bak.$$"
 
 	runtime_snapshot_copy_file "$dst_list_file" "$dst_tmp" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
 		return 1
 	}
 	runtime_snapshot_copy_file "$src_list_file" "$src_tmp" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
 		return 1
 	}
 
@@ -133,23 +177,40 @@ runtime_snapshot_save() {
 			fakeip_range: $fakeip_range,
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
 		}' > "$snapshot_tmp" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		return 1
+	}
+
+	runtime_snapshot_backup_file "$snapshot_file" "$snapshot_backup" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
+		return 1
+	}
+	runtime_snapshot_backup_file "$dst_snapshot" "$dst_backup" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
+		return 1
+	}
+	runtime_snapshot_backup_file "$src_snapshot" "$src_backup" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
 		return 1
 	}
 
 	mv -f "$dst_tmp" "$dst_snapshot" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$dst_snapshot"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
 		return 1
 	}
 	mv -f "$src_tmp" "$src_snapshot" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$src_snapshot"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
 		return 1
 	}
 	mv -f "$snapshot_tmp" "$snapshot_file" || {
-		rm -f "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
 		return 1
 	}
 
+	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup"
 	log "Saved runtime snapshot"
 	return 0
 }
@@ -394,7 +455,6 @@ apply_runtime_state() {
 		dns_restore || true
 		nft_remove_policy || true
 		policy_route_cleanup || true
-		runtime_snapshot_clear
 		return 1
 	}
 

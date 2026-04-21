@@ -573,11 +573,11 @@ restore_runtime_state() {
 
 	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
 		if service_running; then
-			log "Reloading MihoWRT service..."
-			if "$INIT_SCRIPT" reload >/dev/null 2>&1; then
+			log "Restarting MihoWRT service..."
+			if "$INIT_SCRIPT" restart >/dev/null 2>&1; then
 				return 0
 			fi
-			warn "failed to reload MihoWRT service after update"
+			warn "failed to restart MihoWRT service after update"
 		fi
 
 		log "Starting MihoWRT service..."

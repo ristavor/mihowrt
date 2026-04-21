@@ -137,7 +137,7 @@ assert_file_contains "$event_log" "runtime_snapshot_save" "apply_runtime_state s
 assert_file_contains "$event_log" "dns_restore" "apply_runtime_state should restore DNS after snapshot persistence failure"
 assert_file_contains "$event_log" "nft_remove_policy" "apply_runtime_state should remove nft policy after snapshot persistence failure"
 assert_file_contains "$event_log" "policy_route_cleanup" "apply_runtime_state should clean route state after snapshot persistence failure"
-assert_file_contains "$event_log" "runtime_snapshot_clear" "apply_runtime_state should drop partial runtime snapshot after snapshot failure"
+assert_file_not_contains "$event_log" "runtime_snapshot_clear" "apply_runtime_state should preserve previous runtime snapshot after snapshot failure"
 assert_file_contains "$event_log" "err:Failed to persist runtime snapshot" "apply_runtime_state should report snapshot persistence failure"
 TEST_RUNTIME_SNAPSHOT_SAVE_RC=0
 

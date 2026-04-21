@@ -530,6 +530,52 @@ ensure_dns_state_helpers() {
 	}
 }
 
+is_valid_port_value() {
+	case "${1:-}" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+
+	[ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+}
+
+dns_current_state_looks_hijacked() {
+	local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
+	local current_host="" current_port="" tab=""
+
+	have_command uci || return 1
+	ensure_dns_state_helpers || return 1
+
+	current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
+	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
+	current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+	current_servers="$(dns_current_servers_flat)"
+	tab="$(printf '\t')"
+
+	[ "$current_cachesize" = "0" ] || return 1
+	[ "$current_noresolv" = "1" ] || return 1
+	[ -z "$current_resolvfile" ] || return 1
+	[ -n "$current_servers" ] || return 1
+
+	case "$current_servers" in
+		*"${tab}"*)
+			return 1
+			;;
+		*"#"*)
+			current_host="${current_servers%#*}"
+			current_port="${current_servers##*#}"
+			[ -n "$current_host" ] || return 1
+			is_valid_port_value "$current_port" || return 1
+			;;
+		*)
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
 route_state_read() {
 	local line key value
 
@@ -680,12 +726,13 @@ restore_system_dns_defaults() {
 
 	have_command uci || return 0
 
-	if restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
+	if dns_current_state_looks_hijacked && restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
 		log "System DNS settings restored from MihoWRT backup."
 		return 0
 	fi
 
-	if [ -n "$BACKUP_DIR" ] && restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
+	if [ -n "$BACKUP_DIR" ] && dns_current_state_looks_hijacked &&
+		restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
 		log "System DNS settings restored from saved MihoWRT backup."
 		return 0
 	fi

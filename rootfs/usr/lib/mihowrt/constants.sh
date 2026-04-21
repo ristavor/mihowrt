@@ -18,6 +18,7 @@ CACHE_DB_TMPFS="/tmp/clash/cache.db"
 CACHE_DB_LINK="$CLASH_DIR/cache.db"
 
 DNS_BACKUP_FILE="$PKG_PERSIST_DIR/dns.backup"
+DNS_RUNTIME_BACKUP_FILE="$PKG_STATE_DIR/dns.backup"
 DNS_AUTO_RESOLVFILE="/tmp/resolv.conf.d/resolv.conf.auto"
 SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
 ROUTE_STATE_FILE="$PKG_STATE_DIR/route.state"

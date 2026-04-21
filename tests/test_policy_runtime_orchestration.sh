@@ -308,30 +308,23 @@ assert_file_contains "$event_log" "err:Runtime snapshot invalid; refusing in-pla
 assert_file_not_contains "$event_log" "cleanup_runtime_state" "blocked invalid-snapshot reload should not tear down live state"
 assert_file_not_contains "$event_log" "apply_runtime_state" "blocked invalid-snapshot reload should not apply new state"
 
-dns_recovery_needed() {
-	return "${TEST_DNS_RECOVERY_NEEDED_RC:-1}"
-}
-
 cleanup_runtime_state() {
 	printf 'cleanup_runtime_state\n' >>"$event_log"
 	return 0
 }
 
 : > "$event_log"
-TEST_DNS_RECOVERY_NEEDED_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 recover_runtime_state
 [[ ! -s "$event_log" ]] || fail "recover_runtime_state should stay idle when runtime state is already clean"
 
 : > "$event_log"
-TEST_DNS_RECOVERY_NEEDED_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 recover_runtime_state
 assert_file_contains "$event_log" "log:Recovering runtime state after unclean shutdown" "recover_runtime_state should log crash recovery"
 assert_file_contains "$event_log" "cleanup_runtime_state" "recover_runtime_state should clean live runtime state after crash even without DNS backup"
 
 : > "$event_log"
-TEST_DNS_RECOVERY_NEEDED_RC=0
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 recover_runtime_state
 assert_file_contains "$event_log" "log:Recovering runtime state after unclean shutdown" "recover_runtime_state should still log crash recovery when DNS backup survives"

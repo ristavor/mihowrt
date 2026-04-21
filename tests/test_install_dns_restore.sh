@@ -136,6 +136,10 @@ ORIG_CACHESIZE=4096
 ORIG_NORESOLV=0
 ORIG_RESOLVFILE=/tmp/saved.resolv
 EOF
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
 restore_system_dns_defaults 0
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].cachesize=4096" "restore_system_dns_defaults should use saved backup cachesize"
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].noresolv=0" "restore_system_dns_defaults should use saved backup noresolv"
@@ -151,6 +155,16 @@ TEST_CURRENT_SERVERS=""
 restore_dns_defaults_fallback
 [[ ! -s "$UCI_LOG" ]] || fail "restore_dns_defaults_fallback should skip no-op dhcp writes when defaults already active"
 [[ ! -s "$DNS_LOG" ]] || fail "restore_dns_defaults_fallback should skip dnsmasq restart when defaults already active"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE=""
+TEST_CURRENT_NORESOLV="0"
+TEST_CURRENT_RESOLVFILE="$DNS_AUTO_RESOLVFILE"
+TEST_CURRENT_SERVERS=""
+restore_system_dns_defaults 1
+[[ ! -s "$UCI_LOG" ]] || fail "restore_system_dns_defaults should ignore cached backup when dnsmasq is not in hijacked state"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_system_dns_defaults should not restart dnsmasq from cached backup when hijack is inactive"
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"

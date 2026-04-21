@@ -34,23 +34,37 @@ chmod +x "$tmpbin/uci" "$tmpbin/logger"
 export PATH="$tmpbin:$PATH"
 
 export PKG_PERSIST_DIR="$tmpdir/etc/mihowrt"
+export PKG_STATE_DIR="$tmpdir/run"
 export DNS_BACKUP_FILE="$PKG_PERSIST_DIR/dns.backup"
+export DNS_RUNTIME_BACKUP_FILE="$PKG_STATE_DIR/dns.backup"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns-state.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns.sh"
 
-assert_false "dns recovery should ignore missing backup" dns_recovery_needed
+assert_false "dns backup should stay inactive without runtime copy or hijacked state" dns_backup_exists
 
 dns_backup_state
 
 [[ -f "$DNS_BACKUP_FILE" ]] || fail "dns backup file missing"
+[[ -f "$DNS_RUNTIME_BACKUP_FILE" ]] || fail "runtime dns backup file missing"
 assert_file_contains "$DNS_BACKUP_FILE" "DNSMASQ_BACKUP=1" "backup marker missing"
 assert_file_contains "$DNS_BACKUP_FILE" "ORIG_SERVER=1.1.1.1" "first DNS server missing"
 assert_file_contains "$DNS_BACKUP_FILE" "ORIG_SERVER=9.9.9.9" "second DNS server missing"
 assert_true "dns backup should validate" dns_backup_valid
-assert_true "dns recovery should trigger when backup exists" dns_recovery_needed
+assert_true "dns backup should stay active while runtime copy exists" dns_backup_exists
 
+touch -d '2020-01-01 00:00:00' "$DNS_BACKUP_FILE"
+before_persist_mtime="$(stat -c %Y "$DNS_BACKUP_FILE")"
 dns_cleanup_backup_files
-assert_false "dns recovery should clear once backup removed" dns_recovery_needed
+[[ ! -f "$DNS_RUNTIME_BACKUP_FILE" ]] || fail "runtime dns backup should be removed on cleanup"
+[[ -f "$DNS_BACKUP_FILE" ]] || fail "persistent dns backup cache should remain after cleanup"
+assert_false "dns backup should not stay active from cached persistent copy alone" dns_backup_exists
+assert_false "dns backup should not report valid active backup from cached persistent copy alone" dns_backup_valid
 
-pass "dns backup detection uses persistent backup only"
+dns_backup_state
+after_persist_mtime="$(stat -c %Y "$DNS_BACKUP_FILE")"
+assert_eq "$before_persist_mtime" "$after_persist_mtime" "dns_backup_state should skip rewriting identical persistent backup cache"
+assert_true "dns backup should reactivate after runtime copy returns" dns_backup_exists
+
+pass "dns backup runtime/cache semantics"

@@ -354,7 +354,7 @@ backup_file_or_mark_missing() {
 
 	if [ -f "$src" ]; then
 		rm -f "$missing_marker"
-		backup_file "$src" "$name"
+		backup_file "$src" "$name" || return 1
 		return 0
 	fi
 
@@ -684,13 +684,13 @@ restore_system_dns_defaults() {
 }
 
 prepare_update() {
+	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
+	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
+
 	backup_user_state || {
 		err "failed to back up current config and policy state"
 		return 1
 	}
-
-	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
-	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
 
 	if apk_supports_virtual; then
 		log "Holding MihoWRT dependencies during reinstall..."
@@ -925,6 +925,9 @@ perform_package_action() {
 		quiesce_postinstall_service
 		log "Restoring saved config and policy state..."
 		if ! restore_user_state; then
+			if [ -x "$INIT_SCRIPT" ]; then
+				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+			fi
 			preserve_backup_dir
 			err "failed to restore saved config and policy state"
 			return 1

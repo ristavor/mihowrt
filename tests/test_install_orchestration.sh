@@ -145,6 +145,23 @@ assert_file_contains "$event_log" "cleanup_runtime_fallback" "prepare_update sho
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "prepare_update should restore DNS defaults with fallback"
 
 : > "$event_log"
+WAS_ENABLED=0
+WAS_RUNNING=0
+backup_user_state() {
+	printf 'backup_user_state\n' >>"$event_log"
+	return 1
+}
+assert_false "prepare_update should fail when backup_user_state fails" prepare_update
+assert_eq "1" "$WAS_ENABLED" "prepare_update should snapshot enabled state before backup"
+assert_eq "1" "$WAS_RUNNING" "prepare_update should snapshot running state before backup"
+assert_file_contains "$event_log" "backup_user_state" "prepare_update should attempt backup before failing"
+assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "prepare_update should not tear down runtime when backup fails"
+
+backup_user_state() {
+	printf 'backup_user_state\n' >>"$event_log"
+}
+
+: > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=0
 TEST_INIT_RESTART_RC=0
@@ -358,12 +375,14 @@ restore_user_state() {
 }
 
 : > "$event_log"
+: > "$init_log"
 assert_false "perform_package_action should fail when restore_user_state fails" perform_package_action
 assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should still quiesce service before restore"
 assert_file_contains "$event_log" "restore_user_state" "perform_package_action should try restoring saved state"
 assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when restore fails"
 assert_file_contains "$event_log" "err:failed to restore saved config and policy state" "perform_package_action should report restore failure"
 assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after restore failure"
+assert_file_contains "$init_log" "disable" "perform_package_action should disable service after restore_user_state failure"
 
 restore_user_state() {
 	printf 'restore_user_state\n' >>"$event_log"

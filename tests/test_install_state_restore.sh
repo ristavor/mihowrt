@@ -41,6 +41,12 @@ backup_file_or_mark_missing "$tmpdir/absent.txt" "missing.txt"
 restore_file_or_remove "missing.txt" "$missing_dst"
 assert_false "restore_file_or_remove should preserve deleted user file state" test -e "$missing_dst"
 
+backup_file() {
+	return 1
+}
+
+assert_false "backup_file_or_mark_missing should fail when backup copy fails" backup_file_or_mark_missing "$copy_src" "broken.txt"
+
 release_reinstall_dependencies() {
 	:
 }

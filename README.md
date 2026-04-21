@@ -6,7 +6,7 @@ Project adds:
 - LuCI pages for service control, policy settings, and `config.yaml` editing
 - direct-first traffic policy based on `nftables`, `ip rule`, and `dnsmasq`
 - runtime data placement in tmpfs to reduce flash writes
-- crash recovery for `dnsmasq` state
+- crash recovery for `dnsmasq` state and runtime snapshot
 - installer-managed Mihomo core install and update
 
 ## Quick Install
@@ -33,6 +33,14 @@ Behavior:
 
 ```sh
 MIHOWRT_ACTION=package wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+```
+
+- other non-interactive modes:
+
+```sh
+MIHOWRT_ACTION=kernel wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+MIHOWRT_ACTION=remove wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+MIHOWRT_ACTION=stop wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
 ```
 
 ## How It Works
@@ -88,6 +96,9 @@ rootfs/opt/clash/lst/
 - `/tmp/clash/proxy_providers`: provider cache
 - `/tmp/clash/cache.db`: Mihomo cache database
 - `/etc/mihowrt/dns.backup`: persistent DNS backup for crash recovery
+- `/var/run/mihowrt/runtime.snapshot.json`: active runtime snapshot used for safe reload and diagnostics
+- `/var/run/mihowrt/always_proxy_dst.snapshot`: active destination list snapshot
+- `/var/run/mihowrt/always_proxy_src.snapshot`: active source list snapshot
 - `/tmp/mihowrt` and `/var/run/mihowrt`: transient runtime state
 
 ## Commands
@@ -101,7 +112,11 @@ Main helper:
 /usr/bin/mihowrt reload
 /usr/bin/mihowrt validate
 /usr/bin/mihowrt status
+/usr/bin/mihowrt status-json
+/usr/bin/mihowrt logs-json
 /usr/bin/mihowrt read-config
+/usr/bin/mihowrt apply-config /tmp/candidate.yaml
+/usr/bin/mihowrt init-layout
 ```
 
 Service control:
@@ -118,8 +133,10 @@ Service control:
 - `config.yaml` is source of truth for runtime values used by policy layer
 - package expects `nftables`, `jq`, and `kmod-nft-tproxy`
 - installer uses `wget` or `curl` to fetch package and Mihomo core releases
+- package builds as `PKGARCH:=all` / `arch: noarch`, so `.apk` itself is architecture-independent inside same OpenWrt release line
 - bundled UI is not stored in repo; Mihomo downloads UI from `external-ui-url`
 - config files under `/opt/clash` and `/etc/config` are protected as conffiles
+- installer preserves existing `config.yaml`, policy list files, and explicit user deletions of default list files across package reinstall/update
 
 ## Known Limits
 

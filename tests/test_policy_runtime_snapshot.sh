@@ -139,4 +139,17 @@ assert_false "runtime_snapshot_clear should remove runtime snapshot json" test -
 assert_false "runtime_snapshot_clear should remove destination snapshot file" test -f "$snapshot_dst_file"
 assert_false "runtime_snapshot_clear should remove source snapshot file" test -f "$snapshot_src_file"
 
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=201
+ROUTE_RULE_PRIORITY=10001
+EOF
+
+rm -f "$DST_LIST_FILE" "$SRC_LIST_FILE"
+
+runtime_snapshot_save
+assert_false "runtime_snapshot_save should keep deleted destination list empty in snapshot" test -s "$snapshot_dst_file"
+assert_false "runtime_snapshot_save should keep deleted source list empty in snapshot" test -s "$snapshot_src_file"
+assert_eq "0" "$(jq -r '.always_proxy_dst_count' <(runtime_snapshot_status_json))" "runtime snapshot status should report zero destination entries after list deletion"
+assert_eq "0" "$(jq -r '.always_proxy_src_count' <(runtime_snapshot_status_json))" "runtime snapshot status should report zero source entries after list deletion"
+
 pass "policy runtime snapshot"

@@ -737,6 +737,34 @@ dns_backup_expected_target() {
 	config_mihomo_dns_target_from_path "$config_path"
 }
 
+seed_dns_backup_target_metadata() {
+	local backup_path="$1"
+	local config_path="$2"
+	local mihomo_target="" tmp_path=""
+
+	[ -f "$backup_path" ] || return 0
+	dns_backup_mihomo_target "$backup_path" >/dev/null 2>&1 && return 0
+
+	mihomo_target="$(dns_backup_expected_target "$backup_path" "$config_path" 2>/dev/null || true)"
+	[ -n "$mihomo_target" ] || return 0
+
+	tmp_path="${backup_path}.tmp.$$"
+	cp -f "$backup_path" "$tmp_path" || {
+		rm -f "$tmp_path"
+		return 1
+	}
+	printf 'MIHOMO_DNS_TARGET=%s\n' "$mihomo_target" >>"$tmp_path" || {
+		rm -f "$tmp_path"
+		return 1
+	}
+	mv -f "$tmp_path" "$backup_path" || {
+		rm -f "$tmp_path"
+		return 1
+	}
+
+	return 0
+}
+
 revert_dhcp_changes() {
 	uci revert dhcp >/dev/null 2>&1 || true
 }
@@ -988,6 +1016,8 @@ restore_system_dns_defaults() {
 prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
+
+	seed_dns_backup_target_metadata "$DNS_BACKUP_FILE" "${CLASH_DIR}/config.yaml" || warn "failed to add Mihomo DNS target metadata to existing dns backup"
 
 	backup_user_state || {
 		err "failed to back up current config and policy state"

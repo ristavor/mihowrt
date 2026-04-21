@@ -296,4 +296,31 @@ assert_true "dns_restore should recover from old backup format using current con
 assert_file_contains "$uci_log" "add_list dhcp.@dnsmasq[0].server=1.1.1.1" "dns_restore should still restore old backup format when config reveals Mihomo target"
 assert_file_contains "$event_log" "log:dnsmasq settings restored" "dns_restore should report success for old backup recovery"
 
+read_config_json() {
+	printf '%s\n' '{"mihomo_dns_listen":"","errors":["parse failed"]}'
+}
+
+runtime_snapshot_status_json() {
+	printf '%s\n' '{"mihomo_dns_listen":"192.168.60.1#7874","mihomo_tproxy_port":"7894"}'
+}
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=9.9.9.9
+EOF
+rm -f "$runtime_backup_file"
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+MIHOMO_DNS_LISTEN=""
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="192.168.60.1#7874"
+assert_true "dns_restore should recover old backup format from runtime snapshot target when config parsing fails" dns_restore
+assert_file_contains "$uci_log" "add_list dhcp.@dnsmasq[0].server=9.9.9.9" "dns_restore should still restore legacy backup when snapshot reveals Mihomo target"
+
 pass "runtime DNS no-op paths"

@@ -235,6 +235,32 @@ assert_eq "false" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.r
 assert_eq "false" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when snapshot is invalid"
 assert_eq "true" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r 'any(.errors[]; contains("runtime snapshot parse failed"))')" "status_json should surface invalid runtime snapshot details"
 
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
+}
+
+read_config_json() {
+	cat <<'EOF'
+{"config_path":"/opt/clash/config.yaml","dns_port":"","mihomo_dns_listen":"","tproxy_port":"","routing_mark":"","enhanced_mode":"","catch_fakeip":false,"fake_ip_range":"","external_controller":"","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","errors":["config parse failed"]}
+EOF
+}
+
+TEST_ENABLED_SETTING=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_SERVICE_READY_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+status_output_config_error_ready="$(status_json)"
+assert_eq "true" "$(printf '%s\n' "$status_output_config_error_ready" | jq -r '.service_ready')" "status_json should use active runtime ports for readiness when config parsing fails"
+assert_eq "true" "$(printf '%s\n' "$status_output_config_error_ready" | jq -r 'any(.errors[]; contains("config parse failed"))')" "status_json should still surface config parse errors"
+
+read_config_json() {
+	cat <<'EOF'
+{"config_path":"/opt/clash/config.yaml","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15","external_controller":"0.0.0.0:9090","external_controller_tls":"","secret":"","external_ui":"./ui","external_ui_name":"zashboard","errors":[]}
+EOF
+}
+
 config_load() {
 	return 1
 }

@@ -149,11 +149,22 @@ dns_current_state_looks_hijacked() {
 }
 
 dns_runtime_mihomo_target() {
-	local config_json="" config_errors="" mihomo_dns_listen=""
+	local config_json="" config_errors="" mihomo_dns_listen="" snapshot_json=""
 
 	if [ -n "${MIHOMO_DNS_LISTEN:-}" ]; then
 		normalize_dns_server_target "$MIHOMO_DNS_LISTEN"
 		return $?
+	fi
+
+	if command -v runtime_snapshot_status_json >/dev/null 2>&1; then
+		snapshot_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
+		if [ -n "$snapshot_json" ]; then
+			mihomo_dns_listen="$(printf '%s\n' "$snapshot_json" | jq -r '.mihomo_dns_listen // ""' 2>/dev/null || true)"
+			if [ -n "$mihomo_dns_listen" ]; then
+				normalize_dns_server_target "$mihomo_dns_listen"
+				return $?
+			fi
+		fi
 	fi
 
 	config_json="$(read_config_json 2>/dev/null || true)"

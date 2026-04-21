@@ -4,6 +4,8 @@ set -euo pipefail
 
 source "$(dirname "$0")/testlib.sh"
 
+source_install_lib
+
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns-state.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/dns.sh"
@@ -56,6 +58,19 @@ uci() {
 }
 
 assert_eq "$(printf '1.1.1.1\n2.2.2.2\n' | dns_flatten_lines)" "$(printf '1.1.1.1\n2.2.2.2\n' | install_dns_flatten_lines)" "dns_flatten_lines should stay in sync with installer fallback"
+assert_eq "$(trim '  value  ')" "$(trim_value '  value  ')" "trim_value should stay in sync with runtime trim helper"
+assert_eq "$(yaml_cleanup_scalar ' \"[::]:7874\" # comment ')" "$(yaml_cleanup_scalar_value ' \"[::]:7874\" # comment ')" "yaml_cleanup_scalar_value should stay in sync with runtime scalar cleanup"
+assert_eq "$(port_from_addr '[::]:7874')" "$(port_from_addr_value '[::]:7874')" "port_from_addr_value should stay in sync with runtime port parser"
+assert_eq "$(normalize_dns_server_target '0.0.0.0#7874')" "$(normalize_dns_server_target_value '0.0.0.0:7874')" "normalize_dns_server_target_value should stay in sync with runtime target normalization"
+
+tmpdir="$(make_temp_dir)"
+trap 'rm -rf "$tmpdir"' EXIT
+CLASH_CONFIG="$tmpdir/unused-config.yaml"
+cat > "$tmpdir/config.yaml" <<'EOF'
+dns:
+  listen: "[::]:7874" # comment
+EOF
+assert_eq "$(read_config_json_for_path "$tmpdir/config.yaml" | jq -r '.mihomo_dns_listen')" "$(config_mihomo_dns_target_from_path "$tmpdir/config.yaml")" "config_mihomo_dns_target_from_path should stay in sync with runtime config parser"
 
 TEST_UCI_CACHESIZE="0"
 TEST_UCI_NORESOLV="1"

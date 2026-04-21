@@ -100,6 +100,21 @@ ORIG_SERVER=1.1.1.1
 ORIG_SERVER=9.9.9.9
 EOF
 
+legacy_seed_backup="$tmpdir/legacy-seed.backup"
+legacy_seed_config="$tmpdir/legacy-seed.yaml"
+cat > "$legacy_seed_backup" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=
+EOF
+cat > "$legacy_seed_config" <<'EOF'
+dns:
+  listen: 192.168.70.1:7874
+EOF
+seed_dns_backup_target_metadata "$legacy_seed_backup" "$legacy_seed_config"
+assert_file_contains "$legacy_seed_backup" "MIHOMO_DNS_TARGET=192.168.70.1#7874" "seed_dns_backup_target_metadata should migrate legacy backups using config target"
+
 : > "$UCI_LOG"
 : > "$DNS_LOG"
 restore_dns_from_backup_file "$backup_file"

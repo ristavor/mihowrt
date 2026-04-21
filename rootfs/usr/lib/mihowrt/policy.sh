@@ -690,7 +690,7 @@ load_status_runtime_state_json() {
 	local dns_recovery_backup_active_flag=0 dns_recovery_backup_valid_flag=0
 	local route_state_present=0 route_table_id_effective="" route_rule_priority_effective=""
 	local runtime_snapshot_present=0 runtime_snapshot_valid=0 runtime_live_present=0 active_json="" runtime_errors_raw=""
-	local dns_port="" tproxy_port=""
+	local dns_port="" tproxy_port="" readiness_dns_port="" readiness_tproxy_port=""
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
@@ -703,10 +703,6 @@ load_status_runtime_state_json() {
 	if [ -n "$config_json" ]; then
 		dns_port="$(printf '%s\n' "$config_json" | jq -r '.dns_port // ""' 2>/dev/null || true)"
 		tproxy_port="$(printf '%s\n' "$config_json" | jq -r '.tproxy_port // ""' 2>/dev/null || true)"
-	fi
-
-	if [ "$service_running" = "1" ] && mihomo_ready_state "$dns_port" "$tproxy_port"; then
-		service_ready=1
 	fi
 
 	if policy_route_state_read; then
@@ -725,6 +721,18 @@ load_status_runtime_state_json() {
 			[ -n "$runtime_errors_raw" ] || runtime_errors_raw="Runtime snapshot is present but invalid"
 		fi
 		active_json="$(status_default_active_json)"
+	fi
+
+	if [ "$service_running" = "1" ]; then
+		readiness_dns_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_port // ""' 2>/dev/null || true)"
+		readiness_tproxy_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_tproxy_port // ""' 2>/dev/null || true)"
+
+		[ -n "$readiness_dns_port" ] || readiness_dns_port="$dns_port"
+		[ -n "$readiness_tproxy_port" ] || readiness_tproxy_port="$tproxy_port"
+
+		if mihomo_ready_state "$readiness_dns_port" "$readiness_tproxy_port"; then
+			service_ready=1
+		fi
 	fi
 
 	jq -nc \

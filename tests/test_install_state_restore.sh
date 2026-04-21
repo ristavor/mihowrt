@@ -34,16 +34,23 @@ restore_file "same.txt" "$copy_same_dst"
 after_same_mtime="$(stat -c %Y "$copy_same_dst")"
 assert_eq "$before_same_mtime" "$after_same_mtime" "restore_file should skip rewriting identical persistent files"
 
+missing_dst="$tmpdir/dest/missing-output.txt"
+printf 'to-be-removed\n' > "$missing_dst"
+backup_file_or_mark_missing "$tmpdir/absent.txt" "missing.txt"
+[[ -f "$BACKUP_DIR/missing.txt.missing" ]] || fail "backup_file_or_mark_missing should record missing file tombstone"
+restore_file_or_remove "missing.txt" "$missing_dst"
+assert_false "restore_file_or_remove should preserve deleted user file state" test -e "$missing_dst"
+
 create_backup_dir() {
 	BACKUP_DIR="$tmpdir/backup-user-state"
 	mkdir -p "$BACKUP_DIR"
 }
 
-backup_file() {
+backup_file_or_mark_missing() {
 	printf '%s|%s\n' "$1" "$2" >>"$backup_log"
 }
 
-restore_file() {
+restore_file_or_remove() {
 	printf '%s|%s\n' "$1" "$2" >>"$restore_log"
 }
 

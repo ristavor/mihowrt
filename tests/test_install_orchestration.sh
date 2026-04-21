@@ -297,6 +297,26 @@ assert_file_contains "$event_log" "restore_runtime_state" "perform_package_actio
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after reinstall"
 assert_file_not_contains "$event_log" "start_fresh_install_service" "perform_package_action should not use fresh-install branch for reinstall"
 
+download_file() {
+	printf 'download_file:%s:%s\n' "$1" "$2" >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+assert_false "perform_package_action should fail when package download fails during reinstall" perform_package_action
+assert_file_contains "$event_log" "prepare_update" "perform_package_action should still prepare reinstall state before download failure"
+assert_file_contains "$event_log" "kernel_install_or_update" "perform_package_action should still update kernel before package download failure"
+assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before package download"
+assert_file_contains "$event_log" "clear_skip_start" "perform_package_action should clear skip-start when package download fails"
+assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after package download failure"
+assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after package download failure"
+assert_file_not_contains "$event_log" "install_package:1:$tmpdir/downloaded.apk" "perform_package_action should not try package install after package download failure"
+
+download_file() {
+	printf 'download_file:%s:%s\n' "$1" "$2" >>"$event_log"
+	: > "$2"
+}
+
 verify_required_packages() {
 	MISSING_PACKAGES="jq nftables"
 	printf 'verify_required_packages\n' >>"$event_log"

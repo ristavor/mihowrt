@@ -90,7 +90,7 @@ fetch_url() {
 	fi
 
 	err "need wget or curl"
-	exit 1
+	return 1
 }
 
 download_file() {
@@ -103,7 +103,7 @@ download_file() {
 	fi
 
 	err "need wget or curl"
-	exit 1
+	return 1
 }
 
 normalize_version() {
@@ -249,7 +249,11 @@ kernel_remove() {
 }
 
 latest_asset_url() {
-	fetch_url "$RELEASES_API_URL" |
+	local release_json=""
+
+	release_json="$(fetch_url "$RELEASES_API_URL")" || return 1
+
+	printf '%s' "$release_json" |
 		sed -n "s/.*\"browser_download_url\":[[:space:]]*\"\\([^\"]*\\/${PKG_NAME}-[^/\"]*\\.apk\\)\".*/\\1/p" |
 		head -n1
 }
@@ -340,21 +344,53 @@ restore_file() {
 	cp -p "$BACKUP_DIR/$name" "$dst"
 }
 
+backup_file_or_mark_missing() {
+	local src="$1"
+	local name="$2"
+	local missing_marker="$BACKUP_DIR/$name.missing"
+
+	if [ -f "$src" ]; then
+		rm -f "$missing_marker"
+		backup_file "$src" "$name"
+		return 0
+	fi
+
+	rm -f "$BACKUP_DIR/$name"
+	: > "$missing_marker"
+}
+
+restore_file_or_remove() {
+	local name="$1"
+	local dst="$2"
+	local missing_marker="$BACKUP_DIR/$name.missing"
+
+	[ -n "$BACKUP_DIR" ] || return 0
+
+	if [ -f "$missing_marker" ]; then
+		if [ -e "$dst" ] || [ -L "$dst" ]; then
+			rm -f "$dst"
+		fi
+		return 0
+	fi
+
+	restore_file "$name" "$dst"
+}
+
 backup_user_state() {
 	create_backup_dir
-	backup_file /opt/clash/config.yaml config.yaml
-	backup_file /etc/config/mihowrt mihowrt.uci
-	backup_file /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt
-	backup_file /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt
-	backup_file "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME"
+	backup_file_or_mark_missing /opt/clash/config.yaml config.yaml
+	backup_file_or_mark_missing /etc/config/mihowrt mihowrt.uci
+	backup_file_or_mark_missing /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt
+	backup_file_or_mark_missing /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt
+	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME"
 }
 
 restore_user_state() {
 	[ -n "$BACKUP_DIR" ] || return 0
-	restore_file config.yaml /opt/clash/config.yaml
-	restore_file mihowrt.uci /etc/config/mihowrt
-	restore_file always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
-	restore_file always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
+	restore_file_or_remove config.yaml /opt/clash/config.yaml
+	restore_file_or_remove mihowrt.uci /etc/config/mihowrt
+	restore_file_or_remove always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
+	restore_file_or_remove always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
 }
 
 service_enabled() {
@@ -815,7 +851,10 @@ perform_package_action() {
 	local reinstall=0
 	local asset_url=""
 
-	asset_url="$(latest_asset_url)"
+	asset_url="$(latest_asset_url)" || {
+		err "failed to query latest ${PKG_NAME} release"
+		return 1
+	}
 	[ -n "$asset_url" ] || {
 		err "failed to find latest ${PKG_NAME} apk in GitHub release"
 		return 1
@@ -840,7 +879,15 @@ perform_package_action() {
 	set_skip_start
 	create_tmp_apk
 	log "Downloading latest release asset..."
-	download_file "$asset_url" "$TMP_APK"
+	if ! download_file "$asset_url" "$TMP_APK"; then
+		clear_skip_start
+		if [ "$reinstall" = "1" ]; then
+			restore_runtime_state || true
+			release_reinstall_dependencies
+		fi
+		err "failed to download latest ${PKG_NAME} apk"
+		return 1
+	fi
 	if ! install_package "$reinstall" "$TMP_APK"; then
 		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
 		return 1

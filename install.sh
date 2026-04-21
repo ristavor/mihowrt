@@ -27,12 +27,9 @@ SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
 CLASH_DIR="/opt/clash"
 CLASH_BIN="${CLASH_DIR}/bin/clash"
 KERNEL_TMP_DIR="/tmp/mihowrt/kernel-update"
-COMMON_REPO_PACKAGES="luci-base nftables jq"
-TPROXY_REPO_PACKAGES="kmod-nft-tproxy kmod-nf-tproxy"
-TPROXY_REQUIREMENT_NAME="kmod-tproxy-any"
-REQUIRED_REPO_PACKAGES="${COMMON_REPO_PACKAGES}"
+REQUIRED_REPO_PACKAGES="luci-base nftables jq kmod-nft-tproxy"
 REINSTALL_HOLD_VIRTUAL="${PKG_NAME}-reinstall-deps"
-REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES} ${TPROXY_REQUIREMENT_NAME}"
+REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES}"
 MISSING_PACKAGES=""
 
 log() {
@@ -87,28 +84,44 @@ clear_skip_start() {
 }
 
 fetch_url() {
+	local have_fetcher=0
+
 	if have_command wget && wget -qO- "$1"; then
 		return 0
 	fi
+	have_command wget && have_fetcher=1
 
 	if have_command curl && curl -fsL "$1"; then
 		return 0
 	fi
+	have_command curl && have_fetcher=1
 
-	err "need wget or curl"
+	if [ "$have_fetcher" = "1" ]; then
+		err "failed to fetch $1"
+	else
+		err "need wget or curl"
+	fi
 	return 1
 }
 
 download_file() {
+	local have_fetcher=0
+
 	if have_command wget && wget -qO "$2" "$1"; then
 		return 0
 	fi
+	have_command wget && have_fetcher=1
 
 	if have_command curl && curl -fsL --retry 3 --connect-timeout 10 -o "$2" "$1"; then
 		return 0
 	fi
+	have_command curl && have_fetcher=1
 
-	err "need wget or curl"
+	if [ "$have_fetcher" = "1" ]; then
+		err "failed to download $1"
+	else
+		err "need wget or curl"
+	fi
 	return 1
 }
 
@@ -280,35 +293,10 @@ package_requirement_present() {
 			package_present nftables-nojson ||
 			have_command nft
 			;;
-		"$TPROXY_REQUIREMENT_NAME")
-			package_present kmod-nft-tproxy ||
-			package_present kmod-nf-tproxy
-			;;
 		*)
 			package_present "$1"
 			;;
 	esac
-}
-
-resolve_tproxy_hold_package() {
-	if package_present kmod-nft-tproxy; then
-		printf '%s\n' "kmod-nft-tproxy"
-		return 0
-	fi
-
-	if package_present kmod-nf-tproxy; then
-		printf '%s\n' "kmod-nf-tproxy"
-		return 0
-	fi
-
-	printf '%s\n' "kmod-nft-tproxy"
-}
-
-reinstall_hold_packages() {
-	local tproxy_pkg=""
-
-	tproxy_pkg="$(resolve_tproxy_hold_package)" || return 1
-	printf '%s %s\n' "$COMMON_REPO_PACKAGES" "$tproxy_pkg"
 }
 
 can_prompt() {
@@ -338,16 +326,13 @@ verify_required_packages() {
 }
 
 hold_reinstall_dependencies() {
-	local hold_packages=""
-
 	apk_supports_virtual || return 1
-	hold_packages="$(reinstall_hold_packages)" || return 1
 
 	if package_present "$REINSTALL_HOLD_VIRTUAL"; then
 		apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
 	fi
 
-	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $hold_packages >/dev/null 2>&1 || return 1
+	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $REQUIRED_REPO_PACKAGES >/dev/null 2>&1 || return 1
 	REINSTALL_HOLD_ACTIVE=1
 	return 0
 }

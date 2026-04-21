@@ -47,6 +47,28 @@ fetch_url() {
 	printf '%s\n' '{"assets":[{"browser_download_url":"https://example.com/luci-app-mihowrt-0.2.10.apk"}]}'
 }
 assert_eq "https://example.com/luci-app-mihowrt-0.2.10.apk" "$(latest_asset_url)" "latest_asset_url extracts APK URL"
+source_install_lib
+CLASH_BIN="$tmpdir/clash"
+
+fetch_error_log="$tmpdir/fetch.err"
+err() {
+	printf '%s\n' "$*" >>"$fetch_error_log"
+}
+have_command() {
+	[[ "$1" == "wget" ]]
+}
+wget() {
+	return 1
+}
+assert_false "fetch_url should fail when transfer fails with available fetcher" fetch_url "https://example.com/fail" >/dev/null 2>&1
+assert_file_contains "$fetch_error_log" "failed to fetch https://example.com/fail" "fetch_url should report transfer failure separately from missing tools"
+
+: > "$fetch_error_log"
+have_command() {
+	return 1
+}
+assert_false "download_file should fail without any fetcher" download_file "https://example.com/fail" "$tmpdir/out.bin"
+assert_file_contains "$fetch_error_log" "need wget or curl" "download_file should report missing fetcher tools"
 
 package_present() {
 	[[ "$1" == "nftables-json" ]]
@@ -60,17 +82,6 @@ package_present() {
 	[[ "$1" == "jq" ]]
 }
 assert_true "package_requirement_present should accept ordinary package presence" package_requirement_present "jq"
-
-package_present() {
-	[[ "$1" == "kmod-nf-tproxy" ]]
-}
-assert_true "package_requirement_present should accept alternate tproxy kmod name" package_requirement_present "$TPROXY_REQUIREMENT_NAME"
-assert_eq "kmod-nf-tproxy" "$(resolve_tproxy_hold_package)" "resolve_tproxy_hold_package should prefer installed alternate kmod name"
-
-package_present() {
-	return 1
-}
-assert_eq "$COMMON_REPO_PACKAGES kmod-nft-tproxy" "$(reinstall_hold_packages)" "reinstall_hold_packages should fall back to preferred tproxy kmod name"
 
 package_requirement_present() {
 	[[ "$1" == "pkg1" ]]

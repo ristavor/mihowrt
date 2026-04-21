@@ -60,11 +60,11 @@ apk_supports_virtual() {
 	return 0
 }
 package_present() {
-	[[ "$1" == "$REINSTALL_HOLD_VIRTUAL" || "$1" == "kmod-nf-tproxy" ]]
+	[[ "$1" == "$REINSTALL_HOLD_VIRTUAL" ]]
 }
 hold_reinstall_dependencies
 assert_file_contains "$apk_log" "del $REINSTALL_HOLD_VIRTUAL" "hold_reinstall_dependencies should remove stale virtual package"
-assert_file_contains "$apk_log" "add --virtual $REINSTALL_HOLD_VIRTUAL $COMMON_REPO_PACKAGES kmod-nf-tproxy" "hold_reinstall_dependencies should install virtual dependency hold with resolved tproxy kmod"
+assert_file_contains "$apk_log" "add --virtual $REINSTALL_HOLD_VIRTUAL $REQUIRED_REPO_PACKAGES" "hold_reinstall_dependencies should install virtual dependency hold"
 assert_eq "1" "$REINSTALL_HOLD_ACTIVE" "hold_reinstall_dependencies should mark hold active"
 
 : > "$apk_log"

@@ -539,7 +539,10 @@ wait_for_service_stop() {
 
 restart_dnsmasq() {
 	[ -x "$DNSMASQ_INIT_SCRIPT" ] || return 0
-	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || warn "dnsmasq restart failed"
+	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || {
+		warn "dnsmasq restart failed"
+		return 1
+	}
 }
 
 ensure_dns_state_helpers() {

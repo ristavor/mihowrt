@@ -230,6 +230,10 @@ procd_close_instance() {
 	printf 'close\n' >>"$procd_log"
 }
 
+stop() {
+	printf 'stop\n' >>"$msg_log"
+}
+
 sleep() {
 	:
 }
@@ -270,6 +274,7 @@ export TEST_ORCH_CLEANUP_RC=0
 export TEST_ORCH_READY_RC=1
 assert_false "start_service should fail when service never becomes ready" start_service
 assert_file_contains "$orch_log" "service-ready" "start_service should wait for readiness before failing"
+assert_file_contains "$msg_log" "stop" "start_service should stop procd instance after readiness timeout"
 assert_file_contains "$msg_log" "ERROR: MihoWRT service did not become ready after start" "start_service should report readiness timeout"
 assert_file_not_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success when readiness never arrives"
 export TEST_ORCH_READY_RC=0
@@ -283,10 +288,6 @@ assert_file_contains "$msg_log" "Skipping MihoWRT service auto-start during inst
 [[ ! -s "$orch_log" ]] || fail "start_service should not call orchestrator when skip-start marker exists"
 [[ ! -s "$procd_log" ]] || fail "start_service should not open procd instance when skip-start marker exists"
 rm -f "$SKIP_START_FILE"
-
-stop() {
-	printf 'stop\n' >>"$msg_log"
-}
 
 start() {
 	printf 'start\n' >>"$msg_log"

@@ -88,6 +88,7 @@ start_service() {
 	procd_close_instance
 
 	if ! wait_for_service_ready; then
+		stop >/dev/null 2>&1 || true
 		msg "ERROR: MihoWRT service did not become ready after start"
 		return 1
 	fi

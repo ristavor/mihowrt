@@ -78,4 +78,31 @@ assert_true "sync_runtime_file should keep original cache file on copy failure" 
 assert_false "sync_runtime_file should not replace original cache file with symlink on copy failure" test -L "$failure_cache_src"
 assert_file_contains "$failure_cache_src" "cache-failure" "sync_runtime_file should preserve original cache data on copy failure"
 
+link_fail_rules_src="$tmpdir/link-failure/ruleset"
+link_fail_rules_dst="$tmpdir/link-failure-tmp/ruleset"
+link_fail_cache_src="$tmpdir/link-failure/cache.db"
+link_fail_cache_dst="$tmpdir/link-failure-tmp/cache.db"
+mkdir -p "$link_fail_rules_src"
+printf 'ruleset-link-failure\n' > "$link_fail_rules_src/original.txt"
+printf 'cache-link-failure\n' > "$link_fail_cache_src"
+
+ln() {
+	case "$*" in
+		"-s $link_fail_rules_dst $link_fail_rules_src.tmp."*|"-s $link_fail_cache_dst $link_fail_cache_src.tmp."*)
+			return 1
+			;;
+	esac
+	command ln "$@"
+}
+
+assert_false "sync_runtime_dir should fail when runtime symlink creation fails" sync_runtime_dir "$link_fail_rules_src" "$link_fail_rules_dst"
+assert_true "sync_runtime_dir should restore original ruleset dir after symlink failure" test -d "$link_fail_rules_src"
+assert_false "sync_runtime_dir should not leave failed ruleset symlink behind" test -L "$link_fail_rules_src"
+assert_file_contains "$link_fail_rules_src/original.txt" "ruleset-link-failure" "sync_runtime_dir should restore original ruleset data after symlink failure"
+
+assert_false "sync_runtime_file should fail when cache symlink creation fails" sync_runtime_file "$link_fail_cache_src" "$link_fail_cache_dst"
+assert_true "sync_runtime_file should restore original cache file after symlink failure" test -f "$link_fail_cache_src"
+assert_false "sync_runtime_file should not leave failed cache symlink behind" test -L "$link_fail_cache_src"
+assert_file_contains "$link_fail_cache_src" "cache-link-failure" "sync_runtime_file should restore original cache data after symlink failure"
+
 pass "runtime layout init is idempotent"

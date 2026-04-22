@@ -126,4 +126,26 @@ assert_file_contains "$rm_log" "-rf /opt/clash/proxy_providers" "remove_user_sta
 assert_file_not_contains "$rm_log" "-f /opt/clash/ruleset" "remove_user_state should not use rm -f for ruleset directory"
 assert_file_not_contains "$rm_log" "-f /opt/clash/proxy_providers" "remove_user_state should not use rm -f for provider directory"
 
+dns_warn_log="$tmpdir/dns.warn.log"
+DNSMASQ_INIT_SCRIPT="$tmpdir/dnsmasq.init"
+cat > "$DNSMASQ_INIT_SCRIPT" <<'EOF'
+#!/usr/bin/env bash
+exit "${TEST_DNSMASQ_RC:-0}"
+EOF
+chmod +x "$DNSMASQ_INIT_SCRIPT"
+
+warn() {
+	printf '%s\n' "$*" >>"$dns_warn_log"
+}
+
+: > "$dns_warn_log"
+export TEST_DNSMASQ_RC=1
+assert_false "restart_dnsmasq should fail when dnsmasq restart fails" restart_dnsmasq
+assert_file_contains "$dns_warn_log" "dnsmasq restart failed" "restart_dnsmasq should warn on restart failure"
+
+: > "$dns_warn_log"
+export TEST_DNSMASQ_RC=0
+assert_true "restart_dnsmasq should succeed when dnsmasq restart succeeds" restart_dnsmasq
+[[ ! -s "$dns_warn_log" ]] || fail "restart_dnsmasq should not warn on successful restart"
+
 pass "installer helper logic"

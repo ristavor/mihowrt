@@ -10,6 +10,9 @@ trap 'rm -rf "$tmpdir"' EXIT
 event_log="$tmpdir/events.log"
 init_log="$tmpdir/init.log"
 orch_log="$tmpdir/orch.log"
+tmpbin="$tmpdir/bin"
+
+mkdir -p "$tmpbin"
 
 export TEST_INIT_LOG="$init_log"
 export TEST_ORCH_LOG="$orch_log"
@@ -18,9 +21,12 @@ export TEST_INIT_RESTART_RC=0
 export TEST_INIT_START_RC=0
 export TEST_INIT_STOP_RC=0
 export TEST_WAIT_READY_RC=0
+export TEST_PGREP_RC=1
+export PATH="$tmpbin:$PATH"
 
 source_install_lib
 REAL_QUIESCE_POSTINSTALL_SERVICE="$(declare -f quiesce_postinstall_service)"
+REAL_INSTALL_SERVICE_RUNNING="$(declare -f service_running)"
 
 INIT_SCRIPT="$tmpdir/init.sh"
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
@@ -54,7 +60,12 @@ printf '%s\n' "$*" >>"$TEST_ORCH_LOG"
 exit 0
 EOF
 
-chmod +x "$INIT_SCRIPT" "$ORCHESTRATOR"
+cat > "$tmpbin/pgrep" <<'EOF'
+#!/usr/bin/env bash
+exit "${TEST_PGREP_RC:-1}"
+EOF
+
+chmod +x "$INIT_SCRIPT" "$ORCHESTRATOR" "$tmpbin/pgrep"
 
 log() {
 	printf 'log:%s\n' "$*" >>"$event_log"
@@ -140,6 +151,31 @@ remove_user_state() {
 apk() {
 	printf 'apk:%s\n' "$*" >>"$event_log"
 }
+
+cat > "$tmpdir/foreign-service" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$tmpdir/foreign-service"
+
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+SERVICE_PID_FILE="$tmpdir/install-service.pid"
+ORCHESTRATOR="$tmpdir/missing-orchestrator"
+TEST_PGREP_RC=1
+"$tmpdir/foreign-service" &
+foreign_pid="$!"
+printf '%s\n' "$foreign_pid" > "$SERVICE_PID_FILE"
+eval "$REAL_INSTALL_SERVICE_RUNNING"
+assert_false "installer service_running should reject stale pid file when cmdline does not match" service_running
+kill "$foreign_pid" 2>/dev/null || true
+wait "$foreign_pid" 2>/dev/null || true
+
+service_running() {
+	return "${TEST_SERVICE_RUNNING_RC:-0}"
+}
+ORCHESTRATOR="$tmpdir/orchestrator.sh"
 
 : > "$event_log"
 : > "$init_log"

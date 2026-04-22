@@ -506,20 +506,44 @@ service_enabled() {
 	"$INIT_SCRIPT" enabled >/dev/null 2>&1
 }
 
+service_pid_matches_pattern() {
+	local pid="$1"
+	local run_pattern="$2"
+	local cmdline=""
+
+	[ -n "$pid" ] || return 1
+	[ -n "$run_pattern" ] || return 0
+	[ -r "/proc/$pid/cmdline" ] || return 1
+
+	cmdline="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+	[ -n "$cmdline" ] || return 1
+
+	case "$cmdline" in
+		*"$run_pattern"*)
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
 service_running() {
+	local pid=""
+	local run_pattern="${ORCHESTRATOR} run-service"
+
 	if [ -x "$ORCHESTRATOR" ] && "$ORCHESTRATOR" service-running >/dev/null 2>&1; then
 		return 0
 	fi
 
-	local pid=""
-
 	if [ -f "$SERVICE_PID_FILE" ]; then
 		IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
-		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			service_pid_matches_pattern "$pid" "$run_pattern" && return 0
+		fi
 	fi
 
 	if have_command pgrep; then
-		pgrep -f "$ORCHESTRATOR run-service" >/dev/null 2>&1 && return 0
+		pgrep -f "$run_pattern" >/dev/null 2>&1 && return 0
 	fi
 
 	return 1

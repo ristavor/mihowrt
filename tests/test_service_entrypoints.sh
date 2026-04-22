@@ -226,7 +226,7 @@ assert_file_contains "$orch_log" "recover" "start_service should run crash recov
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "cleanup" "start_service should clean stale runtime state before procd start"
 assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start_service should register run-service command with procd"
-assert_file_contains "$procd_log" "set:file $CLASH_CONFIG /etc/config/mihowrt /opt/clash/lst/always_proxy_dst.txt /opt/clash/lst/always_proxy_src.txt" "start_service should register config and list file triggers"
+assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
 assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim readiness before runtime start completes"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
 

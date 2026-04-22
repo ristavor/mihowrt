@@ -42,7 +42,7 @@ ensure_dir() {
 
 dns_restart_service() {
 	printf 'restart\n' >>"$dns_log"
-	return 0
+	return "${TEST_DNS_RESTART_RC:-0}"
 }
 
 uci() {
@@ -239,6 +239,44 @@ assert_file_not_contains "$uci_log" "commit dhcp" "dns_restore_fallback should n
 assert_file_contains "$uci_log" "revert dhcp" "dns_restore_fallback should revert staged dhcp changes after delete failure"
 [[ ! -s "$dns_log" ]] || fail "dns_restore_fallback should not restart dnsmasq after delete failure"
 unset TEST_FAIL_UCI_CMD
+
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="1000"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE="/tmp/original.resolv"
+TEST_CURRENT_SERVERS=$'1.1.1.1\n9.9.9.9'
+dns_backup_state
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_DNS_RESTART_RC=1
+assert_false "dns_restore should fail when dnsmasq restart fails after commit" dns_restore
+assert_file_contains "$uci_log" "commit dhcp" "dns_restore should still commit restored state before restart failure"
+assert_file_contains "$dns_log" "restart" "dns_restore should attempt dnsmasq restart before failing"
+[[ -e "$runtime_backup_file" ]] || fail "dns_restore should keep runtime backup after restart failure"
+assert_file_not_contains "$event_log" "log:dnsmasq settings restored" "dns_restore should not report success when dnsmasq restart fails"
+TEST_DNS_RESTART_RC=0
+
+: > "$uci_log"
+: > "$dns_log"
+: > "$event_log"
+mkdir -p "$(dirname "$runtime_backup_file")"
+: > "$runtime_backup_file"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_DNS_RESTART_RC=1
+assert_false "dns_restore_fallback should fail when dnsmasq restart fails after commit" dns_restore_fallback
+assert_file_contains "$uci_log" "commit dhcp" "dns_restore_fallback should still commit fallback state before restart failure"
+assert_file_contains "$dns_log" "restart" "dns_restore_fallback should attempt dnsmasq restart before failing"
+[[ -e "$runtime_backup_file" ]] || fail "dns_restore_fallback should keep runtime backup after restart failure"
+assert_file_not_contains "$event_log" "log:dnsmasq fallback state already active" "dns_restore_fallback should not report no-op success when restart fails"
+TEST_DNS_RESTART_RC=0
 
 : > "$uci_log"
 : > "$dns_log"

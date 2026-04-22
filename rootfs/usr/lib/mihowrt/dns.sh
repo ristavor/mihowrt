@@ -443,7 +443,10 @@ dns_restore_fallback() {
 		dns_revert_staged_changes
 		return 1
 	}
-	dns_restart_service || warn "dnsmasq restart failed during fallback restore"
+	if ! dns_restart_service; then
+		err "dnsmasq restart failed during fallback restore"
+		return 1
+	fi
 	dns_cleanup_backup_files
 	return 0
 }
@@ -602,7 +605,10 @@ dns_restore() {
 		dns_revert_staged_changes
 		return 1
 	}
-	dns_restart_service || warn "dnsmasq restart failed during restore"
+	if ! dns_restart_service; then
+		err "dnsmasq restart failed during restore"
+		return 1
+	fi
 
 	dns_cleanup_backup_files
 	log "dnsmasq settings restored"

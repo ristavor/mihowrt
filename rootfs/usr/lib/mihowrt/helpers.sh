@@ -199,6 +199,26 @@ require_command() {
 	}
 }
 
+process_pid_matches_pattern() {
+	local pid="$1"
+	local run_pattern="${2:-}"
+	local cmdline=""
+
+	[ -n "$run_pattern" ] || return 0
+	[ -r "/proc/$pid/cmdline" ] || return 1
+
+	cmdline="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+	[ -n "$cmdline" ] || return 1
+
+	case "$cmdline" in
+		*"$run_pattern"*)
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
 process_running_state() {
 	local pid_file="$1"
 	local run_pattern="${2:-}"
@@ -206,7 +226,9 @@ process_running_state() {
 
 	if [ -f "$pid_file" ]; then
 		IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
-		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return 0
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			process_pid_matches_pattern "$pid" "$run_pattern" && return 0
+		fi
 	fi
 
 	if [ -n "$run_pattern" ] && have_command pgrep; then

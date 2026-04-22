@@ -16,18 +16,6 @@ msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
 }
 
-wait_for_stop_complete() {
-	local tries=0
-
-	while [ "$tries" -lt 15 ]; do
-		[ ! -f "$SERVICE_PID_FILE" ] && return 0
-		sleep 1
-		tries=$((tries + 1))
-	done
-
-	return 1
-}
-
 service_running() {
 	[ -x "$ORCHESTRATOR" ] || return 1
 	"$ORCHESTRATOR" service-running >/dev/null 2>&1
@@ -72,7 +60,6 @@ start_service() {
 	procd_set_param stdout 1
 	procd_set_param stderr 1
 	procd_set_param respawn 3600 5 5
-	procd_set_param file "$CLASH_CONFIG" /etc/config/mihowrt /opt/clash/lst/always_proxy_dst.txt /opt/clash/lst/always_proxy_src.txt
 	procd_close_instance
 
 	msg "MihoWRT service registered with procd"

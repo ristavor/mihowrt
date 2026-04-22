@@ -423,6 +423,36 @@ restore_user_state() {
 	return 0
 }
 
+: > "$event_log"
+kernel_backup_available() {
+	return 0
+}
+
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 0
+}
+
+restore_runtime_state() {
+	printf 'restore_runtime_state\n' >>"$event_log"
+	if [ "${TEST_RESTORE_RUNTIME_FAIL_ONCE:-0}" = "1" ]; then
+		TEST_RESTORE_RUNTIME_FAIL_ONCE=0
+		return 1
+	fi
+	return 0
+}
+
+TEST_RESTORE_RUNTIME_FAIL_ONCE=1
+perform_package_action
+assert_eq "2" "$(grep -c '^restore_runtime_state$' "$event_log" || true)" "perform_package_action should retry runtime restore after kernel rollback"
+assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel before retrying runtime restore"
+assert_file_contains "$event_log" "warn:runtime restore failed after kernel update; retrying with previous Mihomo kernel" "perform_package_action should warn before retrying with previous kernel"
+
+restore_runtime_state() {
+	printf 'restore_runtime_state\n' >>"$event_log"
+	return 0
+}
+
 verify_required_packages() {
 	MISSING_PACKAGES="jq nftables"
 	printf 'verify_required_packages\n' >>"$event_log"

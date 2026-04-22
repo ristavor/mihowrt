@@ -16,6 +16,7 @@ source_install_lib
 export CLASH_BIN="$tmpdir/clash"
 export KERNEL_TMP_DIR="$tmpdir/kernel-update"
 export KERNEL_LOG="$kernel_log"
+kernel_backup_path="$KERNEL_TMP_DIR/clash.previous"
 
 log() {
 	printf '%s\n' "$*" >>"$KERNEL_LOG"
@@ -71,33 +72,31 @@ download_file() {
 kernel_install_or_update
 assert_file_contains "$KERNEL_LOG" "Updated Mihomo kernel to v1.19.4 for arch amd64" "kernel_install_or_update should log successful upgrade"
 assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_install_or_update should install downloaded kernel"
-[[ -x "$CLASH_BIN.bak" ]] || fail "kernel_install_or_update should keep backup of previous kernel"
-assert_eq "v1.19.3" "$("$CLASH_BIN.bak" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_install_or_update should preserve previous kernel in backup"
+[[ -x "$kernel_backup_path" ]] || fail "kernel_install_or_update should keep previous kernel in tmpfs backup during reinstall window"
+assert_eq "v1.19.3" "$("$kernel_backup_path" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_install_or_update should preserve previous kernel in tmpfs backup"
+[[ ! -e "$CLASH_BIN.bak" ]] || fail "kernel_install_or_update should not leave persistent flash backup beside clash binary"
+
+restore_kernel_backup
+assert_eq "v1.19.3" "$(current_mihomo_version)" "restore_kernel_backup should restore previous kernel from tmpfs backup"
+[[ ! -e "$kernel_backup_path" ]] || fail "restore_kernel_backup should remove tmpfs backup after restore"
 
 write_kernel_script "$CLASH_BIN" "1.19.3"
 write_kernel_script "$asset_script" "1.19.3"
 gzip -c "$asset_script" > "$asset_gz"
-write_kernel_script "$CLASH_BIN.bak" "0.0.1"
-backup_before_identical_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
 
 : > "$KERNEL_LOG"
 kernel_install_or_update
 assert_file_contains "$KERNEL_LOG" "Downloaded Mihomo kernel is identical to installed binary" "kernel_install_or_update should skip replacing identical downloaded kernel"
 assert_eq "v1.19.3" "$(current_mihomo_version)" "kernel_install_or_update should keep installed kernel when downloaded binary is identical"
-backup_after_identical_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
-assert_eq "$backup_before_identical_mtime" "$backup_after_identical_mtime" "kernel_install_or_update should not rewrite backup when identical download is skipped"
+[[ ! -e "$kernel_backup_path" ]] || fail "kernel_install_or_update should not stage tmpfs backup when downloaded binary is identical"
 
 write_kernel_script "$asset_script" "1.19.4"
 gzip -c "$asset_script" > "$asset_gz"
 write_kernel_script "$CLASH_BIN" "1.19.3"
-cp "$CLASH_BIN" "$CLASH_BIN.bak"
-touch -d '2024-01-01 00:00:00' "$CLASH_BIN.bak"
-backup_before_upgrade_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
 
 : > "$KERNEL_LOG"
 kernel_install_or_update
-backup_after_upgrade_mtime="$(stat -c %Y "$CLASH_BIN.bak")"
-assert_eq "$backup_before_upgrade_mtime" "$backup_after_upgrade_mtime" "kernel_install_or_update should skip rewriting identical backup copy"
 assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_install_or_update should still install newer kernel when backup already matches current"
+assert_eq "v1.19.3" "$("$kernel_backup_path" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_install_or_update should refresh tmpfs backup to current pre-upgrade kernel"
 
 pass "installer kernel update branches"

@@ -110,8 +110,7 @@ return view.extend({
 
 		const changes = await uci.changes();
 		if (hasPendingUciChanges(changes)) {
-			ui.changes.apply(mode == '0');
-			return;
+			return ui.changes.apply(mode == '0');
 		}
 
 		if (!listChanged || !wasRunning)

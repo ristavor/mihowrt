@@ -51,13 +51,24 @@ assert_eq "v1.18.7" "$(current_mihomo_version)" "current_mihomo_version reads Mi
 
 export SERVICE_PID_FILE="$tmpdir/mihomo.pid"
 export ORCHESTRATOR="/usr/bin/mihowrt"
+export SERVICE_RUN_PATTERN="$tmpdir/mihowrt-service run-service"
 
-sleep 30 &
+cat > "$tmpdir/mihowrt-service" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$tmpdir/mihowrt-service"
+
+"$tmpdir/mihowrt-service" run-service &
 test_pid="$!"
 printf '%s\n' "$test_pid" > "$SERVICE_PID_FILE"
 assert_true "service_running_state should accept live pid file" service_running_state
 kill "$test_pid" 2>/dev/null || true
 wait "$test_pid" 2>/dev/null || true
+
+printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+export TEST_PGREP_RC=1
+assert_false "service_running_state should reject stale pid file when cmdline does not match" service_running_state
 
 rm -f "$SERVICE_PID_FILE"
 export TEST_PGREP_RC=0

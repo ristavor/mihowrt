@@ -88,6 +88,7 @@ uci() {
 
 restart_dnsmasq() {
 	printf 'restart\n' >>"$DNS_LOG"
+	return "${TEST_DNSMASQ_RESTART_RC:-0}"
 }
 
 cat > "$backup_file" <<'EOF'
@@ -247,6 +248,18 @@ assert_file_contains "$DNS_LOG" "restart" "restore_dns_from_backup_file should r
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_DNSMASQ_RESTART_RC=1
+assert_false "restore_dns_from_backup_file should fail when dnsmasq restart fails after commit" restore_dns_from_backup_file "$backup_file"
+assert_file_contains "$UCI_LOG" "commit dhcp" "restore_dns_from_backup_file should still commit before restart failure"
+assert_file_contains "$DNS_LOG" "restart" "restore_dns_from_backup_file should attempt dnsmasq restart before failing"
+TEST_DNSMASQ_RESTART_RC=0
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
 TEST_CURRENT_CACHESIZE="1000"
 TEST_CURRENT_NORESOLV="1"
 TEST_CURRENT_RESOLVFILE="/tmp/original.resolv"
@@ -293,6 +306,18 @@ assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].noresolv=0" "restore_syste
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=$DNS_AUTO_RESOLVFILE" "restore_system_dns_defaults fallback should restore auto resolvfile"
 assert_file_contains "$UCI_LOG" "commit dhcp" "restore_system_dns_defaults fallback should commit dhcp config"
 assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults fallback should restart dnsmasq"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_DNSMASQ_RESTART_RC=1
+assert_false "restore_dns_defaults_fallback should fail when dnsmasq restart fails after commit" restore_dns_defaults_fallback
+assert_file_contains "$UCI_LOG" "commit dhcp" "restore_dns_defaults_fallback should still commit before restart failure"
+assert_file_contains "$DNS_LOG" "restart" "restore_dns_defaults_fallback should attempt dnsmasq restart before failing"
+TEST_DNSMASQ_RESTART_RC=0
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"

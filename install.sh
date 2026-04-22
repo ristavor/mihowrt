@@ -9,6 +9,7 @@ RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releas
 MIHOMO_RELEASES_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 TMP_APK=""
 BACKUP_DIR=""
+KERNEL_BACKUP_TMP=""
 WAS_ENABLED=0
 WAS_RUNNING=0
 REINSTALL_HOLD_ACTIVE=0
@@ -49,6 +50,7 @@ cleanup() {
 	if [ -n "$BACKUP_DIR" ] && [ "$PRESERVE_BACKUP_DIR" != "1" ]; then
 		rm -rf "$BACKUP_DIR"
 	fi
+	rm -rf "$KERNEL_TMP_DIR"
 	rm -f "$SKIP_START_FILE"
 	release_reinstall_dependencies
 }
@@ -73,6 +75,41 @@ create_tmp_apk() {
 
 create_backup_dir() {
 	BACKUP_DIR="$(mktemp -d "/tmp/${PKG_NAME}.backup.XXXXXX")"
+}
+
+kernel_backup_available() {
+	[ -n "$KERNEL_BACKUP_TMP" ] && [ -f "$KERNEL_BACKUP_TMP" ]
+}
+
+clear_kernel_backup() {
+	[ -n "$KERNEL_BACKUP_TMP" ] && rm -f "$KERNEL_BACKUP_TMP"
+	KERNEL_BACKUP_TMP=""
+}
+
+stage_kernel_backup() {
+	[ -f "$CLASH_BIN" ] || {
+		clear_kernel_backup
+		return 0
+	}
+
+	mkdir -p "$KERNEL_TMP_DIR" || return 1
+	KERNEL_BACKUP_TMP="$KERNEL_TMP_DIR/clash.previous"
+
+	if [ ! -f "$KERNEL_BACKUP_TMP" ] || ! cmp -s "$CLASH_BIN" "$KERNEL_BACKUP_TMP" 2>/dev/null; then
+		cp -f "$CLASH_BIN" "$KERNEL_BACKUP_TMP" || return 1
+	fi
+
+	return 0
+}
+
+restore_kernel_backup() {
+	kernel_backup_available || return 0
+
+	mkdir -p "${CLASH_BIN%/*}" || return 1
+	cp -f "$KERNEL_BACKUP_TMP" "$CLASH_BIN" || return 1
+	clear_kernel_backup
+	log "Restored previous Mihomo kernel"
+	return 0
 }
 
 set_skip_start() {
@@ -178,6 +215,7 @@ kernel_install_or_update() {
 	local arch release_json latest_tag latest_ver current_ver asset_name asset_url
 	local tmpgz tmpbin bindir
 
+	clear_kernel_backup
 	require_command gzip
 
 	arch="$(detect_mihomo_arch)" || {
@@ -247,11 +285,11 @@ kernel_install_or_update() {
 		return 0
 	fi
 
-	if [ -f "$CLASH_BIN" ]; then
-		if [ ! -f "$CLASH_BIN.bak" ] || ! cmp -s "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null; then
-			cp -f "$CLASH_BIN" "$CLASH_BIN.bak" 2>/dev/null || true
-		fi
-	fi
+	stage_kernel_backup || {
+		rm -f "$tmpgz" "$tmpbin"
+		err "failed to stage previous Mihomo kernel"
+		return 1
+	}
 	mv -f "$tmpbin" "$CLASH_BIN" || {
 		rm -f "$tmpgz" "$tmpbin"
 		err "failed to install Mihomo kernel"
@@ -1125,7 +1163,6 @@ restore_dns_from_backup_file() {
 		return 1
 	}
 	restart_dnsmasq
-	return 0
 }
 
 restore_dns_defaults_fallback() {
@@ -1171,7 +1208,6 @@ restore_dns_defaults_fallback() {
 		return 1
 	}
 	restart_dnsmasq
-	return 0
 }
 
 restore_system_dns_defaults() {
@@ -1302,8 +1338,10 @@ restore_runtime_state() {
 
 rollback_reinstall_state() {
 	[ "${1:-0}" = "1" ] || return 0
+	restore_kernel_backup || true
 	restore_runtime_state || true
 	release_reinstall_dependencies
+	clear_kernel_backup
 }
 
 handle_install_failure() {
@@ -1323,12 +1361,14 @@ handle_install_failure() {
 	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after incomplete package install"
 
 	if [ "$reinstall" = "1" ]; then
+		restore_kernel_backup || warn "failed to restore previous Mihomo kernel after install failure"
 		if ! restore_user_state; then
 			preserve_backup_dir
 			err "failed to restore saved config and policy files"
 		fi
 	fi
 
+	clear_kernel_backup
 	warn "MihoWRT service was disabled because package install is incomplete"
 	return 1
 }
@@ -1477,11 +1517,24 @@ perform_package_action() {
 			err "failed to restore saved config and policy state"
 			return 1
 		fi
-		restore_runtime_state || return 1
+		if ! restore_runtime_state; then
+			if kernel_backup_available; then
+				warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
+				restore_kernel_backup || {
+					err "failed to restore previous Mihomo kernel after runtime restore failure"
+					return 1
+				}
+				restore_runtime_state || return 1
+			else
+				return 1
+			fi
+		fi
+		clear_kernel_backup
 		release_reinstall_dependencies
 		return 0
 	fi
 
+	clear_kernel_backup
 	start_fresh_install_service || return 1
 	return 0
 }

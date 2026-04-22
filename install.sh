@@ -1513,6 +1513,9 @@ perform_package_action() {
 			if [ -x "$INIT_SCRIPT" ]; then
 				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
 			fi
+			if kernel_backup_available; then
+				restore_kernel_backup || warn "failed to restore previous Mihomo kernel after user-state restore failure"
+			fi
 			preserve_backup_dir
 			err "failed to restore saved config and policy state"
 			return 1

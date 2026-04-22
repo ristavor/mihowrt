@@ -30,6 +30,9 @@ const context = {
 	fs: {
 		exec: async() => ({ code: 1, stderr: '' })
 	},
+	execHelper: {
+		errorDetail: result => String(result?.stderr || result?.stdout || '').trim() || 'unknown error'
+	},
 	callServiceList: async() => ({ mihowrt: { instances: { main: { running: true } } } })
 };
 

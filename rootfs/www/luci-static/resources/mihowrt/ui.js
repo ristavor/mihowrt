@@ -3,6 +3,7 @@
 'require fs';
 'require ui';
 'require rpc';
+'require mihowrt.exec as execHelper';
 
 const callServiceList = rpc.declare({
 	object: 'service',
@@ -21,7 +22,7 @@ async function probeServiceStatus(serviceScript) {
 	if (result.code === 1)
 		return false;
 
-	throw new Error(execErrorDetail(result));
+	throw new Error(execHelper.errorDetail(result));
 }
 
 async function getServiceStatus(serviceName, serviceScript) {
@@ -55,8 +56,7 @@ async function getServiceStatus(serviceName, serviceScript) {
 }
 
 function execErrorDetail(result) {
-	const detail = String(result?.stderr || result?.stdout || '').trim();
-	return detail || _('unknown error');
+	return execHelper.errorDetail(result);
 }
 
 function notify(message, level) {

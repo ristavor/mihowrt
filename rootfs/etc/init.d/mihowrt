@@ -11,6 +11,8 @@ CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
+EXTRA_COMMANDS="apply"
+EXTRA_HELP="        apply   Validate and apply on-disk MihoWRT config/policy"
 
 msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
@@ -21,15 +23,7 @@ service_running() {
 	"$ORCHESTRATOR" service-running >/dev/null 2>&1
 }
 
-start_service() {
-	[ -f "$SKIP_START_FILE" ] && {
-		msg "Skipping MihoWRT service auto-start during installer transaction"
-		return 0
-	}
-
-	msg "Starting MihoWRT service..."
-	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
-
+validate_service_inputs() {
 	[ -x "$CLASH_BIN" ] || {
 		msg "ERROR: Mihomo binary not found at $CLASH_BIN"
 		return 1
@@ -47,6 +41,20 @@ start_service() {
 
 	if ! "$ORCHESTRATOR" validate; then
 		msg "ERROR: Policy validation failed"
+		return 1
+	fi
+}
+
+start_service() {
+	[ -f "$SKIP_START_FILE" ] && {
+		msg "Skipping MihoWRT service auto-start during installer transaction"
+		return 0
+	}
+
+	msg "Starting MihoWRT service..."
+	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
+
+	if ! validate_service_inputs; then
 		return 1
 	fi
 
@@ -83,6 +91,33 @@ reload_service() {
 	fi
 
 	msg "MihoWRT policy reloaded"
+}
+
+apply() {
+	msg "Applying MihoWRT on-disk config..."
+
+	if ! validate_service_inputs; then
+		return 1
+	fi
+
+	if ! service_running; then
+		msg "MihoWRT service is not running; validated on-disk config only"
+		return 0
+	fi
+
+	msg "MihoWRT service is running; restarting to apply on-disk changes"
+
+	if ! stop; then
+		msg "ERROR: Failed to stop MihoWRT service for apply"
+		return 1
+	fi
+
+	if ! start; then
+		msg "ERROR: Failed to restart MihoWRT service with updated on-disk config"
+		return 1
+	fi
+
+	msg "MihoWRT on-disk changes applied"
 }
 
 service_triggers() {

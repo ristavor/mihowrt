@@ -279,6 +279,27 @@ assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy
 assert_file_contains "$orch_log" "service-running" "reload_service should still ask orchestrator for service state when service is stopped"
 assert_file_not_contains "$orch_log" "reload-policy" "reload_service should not invoke policy reload when service is stopped"
 
+: > "$msg_log"
+: > "$orch_log"
+printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+apply
+assert_file_contains "$msg_log" "Applying MihoWRT on-disk config..." "apply should announce on-disk apply flow"
+assert_file_contains "$msg_log" "MihoWRT service is running; restarting to apply on-disk changes" "apply should restart running service after validation"
+assert_file_contains "$msg_log" "stop" "apply should stop running service before restart"
+assert_file_contains "$msg_log" "start" "apply should start service after stop during apply"
+assert_file_contains "$msg_log" "MihoWRT on-disk changes applied" "apply should confirm successful on-disk apply"
+assert_file_contains "$orch_log" "validate" "apply should validate policy before restart"
+assert_file_contains "$orch_log" "service-running" "apply should check service state before restart"
+
+: > "$msg_log"
+: > "$orch_log"
+rm -f "$SERVICE_PID_FILE"
+apply
+assert_file_contains "$msg_log" "MihoWRT service is not running; validated on-disk config only" "apply should avoid starting stopped service implicitly"
+assert_file_contains "$orch_log" "validate" "apply should still validate config when service is stopped"
+assert_file_contains "$orch_log" "service-running" "apply should still inspect running state when service is stopped"
+assert_file_not_contains "$msg_log" "start" "apply should not start stopped service automatically"
+
 (
 	source_init_recover_lib
 	ORCHESTRATOR="$tmpdir/orchestrator.sh"

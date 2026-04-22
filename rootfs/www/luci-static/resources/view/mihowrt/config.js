@@ -547,7 +547,7 @@ return view.extend({
 				}, serviceEnabledBadgeText(serviceState.enabled)))
 			]),
 			E('h2', _('MihoWRT Configuration')),
-			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply.')),
+			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
 				editorNode,
 				E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 					(saveApplyButton = E('button', {

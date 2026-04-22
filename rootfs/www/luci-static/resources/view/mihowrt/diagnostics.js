@@ -158,7 +158,7 @@ return view.extend({
 						: (!active.present
 							? E('div', { style: 'color:#666;' }, _('No applied runtime snapshot is active right now.'))
 						: (!status.runtimeMatchesDesired
-							? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk.'))
+							? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk. Run "service mihowrt apply" or restart service after direct file edits.'))
 							: (!status.runtimeSafeReloadReady
 								? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
 								: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))))))

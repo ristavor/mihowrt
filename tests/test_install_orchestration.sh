@@ -418,6 +418,19 @@ assert_file_contains "$event_log" "err:failed to restore saved config and policy
 assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after restore failure"
 assert_file_contains "$init_log" "disable" "perform_package_action should disable service after restore_user_state failure"
 
+: > "$event_log"
+: > "$init_log"
+kernel_backup_available() {
+	return 0
+}
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 0
+}
+assert_false "perform_package_action should restore previous kernel when restore_user_state fails after kernel update" perform_package_action
+assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel on restore_user_state failure when backup exists"
+assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should still preserve backup dir after restoring previous kernel"
+
 restore_user_state() {
 	printf 'restore_user_state\n' >>"$event_log"
 	return 0

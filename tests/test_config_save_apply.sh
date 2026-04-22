@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+source "$(dirname "$0")/testlib.sh"
+
+node <<'EOF'
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const rootDir = process.cwd();
+const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
+const controlsMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
+const updateMatch = source.match(/function updateControlDisabledState[\s\S]*?\n}\n\nasync function withServiceActionLock/);
+const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
+const tempPathMatch = source.match(/function makeTempConfigPath[\s\S]*?\n}\n\nasync function removeTempConfig/);
+const removeMatch = source.match(/async function removeTempConfig[\s\S]*?\n}\n\nasync function restartRunningService/);
+const restartMatch = source.match(/async function restartRunningService[\s\S]*?\n}\n\nreturn view\.extend/);
+const saveStart = source.indexOf('const saveAndApply = async function() {');
+const saveEnd = source.indexOf('\n\n\t\tconst page = E([', saveStart);
+
+if (!controlsMatch)
+	throw new Error('controlsBusy() not found');
+if (!updateMatch)
+	throw new Error('updateControlDisabledState() not found');
+if (!editorMatch)
+	throw new Error('editorContentForSave() not found');
+if (!tempPathMatch)
+	throw new Error('makeTempConfigPath() not found');
+if (!removeMatch)
+	throw new Error('removeTempConfig() not found');
+if (!restartMatch)
+	throw new Error('restartRunningService() not found');
+if (saveStart === -1 || saveEnd === -1)
+	throw new Error('saveAndApply() not found');
+
+const controlsFnSource = controlsMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
+const updateFnSource = updateMatch[0].replace(/\n\nasync function withServiceActionLock$/, '');
+const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
+const tempPathFnSource = tempPathMatch[0].replace(/\n\nasync function removeTempConfig$/, '');
+const removeFnSource = removeMatch[0].replace(/\n\nasync function restartRunningService$/, '');
+const restartFnSource = restartMatch[0].replace(/\n\nreturn view\.extend$/, '');
+const saveFnSource = source
+	.slice(saveStart, saveEnd)
+	.trim()
+	.replace(/^const saveAndApply = /, '')
+	.replace(/;$/, '');
+
+function assert(condition, message) {
+	if (!condition)
+		throw new Error(message);
+}
+
+function createContext(overrides = {}) {
+	const context = {
+		TMP_CONFIG_PREFIX: '/tmp/mihowrt-config',
+		SERVICE_NAME: 'mihowrt',
+		SERVICE_SCRIPT: '/etc/init.d/mihowrt',
+		startStopButton: { disabled: false },
+		enableDisableButton: { disabled: false },
+		dashboardButton: { disabled: false },
+		saveApplyButton: { disabled: false },
+		editor: {
+			getValue: () => 'mode: direct\n'
+		},
+		writeCalls: [],
+		execCalls: [],
+		notifications: [],
+		appliedStates: [],
+		refreshCalls: 0,
+		serviceStatusCalls: 0,
+		disabledDuringWrite: false,
+		disabledDuringApply: false,
+		fs: {
+			write: async(path, value) => {
+				context.disabledDuringWrite = context.saveApplyButton.disabled;
+				context.writeCalls.push({ path, value });
+			},
+			exec: async(cmd, args) => {
+				context.execCalls.push({ cmd, args });
+				return { code: 0, stdout: '', stderr: '' };
+			}
+		},
+		backendHelper: {
+			applyConfig: async(path) => {
+				context.disabledDuringApply = context.saveApplyButton.disabled;
+				context.applyConfigPath = path;
+			}
+		},
+		mihowrtUi: {
+			getServiceStatus: async() => {
+				context.serviceStatusCalls += 1;
+				return true;
+			},
+			execErrorDetail: result => String(result?.stderr || result?.stdout || '').trim() || 'unknown error',
+			notify: (message, level) => context.notifications.push({ message, level })
+		},
+		pollServiceState: async(predicate) => {
+			const settled = { running: true, enabled: true, ready: true };
+			context.pollPredicateResult = predicate(settled);
+			return settled;
+		},
+		refreshServiceState: async() => {
+			context.refreshCalls += 1;
+			return { running: true, enabled: true, ready: true };
+		},
+		applyServiceState: (running, enabled) => context.appliedStates.push({ running, enabled }),
+		Date: { now: () => 1700000000000 },
+		Math
+	};
+
+	Object.assign(context, overrides);
+	vm.createContext(context);
+	vm.runInContext(`
+function _(value) { return value; }
+if (!String.prototype.format) {
+	String.prototype.format = function() {
+		let i = 0;
+		const args = arguments;
+		return this.replace(/%[ds]/g, () => String(args[i++]));
+	};
+}
+let startStopButton = globalThis.startStopButton;
+let enableDisableButton = globalThis.enableDisableButton;
+let dashboardButton = globalThis.dashboardButton;
+let saveApplyButton = globalThis.saveApplyButton;
+let editor = globalThis.editor;
+let serviceActionInFlight = false;
+let saveInFlight = false;
+let savedConfigContent = 'mode: old\\n';
+${controlsFnSource}
+${updateFnSource}
+${editorFnSource}
+${tempPathFnSource}
+${removeFnSource}
+${restartFnSource}
+const saveAndApply = ${saveFnSource};
+globalThis.saveAndApply = saveAndApply;
+globalThis.getSavedConfigContent = () => savedConfigContent;
+globalThis.getSaveInFlight = () => saveInFlight;
+`, context);
+
+	return context;
+}
+
+(async() => {
+	const success = createContext();
+	await success.saveAndApply();
+
+	assert(success.serviceStatusCalls === 1, 'saveAndApply should read service state before apply');
+	assert(success.writeCalls.length === 1, 'saveAndApply should write temp config once');
+	assert(success.writeCalls[0].value === 'mode: direct\n', 'saveAndApply should persist editor contents unchanged');
+	assert(success.applyConfigPath === success.writeCalls[0].path, 'saveAndApply should pass temp path to backend apply');
+	assert(success.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should restart running service after apply');
+	assert(!success.execCalls.some(call => call.cmd === '/bin/sh'), 'saveAndApply should not remove temp config after successful backend handoff');
+	assert(success.pollPredicateResult === true, 'saveAndApply should wait for ready service state after restart');
+	assert(success.appliedStates.length === 1 && success.appliedStates[0].running === true && success.appliedStates[0].enabled === true, 'saveAndApply should apply settled running state after restart');
+	assert(success.refreshCalls === 0, 'saveAndApply should not force refresh on successful restart');
+	assert(success.disabledDuringWrite === true && success.disabledDuringApply === true, 'saveAndApply should lock controls while save is in flight');
+	assert(success.getSavedConfigContent() === 'mode: direct\n', 'saveAndApply should update saved content after success');
+	assert(success.getSaveInFlight() === false, 'saveAndApply should clear save lock after success');
+	assert(success.saveApplyButton.disabled === false, 'saveAndApply should re-enable controls after success');
+	assert(success.notifications.some(item => item.level === 'info' && String(item.message).includes('Configuration saved successfully.')), 'saveAndApply should report config save success');
+	assert(success.notifications.some(item => item.level === 'info' && String(item.message).includes('Service restarted successfully.')), 'saveAndApply should report service restart success');
+
+	const failure = createContext();
+	failure.backendHelper.applyConfig = async() => {
+		throw new Error('apply broke');
+	};
+	await failure.saveAndApply();
+
+	assert(failure.writeCalls.length === 1, 'saveAndApply should still write temp config before backend failure');
+	assert(failure.execCalls.some(call => call.cmd === '/bin/sh' && call.args[0] === '-c'), 'saveAndApply should remove temp config after backend failure');
+	assert(!failure.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should not restart service when backend apply fails');
+	assert(failure.getSaveInFlight() === false, 'saveAndApply should clear save lock after backend failure');
+	assert(failure.saveApplyButton.disabled === false, 'saveAndApply should re-enable controls after backend failure');
+	assert(failure.notifications.some(item => item.level === 'error' && String(item.message).includes('Unable to save contents: apply broke')), 'saveAndApply should surface backend apply failure');
+})().catch(err => {
+	throw err;
+});
+EOF
+
+pass "config save/apply flow"

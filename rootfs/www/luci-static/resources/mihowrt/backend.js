@@ -1,6 +1,7 @@
 'use strict';
 'require baseclass';
 'require fs';
+'require mihowrt.exec as execHelper';
 
 const BACKEND = '/usr/bin/mihowrt';
 
@@ -81,11 +82,6 @@ function emptyLogState() {
 	};
 }
 
-function execErrorDetail(result) {
-	const detail = String(result?.stderr || result?.stdout || '').trim();
-	return detail || _('unknown error');
-}
-
 function assignConfigState(state, payload) {
 	state.configPath = String(payload?.config_path || state.configPath);
 	state.dnsPort = String(payload?.dns_port || '');
@@ -115,7 +111,7 @@ async function readConfig(configPath) {
 		const result = await fs.exec(BACKEND, args);
 
 		if (result.code !== 0) {
-			state.errors = [ execErrorDetail(result) ];
+			state.errors = [ execHelper.errorDetail(result) ];
 			return state;
 		}
 
@@ -135,7 +131,7 @@ return baseclass.extend({
 		const result = await fs.exec(BACKEND, [ 'apply-config', configPath ]);
 
 		if (result.code !== 0)
-			throw new Error(execErrorDetail(result));
+			throw new Error(execHelper.errorDetail(result));
 	},
 
 	readStatus: async function() {
@@ -145,7 +141,7 @@ return baseclass.extend({
 			const result = await fs.exec(BACKEND, [ 'status-json' ]);
 
 			if (result.code !== 0) {
-				state.errors = [ execErrorDetail(result) ];
+				state.errors = [ execHelper.errorDetail(result) ];
 				return state;
 			}
 
@@ -167,13 +163,13 @@ return baseclass.extend({
 			state.routeRulePriority = String(payload.route_rule_priority || 'auto');
 			state.disableQuic = !!payload.disable_quic;
 			state.sourceNetworkInterfaces = Array.isArray(payload.source_network_interfaces) ? payload.source_network_interfaces.map(String) : [];
-				state.alwaysProxyDstCount = Number(payload.always_proxy_dst_count || 0);
-				state.alwaysProxySrcCount = Number(payload.always_proxy_src_count || 0);
-				state.runtimeSnapshotPresent = !!payload.runtime_snapshot_present;
-				state.runtimeSnapshotValid = !!payload.runtime_snapshot_valid;
-				state.runtimeLiveStatePresent = !!payload.runtime_live_state_present;
-				state.runtimeSafeReloadReady = !!payload.runtime_safe_reload_ready;
-				state.runtimeMatchesDesired = !!payload.runtime_matches_desired;
+			state.alwaysProxyDstCount = Number(payload.always_proxy_dst_count || 0);
+			state.alwaysProxySrcCount = Number(payload.always_proxy_src_count || 0);
+			state.runtimeSnapshotPresent = !!payload.runtime_snapshot_present;
+			state.runtimeSnapshotValid = !!payload.runtime_snapshot_valid;
+			state.runtimeLiveStatePresent = !!payload.runtime_live_state_present;
+			state.runtimeSafeReloadReady = !!payload.runtime_safe_reload_ready;
+			state.runtimeMatchesDesired = !!payload.runtime_matches_desired;
 			state.active = Object.assign(state.active, {
 				present: !!payload.active?.present,
 				enabled: !!payload.active?.enabled,
@@ -213,7 +209,7 @@ return baseclass.extend({
 			const result = await fs.exec(BACKEND, args);
 
 			if (result.code !== 0) {
-				state.errors = [ execErrorDetail(result) ];
+				state.errors = [ execHelper.errorDetail(result) ];
 				return state;
 			}
 

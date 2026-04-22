@@ -1485,8 +1485,7 @@ quiesce_postinstall_service() {
 		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
 	fi
 
-	cleanup_runtime_fallback
-	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after stopping auto-started service"
+	restore_system_network_defaults "after stopping auto-started service"
 }
 
 restore_runtime_state() {
@@ -1564,7 +1563,11 @@ handle_install_failure() {
 		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
 	fi
 
-	quiesce_postinstall_service
+	if ! quiesce_postinstall_service; then
+		preserve_backup_dir
+		preserve_kernel_backup_dir
+		return 1
+	fi
 	if ! restore_system_network_defaults "after incomplete package install"; then
 		preserve_backup_dir
 		preserve_kernel_backup_dir
@@ -1723,8 +1726,13 @@ perform_package_action() {
 	fi
 
 	if [ "$reinstall" = "1" ]; then
-		quiesce_postinstall_service
-		log "Restoring saved config and policy state..."
+	if ! quiesce_postinstall_service; then
+		preserve_backup_dir
+		preserve_kernel_backup_dir
+		err "failed to quiesce auto-started service after package install"
+		return 1
+	fi
+	log "Restoring saved config and policy state..."
 		if ! restore_user_state; then
 			if [ -x "$INIT_SCRIPT" ]; then
 				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true

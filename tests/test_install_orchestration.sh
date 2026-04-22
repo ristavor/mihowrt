@@ -16,9 +16,11 @@ export TEST_ORCH_LOG="$orch_log"
 export TEST_INIT_ENABLED_RC=1
 export TEST_INIT_RESTART_RC=0
 export TEST_INIT_START_RC=0
+export TEST_INIT_STOP_RC=0
 export TEST_WAIT_READY_RC=0
 
 source_install_lib
+REAL_QUIESCE_POSTINSTALL_SERVICE="$(declare -f quiesce_postinstall_service)"
 
 INIT_SCRIPT="$tmpdir/init.sh"
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
@@ -36,7 +38,10 @@ case "${1:-}" in
 	start)
 		exit "${TEST_INIT_START_RC:-0}"
 		;;
-	stop|enable|disable)
+	stop)
+		exit "${TEST_INIT_STOP_RC:-0}"
+		;;
+	enable|disable)
 		exit 0
 		;;
 esac
@@ -134,6 +139,31 @@ remove_user_state() {
 
 apk() {
 	printf 'apk:%s\n' "$*" >>"$event_log"
+}
+
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+TEST_SERVICE_RUNNING_RC=0
+TEST_INIT_STOP_RC=1
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+eval "$REAL_QUIESCE_POSTINSTALL_SERVICE"
+assert_false "quiesce_postinstall_service should fail when fallback cleanup fails" quiesce_postinstall_service
+assert_file_contains "$init_log" "stop" "quiesce_postinstall_service should try stopping auto-started service first"
+assert_file_contains "$orch_log" "cleanup" "quiesce_postinstall_service should ask orchestrator to clean runtime state after stop failure"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "quiesce_postinstall_service should attempt runtime fallback cleanup after stop failure"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "quiesce_postinstall_service should still attempt DNS restore after stop failure"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state after stopping auto-started service" "quiesce_postinstall_service should report runtime cleanup failure after stop failure"
+
+TEST_INIT_STOP_RC=0
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+}
+quiesce_postinstall_service() {
+	printf 'quiesce_postinstall_service\n' >>"$event_log"
 }
 
 : > "$event_log"
@@ -323,10 +353,25 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "handle_instal
 assert_file_contains "$event_log" "restore_user_state" "handle_install_failure should restore saved state on reinstall"
 
 : > "$event_log"
+quiesce_postinstall_service() {
+	printf 'quiesce_postinstall_service\n' >>"$event_log"
+	return 1
+}
+assert_false "handle_install_failure should fail fast when quiesce fails" handle_install_failure 1 "quiesce broke"
+assert_file_contains "$event_log" "quiesce_postinstall_service" "handle_install_failure should attempt quiesce before aborting"
+assert_file_contains "$event_log" "preserve_backup_dir" "handle_install_failure should preserve backup dir when quiesce fails"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "handle_install_failure should preserve kernel rollback dir when quiesce fails"
+assert_file_not_contains "$event_log" "restore_user_state" "handle_install_failure should not restore user state after quiesce failure"
+
+: > "$event_log"
+quiesce_postinstall_service() {
+	printf 'quiesce_postinstall_service\n' >>"$event_log"
+}
 restore_user_state() {
 	printf 'restore_user_state\n' >>"$event_log"
 	return 1
 }
+: > "$init_log"
 assert_false "handle_install_failure should still fail when restore_user_state fails" handle_install_failure 1 "restore broke"
 assert_file_contains "$event_log" "restore_user_state" "handle_install_failure should try restoring saved state on reinstall"
 assert_file_contains "$event_log" "preserve_backup_dir" "handle_install_failure should preserve backup dir when restore fails"
@@ -494,6 +539,22 @@ assert_file_contains "$event_log" "restore_user_state" "perform_package_action s
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state on reinstall"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after reinstall"
 assert_file_not_contains "$event_log" "start_fresh_install_service" "perform_package_action should not use fresh-install branch for reinstall"
+
+: > "$event_log"
+quiesce_postinstall_service() {
+	printf 'quiesce_postinstall_service\n' >>"$event_log"
+	return 1
+}
+assert_false "perform_package_action should fail when quiesce after reinstall fails" perform_package_action
+assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should attempt quiesce after reinstall"
+assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when quiesce fails"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "perform_package_action should preserve kernel rollback dir when quiesce fails"
+assert_file_contains "$event_log" "err:failed to quiesce auto-started service after package install" "perform_package_action should report quiesce failure"
+assert_file_not_contains "$event_log" "restore_user_state" "perform_package_action should not restore user state after quiesce failure"
+
+quiesce_postinstall_service() {
+	printf 'quiesce_postinstall_service\n' >>"$event_log"
+}
 
 prepare_update() {
 	printf 'prepare_update\n' >>"$event_log"

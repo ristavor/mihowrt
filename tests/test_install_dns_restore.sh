@@ -156,6 +156,19 @@ assert_false "restore_dns_from_backup_file should reject invalid MIHOMO_DNS_TARG
 
 cat > "$backup_file" <<'EOF'
 DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=bad^server#53
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject malformed MIHOMO_DNS_TARGET hosts" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for malformed MIHOMO_DNS_TARGET host"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for malformed MIHOMO_DNS_TARGET host"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
 MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=1

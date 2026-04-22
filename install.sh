@@ -550,6 +550,10 @@ is_uint_value() {
 	return 0
 }
 
+is_dns_listen_host_value() {
+	printf '%s' "$1" | grep -qE '^(\[[A-Za-z0-9._:%@:-]+\]|[A-Za-z0-9._:%@:-]+)$'
+}
+
 is_dns_listen_value() {
 	local value="$1"
 	local host="" port=""
@@ -564,6 +568,7 @@ is_dns_listen_value() {
 					return 1
 					;;
 			esac
+			is_dns_listen_host_value "$host" || return 1
 			is_valid_port_value "$port"
 			;;
 		*)

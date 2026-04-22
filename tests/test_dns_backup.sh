@@ -98,6 +98,15 @@ assert_false "dns_persist_backup_valid should reject invalid MIHOMO_DNS_TARGET v
 
 cat > "$DNS_BACKUP_FILE" <<'EOF'
 DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=bad^server#53
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+EOF
+assert_false "dns_persist_backup_valid should reject malformed MIHOMO_DNS_TARGET hosts" dns_persist_backup_valid
+
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
 MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=0

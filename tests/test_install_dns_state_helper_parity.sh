@@ -90,6 +90,8 @@ assert_true "runtime is_dns_listen should accept host#port" is_dns_listen "127.0
 assert_true "installer is_dns_listen_value should accept host#port" install_is_dns_listen_value "127.0.0.1#7874"
 assert_false "runtime is_dns_listen should reject malformed targets" is_dns_listen "bad-target"
 assert_false "installer is_dns_listen_value should reject malformed targets" install_is_dns_listen_value "bad-target"
+assert_false "runtime is_dns_listen should reject malformed host chars" is_dns_listen "bad^server#53"
+assert_false "installer is_dns_listen_value should reject malformed host chars" install_is_dns_listen_value "bad^server#53"
 assert_true "runtime dns_backup_server_value_valid should accept plain upstream" dns_backup_server_value_valid "1.1.1.1"
 assert_true "installer dns_backup_server_value_valid should accept plain upstream" install_dns_backup_server_value_valid "1.1.1.1"
 assert_true "runtime dns_backup_server_value_valid should accept domain-specific upstream" dns_backup_server_value_valid "/#/1.1.1.1"

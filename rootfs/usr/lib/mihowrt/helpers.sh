@@ -86,6 +86,10 @@ is_ipv4_cidr() {
 	esac
 }
 
+is_dns_listen_host() {
+	printf '%s' "$1" | grep -qE '^(\[[A-Za-z0-9._:%@:-]+\]|[A-Za-z0-9._:%@:-]+)$'
+}
+
 is_dns_listen() {
 	local value="$1"
 	local host port
@@ -98,6 +102,7 @@ is_dns_listen() {
 			case "$host" in
 				*'#'*|*[[:space:]]*) return 1 ;;
 			esac
+			is_dns_listen_host "$host" || return 1
 			is_valid_port "$port"
 			;;
 		*)

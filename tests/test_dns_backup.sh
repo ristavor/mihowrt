@@ -115,4 +115,24 @@ ORIG_SERVER=1.1.1.1#99999
 EOF
 assert_false "dns_persist_backup_valid should reject invalid ORIG_SERVER values" dns_persist_backup_valid
 
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+ORIG_SERVER=bad^server
+EOF
+assert_false "dns_persist_backup_valid should reject malformed ORIG_SERVER tokens" dns_persist_backup_valid
+
+cat > "$DNS_BACKUP_FILE" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=0
+ORIG_RESOLVFILE=/tmp/resolv.conf.d/resolv.conf.auto
+ORIG_SERVER=/bad^/1.1.1.1
+EOF
+assert_false "dns_persist_backup_valid should reject malformed ORIG_SERVER selectors" dns_persist_backup_valid
+
 pass "dns backup runtime/cache semantics"

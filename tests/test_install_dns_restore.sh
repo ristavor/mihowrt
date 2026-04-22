@@ -187,6 +187,34 @@ MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=1
 ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=bad^server
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject malformed ORIG_SERVER tokens" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for malformed ORIG_SERVER token"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for malformed ORIG_SERVER token"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=/bad^/1.1.1.1
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject malformed ORIG_SERVER selectors" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for malformed ORIG_SERVER selector"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for malformed ORIG_SERVER selector"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
 ORIG_SERVER=1.1.1.1
 ORIG_SERVER=9.9.9.9
 EOF

@@ -20,6 +20,14 @@ dns_backup_text_has_controls() {
 	printf '%s' "$1" | grep -q '[[:cntrl:]]'
 }
 
+dns_backup_server_atom_valid() {
+	printf '%s' "$1" | grep -qE '^(\[[A-Za-z0-9._:%@:-]+\]|[A-Za-z0-9._:%@:-]+)$'
+}
+
+dns_backup_server_selector_valid() {
+	printf '%s' "$1" | grep -qE '^[#A-Za-z0-9._*:/-]+$'
+}
+
 dns_backup_server_target_valid() {
 	local value="$1"
 	local host="" port=""
@@ -38,6 +46,7 @@ dns_backup_server_target_valid() {
 					return 1
 					;;
 			esac
+			dns_backup_server_atom_valid "$host" || return 1
 			is_valid_port "$port" || return 1
 			;;
 		*)
@@ -46,6 +55,7 @@ dns_backup_server_target_valid() {
 					return 1
 					;;
 			esac
+			dns_backup_server_atom_valid "$value" || return 1
 			;;
 	esac
 
@@ -54,7 +64,7 @@ dns_backup_server_target_valid() {
 
 dns_backup_server_value_valid() {
 	local value="$1"
-	local rest="" target=""
+	local rest="" prefix="" target=""
 
 	[ -n "$value" ] || return 1
 	dns_backup_text_has_controls "$value" && return 1
@@ -67,14 +77,16 @@ dns_backup_server_value_valid() {
 				*/*)
 					:
 					;;
-				*)
-					return 1
-					;;
-			esac
-			target="${rest##*/}"
-			[ -z "$target" ] && return 0
-			[ "$target" = "#" ] && return 0
-			dns_backup_server_target_valid "$target"
+			*)
+				return 1
+				;;
+		esac
+		prefix="${rest%/*}"
+		target="${rest##*/}"
+		dns_backup_server_selector_valid "$prefix" || return 1
+		[ -z "$target" ] && return 0
+		[ "$target" = "#" ] && return 0
+		dns_backup_server_target_valid "$target"
 			;;
 		*)
 			dns_backup_server_target_valid "$value"

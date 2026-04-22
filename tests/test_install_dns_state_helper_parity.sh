@@ -19,6 +19,8 @@ extract_install_dns_helper() {
 			-e 's/\<dns_current_servers_flat\>/install_dns_current_servers_flat/g' \
 			-e 's/\<dnsmasq_state_matches\>/install_dnsmasq_state_matches/g' \
 			-e 's/\<dns_backup_text_has_controls_value\>/install_dns_backup_text_has_controls_value/g' \
+			-e 's/\<dns_backup_server_atom_value_valid\>/install_dns_backup_server_atom_value_valid/g' \
+			-e 's/\<dns_backup_server_selector_value_valid\>/install_dns_backup_server_selector_value_valid/g' \
 			-e 's/\<dns_backup_server_target_value_valid\>/install_dns_backup_server_target_value_valid/g' \
 			-e 's/\<dns_backup_server_value_valid\>/install_dns_backup_server_value_valid/g' \
 			-e 's/\<dns_backup_resolvfile_value_valid\>/install_dns_backup_resolvfile_value_valid/g' \
@@ -35,6 +37,8 @@ eval "$(extract_install_dns_helper dns_flatten_lines)"
 eval "$(extract_install_dns_helper dns_current_servers_flat)"
 eval "$(extract_install_dns_helper dnsmasq_state_matches)"
 eval "$(extract_install_dns_helper dns_backup_text_has_controls_value)"
+eval "$(extract_install_dns_helper dns_backup_server_atom_value_valid)"
+eval "$(extract_install_dns_helper dns_backup_server_selector_value_valid)"
 eval "$(extract_install_dns_helper dns_backup_server_target_value_valid)"
 eval "$(extract_install_dns_helper dns_backup_server_value_valid)"
 eval "$(extract_install_dns_helper dns_backup_resolvfile_value_valid)"
@@ -92,6 +96,10 @@ assert_true "runtime dns_backup_server_value_valid should accept domain-specific
 assert_true "installer dns_backup_server_value_valid should accept domain-specific upstream" install_dns_backup_server_value_valid "/#/1.1.1.1"
 assert_false "runtime dns_backup_server_value_valid should reject invalid upstream port" dns_backup_server_value_valid "1.1.1.1#99999"
 assert_false "installer dns_backup_server_value_valid should reject invalid upstream port" install_dns_backup_server_value_valid "1.1.1.1#99999"
+assert_false "runtime dns_backup_server_value_valid should reject malformed plain tokens" dns_backup_server_value_valid "bad^server"
+assert_false "installer dns_backup_server_value_valid should reject malformed plain tokens" install_dns_backup_server_value_valid "bad^server"
+assert_false "runtime dns_backup_server_value_valid should reject malformed selector chars" dns_backup_server_value_valid "/bad^/1.1.1.1"
+assert_false "installer dns_backup_server_value_valid should reject malformed selector chars" install_dns_backup_server_value_valid "/bad^/1.1.1.1"
 assert_false "runtime dns_backup_server_value_valid should reject whitespace" dns_backup_server_value_valid "bad server"
 assert_false "installer dns_backup_server_value_valid should reject whitespace" install_dns_backup_server_value_valid "bad server"
 assert_true "runtime dns_backup_resolvfile_value_valid should accept absolute paths" dns_backup_resolvfile_value_valid "/tmp/resolv.conf"
@@ -185,5 +193,25 @@ EOF
 assert_false "runtime dns_backup_file_valid should reject invalid MIHOMO_DNS_TARGET" dns_backup_file_valid "$tmpdir/invalid-target.backup"
 assert_false "installer dns_backup_file_valid_for_restore should reject invalid MIHOMO_DNS_TARGET" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-target.backup"
 assert_false "installer dns_backup_mihomo_target should reject invalid target metadata" install_dns_backup_mihomo_target "$tmpdir/invalid-target.backup"
+
+cat > "$tmpdir/invalid-server-token.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=bad^server
+EOF
+assert_false "runtime dns_backup_file_valid should reject malformed ORIG_SERVER tokens" dns_backup_file_valid "$tmpdir/invalid-server-token.backup"
+assert_false "installer dns_backup_file_valid_for_restore should reject malformed ORIG_SERVER tokens" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-server-token.backup"
+
+cat > "$tmpdir/invalid-server-selector.backup" <<'EOF'
+DNSMASQ_BACKUP=1
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=/bad^/1.1.1.1
+EOF
+assert_false "runtime dns_backup_file_valid should reject malformed ORIG_SERVER selectors" dns_backup_file_valid "$tmpdir/invalid-server-selector.backup"
+assert_false "installer dns_backup_file_valid_for_restore should reject malformed ORIG_SERVER selectors" install_dns_backup_file_valid_for_restore "$tmpdir/invalid-server-selector.backup"
 
 pass "installer dns-state helper parity"

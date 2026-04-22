@@ -257,11 +257,6 @@ start() {
 	printf 'start\n' >>"$msg_log"
 }
 
-wait_for_stop_complete() {
-	printf 'wait_for_stop_complete\n' >>"$msg_log"
-	return 1
-}
-
 : > "$msg_log"
 reload_service
 printf '%s\n' "$$" > "$SERVICE_PID_FILE"
@@ -299,6 +294,17 @@ assert_file_contains "$msg_log" "MihoWRT service is not running; validated on-di
 assert_file_contains "$orch_log" "validate" "apply should still validate config when service is stopped"
 assert_file_contains "$orch_log" "service-running" "apply should still inspect running state when service is stopped"
 assert_file_not_contains "$msg_log" "start" "apply should not start stopped service automatically"
+
+: > "$msg_log"
+: > "$orch_log"
+: > "$SKIP_START_FILE"
+printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+assert_false "apply should fail while installer skip-start marker is active" apply
+assert_file_contains "$msg_log" "ERROR: Cannot apply while installer skip-start marker is active" "apply should explain skip-start conflict"
+assert_file_not_contains "$msg_log" "stop" "apply should not stop service when skip-start marker blocks restart"
+assert_eq "0" "$(grep -c '^start$' "$msg_log" || true)" "apply should not restart service when skip-start marker blocks apply"
+assert_file_not_contains "$orch_log" "validate" "apply should bail before validation when skip-start marker is active"
+rm -f "$SKIP_START_FILE"
 
 (
 	source_init_recover_lib

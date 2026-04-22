@@ -96,6 +96,11 @@ reload_service() {
 apply() {
 	msg "Applying MihoWRT on-disk config..."
 
+	[ -f "$SKIP_START_FILE" ] && {
+		msg "ERROR: Cannot apply while installer skip-start marker is active"
+		return 1
+	}
+
 	if ! validate_service_inputs; then
 		return 1
 	fi

@@ -14,6 +14,7 @@ WAS_ENABLED=0
 WAS_RUNNING=0
 REINSTALL_HOLD_ACTIVE=0
 PRESERVE_BACKUP_DIR=0
+PRESERVE_KERNEL_TMP_DIR=0
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
@@ -50,7 +51,9 @@ cleanup() {
 	if [ -n "$BACKUP_DIR" ] && [ "$PRESERVE_BACKUP_DIR" != "1" ]; then
 		rm -rf "$BACKUP_DIR"
 	fi
-	rm -rf "$KERNEL_TMP_DIR"
+	if [ "$PRESERVE_KERNEL_TMP_DIR" != "1" ]; then
+		rm -rf "$KERNEL_TMP_DIR"
+	fi
 	rm -f "$SKIP_START_FILE"
 	release_reinstall_dependencies
 }
@@ -82,8 +85,19 @@ kernel_backup_available() {
 }
 
 clear_kernel_backup() {
+	[ "$PRESERVE_KERNEL_TMP_DIR" = "1" ] && return 0
 	[ -n "$KERNEL_BACKUP_TMP" ] && rm -f "$KERNEL_BACKUP_TMP"
 	KERNEL_BACKUP_TMP=""
+	rm -rf "$KERNEL_TMP_DIR"
+	PRESERVE_KERNEL_TMP_DIR=0
+}
+
+preserve_kernel_backup_dir() {
+	[ -d "$KERNEL_TMP_DIR" ] || return 0
+	[ "$PRESERVE_KERNEL_TMP_DIR" = "1" ] && return 0
+
+	PRESERVE_KERNEL_TMP_DIR=1
+	warn "preserved kernel backup dir: $KERNEL_TMP_DIR"
 }
 
 stage_kernel_backup() {
@@ -1338,7 +1352,9 @@ restore_runtime_state() {
 
 rollback_reinstall_state() {
 	[ "${1:-0}" = "1" ] || return 0
-	restore_kernel_backup || true
+	if ! restore_kernel_backup; then
+		preserve_kernel_backup_dir
+	fi
 	restore_runtime_state || true
 	release_reinstall_dependencies
 	clear_kernel_backup
@@ -1361,7 +1377,10 @@ handle_install_failure() {
 	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after incomplete package install"
 
 	if [ "$reinstall" = "1" ]; then
-		restore_kernel_backup || warn "failed to restore previous Mihomo kernel after install failure"
+		if ! restore_kernel_backup; then
+			preserve_kernel_backup_dir
+			warn "failed to restore previous Mihomo kernel after install failure"
+		fi
 		if ! restore_user_state; then
 			preserve_backup_dir
 			err "failed to restore saved config and policy files"
@@ -1514,7 +1533,10 @@ perform_package_action() {
 				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
 			fi
 			if kernel_backup_available; then
-				restore_kernel_backup || warn "failed to restore previous Mihomo kernel after user-state restore failure"
+				if ! restore_kernel_backup; then
+					preserve_kernel_backup_dir
+					warn "failed to restore previous Mihomo kernel after user-state restore failure"
+				fi
 			fi
 			preserve_backup_dir
 			err "failed to restore saved config and policy state"
@@ -1524,6 +1546,7 @@ perform_package_action() {
 			if kernel_backup_available; then
 				warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
 				restore_kernel_backup || {
+					preserve_kernel_backup_dir
 					err "failed to restore previous Mihomo kernel after runtime restore failure"
 					return 1
 				}

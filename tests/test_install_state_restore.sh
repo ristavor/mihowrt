@@ -63,6 +63,17 @@ preserve_backup_dir
 cleanup
 assert_true "cleanup should keep preserved backup directory" test -d "$preserved_backup_dir"
 
+preserved_kernel_dir="$tmpdir/preserved-kernel"
+mkdir -p "$preserved_kernel_dir"
+KERNEL_TMP_DIR="$preserved_kernel_dir"
+KERNEL_BACKUP_TMP="$preserved_kernel_dir/clash.previous"
+printf 'kernel\n' > "$KERNEL_BACKUP_TMP"
+PRESERVE_KERNEL_TMP_DIR=0
+preserve_kernel_backup_dir
+cleanup
+assert_true "cleanup should keep preserved kernel backup directory" test -d "$preserved_kernel_dir"
+assert_true "cleanup should keep preserved kernel backup file" test -f "$preserved_kernel_dir/clash.previous"
+
 create_backup_dir() {
 	BACKUP_DIR="$tmpdir/backup-user-state"
 	mkdir -p "$BACKUP_DIR"

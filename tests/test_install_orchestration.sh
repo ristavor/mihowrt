@@ -228,6 +228,24 @@ assert_file_contains "$event_log" "err:failed to restore saved config and policy
 
 : > "$event_log"
 : > "$init_log"
+restore_user_state() {
+	printf 'restore_user_state\n' >>"$event_log"
+	return 0
+}
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 1
+}
+preserve_kernel_backup_dir() {
+	printf 'preserve_kernel_backup_dir\n' >>"$event_log"
+}
+assert_false "handle_install_failure should preserve tmpfs kernel backup when kernel restore fails" handle_install_failure 1 "kernel restore broke"
+assert_file_contains "$event_log" "restore_kernel_backup" "handle_install_failure should try restoring previous kernel on reinstall failure"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "handle_install_failure should preserve tmpfs kernel backup when restore fails"
+assert_file_contains "$event_log" "warn:failed to restore previous Mihomo kernel after install failure" "handle_install_failure should warn when previous kernel restore fails"
+
+: > "$event_log"
+: > "$init_log"
 TEST_INIT_START_RC=0
 start_fresh_install_service
 assert_file_contains "$init_log" "enable" "start_fresh_install_service should enable service"
@@ -430,6 +448,20 @@ restore_kernel_backup() {
 assert_false "perform_package_action should restore previous kernel when restore_user_state fails after kernel update" perform_package_action
 assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel on restore_user_state failure when backup exists"
 assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should still preserve backup dir after restoring previous kernel"
+
+: > "$event_log"
+: > "$init_log"
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 1
+}
+preserve_kernel_backup_dir() {
+	printf 'preserve_kernel_backup_dir\n' >>"$event_log"
+}
+assert_false "perform_package_action should preserve tmpfs kernel backup when user-state rollback kernel restore fails" perform_package_action
+assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should try restoring previous kernel after restore_user_state failure"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "perform_package_action should preserve tmpfs kernel backup when restore fails"
+assert_file_contains "$event_log" "warn:failed to restore previous Mihomo kernel after user-state restore failure" "perform_package_action should warn when previous kernel restore fails"
 
 restore_user_state() {
 	printf 'restore_user_state\n' >>"$event_log"

@@ -506,15 +506,7 @@ recover_runtime_state() {
 }
 
 runtime_policy_ready_state() {
-	local nft_state=1
-
-	runtime_snapshot_valid || return 1
-	policy_route_state_read || return 1
-	dns_backup_valid || return 1
-	nft_table_exists
-	nft_state=$?
-	[ "$nft_state" -eq 0 ] || return 1
-	return 0
+	runtime_snapshot_valid
 }
 
 reload_runtime_state() {
@@ -587,9 +579,26 @@ reload_runtime_state() {
 }
 
 service_ready_runtime_state() {
-	local dns_port=""
+	local dns_port="" active_json="" snapshot_enabled="" snapshot_dns_listen=""
+	local tproxy_port=""
 
 	service_running_state || return 1
+
+	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
+	if [ -n "$active_json" ]; then
+		dns_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_port // ""' 2>/dev/null || true)"
+		tproxy_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_tproxy_port // ""' 2>/dev/null || true)"
+		snapshot_enabled="$(printf '%s\n' "$active_json" | jq -r '.enabled // false' 2>/dev/null || true)"
+		if [ -z "$dns_port" ]; then
+			snapshot_dns_listen="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_listen // ""' 2>/dev/null || true)"
+			[ -n "$snapshot_dns_listen" ] && dns_port="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
+		fi
+		mihomo_ready_state "$dns_port" "$tproxy_port" || return 1
+		[ "$snapshot_enabled" = "true" ] || return 0
+		runtime_policy_ready_state
+		return $?
+	fi
+
 	load_runtime_config || return 1
 	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
 	mihomo_ready_state "$dns_port" "$MIHOMO_TPROXY_PORT" || return 1

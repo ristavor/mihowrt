@@ -316,6 +316,7 @@ TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_NFT_TABLE_EXISTS_RC=1
 status_output_missing_nft="$(status_json)"
-assert_eq "false" "$(printf '%s\n' "$status_output_missing_nft" | jq -r '.service_ready')" "status_json should keep service not ready until nft marker is present"
+assert_eq "true" "$(printf '%s\n' "$status_output_missing_nft" | jq -r '.service_ready')" "status_json should keep service ready when valid runtime snapshot already exists"
+assert_eq "true" "$(printf '%s\n' "$status_output_missing_nft" | jq -r '.runtime_matches_desired')" "status_json should not treat missing nft probe as runtime drift when snapshot is valid"
 
 pass "diagnostics helpers"

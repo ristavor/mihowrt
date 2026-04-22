@@ -317,18 +317,11 @@ stop() {
 	printf 'stop\n' >>"$msg_log"
 }
 
-sleep() {
-	:
-}
-
-SERVICE_START_TIMEOUT=2
-
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
-export TEST_ORCH_RUNNING_RC=0
 export TEST_CLASH_TEST_RC=0
 rm -f "$SKIP_START_FILE"
 start_service
@@ -336,10 +329,9 @@ assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service sho
 assert_file_contains "$orch_log" "recover" "start_service should run crash recovery before start"
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "cleanup" "start_service should clean stale runtime state before procd start"
-assert_file_contains "$orch_log" "service-running" "start_service should wait for service liveness before success"
 assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start_service should register run-service command with procd"
 assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
-assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success before runtime start completes"
+assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should return after procd registration"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
 
 : > "$msg_log"
@@ -354,23 +346,13 @@ export TEST_ORCH_CLEANUP_RC=0
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
-export TEST_ORCH_RUNNING_RC=1
-assert_false "start_service should fail when service does not stay running" start_service
-assert_file_contains "$orch_log" "service-running" "start_service should wait for service liveness before failing"
-assert_file_contains "$msg_log" "stop" "start_service should stop procd instance after liveness timeout"
-assert_file_contains "$msg_log" "ERROR: MihoWRT service did not stay running after start" "start_service should report liveness timeout"
-assert_file_not_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success when service never stays up"
-unset TEST_ORCH_RUNNING_RC
-
-: > "$msg_log"
-: > "$procd_log"
-: > "$orch_log"
 : > "$SKIP_START_FILE"
 start_service
 assert_file_contains "$msg_log" "Skipping MihoWRT service auto-start during installer transaction" "start_service should honor skip-start marker"
 [[ ! -s "$orch_log" ]] || fail "start_service should not call orchestrator when skip-start marker exists"
 [[ ! -s "$procd_log" ]] || fail "start_service should not open procd instance when skip-start marker exists"
 rm -f "$SKIP_START_FILE"
+unset TEST_ORCH_RUNNING_RC
 
 start() {
 	printf 'start\n' >>"$msg_log"

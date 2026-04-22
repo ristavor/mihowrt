@@ -10,8 +10,6 @@ CLASH_BIN="${CLASH_DIR}/bin/clash"
 CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
-SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
-SERVICE_START_TIMEOUT="${SERVICE_START_TIMEOUT:-5}"
 EXTRA_COMMANDS="apply"
 EXTRA_HELP="        apply   Validate and apply on-disk MihoWRT config/policy"
 
@@ -22,24 +20,6 @@ msg() {
 service_running() {
 	[ -x "$ORCHESTRATOR" ] || return 1
 	"$ORCHESTRATOR" service-running >/dev/null 2>&1
-}
-
-run_service_process_running() {
-	local proc=""
-	local cmdline=""
-	local run_pattern="$ORCHESTRATOR run-service"
-
-	for proc in /proc/[0-9]*; do
-		[ -r "$proc/cmdline" ] || continue
-		cmdline="$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null || true)"
-		case "$cmdline" in
-			*"$run_pattern"*)
-				return 0
-				;;
-		esac
-	done
-
-	return 1
 }
 
 validate_service_inputs() {
@@ -62,22 +42,6 @@ validate_service_inputs() {
 		msg "ERROR: Policy validation failed"
 		return 1
 		fi
-}
-
-wait_for_service_running() {
-	local waited=0
-	local timeout="$SERVICE_START_TIMEOUT"
-
-	while [ "$waited" -lt "$timeout" ]; do
-		if service_running || run_service_process_running; then
-			return 0
-		fi
-
-		sleep 1
-		waited=$((waited + 1))
-	done
-
-	return 1
 }
 
 start_service() {
@@ -104,12 +68,6 @@ start_service() {
 	procd_set_param stderr 1
 	procd_set_param respawn 3600 5 5
 	procd_close_instance
-
-	if ! wait_for_service_running; then
-		stop >/dev/null 2>&1 || true
-		msg "ERROR: MihoWRT service did not stay running after start"
-		return 1
-	fi
 
 	msg "MihoWRT service registered with procd"
 }

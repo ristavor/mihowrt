@@ -1548,7 +1548,8 @@ restore_runtime_state() {
 				if wait_for_service_running; then
 					return 0
 				fi
-				warn "MihoWRT restart returned success but service did not stay running"
+				warn "MihoWRT restart returned success; service start is asynchronous and was not observed within timeout"
+				return 0
 			fi
 			warn "failed to restart MihoWRT service after update"
 			stop_service_instance
@@ -1559,7 +1560,8 @@ restore_runtime_state() {
 			if wait_for_service_running; then
 				return 0
 			fi
-			warn "MihoWRT start returned success but service did not stay running"
+			warn "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"
+			return 0
 		fi
 		warn "failed to start MihoWRT service after update"
 		stop_service_instance
@@ -1699,7 +1701,8 @@ start_fresh_install_service() {
 		if wait_for_service_running; then
 			return 0
 		fi
-		warn "MihoWRT start returned success but service did not stay running"
+		warn "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"
+		return 0
 	fi
 
 	warn "failed to start MihoWRT service after install"

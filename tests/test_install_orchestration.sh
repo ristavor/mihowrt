@@ -347,11 +347,12 @@ TEST_INIT_START_RC=0
 TEST_WAIT_RUNNING_RC=1
 WAS_ENABLED=1
 WAS_RUNNING=1
-assert_false "restore_runtime_state should fail when service does not stay running" restore_runtime_state
+restore_runtime_state
 assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should wait for liveness before declaring success"
-assert_file_contains "$init_log" "stop" "restore_runtime_state should stop dead-on-arrival service before cleanup"
-assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback when liveness never arrives"
-assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults when liveness never arrives"
+assert_file_contains "$event_log" "warn:MihoWRT start returned success; service start is asynchronous and was not observed within timeout" "restore_runtime_state should warn instead of failing on async startup"
+assert_file_not_contains "$init_log" "stop" "restore_runtime_state should not tear down async startup after timeout"
+assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should not clean runtime fallback when init start already succeeded"
+assert_file_not_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should not restore DNS defaults when init start already succeeded"
 
 : > "$event_log"
 : > "$init_log"
@@ -531,12 +532,13 @@ assert_file_not_contains "$event_log" "wait_for_service_running" "failed fresh s
 : > "$init_log"
 TEST_INIT_START_RC=0
 TEST_WAIT_RUNNING_RC=1
-assert_false "start_fresh_install_service should fail when service does not stay running" start_fresh_install_service
+start_fresh_install_service
 assert_file_contains "$event_log" "wait_for_service_running" "fresh start should wait for liveness before succeeding"
-assert_file_contains "$init_log" "stop" "fresh start should stop dead-on-arrival service before cleanup"
-assert_file_contains "$init_log" "disable" "non-ready fresh start should disable service afterwards"
-assert_file_contains "$event_log" "cleanup_runtime_fallback" "non-ready fresh start should clean runtime fallback"
-assert_file_contains "$event_log" "restore_system_dns_defaults:1" "non-ready fresh start should restore DNS defaults"
+assert_file_contains "$event_log" "warn:MihoWRT start returned success; service start is asynchronous and was not observed within timeout" "fresh start should warn instead of failing on async startup"
+assert_file_not_contains "$init_log" "stop" "fresh start should not stop async startup after timeout"
+assert_file_not_contains "$init_log" "disable" "fresh start should not disable service when init start already succeeded"
+assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "fresh start should not clean runtime fallback when init start already succeeded"
+assert_file_not_contains "$event_log" "restore_system_dns_defaults:1" "fresh start should not restore DNS defaults when init start already succeeded"
 
 latest_asset_url() {
 	printf '%s\n' "https://example.com/luci-app-mihowrt.apk"

@@ -1081,17 +1081,92 @@ route_state_read() {
 	[ -n "$ROUTE_TABLE_ID_EFFECTIVE" ] && [ -n "$ROUTE_RULE_PRIORITY_EFFECTIVE" ]
 }
 
+nft_table_exists_fallback() {
+	nft list table inet "$NFT_TABLE_NAME" >/dev/null 2>&1
+}
+
+nft_delete_table_if_exists_fallback() {
+	have_command nft || return 1
+	nft_table_exists_fallback || return 0
+	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || return 1
+	nft_table_exists_fallback && return 1
+	return 0
+}
+
+route_rule_exists_fallback() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 1
+	[ -n "$route_rule_priority" ] || return 1
+	have_command ip || return 1
+
+	ip rule show 2>/dev/null | awk -v priority="$route_rule_priority" -v table="$route_table_id" '
+		$1 == priority ":" && (index($0, " lookup " table) || index($0, " table " table)) { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+route_table_has_entries_fallback() {
+	local route_table_id="$1"
+
+	[ -n "$route_table_id" ] || return 1
+	have_command ip || return 1
+	ip route show table "$route_table_id" 2>/dev/null | grep -q .
+}
+
+route_delete_rule_fallback() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 0
+	[ -n "$route_rule_priority" ] || return 0
+
+	route_rule_exists_fallback "$route_table_id" "$route_rule_priority" || return 0
+	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
+	route_rule_exists_fallback "$route_table_id" "$route_rule_priority" && return 1
+	return 0
+}
+
+route_teardown_ids_fallback() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 0
+	[ -n "$route_rule_priority" ] || return 0
+	have_command ip || return 1
+
+	route_delete_rule_fallback "$route_table_id" "$route_rule_priority" || return 1
+	if route_table_has_entries_fallback "$route_table_id"; then
+		ip route flush table "$route_table_id" 2>/dev/null || return 1
+		route_table_has_entries_fallback "$route_table_id" && return 1
+	fi
+	return 0
+}
+
 cleanup_runtime_fallback() {
+	local rc=0
+
 	if have_command nft; then
-		nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || true
+		if ! nft_delete_table_if_exists_fallback; then
+			warn "failed to remove nft policy table $NFT_TABLE_NAME during fallback cleanup"
+			rc=1
+		fi
 	fi
 
-	if have_command ip && route_state_read; then
-		while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$ROUTE_TABLE_ID_EFFECTIVE" priority "$ROUTE_RULE_PRIORITY_EFFECTIVE" 2>/dev/null; do :; done
-		ip route flush table "$ROUTE_TABLE_ID_EFFECTIVE" 2>/dev/null || true
+	if [ -f "$ROUTE_STATE_FILE" ]; then
+		if ! route_state_read; then
+			warn "failed to read route state from $ROUTE_STATE_FILE during fallback cleanup"
+			rc=1
+		elif ! route_teardown_ids_fallback "$ROUTE_TABLE_ID_EFFECTIVE" "$ROUTE_RULE_PRIORITY_EFFECTIVE"; then
+			warn "failed to remove policy routing for table $ROUTE_TABLE_ID_EFFECTIVE priority $ROUTE_RULE_PRIORITY_EFFECTIVE during fallback cleanup"
+			rc=1
+		else
+			rm -f "$ROUTE_STATE_FILE"
+		fi
 	fi
 
-	rm -f "$ROUTE_STATE_FILE"
+	[ "$rc" -eq 0 ]
 }
 
 restore_dns_from_backup_file() {

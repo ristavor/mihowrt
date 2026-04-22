@@ -20,6 +20,10 @@ log() {
 	:
 }
 
+warn() {
+	:
+}
+
 apk() {
 	printf '%s\n' "$*" >>"$apk_log"
 }
@@ -33,18 +37,61 @@ have_command() {
 
 nft() {
 	printf 'nft %s\n' "$*" >>"$NET_LOG"
+	case "${1:-}" in
+		list)
+			[[ "${TEST_NFT_TABLE_PRESENT:-0}" = "1" ]]
+			return $?
+			;;
+		delete)
+			if [[ "${TEST_NFT_DELETE_RC:-0}" != "0" ]]; then
+				return "${TEST_NFT_DELETE_RC}"
+			fi
+			TEST_NFT_TABLE_PRESENT=0
+			export TEST_NFT_TABLE_PRESENT
+			return 0
+			;;
+	esac
 }
 
 ip() {
 	printf 'ip %s\n' "$*" >>"$NET_LOG"
-	if [[ "${1:-}" == "rule" && "${2:-}" == "del" ]]; then
-		if [[ "${TEST_RULE_DEL_DONE:-0}" = "0" ]]; then
-			TEST_RULE_DEL_DONE=1
-			export TEST_RULE_DEL_DONE
+	case "${1:-}:${2:-}" in
+		rule:show)
+			if [[ "${TEST_RULE_PRESENT:-0}" = "1" ]]; then
+				printf '%s: from all fwmark %s/%s lookup %s\n' \
+					"${TEST_ROUTE_RULE_PRIORITY:-201}" \
+					"$NFT_INTERCEPT_MARK" \
+					"$NFT_INTERCEPT_MARK" \
+					"${TEST_ROUTE_TABLE_ID:-201}"
+			fi
 			return 0
-		fi
-		return 1
-	fi
+			;;
+		rule:del)
+			if [[ "${TEST_RULE_DEL_RC:-0}" != "0" ]]; then
+				return "${TEST_RULE_DEL_RC}"
+			fi
+			if [[ "${TEST_RULE_PRESENT:-0}" = "1" ]]; then
+				TEST_RULE_PRESENT=0
+				export TEST_RULE_PRESENT
+				return 0
+			fi
+			return 2
+			;;
+		route:show)
+			if [[ "${3:-}" == "table" && "${TEST_ROUTE_PRESENT:-0}" = "1" ]]; then
+				printf 'local 0.0.0.0/0 dev lo scope host\n'
+			fi
+			return 0
+			;;
+		route:flush)
+			if [[ "${TEST_ROUTE_FLUSH_RC:-0}" != "0" ]]; then
+				return "${TEST_ROUTE_FLUSH_RC}"
+			fi
+			TEST_ROUTE_PRESENT=0
+			export TEST_ROUTE_PRESENT
+			return 0
+			;;
+	esac
 	return 0
 }
 
@@ -84,13 +131,56 @@ ROUTE_TABLE_ID=201
 ROUTE_RULE_PRIORITY=10001
 EOF
 
-TEST_RULE_DEL_DONE=0
-export TEST_RULE_DEL_DONE
+TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_DELETE_RC=0
+TEST_RULE_PRESENT=1
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_TABLE_ID=201
+TEST_ROUTE_RULE_PRIORITY=10001
 : > "$NET_LOG"
 cleanup_runtime_fallback
 assert_file_contains "$NET_LOG" "nft delete table inet $NFT_TABLE_NAME" "cleanup_runtime_fallback should drop nft table"
 assert_file_contains "$NET_LOG" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 201 priority 10001" "cleanup_runtime_fallback should delete policy route rule"
 assert_file_contains "$NET_LOG" "ip route flush table 201" "cleanup_runtime_fallback should flush policy route table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file"
+
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=201
+ROUTE_RULE_PRIORITY=10001
+EOF
+
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_DELETE_RC=0
+TEST_RULE_PRESENT=0
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=0
+TEST_ROUTE_FLUSH_RC=0
+: > "$NET_LOG"
+assert_true "cleanup_runtime_fallback should treat already-absent live state as clean" cleanup_runtime_fallback
+[[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file when live state is already absent"
+
+: > "$NET_LOG"
+TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_DELETE_RC=1
+assert_false "cleanup_runtime_fallback should fail when nft delete leaves table behind" cleanup_runtime_fallback
+
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=201
+ROUTE_RULE_PRIORITY=10001
+EOF
+
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_DELETE_RC=0
+TEST_RULE_PRESENT=0
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_FLUSH_RC=1
+TEST_ROUTE_TABLE_ID=201
+TEST_ROUTE_RULE_PRIORITY=10001
+: > "$NET_LOG"
+assert_false "cleanup_runtime_fallback should fail when route flush leaves table entries behind" cleanup_runtime_fallback
+[[ -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should preserve route state file after route flush failure"
 
 pass "installer hold and cleanup helpers"

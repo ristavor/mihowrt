@@ -1,7 +1,11 @@
 #!/bin/ash
 
 nft_delete_table_if_exists() {
-	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || true
+	have_command nft || return 1
+	nft_table_exists || return 0
+	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || return 1
+	nft_table_exists && return 1
+	return 0
 }
 
 nft_table_exists() {
@@ -223,7 +227,7 @@ nft_apply_policy() {
 }
 
 nft_remove_policy() {
-	nft_delete_table_if_exists
+	nft_delete_table_if_exists || return 1
 	log "Removed nft policy table $NFT_TABLE_NAME"
 	return 0
 }
@@ -299,9 +303,36 @@ policy_route_teardown_ids() {
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
+	have_command ip || return 1
 
-	policy_route_delete_rule "$route_table_id" "$route_rule_priority"
-	ip route flush table "$route_table_id" 2>/dev/null || true
+	policy_route_delete_rule "$route_table_id" "$route_rule_priority" || return 1
+	if policy_route_table_has_entries "$route_table_id"; then
+		ip route flush table "$route_table_id" 2>/dev/null || return 1
+		policy_route_table_has_entries "$route_table_id" && return 1
+	fi
+	return 0
+}
+
+policy_route_rule_exists() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	[ -n "$route_table_id" ] || return 1
+	[ -n "$route_rule_priority" ] || return 1
+	have_command ip || return 1
+
+	ip rule show 2>/dev/null | awk -v priority="$route_rule_priority" -v table="$route_table_id" '
+		$1 == priority ":" && (index($0, " lookup " table) || index($0, " table " table)) { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+policy_route_table_has_entries() {
+	local route_table_id="$1"
+
+	[ -n "$route_table_id" ] || return 1
+	have_command ip || return 1
+	ip route show table "$route_table_id" 2>/dev/null | grep -q .
 }
 
 policy_route_delete_rule() {
@@ -311,7 +342,10 @@ policy_route_delete_rule() {
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 
+	policy_route_rule_exists "$route_table_id" "$route_rule_priority" || return 0
 	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
+	policy_route_rule_exists "$route_table_id" "$route_rule_priority" && return 1
+	return 0
 }
 
 policy_route_setup() {
@@ -347,7 +381,7 @@ policy_route_cleanup() {
 		route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
 	fi
 
-	policy_route_teardown_ids "$route_table_id" "$route_rule_priority"
+	policy_route_teardown_ids "$route_table_id" "$route_rule_priority" || return 1
 
 	rm -f "$ROUTE_STATE_FILE"
 	log "Removed policy routing for mark $NFT_INTERCEPT_MARK"

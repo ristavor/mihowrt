@@ -283,10 +283,17 @@ runtime_snapshot_restore() {
 }
 
 runtime_live_state_present() {
+	local nft_state=1
+
 	policy_route_state_read && return 0
 	dns_backup_exists && return 0
-	nft_table_exists && return 0
-	return 1
+	nft_table_exists
+	nft_state=$?
+	case "$nft_state" in
+		0) return 0 ;;
+		1) return 1 ;;
+		*) return 0 ;;
+	esac
 }
 
 runtime_snapshot_status_json() {

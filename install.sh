@@ -1082,26 +1082,50 @@ route_state_read() {
 }
 
 nft_table_exists_fallback() {
-	nft list table inet "$NFT_TABLE_NAME" >/dev/null 2>&1
+	local tables_output=""
+
+	have_command nft || return 2
+	tables_output="$(nft list tables inet 2>/dev/null)" || return 2
+	printf '%s\n' "$tables_output" | awk -v table="$NFT_TABLE_NAME" '
+		$1 == "table" && $2 == "inet" && $3 == table { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
 }
 
 nft_delete_table_if_exists_fallback() {
-	have_command nft || return 1
-	nft_table_exists_fallback || return 0
+	local table_state=1
+
+	nft_table_exists_fallback
+	table_state=$?
+	case "$table_state" in
+		0)
+			:
+			;;
+		1)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+
 	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || return 1
-	nft_table_exists_fallback && return 1
-	return 0
+	nft_table_exists_fallback
+	table_state=$?
+	[ "$table_state" -eq 1 ]
 }
 
 route_rule_exists_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
+	local rules_output=""
 
 	[ -n "$route_table_id" ] || return 1
 	[ -n "$route_rule_priority" ] || return 1
-	have_command ip || return 1
+	have_command ip || return 2
 
-	ip rule show 2>/dev/null | awk -v priority="$route_rule_priority" -v table="$route_table_id" '
+	rules_output="$(ip rule show 2>/dev/null)" || return 2
+	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" '
 		$1 == priority ":" && (index($0, " lookup " table) || index($0, " table " table)) { found=1 }
 		END { exit(found ? 0 : 1) }
 	'
@@ -1109,38 +1133,68 @@ route_rule_exists_fallback() {
 
 route_table_has_entries_fallback() {
 	local route_table_id="$1"
+	local route_output=""
 
 	[ -n "$route_table_id" ] || return 1
-	have_command ip || return 1
-	ip route show table "$route_table_id" 2>/dev/null | grep -q .
+	have_command ip || return 2
+	route_output="$(ip route show table "$route_table_id" 2>/dev/null)" || return 2
+	printf '%s\n' "$route_output" | grep -q .
 }
 
 route_delete_rule_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
+	local rule_state=1
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 
-	route_rule_exists_fallback "$route_table_id" "$route_rule_priority" || return 0
+	route_rule_exists_fallback "$route_table_id" "$route_rule_priority"
+	rule_state=$?
+	case "$rule_state" in
+		0)
+			:
+			;;
+		1)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+
 	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-	route_rule_exists_fallback "$route_table_id" "$route_rule_priority" && return 1
-	return 0
+	route_rule_exists_fallback "$route_table_id" "$route_rule_priority"
+	rule_state=$?
+	[ "$rule_state" -eq 1 ]
 }
 
 route_teardown_ids_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
+	local table_state=1
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 	have_command ip || return 1
 
 	route_delete_rule_fallback "$route_table_id" "$route_rule_priority" || return 1
-	if route_table_has_entries_fallback "$route_table_id"; then
-		ip route flush table "$route_table_id" 2>/dev/null || return 1
-		route_table_has_entries_fallback "$route_table_id" && return 1
-	fi
+	route_table_has_entries_fallback "$route_table_id"
+	table_state=$?
+	case "$table_state" in
+		0)
+			ip route flush table "$route_table_id" 2>/dev/null || return 1
+			route_table_has_entries_fallback "$route_table_id"
+			table_state=$?
+			[ "$table_state" -eq 1 ] || return 1
+			;;
+		1)
+			:
+			;;
+		*)
+			return 1
+			;;
+	esac
 	return 0
 }
 

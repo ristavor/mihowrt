@@ -99,8 +99,13 @@ nft() {
 	printf 'nft %s\n' "$*" >>"$net_log"
 	case "${1:-}" in
 		list)
-			[[ "${TEST_NFT_TABLE_PRESENT:-0}" = "1" ]]
-			return $?
+			if [[ "${TEST_NFT_LIST_RC:-0}" != "0" ]]; then
+				return "${TEST_NFT_LIST_RC}"
+			fi
+			if [[ "${TEST_NFT_TABLE_PRESENT:-0}" = "1" ]]; then
+				printf 'table inet %s\n' "$NFT_TABLE_NAME"
+			fi
+			return 0
 			;;
 		delete)
 			if [[ "${TEST_NFT_DELETE_RC:-0}" != "0" ]]; then
@@ -118,6 +123,9 @@ ip() {
 	printf 'ip %s\n' "$*" >>"$net_log"
 	case "${1:-}:${2:-}" in
 		rule:show)
+			if [[ "${TEST_RULE_SHOW_RC:-0}" != "0" ]]; then
+				return "${TEST_RULE_SHOW_RC}"
+			fi
 			if [[ "${TEST_RULE_PRESENT:-0}" = "1" ]]; then
 				printf '%s: from all fwmark %s/%s lookup %s\n' \
 					"${TEST_ROUTE_RULE_PRIORITY:-10000}" \
@@ -139,6 +147,9 @@ ip() {
 			return 2
 			;;
 		route:show)
+			if [[ "${TEST_ROUTE_SHOW_RC:-0}" != "0" ]]; then
+				return "${TEST_ROUTE_SHOW_RC}"
+			fi
 			if [[ "${3:-}" == "table" && "${TEST_ROUTE_PRESENT:-0}" = "1" ]]; then
 				printf 'local 0.0.0.0/0 dev lo scope host\n'
 			fi
@@ -158,21 +169,30 @@ ip() {
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should treat missing nft table as already clean" nft_remove_policy
-assert_file_contains "$net_log" "nft list table inet $NFT_TABLE_NAME" "nft_remove_policy should probe nft table presence before cleanup"
+assert_file_contains "$net_log" "nft list tables inet" "nft_remove_policy should probe nft table presence before cleanup"
 assert_file_not_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should not delete absent nft table"
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should delete present nft table" nft_remove_policy
 assert_file_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should delete present nft table"
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=1
 assert_false "nft_remove_policy should fail when nft delete leaves table behind" nft_remove_policy
+
+: > "$net_log"
+TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=2
+TEST_NFT_DELETE_RC=0
+assert_false "nft_remove_policy should fail when nft probe command breaks" nft_remove_policy
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
@@ -180,8 +200,10 @@ ROUTE_RULE_PRIORITY=10000
 EOF
 : > "$net_log"
 TEST_RULE_PRESENT=0
+TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=0
+TEST_ROUTE_SHOW_RC=0
 TEST_ROUTE_FLUSH_RC=0
 TEST_ROUTE_TABLE_ID=200
 TEST_ROUTE_RULE_PRIORITY=10000
@@ -194,8 +216,10 @@ ROUTE_RULE_PRIORITY=10000
 EOF
 : > "$net_log"
 TEST_RULE_PRESENT=1
+TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
 TEST_ROUTE_FLUSH_RC=0
 assert_true "policy_route_cleanup should remove active route rule and table entries" policy_route_cleanup
 assert_file_contains "$net_log" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 200 priority 10000" "policy_route_cleanup should delete policy rule"
@@ -208,8 +232,10 @@ ROUTE_RULE_PRIORITY=10000
 EOF
 : > "$net_log"
 TEST_RULE_PRESENT=1
+TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=1
 TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
 TEST_ROUTE_FLUSH_RC=0
 assert_false "policy_route_cleanup should fail when rule delete does not remove live rule" policy_route_cleanup
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after rule delete failure"
@@ -220,10 +246,40 @@ ROUTE_RULE_PRIORITY=10000
 EOF
 : > "$net_log"
 TEST_RULE_PRESENT=0
+TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
 TEST_ROUTE_FLUSH_RC=1
 assert_false "policy_route_cleanup should fail when route flush leaves table entries behind" policy_route_cleanup
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after route flush failure"
+
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=200
+ROUTE_RULE_PRIORITY=10000
+EOF
+: > "$net_log"
+TEST_RULE_PRESENT=1
+TEST_RULE_SHOW_RC=2
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
+TEST_ROUTE_FLUSH_RC=0
+assert_false "policy_route_cleanup should fail when ip rule probe command breaks" policy_route_cleanup
+[[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after rule probe failure"
+
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=200
+ROUTE_RULE_PRIORITY=10000
+EOF
+: > "$net_log"
+TEST_RULE_PRESENT=0
+TEST_RULE_SHOW_RC=0
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=2
+TEST_ROUTE_FLUSH_RC=0
+assert_false "policy_route_cleanup should fail when ip route probe command breaks" policy_route_cleanup
+[[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after route probe failure"
 
 pass "nft and route helper logic"

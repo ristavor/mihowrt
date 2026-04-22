@@ -572,6 +572,88 @@ is_dns_listen_value() {
 	esac
 }
 
+dns_backup_text_has_controls_value() {
+	printf '%s' "$1" | grep -q '[[:cntrl:]]'
+}
+
+dns_backup_server_target_value_valid() {
+	local value="$1"
+	local host="" port=""
+
+	[ -n "$value" ] || return 1
+	dns_backup_text_has_controls_value "$value" && return 1
+	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+
+	case "$value" in
+		*#*)
+			host="${value%#*}"
+			port="${value##*#}"
+			[ -n "$host" ] || return 1
+			case "$host" in
+				*'#'*|*/*)
+					return 1
+					;;
+			esac
+			is_valid_port_value "$port" || return 1
+			;;
+		*)
+			case "$value" in
+				*/*)
+					return 1
+					;;
+			esac
+			;;
+	esac
+
+	return 0
+}
+
+dns_backup_server_value_valid() {
+	local value="$1"
+	local rest="" target=""
+
+	[ -n "$value" ] || return 1
+	dns_backup_text_has_controls_value "$value" && return 1
+	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+
+	case "$value" in
+		/*)
+			rest="${value#/}"
+			case "$rest" in
+				*/*)
+					:
+					;;
+				*)
+					return 1
+					;;
+			esac
+			target="${rest##*/}"
+			[ -z "$target" ] && return 0
+			[ "$target" = "#" ] && return 0
+			dns_backup_server_target_value_valid "$target"
+			;;
+		*)
+			dns_backup_server_target_value_valid "$value"
+			;;
+	esac
+}
+
+dns_backup_resolvfile_value_valid() {
+	local value="$1"
+
+	[ -n "$value" ] || return 0
+	dns_backup_text_has_controls_value "$value" && return 1
+
+	case "$value" in
+		/*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 trim_value() {
 	printf '%s' "$1" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
@@ -788,7 +870,7 @@ dns_backup_expected_target() {
 
 dns_backup_file_valid_for_restore() {
 	local backup_path="$1"
-	local line="" orig_cachesize="" orig_noresolv="" mihomo_target="" has_target_line=0
+	local line="" orig_cachesize="" orig_noresolv="" orig_resolvfile="" mihomo_target="" has_target_line=0
 
 	[ -f "$backup_path" ] || return 1
 
@@ -809,6 +891,13 @@ dns_backup_file_valid_for_restore() {
 			ORIG_NORESOLV=*)
 				orig_noresolv="${line#ORIG_NORESOLV=}"
 				;;
+			ORIG_RESOLVFILE=*)
+				orig_resolvfile="${line#ORIG_RESOLVFILE=}"
+				;;
+			ORIG_SERVER=*)
+				server="${line#ORIG_SERVER=}"
+				[ -z "$server" ] || dns_backup_server_value_valid "$server" || return 1
+				;;
 		esac
 	done < "$backup_path"
 
@@ -828,6 +917,8 @@ dns_backup_file_valid_for_restore() {
 	if [ "$has_target_line" = "1" ] && [ -n "$mihomo_target" ]; then
 		is_dns_listen_value "$mihomo_target" || return 1
 	fi
+
+	dns_backup_resolvfile_value_valid "$orig_resolvfile" || return 1
 
 	return 0
 }

@@ -18,6 +18,10 @@ extract_install_dns_helper() {
 			-e 's/\<dns_flatten_lines\>/install_dns_flatten_lines/g' \
 			-e 's/\<dns_current_servers_flat\>/install_dns_current_servers_flat/g' \
 			-e 's/\<dnsmasq_state_matches\>/install_dnsmasq_state_matches/g' \
+			-e 's/\<dns_backup_text_has_controls_value\>/install_dns_backup_text_has_controls_value/g' \
+			-e 's/\<dns_backup_server_target_value_valid\>/install_dns_backup_server_target_value_valid/g' \
+			-e 's/\<dns_backup_server_value_valid\>/install_dns_backup_server_value_valid/g' \
+			-e 's/\<dns_backup_resolvfile_value_valid\>/install_dns_backup_resolvfile_value_valid/g' \
 			-e 's/\<is_uint_value\>/install_is_uint_value/g' \
 			-e 's/\<is_valid_port_value\>/install_is_valid_port_value/g' \
 			-e 's/\<is_dns_listen_value\>/install_is_dns_listen_value/g' \
@@ -30,6 +34,10 @@ extract_install_dns_helper() {
 eval "$(extract_install_dns_helper dns_flatten_lines)"
 eval "$(extract_install_dns_helper dns_current_servers_flat)"
 eval "$(extract_install_dns_helper dnsmasq_state_matches)"
+eval "$(extract_install_dns_helper dns_backup_text_has_controls_value)"
+eval "$(extract_install_dns_helper dns_backup_server_target_value_valid)"
+eval "$(extract_install_dns_helper dns_backup_server_value_valid)"
+eval "$(extract_install_dns_helper dns_backup_resolvfile_value_valid)"
 eval "$(extract_install_dns_helper is_uint_value)"
 eval "$(extract_install_dns_helper is_valid_port_value)"
 eval "$(extract_install_dns_helper is_dns_listen_value)"
@@ -78,6 +86,18 @@ assert_true "runtime is_dns_listen should accept host#port" is_dns_listen "127.0
 assert_true "installer is_dns_listen_value should accept host#port" install_is_dns_listen_value "127.0.0.1#7874"
 assert_false "runtime is_dns_listen should reject malformed targets" is_dns_listen "bad-target"
 assert_false "installer is_dns_listen_value should reject malformed targets" install_is_dns_listen_value "bad-target"
+assert_true "runtime dns_backup_server_value_valid should accept plain upstream" dns_backup_server_value_valid "1.1.1.1"
+assert_true "installer dns_backup_server_value_valid should accept plain upstream" install_dns_backup_server_value_valid "1.1.1.1"
+assert_true "runtime dns_backup_server_value_valid should accept domain-specific upstream" dns_backup_server_value_valid "/#/1.1.1.1"
+assert_true "installer dns_backup_server_value_valid should accept domain-specific upstream" install_dns_backup_server_value_valid "/#/1.1.1.1"
+assert_false "runtime dns_backup_server_value_valid should reject invalid upstream port" dns_backup_server_value_valid "1.1.1.1#99999"
+assert_false "installer dns_backup_server_value_valid should reject invalid upstream port" install_dns_backup_server_value_valid "1.1.1.1#99999"
+assert_false "runtime dns_backup_server_value_valid should reject whitespace" dns_backup_server_value_valid "bad server"
+assert_false "installer dns_backup_server_value_valid should reject whitespace" install_dns_backup_server_value_valid "bad server"
+assert_true "runtime dns_backup_resolvfile_value_valid should accept absolute paths" dns_backup_resolvfile_value_valid "/tmp/resolv.conf"
+assert_true "installer dns_backup_resolvfile_value_valid should accept absolute paths" install_dns_backup_resolvfile_value_valid "/tmp/resolv.conf"
+assert_false "runtime dns_backup_resolvfile_value_valid should reject relative paths" dns_backup_resolvfile_value_valid "relative.conf"
+assert_false "installer dns_backup_resolvfile_value_valid should reject relative paths" install_dns_backup_resolvfile_value_valid "relative.conf"
 
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT

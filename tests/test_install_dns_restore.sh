@@ -159,6 +159,33 @@ DNSMASQ_BACKUP=1
 MIHOMO_DNS_TARGET=127.0.0.1#7874
 ORIG_CACHESIZE=1000
 ORIG_NORESOLV=1
+ORIG_RESOLVFILE=relative.resolv
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject non-absolute ORIG_RESOLVFILE values" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for invalid ORIG_RESOLVFILE"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for invalid ORIG_RESOLVFILE"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1#99999
+EOF
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+assert_false "restore_dns_from_backup_file should reject invalid ORIG_SERVER values" restore_dns_from_backup_file "$backup_file"
+[[ ! -s "$UCI_LOG" ]] || fail "restore_dns_from_backup_file should not touch dhcp state for invalid ORIG_SERVER"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_dns_from_backup_file should not restart dnsmasq for invalid ORIG_SERVER"
+
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
 ORIG_RESOLVFILE=/tmp/original.resolv
 ORIG_SERVER=1.1.1.1
 ORIG_SERVER=9.9.9.9

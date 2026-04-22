@@ -16,6 +16,88 @@ dns_persist_backup_valid() {
 	dns_backup_file_valid "$DNS_BACKUP_FILE"
 }
 
+dns_backup_text_has_controls() {
+	printf '%s' "$1" | grep -q '[[:cntrl:]]'
+}
+
+dns_backup_server_target_valid() {
+	local value="$1"
+	local host="" port=""
+
+	[ -n "$value" ] || return 1
+	dns_backup_text_has_controls "$value" && return 1
+	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+
+	case "$value" in
+		*#*)
+			host="${value%#*}"
+			port="${value##*#}"
+			[ -n "$host" ] || return 1
+			case "$host" in
+				*'#'*|*/*)
+					return 1
+					;;
+			esac
+			is_valid_port "$port" || return 1
+			;;
+		*)
+			case "$value" in
+				*/*)
+					return 1
+					;;
+			esac
+			;;
+	esac
+
+	return 0
+}
+
+dns_backup_server_value_valid() {
+	local value="$1"
+	local rest="" target=""
+
+	[ -n "$value" ] || return 1
+	dns_backup_text_has_controls "$value" && return 1
+	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+
+	case "$value" in
+		/*)
+			rest="${value#/}"
+			case "$rest" in
+				*/*)
+					:
+					;;
+				*)
+					return 1
+					;;
+			esac
+			target="${rest##*/}"
+			[ -z "$target" ] && return 0
+			[ "$target" = "#" ] && return 0
+			dns_backup_server_target_valid "$target"
+			;;
+		*)
+			dns_backup_server_target_valid "$value"
+			;;
+	esac
+}
+
+dns_backup_resolvfile_value_valid() {
+	local value="$1"
+
+	[ -n "$value" ] || return 0
+	dns_backup_text_has_controls "$value" && return 1
+
+	case "$value" in
+		/*)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 dns_backup_parsed_state_valid() {
 	if [ -n "$DNS_BACKUP_EXPECTED_CACHESIZE" ] && ! is_uint "$DNS_BACKUP_EXPECTED_CACHESIZE"; then
 		return 1
@@ -33,6 +115,8 @@ dns_backup_parsed_state_valid() {
 	if [ -n "$DNS_BACKUP_MIHOMO_TARGET" ] && ! is_dns_listen "$DNS_BACKUP_MIHOMO_TARGET"; then
 		return 1
 	fi
+
+	dns_backup_resolvfile_value_valid "$DNS_BACKUP_EXPECTED_RESOLVFILE" || return 1
 
 	return 0
 }
@@ -75,13 +159,14 @@ dns_backup_parse_expected_state() {
 			ORIG_RESOLVFILE=*)
 				DNS_BACKUP_EXPECTED_RESOLVFILE="${line#ORIG_RESOLVFILE=}"
 				;;
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				if [ -n "$server" ]; then
-					DNS_BACKUP_EXPECTED_SERVERS="${DNS_BACKUP_EXPECTED_SERVERS}${server_sep}${server}"
-					server_sep="$tab"
-					DNS_BACKUP_EXPECTED_HAS_SERVERS=1
-				fi
+				ORIG_SERVER=*)
+					server="${line#ORIG_SERVER=}"
+					if [ -n "$server" ]; then
+						dns_backup_server_value_valid "$server" || return 1
+						DNS_BACKUP_EXPECTED_SERVERS="${DNS_BACKUP_EXPECTED_SERVERS}${server_sep}${server}"
+						server_sep="$tab"
+						DNS_BACKUP_EXPECTED_HAS_SERVERS=1
+					fi
 				;;
 		esac
 	done < "$backup_path"

@@ -248,6 +248,15 @@ assert_file_contains "$DNS_LOG" "restart" "restore_dns_from_backup_file should r
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+ORIG_SERVER=9.9.9.9
+EOF
 TEST_CURRENT_CACHESIZE="0"
 TEST_CURRENT_NORESOLV="1"
 TEST_CURRENT_RESOLVFILE=""
@@ -309,6 +318,15 @@ assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults fallback 
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+ORIG_SERVER=9.9.9.9
+EOF
 TEST_CURRENT_CACHESIZE="0"
 TEST_CURRENT_NORESOLV="1"
 TEST_CURRENT_RESOLVFILE=""
@@ -318,6 +336,30 @@ assert_false "restore_dns_defaults_fallback should fail when dnsmasq restart fai
 assert_file_contains "$UCI_LOG" "commit dhcp" "restore_dns_defaults_fallback should still commit before restart failure"
 assert_file_contains "$DNS_LOG" "restart" "restore_dns_defaults_fallback should attempt dnsmasq restart before failing"
 TEST_DNSMASQ_RESTART_RC=0
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+cat > "$backup_file" <<'EOF'
+DNSMASQ_BACKUP=1
+MIHOMO_DNS_TARGET=127.0.0.1#7874
+ORIG_CACHESIZE=1000
+ORIG_NORESOLV=1
+ORIG_RESOLVFILE=/tmp/original.resolv
+ORIG_SERVER=1.1.1.1
+ORIG_SERVER=9.9.9.9
+EOF
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+TEST_DNSMASQ_RESTART_RC=1
+assert_false "restore_system_dns_defaults should fail when matching backup restore fails after commit" restore_system_dns_defaults 1
+assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=/tmp/original.resolv" "restore_system_dns_defaults should attempt backup restore before failing"
+assert_file_not_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].noresolv=0" "restore_system_dns_defaults should not run fallback after matching backup restore failure"
+assert_file_not_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=$DNS_AUTO_RESOLVFILE" "restore_system_dns_defaults should not overwrite backup restore with fallback defaults after failure"
+assert_eq "1" "$(grep -c '^restart$' "$DNS_LOG" || true)" "restore_system_dns_defaults should only attempt backup restart once on matching restore failure"
+TEST_DNSMASQ_RESTART_RC=0
+rm -f "$backup_file"
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"

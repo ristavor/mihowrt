@@ -1262,24 +1262,27 @@ restore_system_dns_defaults() {
 
 	have_command uci || return 0
 
-	backup_target="$(dns_backup_expected_target "$DNS_BACKUP_FILE" "$active_config_path" 2>/dev/null || true)"
-	if dns_current_state_looks_hijacked "$backup_target" && restore_dns_from_backup_file "$DNS_BACKUP_FILE"; then
-		log "System DNS settings restored from MihoWRT backup."
-		return 0
+	if dns_backup_file_valid_for_restore "$DNS_BACKUP_FILE"; then
+		backup_target="$(dns_backup_expected_target "$DNS_BACKUP_FILE" "$active_config_path" 2>/dev/null || true)"
+		if dns_current_state_looks_hijacked "$backup_target"; then
+			restore_dns_from_backup_file "$DNS_BACKUP_FILE" || return 1
+			log "System DNS settings restored from MihoWRT backup."
+			return 0
+		fi
 	fi
 
 	backup_target=""
 	backup_config_path="${BACKUP_DIR}/config.yaml"
-	if [ -n "$BACKUP_DIR" ]; then
+	if [ -n "$BACKUP_DIR" ] && dns_backup_file_valid_for_restore "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
 		backup_target="$(dns_backup_expected_target "$BACKUP_DIR/$DNS_BACKUP_NAME" "$backup_config_path" 2>/dev/null || true)"
 		if [ -z "$backup_target" ]; then
 			backup_target="$(dns_backup_expected_target "$BACKUP_DIR/$DNS_BACKUP_NAME" "$active_config_path" 2>/dev/null || true)"
 		fi
-	fi
-	if [ -n "$BACKUP_DIR" ] && dns_current_state_looks_hijacked "$backup_target" &&
-		restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME"; then
-		log "System DNS settings restored from saved MihoWRT backup."
-		return 0
+		if dns_current_state_looks_hijacked "$backup_target"; then
+			restore_dns_from_backup_file "$BACKUP_DIR/$DNS_BACKUP_NAME" || return 1
+			log "System DNS settings restored from saved MihoWRT backup."
+			return 0
+		fi
 	fi
 
 	if [ "$allow_fallback" != "1" ]; then

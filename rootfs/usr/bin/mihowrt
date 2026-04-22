@@ -57,6 +57,7 @@ run_service() {
 	"$CLASH_BIN" -d "$CLASH_DIR" &
 	pid=$!
 	echo "$pid" > "$SERVICE_PID_FILE"
+	log "Mihomo process spawned"
 
 	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
 	if ! wait_for_mihomo_ready "$dns_port" "$MIHOMO_TPROXY_PORT" "$pid"; then
@@ -68,6 +69,7 @@ run_service() {
 		[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
 		return 1
 	fi
+	log "Mihomo listeners ready"
 
 	if [ "$ENABLED" = "1" ]; then
 		if ! apply_runtime_state; then
@@ -79,6 +81,7 @@ run_service() {
 			[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
 			return 1
 		fi
+		log "Runtime policy applied"
 	fi
 
 	log "MihoWRT service ready"

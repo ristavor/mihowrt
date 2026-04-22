@@ -20,7 +20,7 @@ export TEST_INIT_ENABLED_RC=1
 export TEST_INIT_RESTART_RC=0
 export TEST_INIT_START_RC=0
 export TEST_INIT_STOP_RC=0
-export TEST_WAIT_READY_RC=0
+export TEST_WAIT_RUNNING_RC=0
 export TEST_PGREP_RC=1
 export PATH="$tmpbin:$PATH"
 
@@ -135,9 +135,9 @@ wait_for_service_stop() {
 	return 0
 }
 
-wait_for_service_ready() {
-	printf 'wait_for_service_ready\n' >>"$event_log"
-	return "${TEST_WAIT_READY_RC:-0}"
+wait_for_service_running() {
+	printf 'wait_for_service_running\n' >>"$event_log"
+	return "${TEST_WAIT_RUNNING_RC:-0}"
 }
 
 kernel_remove() {
@@ -305,57 +305,57 @@ cleanup_runtime_fallback() {
 TEST_SERVICE_RUNNING_RC=0
 TEST_INIT_RESTART_RC=0
 TEST_INIT_START_RC=0
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 WAS_ENABLED=1
 WAS_RUNNING=1
 restore_runtime_state
 assert_file_contains "$init_log" "enable" "restore_runtime_state should re-enable service when previously enabled"
 assert_file_contains "$init_log" "restart" "restore_runtime_state should restart running service"
 assert_eq "0" "$(grep -c '^start$' "$init_log" || true)" "restore_runtime_state should not start when restart succeeds"
-assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should confirm readiness after restart"
+assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should confirm liveness after restart"
 assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should not tear down state after successful restart"
 
 : > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=1
 TEST_INIT_START_RC=0
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 WAS_ENABLED=0
 WAS_RUNNING=1
 restore_runtime_state
 assert_file_contains "$init_log" "disable" "restore_runtime_state should disable service when it was previously disabled"
 assert_file_contains "$init_log" "start" "restore_runtime_state should start stopped service"
 assert_file_not_contains "$init_log" "restart" "restore_runtime_state should skip restart when service is no longer running"
-assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should confirm readiness after fresh start"
+assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should confirm liveness after fresh start"
 
 : > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=1
 TEST_INIT_START_RC=1
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 WAS_ENABLED=1
 WAS_RUNNING=1
 assert_false "restore_runtime_state should fail when restart fails" restore_runtime_state
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback after failed restart"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults after failed restart"
-assert_file_not_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should not wait for readiness when start itself fails"
+assert_file_not_contains "$event_log" "wait_for_service_running" "restore_runtime_state should not wait for liveness when start itself fails"
 
 : > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=1
 TEST_INIT_START_RC=0
-TEST_WAIT_READY_RC=1
+TEST_WAIT_RUNNING_RC=1
 WAS_ENABLED=1
 WAS_RUNNING=1
-assert_false "restore_runtime_state should fail when start never becomes ready" restore_runtime_state
-assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should wait for readiness before declaring success"
-assert_file_contains "$init_log" "stop" "restore_runtime_state should stop non-ready service before cleanup"
-assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback when readiness never arrives"
-assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults when readiness never arrives"
+assert_false "restore_runtime_state should fail when service does not stay running" restore_runtime_state
+assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should wait for liveness before declaring success"
+assert_file_contains "$init_log" "stop" "restore_runtime_state should stop dead-on-arrival service before cleanup"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback when liveness never arrives"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults when liveness never arrives"
 
 : > "$event_log"
 : > "$init_log"
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 WAS_ENABLED=0
 WAS_RUNNING=0
 restore_runtime_state
@@ -369,7 +369,7 @@ cleanup_runtime_fallback() {
 	printf 'cleanup_runtime_fallback\n' >>"$event_log"
 	return 1
 }
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 WAS_ENABLED=0
 WAS_RUNNING=0
 assert_false "restore_runtime_state should fail when cleanup after update fails" restore_runtime_state
@@ -509,31 +509,31 @@ assert_file_contains "$event_log" "warn:failed to restore previous Mihomo kernel
 : > "$event_log"
 : > "$init_log"
 TEST_INIT_START_RC=0
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 start_fresh_install_service
 assert_file_contains "$init_log" "enable" "start_fresh_install_service should enable service"
 assert_file_contains "$init_log" "start" "start_fresh_install_service should start service"
-assert_file_contains "$event_log" "wait_for_service_ready" "start_fresh_install_service should confirm readiness before succeeding"
+assert_file_contains "$event_log" "wait_for_service_running" "start_fresh_install_service should confirm liveness before succeeding"
 
 : > "$event_log"
 : > "$init_log"
 TEST_INIT_START_RC=1
-TEST_WAIT_READY_RC=0
+TEST_WAIT_RUNNING_RC=0
 assert_false "start_fresh_install_service should fail when init start fails" start_fresh_install_service
 assert_file_contains "$init_log" "enable" "failed fresh start should still try enable"
 assert_file_contains "$init_log" "start" "failed fresh start should still try start"
 assert_file_contains "$init_log" "disable" "failed fresh start should disable service afterwards"
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "failed fresh start should clean runtime fallback"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "failed fresh start should restore DNS defaults"
-assert_file_not_contains "$event_log" "wait_for_service_ready" "failed fresh start should not wait when init start already failed"
+assert_file_not_contains "$event_log" "wait_for_service_running" "failed fresh start should not wait when init start already failed"
 
 : > "$event_log"
 : > "$init_log"
 TEST_INIT_START_RC=0
-TEST_WAIT_READY_RC=1
-assert_false "start_fresh_install_service should fail when service never becomes ready" start_fresh_install_service
-assert_file_contains "$event_log" "wait_for_service_ready" "fresh start should wait for readiness before succeeding"
-assert_file_contains "$init_log" "stop" "fresh start should stop non-ready service before cleanup"
+TEST_WAIT_RUNNING_RC=1
+assert_false "start_fresh_install_service should fail when service does not stay running" start_fresh_install_service
+assert_file_contains "$event_log" "wait_for_service_running" "fresh start should wait for liveness before succeeding"
+assert_file_contains "$init_log" "stop" "fresh start should stop dead-on-arrival service before cleanup"
 assert_file_contains "$init_log" "disable" "non-ready fresh start should disable service afterwards"
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "non-ready fresh start should clean runtime fallback"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "non-ready fresh start should restore DNS defaults"

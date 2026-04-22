@@ -255,7 +255,7 @@ SERVICE_PID_FILE="$tmpdir/init.pid"
 export TEST_ORCH_LOG="$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
-export TEST_ORCH_READY_RC=0
+export TEST_ORCH_RUNNING_RC=0
 export TEST_CLASH_TEST_RC=0
 export TEST_SERVICE_PID_FILE="$SERVICE_PID_FILE"
 
@@ -264,6 +264,9 @@ cat > "$ORCHESTRATOR" <<'EOF'
 printf '%s\n' "$*" >>"$TEST_ORCH_LOG"
 case "${1:-}" in
 	service-running)
+		if [ -n "${TEST_ORCH_RUNNING_RC:-}" ]; then
+			exit "$TEST_ORCH_RUNNING_RC"
+		fi
 		[ -f "${TEST_SERVICE_PID_FILE:-}" ] && exit 0
 		exit 1
 		;;
@@ -272,9 +275,6 @@ case "${1:-}" in
 		;;
 	cleanup)
 			exit "${TEST_ORCH_CLEANUP_RC:-0}"
-			;;
-		service-ready)
-			exit "${TEST_ORCH_READY_RC:-0}"
 			;;
 		recover|run-service)
 			exit 0
@@ -321,14 +321,14 @@ sleep() {
 	:
 }
 
-SERVICE_READY_TIMEOUT=2
+SERVICE_START_TIMEOUT=2
 
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
-export TEST_ORCH_READY_RC=0
+export TEST_ORCH_RUNNING_RC=0
 export TEST_CLASH_TEST_RC=0
 rm -f "$SKIP_START_FILE"
 start_service
@@ -336,10 +336,10 @@ assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service sho
 assert_file_contains "$orch_log" "recover" "start_service should run crash recovery before start"
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "cleanup" "start_service should clean stale runtime state before procd start"
-assert_file_contains "$orch_log" "service-ready" "start_service should wait for service readiness before success"
+assert_file_contains "$orch_log" "service-running" "start_service should wait for service liveness before success"
 assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start_service should register run-service command with procd"
 assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
-assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim readiness before runtime start completes"
+assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success before runtime start completes"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
 
 : > "$msg_log"
@@ -354,13 +354,13 @@ export TEST_ORCH_CLEANUP_RC=0
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
-export TEST_ORCH_READY_RC=1
-assert_false "start_service should fail when service never becomes ready" start_service
-assert_file_contains "$orch_log" "service-ready" "start_service should wait for readiness before failing"
-assert_file_contains "$msg_log" "stop" "start_service should stop procd instance after readiness timeout"
-assert_file_contains "$msg_log" "ERROR: MihoWRT service did not become ready after start" "start_service should report readiness timeout"
-assert_file_not_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success when readiness never arrives"
-export TEST_ORCH_READY_RC=0
+export TEST_ORCH_RUNNING_RC=1
+assert_false "start_service should fail when service does not stay running" start_service
+assert_file_contains "$orch_log" "service-running" "start_service should wait for service liveness before failing"
+assert_file_contains "$msg_log" "stop" "start_service should stop procd instance after liveness timeout"
+assert_file_contains "$msg_log" "ERROR: MihoWRT service did not stay running after start" "start_service should report liveness timeout"
+assert_file_not_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success when service never stays up"
+unset TEST_ORCH_RUNNING_RC
 
 : > "$msg_log"
 : > "$procd_log"

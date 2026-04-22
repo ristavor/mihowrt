@@ -147,6 +147,19 @@ apply_config_output="$(
 )"
 assert_eq "$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path"
 
+service_ready_output="$(
+	set -- service-ready
+	service_ready_runtime_state() {
+		printf 'ready\n'
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "ready" "$service_ready_output" "service-ready command should dispatch to runtime readiness helper"
+
 source_init_mihowrt_lib
 
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
@@ -159,6 +172,7 @@ SERVICE_PID_FILE="$tmpdir/init.pid"
 export TEST_ORCH_LOG="$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
+export TEST_ORCH_READY_RC=0
 export TEST_CLASH_TEST_RC=0
 export TEST_SERVICE_PID_FILE="$SERVICE_PID_FILE"
 
@@ -174,11 +188,14 @@ case "${1:-}" in
 		exit "${TEST_ORCH_VALIDATE_RC:-0}"
 		;;
 	cleanup)
-		exit "${TEST_ORCH_CLEANUP_RC:-0}"
-		;;
-	recover|run-service)
-		exit 0
-		;;
+			exit "${TEST_ORCH_CLEANUP_RC:-0}"
+			;;
+		service-ready)
+			exit "${TEST_ORCH_READY_RC:-0}"
+			;;
+		recover|run-service)
+			exit 0
+			;;
 esac
 exit 0
 EOF
@@ -213,11 +230,18 @@ procd_close_instance() {
 	printf 'close\n' >>"$procd_log"
 }
 
+sleep() {
+	:
+}
+
+SERVICE_READY_TIMEOUT=2
+
 : > "$msg_log"
 : > "$procd_log"
 : > "$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
+export TEST_ORCH_READY_RC=0
 export TEST_CLASH_TEST_RC=0
 rm -f "$SKIP_START_FILE"
 start_service
@@ -225,6 +249,7 @@ assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service sho
 assert_file_contains "$orch_log" "recover" "start_service should run crash recovery before start"
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "cleanup" "start_service should clean stale runtime state before procd start"
+assert_file_contains "$orch_log" "service-ready" "start_service should wait for service readiness before success"
 assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start_service should register run-service command with procd"
 assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
 assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim readiness before runtime start completes"
@@ -238,6 +263,16 @@ assert_false "start_service should fail when stale runtime cleanup fails" start_
 assert_file_contains "$msg_log" "ERROR: Failed to clean stale runtime state" "start_service should report stale runtime cleanup failure"
 [[ ! -s "$procd_log" ]] || fail "start_service should not register procd instance when cleanup fails"
 export TEST_ORCH_CLEANUP_RC=0
+
+: > "$msg_log"
+: > "$procd_log"
+: > "$orch_log"
+export TEST_ORCH_READY_RC=1
+assert_false "start_service should fail when service never becomes ready" start_service
+assert_file_contains "$orch_log" "service-ready" "start_service should wait for readiness before failing"
+assert_file_contains "$msg_log" "ERROR: MihoWRT service did not become ready after start" "start_service should report readiness timeout"
+assert_file_not_contains "$msg_log" "MihoWRT service registered with procd" "start_service should not claim success when readiness never arrives"
+export TEST_ORCH_READY_RC=0
 
 : > "$msg_log"
 : > "$procd_log"

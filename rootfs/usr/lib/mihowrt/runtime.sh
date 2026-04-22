@@ -3,12 +3,22 @@
 sync_runtime_dir() {
 	local src="$1"
 	local dst="$2"
+	local staged_dst="${dst}.tmp.$$"
 
-	ensure_dir "$dst"
+	remove_path_if_exists "$staged_dst"
+	ensure_dir "$staged_dst"
 	if [ -d "$src" ] && [ ! -L "$src" ]; then
-		cp -a "$src"/. "$dst"/ 2>/dev/null || true
+		cp -a "$src"/. "$staged_dst"/ || {
+			remove_path_if_exists "$staged_dst"
+			return 1
+		}
 	fi
 
+	remove_path_if_exists "$dst"
+	mv -f "$staged_dst" "$dst" || {
+		remove_path_if_exists "$staged_dst"
+		return 1
+	}
 	remove_path_if_exists "$src"
 	ln -s "$dst" "$src" || return 1
 	return 0
@@ -17,10 +27,19 @@ sync_runtime_dir() {
 sync_runtime_file() {
 	local src="$1"
 	local dst="$2"
+	local staged_dst="${dst}.tmp.$$"
 
 	ensure_dir "$(dirname "$dst")"
 	if [ -f "$src" ] && [ ! -L "$src" ]; then
-		cp -a "$src" "$dst" 2>/dev/null || true
+		cp -a "$src" "$staged_dst" || {
+			rm -f "$staged_dst"
+			return 1
+		}
+
+		mv -f "$staged_dst" "$dst" || {
+			rm -f "$staged_dst"
+			return 1
+		}
 	fi
 
 	if [ ! -L "$src" ] || [ "$(readlink "$src" 2>/dev/null)" != "$dst" ]; then

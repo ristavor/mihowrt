@@ -567,6 +567,15 @@ reload_runtime_state() {
 	return 0
 }
 
+service_ready_runtime_state() {
+	local dns_port=""
+
+	service_running_state || return 1
+	load_runtime_config || return 1
+	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
+	mihomo_ready_state "$dns_port" "$MIHOMO_TPROXY_PORT"
+}
+
 service_enabled_state() {
 	local pkg_name="${PKG_NAME:-mihowrt}"
 

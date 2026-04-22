@@ -15,6 +15,7 @@ WAS_RUNNING=0
 REINSTALL_HOLD_ACTIVE=0
 PRESERVE_BACKUP_DIR=0
 PRESERVE_KERNEL_TMP_DIR=0
+SERVICE_READY_TIMEOUT="${SERVICE_READY_TIMEOUT:-30}"
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
@@ -132,6 +133,31 @@ set_skip_start() {
 
 clear_skip_start() {
 	rm -f "$SKIP_START_FILE"
+}
+
+wait_for_service_ready() {
+	local waited=0
+	local timeout="$SERVICE_READY_TIMEOUT"
+
+	[ -x "$ORCHESTRATOR" ] || return 1
+
+	while [ "$waited" -lt "$timeout" ]; do
+		if "$ORCHESTRATOR" service-ready >/dev/null 2>&1; then
+			return 0
+		fi
+
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	return 1
+}
+
+stop_service_instance() {
+	[ -x "$INIT_SCRIPT" ] || return 0
+
+	"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
+	wait_for_service_stop || true
 }
 
 fetch_url() {
@@ -1329,16 +1355,24 @@ restore_runtime_state() {
 		if service_running; then
 			log "Restarting MihoWRT service..."
 			if "$INIT_SCRIPT" restart >/dev/null 2>&1; then
-				return 0
+				if wait_for_service_ready; then
+					return 0
+				fi
+				warn "MihoWRT restart returned success but service never became ready"
 			fi
 			warn "failed to restart MihoWRT service after update"
+			stop_service_instance
 		fi
 
 		log "Starting MihoWRT service..."
 		if "$INIT_SCRIPT" start >/dev/null 2>&1; then
-			return 0
+			if wait_for_service_ready; then
+				return 0
+			fi
+			warn "MihoWRT start returned success but service never became ready"
 		fi
 		warn "failed to start MihoWRT service after update"
+		stop_service_instance
 		cleanup_runtime_fallback
 		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed service start"
 		return 1
@@ -1455,10 +1489,14 @@ start_fresh_install_service() {
 	log "Starting MihoWRT service..."
 	"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
 	if "$INIT_SCRIPT" start >/dev/null 2>&1; then
-		return 0
+		if wait_for_service_ready; then
+			return 0
+		fi
+		warn "MihoWRT start returned success but service never became ready"
 	fi
 
 	warn "failed to start MihoWRT service after install"
+	stop_service_instance
 	cleanup_runtime_fallback
 	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed fresh start"
 	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true

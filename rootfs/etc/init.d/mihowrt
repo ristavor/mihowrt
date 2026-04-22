@@ -11,6 +11,7 @@ CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
+SERVICE_READY_TIMEOUT="${SERVICE_READY_TIMEOUT:-30}"
 EXTRA_COMMANDS="apply"
 EXTRA_HELP="        apply   Validate and apply on-disk MihoWRT config/policy"
 
@@ -42,7 +43,23 @@ validate_service_inputs() {
 	if ! "$ORCHESTRATOR" validate; then
 		msg "ERROR: Policy validation failed"
 		return 1
-	fi
+		fi
+}
+
+wait_for_service_ready() {
+	local waited=0
+	local timeout="$SERVICE_READY_TIMEOUT"
+
+	while [ "$waited" -lt "$timeout" ]; do
+		if "$ORCHESTRATOR" service-ready >/dev/null 2>&1; then
+			return 0
+		fi
+
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	return 1
 }
 
 start_service() {
@@ -69,6 +86,11 @@ start_service() {
 	procd_set_param stderr 1
 	procd_set_param respawn 3600 5 5
 	procd_close_instance
+
+	if ! wait_for_service_ready; then
+		msg "ERROR: MihoWRT service did not become ready after start"
+		return 1
+	fi
 
 	msg "MihoWRT service registered with procd"
 }
@@ -118,6 +140,7 @@ apply() {
 	fi
 
 	if ! start; then
+		stop >/dev/null 2>&1 || true
 		msg "ERROR: Failed to restart MihoWRT service with updated on-disk config"
 		return 1
 	fi

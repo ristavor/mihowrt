@@ -158,6 +158,22 @@ assert_file_contains "$event_log" "cleanup_runtime_fallback" "quiesce_postinstal
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "quiesce_postinstall_service should still attempt DNS restore after stop failure"
 assert_file_contains "$event_log" "err:failed to clean runtime fallback state after stopping auto-started service" "quiesce_postinstall_service should report runtime cleanup failure after stop failure"
 
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+TEST_INIT_STOP_RC=0
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+assert_false "quiesce_postinstall_service should still verify cleanup after successful stop" quiesce_postinstall_service
+assert_file_contains "$init_log" "stop" "quiesce_postinstall_service should stop service before verification"
+assert_file_contains "$event_log" "wait_for_service_stop" "quiesce_postinstall_service should wait for service stop before verification"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "quiesce_postinstall_service should verify runtime cleanup even after stop succeeds"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "quiesce_postinstall_service should still attempt DNS restore after successful stop"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state after stopping auto-started service" "quiesce_postinstall_service should report cleanup verification failure after successful stop"
+assert_file_not_contains "$orch_log" "cleanup" "quiesce_postinstall_service should skip orchestrator cleanup when init stop already succeeded"
+
 TEST_INIT_STOP_RC=0
 cleanup_runtime_fallback() {
 	printf 'cleanup_runtime_fallback\n' >>"$event_log"

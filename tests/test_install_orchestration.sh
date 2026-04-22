@@ -210,6 +210,21 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "quiesce_posti
 assert_file_contains "$event_log" "err:failed to clean runtime fallback state after stopping auto-started service" "quiesce_postinstall_service should report cleanup verification failure after successful stop"
 assert_file_not_contains "$orch_log" "cleanup" "quiesce_postinstall_service should skip orchestrator cleanup when init stop already succeeded"
 
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+TEST_SERVICE_RUNNING_RC=1
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+assert_false "quiesce_postinstall_service should verify cleanup even when service already exited" quiesce_postinstall_service
+assert_file_not_contains "$init_log" "stop" "quiesce_postinstall_service should not stop init service when it is already down"
+assert_file_not_contains "$orch_log" "cleanup" "quiesce_postinstall_service should skip orchestrator cleanup when service is already down"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "quiesce_postinstall_service should still verify runtime cleanup when service is already down"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "quiesce_postinstall_service should still attempt DNS restore when service is already down"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state after stopping auto-started service" "quiesce_postinstall_service should report cleanup verification failure when service is already down"
+
 TEST_INIT_STOP_RC=0
 cleanup_runtime_fallback() {
 	printf 'cleanup_runtime_fallback\n' >>"$event_log"

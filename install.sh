@@ -1495,21 +1495,19 @@ prepare_update() {
 quiesce_postinstall_service() {
 	local stopped_cleanly=0
 
-	if ! service_running; then
-		return 0
-	fi
-
-	if [ -x "$INIT_SCRIPT" ]; then
-		log "Stopping running MihoWRT service before state restore..."
-		if "$INIT_SCRIPT" stop >/dev/null 2>&1 && wait_for_service_stop; then
-			stopped_cleanly=1
-		else
-			warn "failed to stop running MihoWRT service cleanly"
+	if service_running; then
+		if [ -x "$INIT_SCRIPT" ]; then
+			log "Stopping running MihoWRT service before state restore..."
+			if "$INIT_SCRIPT" stop >/dev/null 2>&1 && wait_for_service_stop; then
+				stopped_cleanly=1
+			else
+				warn "failed to stop running MihoWRT service cleanly"
+			fi
 		fi
-	fi
 
-	if [ "$stopped_cleanly" -ne 1 ] && [ -x "$ORCHESTRATOR" ]; then
-		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+		if [ "$stopped_cleanly" -ne 1 ] && [ -x "$ORCHESTRATOR" ]; then
+			"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
+		fi
 	fi
 
 	restore_system_network_defaults "after stopping auto-started service"

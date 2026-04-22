@@ -230,6 +230,24 @@ apply_config_output="$(
 )"
 assert_eq "$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path"
 
+apply_config_contents_output="$(
+	set -- apply-config-contents 'mode: direct
+dns:
+  listen: 0.0.0.0:7874
+'
+	apply_config_contents() {
+		printf '%s\n' "$1"
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "mode: direct
+dns:
+  listen: 0.0.0.0:7874" "$apply_config_contents_output" "apply-config-contents command should forward raw config contents"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {

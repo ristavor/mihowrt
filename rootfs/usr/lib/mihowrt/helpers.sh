@@ -587,6 +587,25 @@ apply_config_file() {
 	return 0
 }
 
+apply_config_contents() {
+	local contents="$1"
+	local candidate=""
+
+	require_command mktemp || return 1
+	candidate="$(mktemp /tmp/mihowrt-config.XXXXXX.yaml)" || {
+		err "Failed to allocate temporary config path"
+		return 1
+	}
+
+	printf '%s' "$contents" > "$candidate" || {
+		err "Failed to stage temporary config contents"
+		rm -f "$candidate"
+		return 1
+	}
+
+	apply_config_file "$candidate"
+}
+
 logs_json() {
 	local limit="${1:-200}"
 	local logread_cmd="" lines=""

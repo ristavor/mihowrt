@@ -14,7 +14,7 @@ const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resour
 const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
 const uiPathMatch = source.match(/function computeUiPath[\s\S]*?\n}\n\nasync function openDashboard/);
 const dashboardMatch = source.match(/async function openDashboard[\s\S]*?\n}\n\nasync function initializeAceEditor/);
-const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nfunction makeTempConfigPath/);
+const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nasync function restartRunningService/);
 const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceEnabledToggleLabel/);
 const serviceEnabledLabelMatch = source.match(/function serviceEnabledToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
@@ -45,7 +45,7 @@ if (source.includes('window.location.reload()'))
 const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
 const uiPathFnSource = uiPathMatch[0].replace(/\n\nasync function openDashboard$/, '');
 const dashboardFnSource = dashboardMatch[0].replace(/\n\nasync function initializeAceEditor$/, '');
-const editorFnSource = editorMatch[0].replace(/\n\nfunction makeTempConfigPath$/, '');
+const editorFnSource = editorMatch[0].replace(/\n\nasync function restartRunningService$/, '');
 const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
 const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceEnabledToggleLabel$/, '');
 const serviceEnabledLabelFnSource = serviceEnabledLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');

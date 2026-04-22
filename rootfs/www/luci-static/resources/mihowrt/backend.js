@@ -127,8 +127,8 @@ async function readConfig(configPath) {
 return baseclass.extend({
 	readConfig: readConfig,
 
-	applyConfig: async function(configPath) {
-		const result = await fs.exec(BACKEND, [ 'apply-config', configPath ]);
+	applyConfig: async function(configContents) {
+		const result = await fs.exec(BACKEND, [ 'apply-config-contents', String(configContents ?? '') ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));

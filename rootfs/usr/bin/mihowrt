@@ -147,6 +147,13 @@ run_service() {
 		}
 		apply_config_file "$2"
 		;;
+	apply-config-contents)
+		[ "${2+x}" = x ] || {
+			echo "Usage: $0 apply-config-contents <config-contents>" >&2
+			exit 1
+		}
+		apply_config_contents "$2"
+		;;
 	status-json)
 		status_json
 		;;
@@ -157,7 +164,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|validate|run-service|init-layout|read-config|apply-config|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

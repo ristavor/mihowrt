@@ -392,20 +392,6 @@ function editorContentForSave(value) {
 	return value == null ? '' : String(value);
 }
 
-function makeTempConfigPath() {
-	const suffix = '%d.%s'.format(Date.now(), Math.random().toString(16).slice(2));
-	return '%s.%s.yaml'.format(TMP_CONFIG_PREFIX, suffix);
-}
-
-async function removeTempConfig(configPath) {
-	if (!configPath)
-		return;
-
-	const result = await fs.exec('/bin/sh', ['-c', 'rm -f -- "$1"', 'sh', configPath]);
-	if (result.code !== 0)
-		throw new Error(mihowrtUi.execErrorDetail(result));
-}
-
 async function restartRunningService(wasRunning) {
 	if (!wasRunning)
 		return { restarted: false, error: null };
@@ -436,8 +422,6 @@ return view.extend({
 		});
 
 		const saveAndApply = async function() {
-			let tempConfigPath = null;
-
 			if (controlsBusy())
 				return;
 
@@ -465,10 +449,7 @@ return view.extend({
 					return;
 				}
 
-				tempConfigPath = makeTempConfigPath();
-				await fs.write(tempConfigPath, value);
-				await backendHelper.applyConfig(tempConfigPath);
-				tempConfigPath = null;
+				await backendHelper.applyConfig(value);
 				savedConfigContent = value;
 				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
 
@@ -507,15 +488,6 @@ return view.extend({
 				mihowrtUi.notify(_('Unable to save contents: %s').format(e.message), 'error');
 			}
 			finally {
-				if (tempConfigPath) {
-					try {
-						await removeTempConfig(tempConfigPath);
-					}
-					catch (e) {
-						mihowrtUi.notify(_('Failed to remove temporary config: %s').format(e.message), 'warning');
-					}
-				}
-
 				saveInFlight = false;
 				updateControlDisabledState();
 			}

@@ -118,6 +118,12 @@ dns:
 EOF
 assert_eq "$(read_config_json_for_path "$tmpdir/config.yaml" | jq -r '.mihomo_dns_listen')" "$(config_mihomo_dns_target_from_path "$tmpdir/config.yaml")" "config_mihomo_dns_target_from_path should stay in sync with runtime config parser"
 
+cat > "$tmpdir/config-bound-host.yaml" <<'EOF'
+dns:
+  listen: 192.168.70.1:7874
+EOF
+assert_eq "$(normalize_dns_server_target_from_addr '192.168.70.1:7874')" "$(config_mihomo_dns_target_from_path "$tmpdir/config-bound-host.yaml")" "config_mihomo_dns_target_from_path should preserve bound host like runtime helper"
+
 TEST_UCI_CACHESIZE="0"
 TEST_UCI_NORESOLV="1"
 TEST_UCI_RESOLVFILE=""

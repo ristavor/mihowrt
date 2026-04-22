@@ -163,6 +163,35 @@ port_from_addr() {
 	printf '%s' "$port"
 }
 
+normalize_dns_server_target_from_addr() {
+	local value="$1"
+	local host=""
+	local port=""
+
+	value="$(trim "$value")"
+	[ -n "$value" ] || return 1
+	port="$(port_from_addr "$value")" || return 1
+
+	case "$value" in
+		\[*\]:*)
+			host="${value%%]*}"
+			host="${host#[}"
+			;;
+		*)
+			host="${value%:*}"
+			;;
+	esac
+
+	host="$(trim "$host")"
+	case "$host" in
+		''|0.0.0.0|::|'[::]')
+			host="127.0.0.1"
+			;;
+	esac
+
+	printf '%s#%s' "$host" "$port"
+}
+
 require_command() {
 	have_command "$1" || {
 		err "Required command missing: $1"
@@ -359,11 +388,11 @@ EOF
 	if [ -z "$dns_listen_raw" ]; then
 		append_error "Missing dns.listen in $CLASH_CONFIG"
 	else
-		dns_port="$(port_from_addr "$dns_listen_raw" 2>/dev/null || true)"
-		if [ -z "$dns_port" ]; then
+		mihomo_dns_listen="$(normalize_dns_server_target_from_addr "$dns_listen_raw" 2>/dev/null || true)"
+		if [ -z "$mihomo_dns_listen" ]; then
 			append_error "Invalid dns.listen in $CLASH_CONFIG: $dns_listen_raw"
 		else
-			mihomo_dns_listen="127.0.0.1#$dns_port"
+			dns_port="$(dns_listen_port "$mihomo_dns_listen")"
 		fi
 	fi
 

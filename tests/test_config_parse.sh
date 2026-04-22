@@ -26,6 +26,8 @@ assert_eq "7874" "$(port_from_addr '[::]:7874')" "port_from_addr parses brackete
 assert_false "port_from_addr should reject plain IPv6 address" port_from_addr "2001:db8::1"
 assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target '0.0.0.0#7874')" "normalize_dns_server_target rewrites wildcard IPv4"
 assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target '[::]#7874')" "normalize_dns_server_target rewrites wildcard IPv6"
+assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target_from_addr '0.0.0.0:7874')" "normalize_dns_server_target_from_addr rewrites wildcard IPv4"
+assert_eq "192.168.70.1#7874" "$(normalize_dns_server_target_from_addr '192.168.70.1:7874')" "normalize_dns_server_target_from_addr preserves bound IPv4 host"
 assert_eq "value" "$(yaml_cleanup_scalar '  value   # comment')" "yaml_cleanup_scalar trims inline comment"
 assert_eq "quoted value" "$(yaml_cleanup_scalar '"quoted value"')" "yaml_cleanup_scalar strips double quotes"
 assert_eq "single quoted" "$(yaml_cleanup_scalar "'single quoted'")" "yaml_cleanup_scalar strips single quotes"
@@ -56,6 +58,20 @@ assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.catch_fakeip')" "read
 assert_eq "198.18.0.0/15" "$(printf '%s\n' "$config_json" | jq -r '.fake_ip_range')" "read_config_json extracts fake-ip range"
 assert_eq "zashboard" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_name')" "read_config_json extracts external UI name"
 assert_eq "0" "$(printf '%s\n' "$config_json" | jq -r '.errors | length')" "read_config_json should not emit errors for valid config"
+
+cat > "$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+routing-mark: 2
+
+dns:
+  listen: 192.168.70.1:7874
+EOF
+
+bound_json="$(read_config_json)"
+
+assert_eq "7874" "$(printf '%s\n' "$bound_json" | jq -r '.dns_port')" "read_config_json should keep dns port for bound host"
+assert_eq "192.168.70.1#7874" "$(printf '%s\n' "$bound_json" | jq -r '.mihomo_dns_listen')" "read_config_json should preserve non-loopback dns.listen host"
+assert_eq "0" "$(printf '%s\n' "$bound_json" | jq -r '.errors | length')" "read_config_json should accept valid bound host"
 
 cat > "$CLASH_CONFIG" <<'EOF'
 # parser should keep quoted scalars intact and ignore unrelated nested dns keys

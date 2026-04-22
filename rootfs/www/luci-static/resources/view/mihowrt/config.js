@@ -45,6 +45,19 @@ function updateControlDisabledState() {
 		saveApplyButton.disabled = disabled;
 }
 
+async function withServiceActionLock(fn) {
+	serviceActionInFlight = true;
+	updateControlDisabledState();
+
+	try {
+		return await fn();
+	}
+	finally {
+		serviceActionInFlight = false;
+		updateControlDisabledState();
+	}
+}
+
 async function runServiceAction(action) {
 	const result = await fs.exec(SERVICE_SCRIPT, [action]);
 	if (result.code !== 0)
@@ -52,9 +65,6 @@ async function runServiceAction(action) {
 }
 
 async function handleServiceAction(steps, errorMsg) {
-	serviceActionInFlight = true;
-	updateControlDisabledState();
-
 	const completed = [];
 	try {
 		for (const step of steps) {
@@ -84,10 +94,6 @@ async function handleServiceAction(steps, errorMsg) {
 			: e.message;
 		mihowrtUi.notify(errorMsg.format(detail), 'error');
 		return false;
-	}
-	finally {
-		serviceActionInFlight = false;
-		updateControlDisabledState();
 	}
 }
 
@@ -215,71 +221,75 @@ async function refreshServiceState(notifyOnError = true) {
 }
 
 async function toggleService() {
-	let state = null;
-
 	if (controlsBusy())
 		return;
 
-	try {
-		state = await readServiceState();
-	}
-	catch (e) {
-		await refreshServiceState(false);
-		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-		return;
-	}
+	await withServiceActionLock(async () => {
+		let state = null;
 
-	const targetStatus = !state.running;
-
-	if (state.running) {
-		if (!(await stopService()))
+		try {
+			state = await readServiceState();
+		}
+		catch (e) {
+			await refreshServiceState(false);
+			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
 			return;
-	}
-	else {
-		if (!(await startService()))
+		}
+
+		const targetStatus = !state.running;
+
+		if (state.running) {
+			if (!(await stopService()))
+				return;
+		}
+		else {
+			if (!(await startService()))
+				return;
+		}
+
+		let settledState = null;
+		try {
+			settledState = await pollServiceState(nextState => targetStatus ? nextState.ready : !nextState.running);
+		}
+		catch (e) {
+			await refreshServiceState(false);
+			mihowrtUi.notify(_('Unable to confirm service state: %s').format(e.message), 'warning');
 			return;
-	}
+		}
 
-	let settledState = null;
-	try {
-		settledState = await pollServiceState(state => targetStatus ? state.ready : !state.running);
-	}
-	catch (e) {
-		await refreshServiceState(false);
-		mihowrtUi.notify(_('Unable to confirm service state: %s').format(e.message), 'warning');
-		return;
-	}
+		if (!settledState) {
+			await refreshServiceState(false);
+			mihowrtUi.notify(targetStatus
+				? _('Service start timed out. Check diagnostics and system log.')
+				: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
+			return;
+		}
 
-	if (!settledState) {
-		await refreshServiceState(false);
-		mihowrtUi.notify(targetStatus
-			? _('Service start timed out. Check diagnostics and system log.')
-			: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
-		return;
-	}
-
-	applyServiceState(settledState.running, settledState.enabled);
+		applyServiceState(settledState.running, settledState.enabled);
+	});
 }
 
 async function toggleServiceEnabled() {
-	let state = null;
-
 	if (controlsBusy())
 		return;
 
-	try {
-		state = await readServiceState();
-	}
-	catch (e) {
-		await refreshServiceState(false);
-		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-		return;
-	}
+	await withServiceActionLock(async () => {
+		let state = null;
 
-	if (!(await setServiceEnabled(!state.enabled)))
-		return;
+		try {
+			state = await readServiceState();
+		}
+		catch (e) {
+			await refreshServiceState(false);
+			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+			return;
+		}
 
-	await refreshServiceState();
+		if (!(await setServiceEnabled(!state.enabled)))
+			return;
+
+		await refreshServiceState();
+	});
 }
 
 function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {

@@ -52,6 +52,8 @@ assert_eq "v1.18.7" "$(current_mihomo_version)" "current_mihomo_version reads Mi
 export SERVICE_PID_FILE="$tmpdir/mihomo.pid"
 export ORCHESTRATOR="/usr/bin/mihowrt"
 export SERVICE_RUN_PATTERN="$tmpdir/mihowrt-service run-service"
+export CLASH_DIR="$tmpdir/clash-dir"
+mkdir -p "$CLASH_DIR"
 
 cat > "$tmpdir/mihowrt-service" <<'EOF'
 #!/usr/bin/env bash
@@ -63,6 +65,20 @@ chmod +x "$tmpdir/mihowrt-service"
 test_pid="$!"
 printf '%s\n' "$test_pid" > "$SERVICE_PID_FILE"
 assert_true "service_running_state should accept live pid file" service_running_state
+kill "$test_pid" 2>/dev/null || true
+wait "$test_pid" 2>/dev/null || true
+
+cat > "$tmpdir/mihomo-child" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$tmpdir/mihomo-child"
+export CLASH_BIN="$tmpdir/mihomo-child"
+"$tmpdir/mihomo-child" -d "$CLASH_DIR" &
+test_pid="$!"
+printf '%s\n' "$test_pid" > "$SERVICE_PID_FILE"
+export TEST_PGREP_RC=1
+assert_true "service_running_state should accept live Mihomo child pid file without pgrep" service_running_state
 kill "$test_pid" 2>/dev/null || true
 wait "$test_pid" 2>/dev/null || true
 

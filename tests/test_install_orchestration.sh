@@ -158,6 +158,15 @@ sleep 30
 EOF
 chmod +x "$tmpdir/foreign-service"
 
+CLASH_DIR="$tmpdir/clash-dir"
+CLASH_BIN="$tmpdir/mihomo-child"
+mkdir -p "$CLASH_DIR"
+cat > "$CLASH_BIN" <<'EOF'
+#!/usr/bin/env bash
+sleep 30
+EOF
+chmod +x "$CLASH_BIN"
+
 : > "$event_log"
 : > "$init_log"
 : > "$orch_log"
@@ -171,6 +180,17 @@ eval "$REAL_INSTALL_SERVICE_RUNNING"
 assert_false "installer service_running should reject stale pid file when cmdline does not match" service_running
 kill "$foreign_pid" 2>/dev/null || true
 wait "$foreign_pid" 2>/dev/null || true
+
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+TEST_PGREP_RC=1
+"$CLASH_BIN" -d "$CLASH_DIR" &
+mihomo_child_pid="$!"
+printf '%s\n' "$mihomo_child_pid" > "$SERVICE_PID_FILE"
+assert_true "installer service_running should accept live Mihomo child pid file without pgrep" service_running
+kill "$mihomo_child_pid" 2>/dev/null || true
+wait "$mihomo_child_pid" 2>/dev/null || true
 
 service_running() {
 	return "${TEST_SERVICE_RUNNING_RC:-0}"

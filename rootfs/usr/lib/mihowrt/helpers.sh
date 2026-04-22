@@ -241,8 +241,25 @@ process_running_state() {
 service_running_state() {
 	local pid_file="${SERVICE_PID_FILE:-/var/run/mihowrt/mihomo.pid}"
 	local run_pattern="${SERVICE_RUN_PATTERN:-${ORCHESTRATOR:-/usr/bin/mihowrt} run-service}"
+	local mihomo_pattern="${SERVICE_CHILD_PATTERN:-${CLASH_BIN:-/opt/clash/bin/clash} -d ${CLASH_DIR:-/opt/clash}}"
+	local pid=""
 
-	process_running_state "$pid_file" "$run_pattern"
+	if [ -f "$pid_file" ]; then
+		IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
+		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+			process_pid_matches_pattern "$pid" "$run_pattern" && return 0
+			process_pid_matches_pattern "$pid" "$mihomo_pattern" && return 0
+		fi
+	fi
+
+	if [ -n "$run_pattern" ] && have_command pgrep; then
+		pgrep -f "$run_pattern" >/dev/null 2>&1 && return 0
+	fi
+	if [ -n "$mihomo_pattern" ] && have_command pgrep; then
+		pgrep -f "$mihomo_pattern" >/dev/null 2>&1 && return 0
+	fi
+
+	return 1
 }
 
 mihomo_ready_state() {

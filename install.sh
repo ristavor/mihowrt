@@ -530,6 +530,7 @@ service_pid_matches_pattern() {
 service_running() {
 	local pid=""
 	local run_pattern="${ORCHESTRATOR} run-service"
+	local mihomo_pattern="${CLASH_BIN} -d ${CLASH_DIR}"
 
 	if [ -x "$ORCHESTRATOR" ] && "$ORCHESTRATOR" service-running >/dev/null 2>&1; then
 		return 0
@@ -539,11 +540,13 @@ service_running() {
 		IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
 		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
 			service_pid_matches_pattern "$pid" "$run_pattern" && return 0
+			service_pid_matches_pattern "$pid" "$mihomo_pattern" && return 0
 		fi
 	fi
 
 	if have_command pgrep; then
 		pgrep -f "$run_pattern" >/dev/null 2>&1 && return 0
+		pgrep -f "$mihomo_pattern" >/dev/null 2>&1 && return 0
 	fi
 
 	return 1

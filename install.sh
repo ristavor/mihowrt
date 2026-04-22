@@ -1427,6 +1427,22 @@ restore_system_dns_defaults() {
 	return 0
 }
 
+restore_system_network_defaults() {
+	local context="$1"
+	local rc=0
+
+	cleanup_runtime_fallback || {
+		err "failed to clean runtime fallback state ${context}"
+		rc=1
+	}
+	restore_system_dns_defaults 1 || {
+		err "failed to restore system DNS defaults ${context}"
+		rc=1
+	}
+
+	[ "$rc" -eq 0 ]
+}
+
 prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
@@ -1449,11 +1465,7 @@ prepare_update() {
 	fi
 
 	log "Restoring system DNS/routing state before update..."
-	cleanup_runtime_fallback
-	restore_system_dns_defaults 1 || {
-		err "failed to restore system DNS defaults before update"
-		return 1
-	}
+	restore_system_network_defaults "before update" || return 1
 }
 
 quiesce_postinstall_service() {
@@ -1508,25 +1520,36 @@ restore_runtime_state() {
 		fi
 		warn "failed to start MihoWRT service after update"
 		stop_service_instance
-		cleanup_runtime_fallback
-		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed service start"
+		restore_system_network_defaults "after failed service start" || true
 		return 1
 	fi
 
 	if [ "$WAS_RUNNING" != "1" ]; then
-		cleanup_runtime_fallback
-		restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after update"
+		restore_system_network_defaults "after update" || return 1
 	fi
 }
 
 rollback_reinstall_state() {
+	local had_kernel_backup=0
+
 	[ "${1:-0}" = "1" ] || return 0
+	kernel_backup_available && had_kernel_backup=1 || had_kernel_backup=0
+
 	if ! restore_kernel_backup; then
 		preserve_kernel_backup_dir
 	fi
-	restore_runtime_state || true
+	if ! restore_runtime_state; then
+		preserve_backup_dir
+		if [ "$had_kernel_backup" -eq 1 ]; then
+			stage_kernel_backup || true
+			preserve_kernel_backup_dir
+		fi
+		err "failed to restore runtime state during rollback"
+		return 1
+	fi
 	release_reinstall_dependencies
 	clear_kernel_backup
+	return 0
 }
 
 handle_install_failure() {
@@ -1542,8 +1565,11 @@ handle_install_failure() {
 	fi
 
 	quiesce_postinstall_service
-	cleanup_runtime_fallback
-	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after incomplete package install"
+	if ! restore_system_network_defaults "after incomplete package install"; then
+		preserve_backup_dir
+		preserve_kernel_backup_dir
+		return 1
+	fi
 
 	if [ "$reinstall" = "1" ]; then
 		if ! restore_kernel_backup; then
@@ -1600,8 +1626,7 @@ remove_package_and_kernel() {
 		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
 	fi
 
-	cleanup_runtime_fallback
-	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults before removal"
+	restore_system_network_defaults "before removal" || return 1
 
 	kernel_remove
 
@@ -1632,8 +1657,7 @@ start_fresh_install_service() {
 
 	warn "failed to start MihoWRT service after install"
 	stop_service_instance
-	cleanup_runtime_fallback
-	restore_system_dns_defaults 1 || warn "failed to restore system DNS defaults after failed fresh start"
+	restore_system_network_defaults "after failed fresh start" || true
 	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
 	return 1
 }

@@ -168,6 +168,22 @@ backup_user_state() {
 }
 
 : > "$event_log"
+WAS_ENABLED=0
+WAS_RUNNING=0
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+assert_false "prepare_update should fail when runtime cleanup fails" prepare_update
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "prepare_update should attempt runtime cleanup before update"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "prepare_update should still attempt DNS restore when runtime cleanup fails"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state before update" "prepare_update should report runtime cleanup failure"
+
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+}
+
+: > "$event_log"
 : > "$init_log"
 TEST_SERVICE_RUNNING_RC=0
 TEST_INIT_RESTART_RC=0
@@ -232,6 +248,70 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runti
 
 : > "$event_log"
 : > "$init_log"
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+TEST_WAIT_READY_RC=0
+WAS_ENABLED=0
+WAS_RUNNING=0
+assert_false "restore_runtime_state should fail when cleanup after update fails" restore_runtime_state
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should attempt runtime cleanup before succeeding"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should still attempt DNS restore when cleanup fails"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state after update" "restore_runtime_state should report cleanup failure after update"
+
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+}
+
+: > "$event_log"
+: > "$init_log"
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 0
+}
+stage_kernel_backup() {
+	printf 'stage_kernel_backup\n' >>"$event_log"
+	return 0
+}
+preserve_kernel_backup_dir() {
+	printf 'preserve_kernel_backup_dir\n' >>"$event_log"
+}
+preserve_backup_dir() {
+	printf 'preserve_backup_dir\n' >>"$event_log"
+}
+clear_kernel_backup() {
+	printf 'clear_kernel_backup\n' >>"$event_log"
+}
+release_reinstall_dependencies() {
+	printf 'release_reinstall_dependencies\n' >>"$event_log"
+}
+kernel_backup_available() {
+	return 0
+}
+restore_runtime_state() {
+	printf 'restore_runtime_state\n' >>"$event_log"
+	return 1
+}
+assert_false "rollback_reinstall_state should fail when runtime restore fails" rollback_reinstall_state 1
+assert_file_contains "$event_log" "restore_kernel_backup" "rollback_reinstall_state should restore previous kernel before runtime rollback"
+assert_file_contains "$event_log" "restore_runtime_state" "rollback_reinstall_state should attempt runtime rollback"
+assert_file_contains "$event_log" "stage_kernel_backup" "rollback_reinstall_state should restage tmpfs kernel backup when runtime rollback fails"
+assert_file_contains "$event_log" "preserve_backup_dir" "rollback_reinstall_state should preserve backup dir when runtime rollback fails"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "rollback_reinstall_state should preserve kernel rollback dir when runtime rollback fails"
+assert_file_contains "$event_log" "err:failed to restore runtime state during rollback" "rollback_reinstall_state should report runtime rollback failure"
+assert_file_not_contains "$event_log" "release_reinstall_dependencies" "rollback_reinstall_state should not clear dependency hold on runtime rollback failure"
+assert_file_not_contains "$event_log" "clear_kernel_backup" "rollback_reinstall_state should not drop kernel rollback state on runtime rollback failure"
+
+: > "$event_log"
+: > "$init_log"
+release_reinstall_dependencies() {
+	printf 'release_reinstall_dependencies\n' >>"$event_log"
+}
+restore_runtime_state() {
+	printf 'restore_runtime_state\n' >>"$event_log"
+	return 0
+}
 assert_false "handle_install_failure should return failure" handle_install_failure 1 "package broke"
 assert_file_contains "$event_log" "err:package broke" "handle_install_failure should log install error"
 assert_file_contains "$event_log" "clear_skip_start" "handle_install_failure should clear skip-start marker"
@@ -254,6 +334,30 @@ assert_file_contains "$event_log" "err:failed to restore saved config and policy
 
 : > "$event_log"
 : > "$init_log"
+restore_user_state() {
+	printf 'restore_user_state\n' >>"$event_log"
+	return 0
+}
+preserve_kernel_backup_dir() {
+	printf 'preserve_kernel_backup_dir\n' >>"$event_log"
+}
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+assert_false "handle_install_failure should stop before restoring user state when cleanup fails" handle_install_failure 1 "cleanup broke"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "handle_install_failure should attempt runtime cleanup"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "handle_install_failure should still attempt DNS restore when cleanup fails"
+assert_file_contains "$event_log" "preserve_backup_dir" "handle_install_failure should preserve backup dir when cleanup fails"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "handle_install_failure should preserve kernel rollback dir when cleanup fails"
+assert_file_not_contains "$event_log" "restore_user_state" "handle_install_failure should not continue to restore user state after cleanup failure"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state after incomplete package install" "handle_install_failure should report cleanup failure"
+
+: > "$event_log"
+: > "$init_log"
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+}
 restore_user_state() {
 	printf 'restore_user_state\n' >>"$event_log"
 	return 0
@@ -603,5 +707,20 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "remove_packag
 assert_file_contains "$event_log" "kernel_remove" "remove_package_and_kernel should remove Mihomo kernel"
 assert_file_contains "$event_log" "apk:del $PKG_NAME" "remove_package_and_kernel should remove installed package"
 assert_file_contains "$event_log" "remove_user_state" "remove_package_and_kernel should remove user state files"
+
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+cleanup_runtime_fallback() {
+	printf 'cleanup_runtime_fallback\n' >>"$event_log"
+	return 1
+}
+assert_false "remove_package_and_kernel should fail when runtime cleanup before removal fails" remove_package_and_kernel
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "remove_package_and_kernel should attempt runtime cleanup before removal"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "remove_package_and_kernel should still attempt DNS restore when cleanup fails"
+assert_file_contains "$event_log" "err:failed to clean runtime fallback state before removal" "remove_package_and_kernel should report cleanup failure before removal"
+assert_file_not_contains "$event_log" "kernel_remove" "remove_package_and_kernel should not remove kernel after cleanup failure"
+assert_file_not_contains "$event_log" "apk:del $PKG_NAME" "remove_package_and_kernel should not remove package after cleanup failure"
+assert_file_not_contains "$event_log" "remove_user_state" "remove_package_and_kernel should not wipe user state after cleanup failure"
 
 pass "installer orchestration logic"

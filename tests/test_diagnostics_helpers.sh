@@ -107,6 +107,10 @@ policy_route_state_read() {
 	return 0
 }
 
+nft_table_exists() {
+	return "${TEST_NFT_TABLE_EXISTS_RC:-0}"
+}
+
 runtime_live_state_present() {
 	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"
 }
@@ -131,6 +135,7 @@ TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output="$(status_json)"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_running')" "status_json should expose running service state"
 assert_eq "true" "$(printf '%s\n' "$status_output" | jq -r '.service_enabled')" "status_json should expose boot-enabled state"
@@ -173,7 +178,9 @@ TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_no_snapshot="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.service_ready')" "status_json should keep service not ready until policy snapshot exists for enabled policy"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should report missing runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_snapshot_valid')" "status_json should report missing runtime snapshot as invalid"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_safe_reload_ready')" "status_json should block safe reload when live state lacks snapshot"
@@ -184,14 +191,18 @@ TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_no_runtime="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.service_ready')" "status_json should keep service not ready when enabled policy markers are missing"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when policy should be enabled but runtime is clean"
 
 TEST_ENABLED_SETTING=0
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_disabled_clean="$(status_json)"
+assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.service_ready')" "status_json should keep service ready on listener health alone when policy layer is disabled"
 assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should treat disabled policy and clean runtime as matching"
 
 runtime_snapshot_status_json() {
@@ -203,6 +214,7 @@ EOF
 TEST_ENABLED_SETTING=1
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
 status_runtime_output_drift="$(status_runtime_state)"
 assert_eq "0" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report drift when applied snapshot differs from desired config"
 assert_eq "1" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^service_ready=//p')" "status_runtime_state should expose service readiness"
@@ -229,7 +241,9 @@ TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_invalid_snapshot="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.service_ready')" "status_json should keep service not ready when runtime snapshot is invalid"
 assert_eq "true" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.runtime_snapshot_present')" "status_json should keep snapshot presence when snapshot files exist but parsing fails"
 assert_eq "false" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.runtime_snapshot_valid')" "status_json should flag invalid runtime snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when snapshot is invalid"
@@ -251,6 +265,7 @@ TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_config_error_ready="$(status_json)"
 assert_eq "true" "$(printf '%s\n' "$status_output_config_error_ready" | jq -r '.service_ready')" "status_json should use active runtime ports for readiness when config parsing fails"
 assert_eq "true" "$(printf '%s\n' "$status_output_config_error_ready" | jq -r 'any(.errors[]; contains("config parse failed"))')" "status_json should still surface config parse errors"
@@ -270,6 +285,7 @@ runtime_snapshot_status_json() {
 }
 
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
+TEST_NFT_TABLE_EXISTS_RC=0
 status_output_no_uci="$(status_json)"
 assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_table_id')" "status_json should not pretend route table config exists when UCI load fails"
 assert_eq "unavailable" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.route_rule_priority')" "status_json should not pretend route rule config exists when UCI load fails"
@@ -277,5 +293,29 @@ assert_eq "0" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.source_network_
 assert_eq "true" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.service_ready')" "status_json should still expose readiness when Mihomo listeners are healthy"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_uci" | jq -r '.runtime_matches_desired')" "status_json should not claim desired/runtime parity when UCI load fails"
 assert_eq "true" "$(printf '%s\n' "$status_output_no_uci" | jq -r 'any(.errors[]; contains("Failed to read /etc/config/mihowrt"))')" "status_json should surface UCI load failure"
+
+config_load() {
+	return 0
+}
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
+}
+
+read_config_json() {
+	cat <<'EOF'
+{"config_path":"/opt/clash/config.yaml","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15","external_controller":"0.0.0.0:9090","external_controller_tls":"","secret":"","external_ui":"./ui","external_ui_name":"zashboard","errors":[]}
+EOF
+}
+
+TEST_ENABLED_SETTING=1
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_SERVICE_READY_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_NFT_TABLE_EXISTS_RC=1
+status_output_missing_nft="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_missing_nft" | jq -r '.service_ready')" "status_json should keep service not ready until nft marker is present"
 
 pass "diagnostics helpers"

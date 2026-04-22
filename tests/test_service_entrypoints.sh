@@ -77,6 +77,38 @@ cleanup_runtime_state() {
 	return "${TEST_CLEANUP_RUNTIME_RC:-0}"
 }
 
+service_running_state() {
+	printf 'service_running_state\n' >>"$cli_log"
+	return "${TEST_SERVICE_RUNNING_STATE_RC:-0}"
+}
+
+mihomo_ready_state() {
+	printf 'mihomo_ready_state:%s:%s\n' "$1" "$2" >>"$cli_log"
+	return "${TEST_SERVICE_READY_STATE_RC:-0}"
+}
+
+runtime_snapshot_valid() {
+	printf 'runtime_snapshot_valid\n' >>"$cli_log"
+	return "${TEST_RUNTIME_SNAPSHOT_VALID_RC:-1}"
+}
+
+policy_route_state_read() {
+	printf 'policy_route_state_read\n' >>"$cli_log"
+	return "${TEST_POLICY_ROUTE_STATE_READ_RC:-1}"
+}
+
+nft_table_exists() {
+	printf 'nft_table_exists\n' >>"$cli_log"
+	return "${TEST_NFT_TABLE_EXISTS_RC:-1}"
+}
+
+dns_backup_valid() {
+	printf 'dns_backup_valid\n' >>"$cli_log"
+	return "${TEST_DNS_BACKUP_VALID_RC:-1}"
+}
+
+eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh")"
+
 : > "$cli_log"
 TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
@@ -119,6 +151,43 @@ TEST_CLEANUP_RUNTIME_RC=0
 assert_false "run_service should fail when runtime policy apply fails" run_service
 assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo became ready" "run_service should report runtime apply failure"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
+
+: > "$cli_log"
+TEST_ENABLED=1
+TEST_SERVICE_RUNNING_STATE_RC=0
+TEST_SERVICE_READY_STATE_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_POLICY_ROUTE_STATE_READ_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
+TEST_DNS_BACKUP_VALID_RC=0
+assert_true "service_ready_runtime_state should report ready when policy markers are present" service_ready_runtime_state
+assert_file_contains "$cli_log" "mihomo_ready_state:7874:7894" "service_ready_runtime_state should verify listeners before success"
+assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should require runtime snapshot marker for enabled policy"
+assert_file_contains "$cli_log" "policy_route_state_read" "service_ready_runtime_state should require route marker for enabled policy"
+assert_file_contains "$cli_log" "nft_table_exists" "service_ready_runtime_state should require nft marker for enabled policy"
+assert_file_contains "$cli_log" "dns_backup_valid" "service_ready_runtime_state should require dns marker for enabled policy"
+
+: > "$cli_log"
+TEST_ENABLED=1
+TEST_SERVICE_RUNNING_STATE_RC=0
+TEST_SERVICE_READY_STATE_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_POLICY_ROUTE_STATE_READ_RC=0
+TEST_NFT_TABLE_EXISTS_RC=0
+TEST_DNS_BACKUP_VALID_RC=1
+assert_false "service_ready_runtime_state should stay false until dns marker is present" service_ready_runtime_state
+assert_file_contains "$cli_log" "mihomo_ready_state:7874:7894" "service_ready_runtime_state should still probe listeners before failing on missing policy marker"
+
+: > "$cli_log"
+TEST_ENABLED=0
+TEST_SERVICE_RUNNING_STATE_RC=0
+TEST_SERVICE_READY_STATE_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=1
+TEST_POLICY_ROUTE_STATE_READ_RC=1
+TEST_NFT_TABLE_EXISTS_RC=1
+TEST_DNS_BACKUP_VALID_RC=1
+assert_true "service_ready_runtime_state should skip policy markers when policy layer is disabled" service_ready_runtime_state
+assert_file_not_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should not require runtime markers when policy layer is disabled"
 
 config_override_output="$(
 	set -- read-config "$tmpdir/alt-config.yaml"

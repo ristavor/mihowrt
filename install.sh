@@ -140,7 +140,7 @@ wait_for_service_running() {
 	local timeout="$SERVICE_START_TIMEOUT"
 
 	while [ "$waited" -lt "$timeout" ]; do
-		if service_running; then
+		if service_running || run_service_process_running; then
 			return 0
 		fi
 
@@ -546,6 +546,24 @@ service_running() {
 		pgrep -f "$run_pattern" >/dev/null 2>&1 && return 0
 		pgrep -f "$mihomo_pattern" >/dev/null 2>&1 && return 0
 	fi
+
+	return 1
+}
+
+run_service_process_running() {
+	local proc=""
+	local cmdline=""
+	local run_pattern="${ORCHESTRATOR} run-service"
+
+	for proc in /proc/[0-9]*; do
+		[ -r "$proc/cmdline" ] || continue
+		cmdline="$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null || true)"
+		case "$cmdline" in
+			*"$run_pattern"*)
+				return 0
+				;;
+		esac
+	done
 
 	return 1
 }

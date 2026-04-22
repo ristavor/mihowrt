@@ -30,10 +30,14 @@ check_required_file /usr/lib/mihowrt/runtime.sh
 run_service() {
 	local pid dns_port cleanup_done=0 stop_requested=0 rc=1 cleanup_rc=0
 
+	log "MihoWRT runtime bootstrap starting"
 	load_runtime_config || return 1
+	log "Runtime config loaded"
 	validate_runtime_config || return 1
+	log "Runtime config validated"
 	ensure_dir "$PKG_STATE_DIR"
 	init_runtime_layout || return 1
+	log "Runtime layout ready"
 
 	cleanup_service() {
 		if [ "$cleanup_done" -eq 0 ]; then

@@ -75,14 +75,14 @@ cmp -s "$CLASH_CONFIG" "$tmpdir/expected.yaml" || fail "apply_config_file should
 [[ ! -e "$candidate_valid" ]] || fail "apply_config_file should remove temp candidate after success"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after success"
 
-tmp_candidates_before="$(find /tmp -maxdepth 1 -name 'mihowrt-config.*.yaml' -print | sort)"
+tmp_candidates_before="$(find /tmp -maxdepth 1 -name 'mihowrt-config.*' -print | sort)"
 expected_contents="$(
 	cat "$tmpdir/expected.yaml"
 	printf '\001'
 )"
 expected_contents="${expected_contents%$'\001'}"
 apply_config_contents "$expected_contents"
-tmp_candidates_after="$(find /tmp -maxdepth 1 -name 'mihowrt-config.*.yaml' -print | sort)"
+tmp_candidates_after="$(find /tmp -maxdepth 1 -name 'mihowrt-config.*' -print | sort)"
 cmp -s "$CLASH_CONFIG" "$tmpdir/expected.yaml" || fail "apply_config_contents should install validated config"
 assert_eq "$tmp_candidates_before" "$tmp_candidates_after" "apply_config_contents should clean up staged /tmp config file"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_contents should not leave flash-side temp config after success"

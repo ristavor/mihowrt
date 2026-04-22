@@ -592,7 +592,7 @@ apply_config_contents() {
 	local candidate=""
 
 	require_command mktemp || return 1
-	candidate="$(mktemp /tmp/mihowrt-config.XXXXXX.yaml)" || {
+	candidate="$(mktemp /tmp/mihowrt-config.XXXXXX)" || {
 		err "Failed to allocate temporary config path"
 		return 1
 	}

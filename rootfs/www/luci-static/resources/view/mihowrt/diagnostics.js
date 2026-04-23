@@ -4,6 +4,61 @@
 'require mihowrt.backend as backendHelper';
 
 const LOG_LINE_LIMIT = 200;
+const DIAGNOSTICS_THEME_CSS = `
+	.mihowrt-diag-summary {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 10px;
+		align-items: center;
+		margin-bottom: 14px;
+	}
+
+	.mihowrt-diag-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+		gap: 12px;
+	}
+
+	.mihowrt-diag-grid--spaced {
+		margin-bottom: 12px;
+	}
+
+	.mihowrt-diag-card {
+		padding: 10px 12px;
+		border: 1px solid rgba(127, 127, 127, 0.22);
+		border-radius: 6px;
+		background: rgba(127, 127, 127, 0.06);
+		color: inherit;
+	}
+
+	.mihowrt-diag-card-label,
+	.mihowrt-diag-muted {
+		color: inherit;
+		opacity: 0.72;
+	}
+
+	.mihowrt-diag-card-label {
+		font-size: 12px;
+		margin-bottom: 4px;
+	}
+
+	.mihowrt-diag-error {
+		color: #d9534f;
+	}
+
+	.mihowrt-diag-log {
+		margin: 0;
+		max-height: 480px;
+		overflow: auto;
+		padding: 14px;
+		border: 1px solid rgba(127, 127, 127, 0.22);
+		border-radius: 6px;
+		background: rgba(127, 127, 127, 0.08);
+		color: inherit;
+		white-space: pre-wrap;
+		word-break: break-word;
+	}
+`;
 
 function badge(text, ok) {
 	return E('span', {
@@ -14,10 +69,10 @@ function badge(text, ok) {
 
 function renderField(label, value) {
 	return E('div', {
-		style: 'padding:10px 12px;border:1px solid #ddd;border-radius:6px;background:#fff;'
+		class: 'mihowrt-diag-card'
 	}, [
 		E('div', {
-			style: 'font-size:12px;color:#666;margin-bottom:4px;'
+			class: 'mihowrt-diag-card-label'
 		}, label),
 		E('div', {
 			style: 'font-family:monospace;word-break:break-word;'
@@ -34,25 +89,25 @@ function setChildren(node, children) {
 
 function renderErrorList(errors) {
 	if (!errors || !errors.length)
-		return E('div', { style: 'color:#666;' }, _('No errors reported.'));
+		return E('div', { class: 'mihowrt-diag-muted' }, _('No errors reported.'));
 
 	return E('ul', { style: 'margin:0;padding-left:20px;' }, errors.map(error =>
-		E('li', { style: 'color:#b94a48;' }, error)
+		E('li', { class: 'mihowrt-diag-error' }, error)
 	));
 }
 
 function renderLogLines(logs) {
 	if (logs.errors && logs.errors.length)
-		return E('div', { style: 'color:#b94a48;' }, logs.errors.join('; '));
+		return E('div', { class: 'mihowrt-diag-error' }, logs.errors.join('; '));
 
 	if (!logs.available)
-		return E('div', { style: 'color:#666;' }, _('System log reader is not available on this device.'));
+		return E('div', { class: 'mihowrt-diag-muted' }, _('System log reader is not available on this device.'));
 
 	if (!logs.lines.length)
-		return E('div', { style: 'color:#666;' }, _('No MihoWRT-related log lines found.'));
+		return E('div', { class: 'mihowrt-diag-muted' }, _('No MihoWRT-related log lines found.'));
 
 	return E('pre', {
-		style: 'margin:0;max-height:480px;overflow:auto;padding:14px;border:1px solid #ddd;border-radius:6px;background:#111;color:#e9f6e9;white-space:pre-wrap;word-break:break-word;'
+		class: 'mihowrt-diag-log'
 	}, logs.lines.join('\n'));
 }
 
@@ -126,7 +181,7 @@ return view.extend({
 
 			setChildren(summaryNode, [
 				E('div', {
-					style: 'display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px;'
+					class: 'mihowrt-diag-summary'
 				}, [
 					badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
 					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
@@ -152,21 +207,21 @@ return view.extend({
 					)
 					]),
 					(status.errors && status.errors.length)
-						? E('div', { style: 'color:#b94a48;' }, status.errors.join('; '))
+						? E('div', { class: 'mihowrt-diag-error' }, status.errors.join('; '))
 						: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
-							? E('div', { style: 'color:#b94a48;' }, _('Live runtime state exists, but runtime snapshot is missing. Diagnostics are partial and safe reload stays blocked.'))
+							? E('div', { class: 'mihowrt-diag-error' }, _('Live runtime state exists, but runtime snapshot is missing. Diagnostics are partial and safe reload stays blocked.'))
 						: (!active.present
-							? E('div', { style: 'color:#666;' }, _('No applied runtime snapshot is active right now.'))
+							? E('div', { class: 'mihowrt-diag-muted' }, _('No applied runtime snapshot is active right now.'))
 						: (!status.runtimeMatchesDesired
-							? E('div', { style: 'color:#b94a48;' }, _('Applied runtime state differs from current config on disk. Run "service mihowrt apply" or restart service after direct file edits.'))
+							? E('div', { class: 'mihowrt-diag-error' }, _('Applied runtime state differs from current config on disk. Run "service mihowrt apply" or restart service after direct file edits.'))
 							: (!status.runtimeSafeReloadReady
-								? E('div', { style: 'color:#b94a48;' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
-								: E('div', { style: 'color:#666;' }, _('Runtime snapshot from MihoWRT backend.'))))))
+								? E('div', { class: 'mihowrt-diag-error' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
+								: E('div', { class: 'mihowrt-diag-muted' }, _('Runtime snapshot from MihoWRT backend.'))))))
 			]);
 
 			setChildren(runtimeNode, [
 				E('div', {
-					style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;'
+					class: 'mihowrt-diag-grid'
 				}, [
 					renderField(_('Applied Route Table'), active.routeTableId || _('not active')),
 					renderField(_('Applied Route Rule Priority'), active.routeRulePriority || _('not active')),
@@ -190,7 +245,7 @@ return view.extend({
 
 			setChildren(configNode, [
 				E('div', {
-					style: 'display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-bottom:12px;'
+					class: 'mihowrt-diag-grid mihowrt-diag-grid--spaced'
 				}, [
 					renderField(_('dns.listen -> local'), status.config.mihomoDnsListen || _('missing')),
 					renderField(_('DNS Port'), status.config.dnsPort || _('missing')),
@@ -208,7 +263,8 @@ return view.extend({
 
 			setChildren(logsNode, [
 				E('div', {
-					style: 'margin-bottom:10px;color:#666;'
+					class: 'mihowrt-diag-muted',
+					style: 'margin-bottom:10px;'
 				}, _('Last %d MihoWRT-related system log lines.').format(logs.limit || LOG_LINE_LIMIT)),
 				renderLogLines(logs)
 			]);
@@ -236,6 +292,7 @@ return view.extend({
 		renderState(data[0], data[1]);
 
 		return E([
+			E('style', DIAGNOSTICS_THEME_CSS),
 			E('div', {
 				style: 'margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;'
 			}, [

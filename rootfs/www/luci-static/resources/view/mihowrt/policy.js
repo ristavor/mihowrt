@@ -54,6 +54,17 @@ function hasPendingUciChanges(changes) {
 	return Object.values(changes || {}).some(list => Array.isArray(list) && list.length > 0);
 }
 
+async function removeListFileIfPresent(filePath) {
+	try {
+		await fs.remove(filePath);
+	}
+	catch (e) {
+		if (e && (e.name === 'NotFoundError' || /not found/i.test(e.message || '')))
+			return;
+		throw e;
+	}
+}
+
 function bindTextFileOption(option, cacheName, filePath, description) {
 	option.rows = 18;
 	option.wrap = 'off';
@@ -68,7 +79,11 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 		if (normalized === current)
 			return;
 
-		await fs.write(filePath, normalized);
+		if (normalized)
+			await fs.write(filePath, normalized);
+		else
+			await removeListFileIfPresent(filePath);
+
 		if (cacheName === 'dst')
 			dstValueCache = normalized;
 		else
@@ -79,7 +94,7 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 		if (!current)
 			return;
 
-		await fs.write(filePath, '');
+		await removeListFileIfPresent(filePath);
 		if (cacheName === 'dst')
 			dstValueCache = '';
 		else

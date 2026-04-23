@@ -8,7 +8,6 @@
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 const CLASH_CONFIG = '/opt/clash/config.yaml';
-const TMP_CONFIG_PREFIX = '/tmp/mihowrt-config';
 const SERVICE_STATE_POLL_INTERVAL_MS = 500;
 const SERVICE_STATE_TIMEOUT_MS = 35000;
 

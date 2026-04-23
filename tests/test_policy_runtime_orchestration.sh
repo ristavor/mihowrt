@@ -72,6 +72,10 @@ runtime_snapshot_clear() {
 	return 0
 }
 
+runtime_live_state_present() {
+	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"
+}
+
 : > "$event_log"
 TEST_NFT_APPLY_RC=0
 TEST_DNS_SETUP_RC=0
@@ -83,6 +87,19 @@ assert_file_contains "$event_log" "nft_apply_policy" "apply_runtime_state should
 assert_file_contains "$event_log" "dns_setup" "apply_runtime_state should set up DNS hijack"
 assert_file_contains "$event_log" "runtime_snapshot_save" "apply_runtime_state should persist runtime snapshot after success"
 assert_file_contains "$event_log" "log:Prepared direct-first policy state" "apply_runtime_state should log success"
+
+: > "$event_log"
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
+TEST_DNS_RESTORE_RC=0
+TEST_NFT_REMOVE_RC=0
+TEST_POLICY_ROUTE_CLEANUP_RC=0
+cleanup_runtime_state
+assert_file_not_contains "$event_log" "dns_restore" "cleanup_runtime_state should skip DNS cleanup when runtime state is already clean"
+assert_file_not_contains "$event_log" "nft_remove_policy" "cleanup_runtime_state should skip nft cleanup when runtime state is already clean"
+assert_file_not_contains "$event_log" "policy_route_cleanup" "cleanup_runtime_state should skip route cleanup when runtime state is already clean"
+assert_file_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should still clear runtime snapshot on already-clean cleanup"
+assert_file_contains "$event_log" "log:Direct-first policy state already clean" "cleanup_runtime_state should report already-clean state on no-op cleanup"
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 
 nft_apply_policy() {
 	printf 'nft_apply_policy\n' >>"$event_log"

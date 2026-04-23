@@ -475,6 +475,23 @@ apply_runtime_state() {
 
 cleanup_runtime_state() {
 	local rc=0
+	local live_state_rc=1
+
+	if runtime_live_state_present; then
+		:
+	else
+		live_state_rc=$?
+		case "$live_state_rc" in
+			1)
+				runtime_snapshot_clear
+				log "Direct-first policy state already clean"
+				return 0
+				;;
+			*)
+				:
+				;;
+		esac
+	fi
 
 	dns_restore || {
 		err "Failed to restore dnsmasq state during cleanup"

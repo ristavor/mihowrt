@@ -27,10 +27,23 @@ export ROUTE_RULE_PRIORITY_AUTO_MAX="10002"
 export NFT_INTERCEPT_MARK="0x00001000"
 export MIHOMO_ROUTE_TABLE_ID=""
 export MIHOMO_ROUTE_RULE_PRIORITY=""
+net_log="$tmpdir/net.log"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
+
+log() {
+	printf 'log:%s\n' "$*" >>"$net_log"
+}
+
+warn() {
+	printf 'warn:%s\n' "$*" >>"$net_log"
+}
+
+err() {
+	printf 'err:%s\n' "$*" >>"$net_log"
+}
 
 list_file="$tmpdir/list.txt"
 cat > "$list_file" <<'EOF'
@@ -92,8 +105,6 @@ policy_route_priority_in_use() {
 
 assert_false "policy_route_resolve_table_id should fail when no ids are free" policy_route_resolve_table_id
 assert_false "policy_route_resolve_priority should fail when no priorities are free" policy_route_resolve_priority
-
-net_log="$tmpdir/net.log"
 
 nft() {
 	printf 'nft %s\n' "$*" >>"$net_log"
@@ -174,6 +185,7 @@ TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should treat missing nft table as already clean" nft_remove_policy
 assert_file_contains "$net_log" "nft list tables inet" "nft_remove_policy should probe nft table presence before cleanup"
 assert_file_not_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should not delete absent nft table"
+assert_file_contains "$net_log" "log:nft policy table $NFT_TABLE_NAME already clean" "nft_remove_policy should log already-clean nft state"
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
@@ -181,6 +193,7 @@ TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should delete present nft table" nft_remove_policy
 assert_file_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should delete present nft table"
+assert_file_contains "$net_log" "log:Removed nft policy table $NFT_TABLE_NAME" "nft_remove_policy should log actual nft deletion"
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
@@ -209,6 +222,7 @@ TEST_ROUTE_TABLE_ID=200
 TEST_ROUTE_RULE_PRIORITY=10000
 assert_true "policy_route_cleanup should treat absent live route state as already clean" policy_route_cleanup
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should remove route state file after already-clean teardown"
+assert_file_contains "$net_log" "log:Policy routing for mark $NFT_INTERCEPT_MARK already clean" "policy_route_cleanup should log already-clean route state"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
@@ -225,6 +239,7 @@ assert_true "policy_route_cleanup should remove active route rule and table entr
 assert_file_contains "$net_log" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 200 priority 10000" "policy_route_cleanup should delete policy rule"
 assert_file_contains "$net_log" "ip route flush table 200" "policy_route_cleanup should flush policy route table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should remove route state file after successful teardown"
+assert_file_contains "$net_log" "log:Removed policy routing for mark $NFT_INTERCEPT_MARK" "policy_route_cleanup should log actual route teardown"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200

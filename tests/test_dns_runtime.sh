@@ -113,6 +113,7 @@ EOF
 
 : > "$uci_log"
 : > "$dns_log"
+: > "$event_log"
 TEST_CURRENT_CACHESIZE="0"
 TEST_CURRENT_NORESOLV="1"
 TEST_CURRENT_RESOLVFILE=""
@@ -120,6 +121,7 @@ TEST_CURRENT_SERVERS="127.0.0.1#7874"
 dns_setup
 [[ ! -s "$uci_log" ]] || fail "dns_setup should skip no-op dhcp writes when Mihomo DNS is already active"
 [[ ! -s "$dns_log" ]] || fail "dns_setup should skip dnsmasq restart when Mihomo DNS is already active"
+assert_file_contains "$event_log" "log:dnsmasq already configured to use Mihomo DNS 127.0.0.1#7874; reusing existing recovery backup state" "dns_setup should report generic backup reuse without implying crash recovery"
 
 rm -f "$backup_file" "$runtime_backup_file"
 : > "$uci_log"

@@ -249,8 +249,23 @@ nft_apply_policy() {
 }
 
 nft_remove_policy() {
-	nft_delete_table_if_exists || return 1
-	log "Removed nft policy table $NFT_TABLE_NAME"
+	local table_state=1
+
+	nft_table_exists
+	table_state=$?
+	case "$table_state" in
+		0)
+			nft_delete_table_if_exists || return 1
+			log "Removed nft policy table $NFT_TABLE_NAME"
+			;;
+		1)
+			log "nft policy table $NFT_TABLE_NAME already clean"
+			;;
+		*)
+			return 1
+			;;
+	esac
+
 	return 0
 }
 
@@ -425,7 +440,8 @@ policy_route_setup() {
 }
 
 policy_route_cleanup() {
-	local route_table_id route_rule_priority
+	local route_table_id="" route_rule_priority=""
+	local rule_state=1 table_state=1 had_live_state=0
 
 	if policy_route_state_read; then
 		route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
@@ -435,9 +451,35 @@ policy_route_cleanup() {
 		route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
 	fi
 
+	if [ -z "$route_table_id" ] || [ -z "$route_rule_priority" ]; then
+		rm -f "$ROUTE_STATE_FILE"
+		log "Policy routing for mark $NFT_INTERCEPT_MARK already clean"
+		return 0
+	fi
+
+	policy_route_rule_exists "$route_table_id" "$route_rule_priority"
+	rule_state=$?
+	case "$rule_state" in
+		0) had_live_state=1 ;;
+		1) ;;
+		*) return 1 ;;
+	esac
+
+	policy_route_table_has_entries "$route_table_id"
+	table_state=$?
+	case "$table_state" in
+		0) had_live_state=1 ;;
+		1) ;;
+		*) return 1 ;;
+	esac
+
 	policy_route_teardown_ids "$route_table_id" "$route_rule_priority" || return 1
 
 	rm -f "$ROUTE_STATE_FILE"
-	log "Removed policy routing for mark $NFT_INTERCEPT_MARK"
+	if [ "$had_live_state" -eq 1 ]; then
+		log "Removed policy routing for mark $NFT_INTERCEPT_MARK"
+	else
+		log "Policy routing for mark $NFT_INTERCEPT_MARK already clean"
+	fi
 	return 0
 }

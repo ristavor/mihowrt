@@ -457,7 +457,7 @@ dns_setup() {
 	dns_target="$(normalize_dns_server_target "$MIHOMO_DNS_LISTEN")"
 	if dnsmasq_state_matches "0" "1" "" "$dns_target"; then
 		if dns_backup_exists; then
-			log "Previous shutdown not clean. Reusing existing dnsmasq backup state"
+			log "dnsmasq already configured to use Mihomo DNS $dns_target; reusing existing recovery backup state"
 		else
 			warn "dnsmasq already configured to use Mihomo DNS $dns_target, but no recovery backup is active; fallback restore will be used if cleanup is needed"
 		fi

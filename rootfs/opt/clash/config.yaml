@@ -14,7 +14,8 @@ dns:
   ipv6: false
   listen: 0.0.0.0:7874
   enhanced-mode: fake-ip
-  fake-ip-range: 198.18.0.0/15
+  fake-ip-ttl: 60
+  fake-ip-range: 198.18.0.0/16
   fake-ip-filter-mode: whitelist
   fake-ip-filter:
     - rule-set:ru-bundle

@@ -147,14 +147,14 @@ return view.extend({
 	render: function(data) {
 		syncListCaches(data[1], data[2]);
 
-		const m = new form.Map('mihowrt', _('MihoWRT Policy'), _('Direct-first policy layer. External DNS/53 from selected interfaces can be hijacked to Mihomo DNS.'));
+		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Direct-first traffic policy. Selected traffic is marked by nftables before Mihomo TPROXY handling.'));
 		policyMap = m;
-		const s = m.section(form.NamedSection, 'settings', 'settings', _('Runtime Settings'));
+		const s = m.section(form.NamedSection, 'settings', 'settings', _('Traffic Policy Settings'));
 
 		s.anonymous = true;
 		s.addremove = false;
 
-		let o = s.option(form.Flag, 'enabled', _('Enable Policy Layer'));
+		let o = s.option(form.Flag, 'enabled', _('Enable Traffic Policy'));
 		o.rmempty = false;
 		o.default = '1';
 
@@ -167,7 +167,7 @@ return view.extend({
 			return /^[A-Za-z0-9_.:@-]+$/.test(value) ? true : _('Interface name contains unsupported characters');
 		};
 
-		o = s.option(form.Flag, 'dns_hijack', _('Hijack DNS/53 To Mihomo DNS'));
+		o = s.option(form.Flag, 'dns_hijack', _('Redirect DNS/53 to Mihomo'));
 		o.default = '1';
 		o.rmempty = false;
 		o.description = _('Redirect client TCP/UDP DNS requests from selected interfaces to Mihomo DNS listener.');
@@ -186,18 +186,18 @@ return view.extend({
 			return validateNumericRange(value, _('Route rule priority'), 1, 32765);
 		};
 
-		o = s.option(form.Flag, 'disable_quic', _('Disable QUIC For Mihomo-Bound Traffic'));
+		o = s.option(form.Flag, 'disable_quic', _('Block QUIC for Proxied Traffic'));
 		o.default = '1';
 		o.rmempty = false;
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks.');
 
-		o = s.option(form.TextValue, '_always_proxy_dst', _('Always Proxy Destination IP/CIDR'));
+		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[:Port] or :Port)'));
 		dstListOption = o;
-		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4 or CIDR per line. Packets with matching destination will be sent into Mihomo.'));
+		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 destination.'));
 
-		o = s.option(form.TextValue, '_always_proxy_src', _('Always Proxy Source IP/CIDR'));
+		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients (IP/CIDR[:Port] or :Port)'));
 		srcListOption = o;
-		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4 or CIDR per line. Packets from matching clients will be sent into Mihomo.'));
+		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 client.'));
 
 		return m.render();
 	}

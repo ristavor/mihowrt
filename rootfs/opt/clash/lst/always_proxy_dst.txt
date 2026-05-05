@@ -1,4 +1,5 @@
-# One IPv4 or CIDR per line.
+# One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port.
+# Use :port without IP to match any IPv4 destination.
 # Example:
 # 1.1.1.1
 # 8.8.8.0/24

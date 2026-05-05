@@ -146,11 +146,11 @@ async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 }
 
 function serviceToggleLabel(running) {
-	return running ? _('Stop Service') : _('Start Service');
+	return running ? _('Stop MihoWRT') : _('Start MihoWRT');
 }
 
 function serviceEnabledToggleLabel(enabled) {
-	return enabled ? _('Disable At Boot') : _('Enable At Boot');
+	return enabled ? _('Disable Autostart') : _('Enable Autostart');
 }
 
 function serviceBadgeText(running) {
@@ -496,10 +496,6 @@ return view.extend({
 			E('div', {
 				style: 'margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
 			}, [
-				(dashboardButton = E('button', {
-					class: 'btn',
-					click: openDashboard
-				}, _('Open Dashboard'))),
 				(startStopButton = E('button', {
 					class: 'btn',
 					click: toggleService
@@ -508,6 +504,10 @@ return view.extend({
 					class: 'btn',
 					click: toggleServiceEnabled
 				}, serviceEnabledToggleLabel(serviceState.enabled))),
+				(dashboardButton = E('button', {
+					class: 'btn',
+					click: openDashboard
+				}, _('Open Mihomo Dashboard'))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceBadgeColor(serviceState.running) + ';'
@@ -517,14 +517,14 @@ return view.extend({
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceEnabledBadgeColor(serviceState.enabled) + ';'
 				}, serviceEnabledBadgeText(serviceState.enabled)))
 			]),
-			E('h2', _('MihoWRT Configuration')),
+			E('h2', _('Mihomo YAML Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
 				editorNode,
 				E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 					(saveApplyButton = E('button', {
 						class: 'btn cbi-button-apply',
 						click: saveAndApply
-					}, _('Save & Apply Configuration')))
+					}, _('Validate & Apply Config')))
 				])
 			]);
 

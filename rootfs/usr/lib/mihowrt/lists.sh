@@ -20,7 +20,7 @@ count_valid_list_entries() {
 			''|'#'*) continue ;;
 		esac
 
-		if is_ipv4_cidr "$line"; then
+		if is_policy_entry "$line"; then
 			count=$((count + 1))
 		fi
 	done < "$file"

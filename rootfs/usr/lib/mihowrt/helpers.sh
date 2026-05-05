@@ -80,7 +80,20 @@ is_valid_port() {
 		return 1
 	fi
 
-	[ "$value" -ge 1 ] && [ "$value" -le 65535 ]
+	value="$(normalize_uint "$value")"
+	[ "$value" != "0" ] || return 1
+
+	case "${#value}" in
+		1|2|3|4)
+			return 0
+			;;
+		5)
+			[ "$value" = "65535" ] || [ "$value" \< "65535" ]
+			;;
+		*)
+			return 1
+			;;
+	esac
 }
 
 is_valid_route_table_id() {
@@ -171,6 +184,169 @@ is_ipv4_cidr() {
 			;;
 		*)
 			is_ipv4 "$value"
+			;;
+	esac
+}
+
+is_policy_port_spec() {
+	local value="$1"
+	local rest item start end
+
+	case "$value" in
+		'')
+			return 1
+			;;
+		*,*)
+			rest="$value"
+			while :; do
+				item="${rest%%,*}"
+				case "$item" in
+					''|*-*)
+						return 1
+						;;
+				esac
+				is_valid_port "$item" || return 1
+				[ "$rest" != "${rest#*,}" ] || break
+				rest="${rest#*,}"
+			done
+			;;
+		*-*)
+			start="${value%%-*}"
+			end="${value#*-}"
+			[ -n "$start" ] && [ -n "$end" ] || return 1
+			is_valid_port "$start" || return 1
+			is_valid_port "$end" || return 1
+			start="$(normalize_uint "$start")"
+			end="$(normalize_uint "$end")"
+			[ "$start" -le "$end" ]
+			;;
+		*)
+			is_valid_port "$value"
+			;;
+	esac
+}
+
+is_policy_entry() {
+	local value="$1"
+	local addr ports
+
+	case "$value" in
+		''|*:*:*)
+			return 1
+			;;
+		*:*)
+			addr="${value%:*}"
+			ports="${value##*:}"
+			[ -n "$ports" ] || return 1
+			[ -z "$addr" ] || is_ipv4_cidr "$addr" || return 1
+			is_policy_port_spec "$ports"
+			;;
+		*)
+			is_ipv4_cidr "$value"
+			;;
+	esac
+}
+
+policy_entry_has_ports() {
+	case "$1" in
+		*:*:*)
+			return 1
+			;;
+		*:*)
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
+policy_entry_ip() {
+	printf '%s' "${1%:*}"
+}
+
+policy_entry_ports() {
+	printf '%s' "${1##*:}"
+}
+
+policy_ports_nft_expr() {
+	local value="$1"
+	local rest item start end expr="" seen="" unique_count=0
+
+	is_policy_port_spec "$value" || return 1
+
+	case "$value" in
+		*,*)
+			rest="$value"
+			while :; do
+				item="${rest%%,*}"
+				item="$(normalize_uint "$item")"
+				case " $seen " in
+					*" $item "*)
+						;;
+					*)
+						if [ -n "$expr" ]; then
+							expr="$expr, $item"
+						else
+							expr="$item"
+						fi
+						seen="$seen $item"
+						unique_count=$((unique_count + 1))
+						;;
+				esac
+				[ "$rest" != "${rest#*,}" ] || break
+				rest="${rest#*,}"
+			done
+			if [ "$unique_count" -eq 1 ]; then
+				printf '%s' "$expr"
+			else
+				printf '{ %s }' "$expr"
+			fi
+			;;
+		*-*)
+			start="${value%%-*}"
+			end="${value#*-}"
+			start="$(normalize_uint "$start")"
+			end="$(normalize_uint "$end")"
+			if [ "$start" -eq "$end" ]; then
+				printf '%s' "$start"
+			else
+				printf '%s-%s' "$start" "$end"
+			fi
+			;;
+		*)
+			normalize_uint "$value"
+			;;
+	esac
+}
+
+policy_ports_include_port() {
+	local value="$1"
+	local needle="$2"
+	local rest item start end
+
+	is_policy_port_spec "$value" || return 1
+	is_valid_port "$needle" || return 1
+	needle="$(normalize_uint "$needle")"
+
+	case "$value" in
+		*,*)
+			rest="$value"
+			while :; do
+				item="$(normalize_uint "${rest%%,*}")"
+				[ "$item" -eq "$needle" ] && return 0
+				[ "$rest" != "${rest#*,}" ] || break
+				rest="${rest#*,}"
+			done
+			return 1
+			;;
+		*-*)
+			start="$(normalize_uint "${value%%-*}")"
+			end="$(normalize_uint "${value#*-}")"
+			[ "$needle" -ge "$start" ] && [ "$needle" -le "$end" ]
+			;;
+		*)
+			item="$(normalize_uint "$value")"
+			[ "$item" -eq "$needle" ]
 			;;
 	esac
 }

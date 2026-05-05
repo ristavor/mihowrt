@@ -174,7 +174,7 @@ return view.extend({
 		const logsNode = E('div');
 		const refreshButton = E('button', {
 			class: 'btn cbi-button-action'
-		}, _('Refresh'));
+		}, _('Refresh Diagnostics'));
 
 		const renderState = function(status, logs) {
 			const active = deriveAppliedState(status);

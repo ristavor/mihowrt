@@ -87,10 +87,10 @@ assertHostPort('', fallbackHost, fallbackPort, 'Empty controller should keep fal
 assertEq(editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
 assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
 assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
-assertEq(serviceToggleLabel(true), 'Stop Service', 'serviceToggleLabel should render running action');
-assertEq(serviceToggleLabel(false), 'Start Service', 'serviceToggleLabel should render stopped action');
-assertEq(serviceEnabledToggleLabel(true), 'Disable At Boot', 'serviceEnabledToggleLabel should render disable-boot action');
-assertEq(serviceEnabledToggleLabel(false), 'Enable At Boot', 'serviceEnabledToggleLabel should render enable-boot action');
+assertEq(serviceToggleLabel(true), 'Stop MihoWRT', 'serviceToggleLabel should render running action');
+assertEq(serviceToggleLabel(false), 'Start MihoWRT', 'serviceToggleLabel should render stopped action');
+assertEq(serviceEnabledToggleLabel(true), 'Disable Autostart', 'serviceEnabledToggleLabel should render disable-boot action');
+assertEq(serviceEnabledToggleLabel(false), 'Enable Autostart', 'serviceEnabledToggleLabel should render enable-boot action');
 assertEq(serviceBadgeText(true), 'MihoWRT is running', 'serviceBadgeText should render running badge');
 assertEq(serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
 assertEq(serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');

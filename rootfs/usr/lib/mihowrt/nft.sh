@@ -50,18 +50,22 @@ nft_emit_elements_chunk() {
 	nft_emit_line "add element inet $NFT_TABLE_NAME $set_name { $chunk }"
 }
 
-nft_emit_ipv4_file_to_set() {
+nft_emit_policy_file_to_set() {
 	local file="$1"
 	local set_name="$2"
-	local count_var="$3"
+	local total_count_var="$3"
+	local set_count_var="$4"
 	local chunk=""
-	local count=0
-	local valid_count=0
+	local chunk_count=0
+	local total_count=0
+	local set_count=0
+	local scoped_count=0
 	local invalid_count=0
-	local line
+	local line addr
 
 	[ -f "$file" ] || {
-		eval "$count_var=0"
+		eval "$total_count_var=0"
+		eval "$set_count_var=0"
 		return 0
 	}
 
@@ -71,32 +75,50 @@ nft_emit_ipv4_file_to_set() {
 			''|'#'*) continue ;;
 		esac
 
-		if ! is_ipv4_cidr "$line"; then
+		if ! is_policy_entry "$line"; then
 			invalid_count=$((invalid_count + 1))
-			warn "Skipping invalid IP/CIDR entry '$line' in $file"
+			warn "Skipping invalid policy entry '$line' in $file"
 			continue
 		fi
 
-		if [ -n "$chunk" ]; then
-			chunk="$chunk,$line"
-		else
-			chunk="$line"
+		total_count=$((total_count + 1))
+
+		if policy_entry_has_ports "$line"; then
+			scoped_count=$((scoped_count + 1))
+			continue
 		fi
 
-		count=$((count + 1))
-		valid_count=$((valid_count + 1))
+		addr="$(policy_entry_ip "$line")"
+		if [ -n "$chunk" ]; then
+			chunk="$chunk,$addr"
+		else
+			chunk="$addr"
+		fi
 
-		if [ "$count" -ge 512 ]; then
+		chunk_count=$((chunk_count + 1))
+		set_count=$((set_count + 1))
+
+		if [ "$chunk_count" -ge 512 ]; then
 			nft_emit_elements_chunk "$set_name" "$chunk" || return 1
 			chunk=""
-			count=0
+			chunk_count=0
 		fi
 	done < "$file"
 
 	nft_emit_elements_chunk "$set_name" "$chunk" || return 1
-	eval "$count_var=$valid_count"
-	log "Loaded $valid_count valid and skipped $invalid_count invalid entries into set $set_name"
+	eval "$total_count_var=$total_count"
+	eval "$set_count_var=$set_count"
+	log "Loaded $set_count unscoped and $scoped_count port-scoped entries, skipped $invalid_count invalid entries for set $set_name"
 	return 0
+}
+
+nft_emit_ipv4_file_to_set() {
+	local file="$1"
+	local set_name="$2"
+	local count_var="$3"
+	local total_count=0
+
+	nft_emit_policy_file_to_set "$file" "$set_name" total_count "$count_var"
 }
 
 nft_emit_base_table() {
@@ -143,8 +165,68 @@ nft_emit_rule() {
 	nft_emit_line "add rule inet $NFT_TABLE_NAME $chain $expr"
 }
 
+nft_emit_policy_port_rules() {
+	local file="$1"
+	local field="$2"
+	local chain="$3"
+	local action="$4"
+	local line addr ports ports_expr addr_expr
+
+	[ -f "$file" ] || return 0
+
+	while IFS= read -r line; do
+		line="$(trim "$line")"
+		case "$line" in
+			''|'#'*) continue ;;
+		esac
+		is_policy_entry "$line" || continue
+		policy_entry_has_ports "$line" || continue
+
+		addr="$(policy_entry_ip "$line")"
+		ports="$(policy_entry_ports "$line")"
+		ports_expr="$(policy_ports_nft_expr "$ports")" || return 1
+		if [ -n "$addr" ]; then
+			addr_expr="ip $field $addr"
+		else
+			addr_expr="meta nfproto ipv4"
+		fi
+		nft_emit_rule "$chain" "$addr_expr tcp dport $ports_expr $action"
+		nft_emit_rule "$chain" "$addr_expr udp dport $ports_expr $action"
+	done < "$file"
+}
+
+nft_emit_policy_quic_port_rejects() {
+	local file="$1"
+	local field="$2"
+	local chain="$3"
+	local line addr ports addr_expr
+
+	[ -f "$file" ] || return 0
+
+	while IFS= read -r line; do
+		line="$(trim "$line")"
+		case "$line" in
+			''|'#'*) continue ;;
+		esac
+		is_policy_entry "$line" || continue
+		policy_entry_has_ports "$line" || continue
+
+		addr="$(policy_entry_ip "$line")"
+		ports="$(policy_entry_ports "$line")"
+		policy_ports_include_port "$ports" 443 || continue
+		if [ -n "$addr" ]; then
+			addr_expr="ip $field $addr"
+		else
+			addr_expr="meta nfproto ipv4"
+		fi
+		nft_emit_rule "$chain" "$addr_expr udp dport 443 reject"
+	done < "$file"
+}
+
 nft_emit_policy_rules() {
 	local dns_port
+	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
 
 	if [ "$DNS_HIJACK" = "1" ]; then
 		dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
@@ -160,20 +242,24 @@ nft_emit_policy_rules() {
 		if [ "$CATCH_FAKEIP" = "1" ]; then
 			nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr $FAKEIP_RANGE udp dport 443 reject"
 		fi
-		if [ "${NFT_PROXY_DST_COUNT:-0}" -gt 0 ]; then
+		if [ "${NFT_PROXY_DST_SET_COUNT:-0}" -gt 0 ]; then
 			nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr @$NFT_PROXY_DST_SET udp dport 443 reject"
 		fi
-		if [ "${NFT_PROXY_SRC_COUNT:-0}" -gt 0 ]; then
+		nft_emit_policy_quic_port_rejects "$dst_list_file" "daddr" "$NFT_CHAIN_PREROUTING_POLICY" || return 1
+		if [ "${NFT_PROXY_SRC_SET_COUNT:-0}" -gt 0 ]; then
 			nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip saddr @$NFT_PROXY_SRC_SET udp dport 443 reject"
 		fi
+		nft_emit_policy_quic_port_rejects "$src_list_file" "saddr" "$NFT_CHAIN_PREROUTING_POLICY" || return 1
 	fi
 
-	if [ "${NFT_PROXY_DST_COUNT:-0}" -gt 0 ]; then
+	if [ "${NFT_PROXY_DST_SET_COUNT:-0}" -gt 0 ]; then
 		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr @$NFT_PROXY_DST_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 	fi
-	if [ "${NFT_PROXY_SRC_COUNT:-0}" -gt 0 ]; then
+	nft_emit_policy_port_rules "$dst_list_file" "daddr" "$NFT_CHAIN_PREROUTING_POLICY" "meta mark set $NFT_INTERCEPT_MARK" || return 1
+	if [ "${NFT_PROXY_SRC_SET_COUNT:-0}" -gt 0 ]; then
 		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip saddr @$NFT_PROXY_SRC_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 	fi
+	nft_emit_policy_port_rules "$src_list_file" "saddr" "$NFT_CHAIN_PREROUTING_POLICY" "meta mark set $NFT_INTERCEPT_MARK" || return 1
 	if [ "$CATCH_FAKEIP" = "1" ]; then
 		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 	fi
@@ -191,14 +277,16 @@ nft_emit_policy_rules() {
 		if [ "$CATCH_FAKEIP" = "1" ]; then
 			nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr $FAKEIP_RANGE udp dport 443 reject"
 		fi
-		if [ "${NFT_PROXY_DST_COUNT:-0}" -gt 0 ]; then
+		if [ "${NFT_PROXY_DST_SET_COUNT:-0}" -gt 0 ]; then
 			nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr @$NFT_PROXY_DST_SET udp dport 443 reject"
 		fi
+		nft_emit_policy_quic_port_rejects "$dst_list_file" "daddr" "$NFT_CHAIN_OUTPUT" || return 1
 	fi
 
-	if [ "${NFT_PROXY_DST_COUNT:-0}" -gt 0 ]; then
+	if [ "${NFT_PROXY_DST_SET_COUNT:-0}" -gt 0 ]; then
 		nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr @$NFT_PROXY_DST_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 	fi
+	nft_emit_policy_port_rules "$dst_list_file" "daddr" "$NFT_CHAIN_OUTPUT" "meta mark set $NFT_INTERCEPT_MARK" || return 1
 	if [ "$CATCH_FAKEIP" = "1" ]; then
 		nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 	fi
@@ -212,6 +300,8 @@ nft_apply_policy() {
 	NFT_BATCH_FILE="$(mktemp "$PKG_TMP_DIR/nft.XXXXXX")" || return 1
 	NFT_PROXY_DST_COUNT=0
 	NFT_PROXY_SRC_COUNT=0
+	NFT_PROXY_DST_SET_COUNT=0
+	NFT_PROXY_SRC_SET_COUNT=0
 
 	if nft_table_exists; then
 		nft_emit_line "delete table inet $NFT_TABLE_NAME"
@@ -225,11 +315,11 @@ nft_apply_policy() {
 		nft_cleanup_batch_file
 		return 1
 	}
-	nft_emit_ipv4_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT || {
+	nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || {
 		nft_cleanup_batch_file
 		return 1
 	}
-	nft_emit_ipv4_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT || {
+	nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || {
 		nft_cleanup_batch_file
 		return 1
 	}

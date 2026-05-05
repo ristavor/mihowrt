@@ -1218,15 +1218,20 @@ nft_delete_table_if_exists_fallback() {
 route_rule_exists_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
-	local rules_output=""
+	local rules_output="" mark="" mark_hex="" mark_dec=""
 
 	[ -n "$route_table_id" ] || return 1
 	[ -n "$route_rule_priority" ] || return 1
 	have_command ip || return 2
 
+	mark="$NFT_INTERCEPT_MARK"
+	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
+	mark_dec="$(( NFT_INTERCEPT_MARK ))"
 	rules_output="$(ip rule show 2>/dev/null)" || return 2
-	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" '
-		$1 == priority ":" && (index($0, " lookup " table) || index($0, " table " table)) { found=1 }
+	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
+		$1 == priority ":" &&
+		(index($0, " lookup " table) || index($0, " table " table)) &&
+		(index($0, " fwmark " mark "/" mark) || index($0, " fwmark " mark_hex "/" mark_hex) || index($0, " fwmark " mark_dec "/" mark_dec)) { found=1 }
 		END { exit(found ? 0 : 1) }
 	'
 }

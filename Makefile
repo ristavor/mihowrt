@@ -110,6 +110,16 @@ define Package/$(PKG_NAME)/postinst
 exit 0
 endef
 
+define Package/$(PKG_NAME)/prerm
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] || {
+	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt cleanup >/dev/null 2>&1 || true
+	/etc/init.d/mihowrt-recover disable >/dev/null 2>&1 || true
+}
+exit 0
+endef
+
 define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {

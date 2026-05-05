@@ -72,6 +72,11 @@ ip() {
 					"$NFT_INTERCEPT_MARK" \
 					"${TEST_ROUTE_TABLE_ID:-201}"
 			fi
+			if [[ "${TEST_FOREIGN_RULE_PRESENT:-0}" = "1" ]]; then
+				printf '%s: from all lookup %s\n' \
+					"${TEST_FOREIGN_RULE_PRIORITY:-10001}" \
+					"${TEST_FOREIGN_RULE_TABLE:-201}"
+			fi
 			return 0
 			;;
 		rule:del)
@@ -181,6 +186,29 @@ TEST_ROUTE_DEL_RC=0
 : > "$NET_LOG"
 assert_true "cleanup_runtime_fallback should treat already-absent live state as clean" cleanup_runtime_fallback
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file when live state is already absent"
+
+cat > "$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=201
+ROUTE_RULE_PRIORITY=10001
+EOF
+
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LIST_RC=0
+TEST_NFT_DELETE_RC=0
+TEST_RULE_PRESENT=0
+TEST_FOREIGN_RULE_PRESENT=1
+TEST_FOREIGN_RULE_PRIORITY=10001
+TEST_FOREIGN_RULE_TABLE=201
+TEST_RULE_SHOW_RC=0
+TEST_RULE_DEL_RC=0
+TEST_ROUTE_PRESENT=0
+TEST_ROUTE_SHOW_RC=0
+TEST_ROUTE_DEL_RC=0
+: > "$NET_LOG"
+assert_true "cleanup_runtime_fallback should ignore foreign rule with same priority and table" cleanup_runtime_fallback
+assert_file_not_contains "$NET_LOG" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 201 priority 10001" "cleanup_runtime_fallback should not delete when only foreign rule exists"
+[[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove stale route state when only foreign rule exists"
+TEST_FOREIGN_RULE_PRESENT=0
 
 : > "$NET_LOG"
 TEST_NFT_TABLE_PRESENT=1

@@ -298,6 +298,16 @@ TEST_NFT_LIST_RC=2
 TEST_NFT_DELETE_RC=0
 assert_false "nft_remove_policy should fail when nft probe command breaks" nft_remove_policy
 
+: > "$net_log"
+TEST_RULE_PRESENT=0
+TEST_FOREIGN_RULE_PRESENT=1
+TEST_FOREIGN_RULE_PRIORITY=10000
+TEST_FOREIGN_RULE_TABLE=200
+TEST_RULE_SHOW_RC=0
+assert_false "policy_route_rule_exists should ignore foreign rule with same priority and table" policy_route_rule_exists 200 10000
+assert_true "policy_route_priority_conflicts should catch foreign rule with same priority" policy_route_priority_conflicts 200 10000
+TEST_FOREIGN_RULE_PRESENT=0
+
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000

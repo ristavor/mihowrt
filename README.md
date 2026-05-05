@@ -400,7 +400,7 @@ Performance model:
 MihoWRT owns one table:
 
 ```text
-table inet mihomo_podkop
+table inet mihowrt
 ```
 
 Main sets:
@@ -553,7 +553,7 @@ calls:
 
 Recovery checks whether live runtime state exists:
 
-- nft table `mihomo_podkop`
+- nft table `mihowrt`
 - route state file and managed policy route/rule
 - DNS backup or hijacked `dnsmasq` state
 
@@ -664,14 +664,20 @@ SERVICE_START_TIMEOUT=5
 This repository is a package directory. With the SDK next to the repo:
 
 ```sh
-rsync -a --delete --exclude='.git' ./ ../openwrt-sdk-25.12.2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/package/luci-app-mihowrt/
-make -C ../openwrt-sdk-25.12.2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64 package/luci-app-mihowrt/clean package/luci-app-mihowrt/compile V=s
+cd ~/openwrt/openwrt-sdk-25.12.3-x86-64_gcc-14.3.0_musl.Linux-x86_64
+rm -rf package/luci-app-mihowrt
+mkdir -p package/luci-app-mihowrt
+rsync -a --delete --exclude='.git' ../mihowrt/ package/luci-app-mihowrt/
+./scripts/config -m PACKAGE_luci-app-mihowrt
+make defconfig
+make package/luci-app-mihowrt/clean
+make package/luci-app-mihowrt/compile V=s -j"$(nproc)"
 ```
 
-Result path for the Mediatek Filogic SDK:
+Result path for the x86/64 SDK:
 
 ```text
-../openwrt-sdk-25.12.2-mediatek-filogic_gcc-14.3.0_musl.Linux-x86_64/bin/packages/aarch64_cortex-a53/base/luci-app-mihowrt-<version>-r1.apk
+bin/packages/x86_64/base/luci-app-mihowrt-<version>-r1.apk
 ```
 
 The package declares `PKGARCH:=all`, so the APK payload is noarch inside

@@ -45,14 +45,25 @@ nft() {
 			if [[ "${TEST_NFT_TABLE_PRESENT:-0}" = "1" ]]; then
 				printf 'table inet %s\n' "$NFT_TABLE_NAME"
 			fi
+			if [[ "${TEST_NFT_LEGACY_TABLE_PRESENT:-0}" = "1" ]]; then
+				printf 'table inet %s\n' "${NFT_LEGACY_TABLE_NAMES%% *}"
+			fi
 			return 0
 			;;
 		delete)
 			if [[ "${TEST_NFT_DELETE_RC:-0}" != "0" ]]; then
 				return "${TEST_NFT_DELETE_RC}"
 			fi
-			TEST_NFT_TABLE_PRESENT=0
-			export TEST_NFT_TABLE_PRESENT
+			case "${4:-}" in
+				"$NFT_TABLE_NAME")
+					TEST_NFT_TABLE_PRESENT=0
+					export TEST_NFT_TABLE_PRESENT
+					;;
+				"${NFT_LEGACY_TABLE_NAMES%% *}")
+					TEST_NFT_LEGACY_TABLE_PRESENT=0
+					export TEST_NFT_LEGACY_TABLE_PRESENT
+					;;
+			esac
 			return 0
 			;;
 	esac
@@ -151,6 +162,7 @@ ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=1
@@ -169,12 +181,26 @@ assert_file_contains "$NET_LOG" "ip route del local 0.0.0.0/0 dev lo table 201" 
 assert_file_not_contains "$NET_LOG" "ip route flush table 201" "cleanup_runtime_fallback should not flush policy route table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file"
 
+rm -f "$ROUTE_STATE_FILE"
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=0
+TEST_NFT_DELETE_RC=0
+TEST_RULE_PRESENT=0
+TEST_RULE_SHOW_RC=0
+TEST_ROUTE_PRESENT=0
+TEST_ROUTE_SHOW_RC=0
+: > "$NET_LOG"
+assert_true "cleanup_runtime_fallback should drop legacy nft table" cleanup_runtime_fallback
+assert_file_contains "$NET_LOG" "nft delete table inet ${NFT_LEGACY_TABLE_NAMES%% *}" "cleanup_runtime_fallback should drop legacy nft table"
+
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=201
 ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=0
@@ -193,6 +219,7 @@ ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=0
@@ -212,6 +239,7 @@ TEST_FOREIGN_RULE_PRESENT=0
 
 : > "$NET_LOG"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=1
 assert_false "cleanup_runtime_fallback should fail when nft delete leaves table behind" cleanup_runtime_fallback
@@ -223,6 +251,7 @@ EOF
 
 : > "$NET_LOG"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=2
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=0
@@ -241,6 +270,7 @@ ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=0
@@ -261,6 +291,7 @@ ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=1
@@ -281,6 +312,7 @@ ROUTE_RULE_PRIORITY=10001
 EOF
 
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 TEST_RULE_PRESENT=0

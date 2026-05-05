@@ -1,9 +1,10 @@
 #!/bin/ash
 
-nft_delete_table_if_exists() {
+nft_delete_table_named_if_exists() {
+	local table="$1"
 	local table_state=1
 
-	nft_table_exists
+	nft_table_exists_named "$table"
 	table_state=$?
 	case "$table_state" in
 		0)
@@ -17,21 +18,50 @@ nft_delete_table_if_exists() {
 			;;
 	esac
 
-	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || return 1
-	nft_table_exists
+	nft delete table inet "$table" >/dev/null 2>&1 || return 1
+	nft_table_exists_named "$table"
 	table_state=$?
 	[ "$table_state" -eq 1 ]
 }
 
-nft_table_exists() {
+nft_delete_table_if_exists() {
+	nft_delete_table_named_if_exists "$NFT_TABLE_NAME"
+}
+
+nft_table_exists_named() {
+	local table="$1"
 	local tables_output=""
 
 	have_command nft || return 2
 	tables_output="$(nft list tables inet 2>/dev/null)" || return 2
-	printf '%s\n' "$tables_output" | awk -v table="$NFT_TABLE_NAME" '
+	printf '%s\n' "$tables_output" | awk -v table="$table" '
 		$1 == "table" && $2 == "inet" && $3 == table { found=1 }
 		END { exit(found ? 0 : 1) }
 	'
+}
+
+nft_table_exists() {
+	nft_table_exists_named "$NFT_TABLE_NAME"
+}
+
+nft_emit_delete_existing_tables() {
+	local table table_state
+
+	for table in "$NFT_TABLE_NAME" ${NFT_LEGACY_TABLE_NAMES:-}; do
+		nft_table_exists_named "$table"
+		table_state=$?
+		case "$table_state" in
+			0)
+				nft_emit_line "delete table inet $table"
+				;;
+			1)
+				:
+				;;
+			*)
+				return 1
+				;;
+		esac
+	done
 }
 
 nft_emit_line() {
@@ -303,9 +333,10 @@ nft_apply_policy() {
 	NFT_PROXY_DST_SET_COUNT=0
 	NFT_PROXY_SRC_SET_COUNT=0
 
-	if nft_table_exists; then
-		nft_emit_line "delete table inet $NFT_TABLE_NAME"
-	fi
+	nft_emit_delete_existing_tables || {
+		nft_cleanup_batch_file
+		return 1
+	}
 
 	nft_emit_base_table || {
 		nft_cleanup_batch_file
@@ -339,22 +370,27 @@ nft_apply_policy() {
 }
 
 nft_remove_policy() {
-	local table_state=1
+	local table table_state=1 removed=0
 
-	nft_table_exists
-	table_state=$?
-	case "$table_state" in
-		0)
-			nft_delete_table_if_exists || return 1
-			log "Removed nft policy table $NFT_TABLE_NAME"
-			;;
-		1)
-			log "nft policy table $NFT_TABLE_NAME already clean"
-			;;
-		*)
-			return 1
-			;;
-	esac
+	for table in "$NFT_TABLE_NAME" ${NFT_LEGACY_TABLE_NAMES:-}; do
+		nft_table_exists_named "$table"
+		table_state=$?
+		case "$table_state" in
+			0)
+				nft_delete_table_named_if_exists "$table" || return 1
+				log "Removed nft policy table $table"
+				removed=1
+				;;
+			1)
+				:
+				;;
+			*)
+				return 1
+				;;
+		esac
+	done
+
+	[ "$removed" -eq 1 ] || log "nft policy table $NFT_TABLE_NAME already clean"
 
 	return 0
 }

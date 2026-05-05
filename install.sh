@@ -36,7 +36,8 @@ DNS_BACKUP_NAME="dns.backup"
 DNSMASQ_INIT_SCRIPT="/etc/init.d/dnsmasq"
 DNS_AUTO_RESOLVFILE="/tmp/resolv.conf.d/resolv.conf.auto"
 ROUTE_STATE_FILE="/var/run/mihowrt/route.state"
-NFT_TABLE_NAME="mihomo_podkop"
+NFT_TABLE_NAME="mihowrt"
+NFT_LEGACY_TABLE_NAMES="mihomo_podkop"
 NFT_INTERCEPT_MARK="0x00001000"
 SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
 CLASH_DIR="/opt/clash"
@@ -1321,21 +1322,23 @@ route_state_read() {
 	[ -n "$ROUTE_TABLE_ID_EFFECTIVE" ] && [ -n "$ROUTE_RULE_PRIORITY_EFFECTIVE" ]
 }
 
-nft_table_exists_fallback() {
+nft_table_exists_named_fallback() {
+	local table="$1"
 	local tables_output=""
 
 	have_command nft || return 2
 	tables_output="$(nft list tables inet 2>/dev/null)" || return 2
-	printf '%s\n' "$tables_output" | awk -v table="$NFT_TABLE_NAME" '
+	printf '%s\n' "$tables_output" | awk -v table="$table" '
 		$1 == "table" && $2 == "inet" && $3 == table { found=1 }
 		END { exit(found ? 0 : 1) }
 	'
 }
 
-nft_delete_table_if_exists_fallback() {
+nft_delete_table_named_if_exists_fallback() {
+	local table="$1"
 	local table_state=1
 
-	nft_table_exists_fallback
+	nft_table_exists_named_fallback "$table"
 	table_state=$?
 	case "$table_state" in
 		0)
@@ -1349,10 +1352,18 @@ nft_delete_table_if_exists_fallback() {
 			;;
 	esac
 
-	nft delete table inet "$NFT_TABLE_NAME" >/dev/null 2>&1 || return 1
-	nft_table_exists_fallback
+	nft delete table inet "$table" >/dev/null 2>&1 || return 1
+	nft_table_exists_named_fallback "$table"
 	table_state=$?
 	[ "$table_state" -eq 1 ]
+}
+
+nft_delete_policy_tables_fallback() {
+	local table
+
+	for table in "$NFT_TABLE_NAME" ${NFT_LEGACY_TABLE_NAMES:-}; do
+		nft_delete_table_named_if_exists_fallback "$table" || return 1
+	done
 }
 
 route_rule_exists_fallback() {
@@ -1514,8 +1525,8 @@ cleanup_runtime_fallback() {
 	local rc=0
 
 	if have_command nft; then
-		if ! nft_delete_table_if_exists_fallback; then
-			warn "failed to remove nft policy table $NFT_TABLE_NAME during fallback cleanup"
+		if ! nft_delete_policy_tables_fallback; then
+			warn "failed to remove nft policy tables during fallback cleanup"
 			rc=1
 		fi
 	fi

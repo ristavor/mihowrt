@@ -18,7 +18,8 @@ EOF
 chmod +x "$tmpbin/logger"
 export PATH="$tmpbin:$PATH"
 
-export NFT_TABLE_NAME="mihomo_podkop"
+export NFT_TABLE_NAME="mihowrt"
+export NFT_LEGACY_TABLE_NAMES="mihomo_podkop"
 export PKG_STATE_DIR="$tmpdir/run"
 export ROUTE_STATE_FILE="$tmpdir/route.state"
 export ROUTE_TABLE_ID_AUTO_MIN="200"
@@ -65,7 +66,7 @@ assert_eq "2" "$(count_valid_list_entries "$list_file")" "count_valid_list_entri
 NFT_BATCH_FILE="$tmpdir/nft.batch"
 nft_emit_ipv4_file_to_set "$list_file" "proxy_dst" NFT_PROXY_DST_COUNT
 assert_eq "2" "${NFT_PROXY_DST_COUNT}" "nft_emit_ipv4_file_to_set should return valid entry count"
-assert_file_contains "$NFT_BATCH_FILE" "add element inet mihomo_podkop proxy_dst { 1.1.1.1,2.2.2.0/24 }" "nft_emit_ipv4_file_to_set should emit nft batch line"
+assert_file_contains "$NFT_BATCH_FILE" "add element inet mihowrt proxy_dst { 1.1.1.1,2.2.2.0/24 }" "nft_emit_ipv4_file_to_set should emit nft batch line"
 
 rm -f "$list_file"
 : > "$NFT_BATCH_FILE"
@@ -127,14 +128,25 @@ nft() {
 			if [[ "${TEST_NFT_TABLE_PRESENT:-0}" = "1" ]]; then
 				printf 'table inet %s\n' "$NFT_TABLE_NAME"
 			fi
+			if [[ "${TEST_NFT_LEGACY_TABLE_PRESENT:-0}" = "1" ]]; then
+				printf 'table inet %s\n' "${NFT_LEGACY_TABLE_NAMES%% *}"
+			fi
 			return 0
 			;;
 		delete)
 			if [[ "${TEST_NFT_DELETE_RC:-0}" != "0" ]]; then
 				return "${TEST_NFT_DELETE_RC}"
 			fi
-			TEST_NFT_TABLE_PRESENT=0
-			export TEST_NFT_TABLE_PRESENT
+			case "${4:-}" in
+				"$NFT_TABLE_NAME")
+					TEST_NFT_TABLE_PRESENT=0
+					export TEST_NFT_TABLE_PRESENT
+					;;
+				"${NFT_LEGACY_TABLE_NAMES%% *}")
+					TEST_NFT_LEGACY_TABLE_PRESENT=0
+					export TEST_NFT_LEGACY_TABLE_PRESENT
+					;;
+			esac
 			return 0
 			;;
 	esac
@@ -280,6 +292,7 @@ assert_file_contains "$net_log" "log:nft policy table $NFT_TABLE_NAME already cl
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should delete present nft table" nft_remove_policy
@@ -287,13 +300,24 @@ assert_file_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_rem
 assert_file_contains "$net_log" "log:Removed nft policy table $NFT_TABLE_NAME" "nft_remove_policy should log actual nft deletion"
 
 : > "$net_log"
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=0
+TEST_NFT_DELETE_RC=0
+assert_true "nft_remove_policy should delete legacy nft table" nft_remove_policy
+assert_file_contains "$net_log" "nft delete table inet ${NFT_LEGACY_TABLE_NAMES%% *}" "nft_remove_policy should delete legacy nft table"
+assert_file_contains "$net_log" "log:Removed nft policy table ${NFT_LEGACY_TABLE_NAMES%% *}" "nft_remove_policy should log legacy nft deletion"
+
+: > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=1
 assert_false "nft_remove_policy should fail when nft delete leaves table behind" nft_remove_policy
 
 : > "$net_log"
 TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=2
 TEST_NFT_DELETE_RC=0
 assert_false "nft_remove_policy should fail when nft probe command breaks" nft_remove_policy

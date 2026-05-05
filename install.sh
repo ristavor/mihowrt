@@ -8,14 +8,26 @@ PKG_NAME="luci-app-mihowrt"
 RELEASES_API_URL="https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest"
 MIHOMO_RELEASES_API="https://api.github.com/repos/MetaCubeX/mihomo/releases/latest"
 TMP_APK=""
+NET_TMP=""
+FETCH_TMP="/tmp/${PKG_NAME}.fetch.$$"
 BACKUP_DIR=""
 KERNEL_BACKUP_TMP=""
+KERNEL_STAGED_BIN=""
+KERNEL_STAGED_TAG=""
+KERNEL_STAGED_ARCH=""
+KERNEL_TRANSACTION_APPLIED=0
 WAS_ENABLED=0
 WAS_RUNNING=0
 REINSTALL_HOLD_ACTIVE=0
 PRESERVE_BACKUP_DIR=0
 PRESERVE_KERNEL_TMP_DIR=0
+INSTALL_TRANSACTION_ACTIVE=0
+INSTALL_TRANSACTION_REINSTALL=0
+INSTALL_TRANSACTION_PACKAGE_STARTED=0
 SERVICE_START_TIMEOUT="${SERVICE_START_TIMEOUT:-5}"
+FETCH_RETRIES="${FETCH_RETRIES:-3}"
+FETCH_CONNECT_TIMEOUT="${FETCH_CONNECT_TIMEOUT:-10}"
+FETCH_MAX_TIME="${FETCH_MAX_TIME:-60}"
 INIT_SCRIPT="/etc/init.d/mihowrt"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SERVICE_PID_FILE="/var/run/mihowrt/mihomo.pid"
@@ -49,6 +61,8 @@ warn() {
 
 cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
+	[ -n "$NET_TMP" ] && rm -f "$NET_TMP"
+	rm -f "$FETCH_TMP"
 	if [ -n "$BACKUP_DIR" ] && [ "$PRESERVE_BACKUP_DIR" != "1" ]; then
 		rm -rf "$BACKUP_DIR"
 	fi
@@ -58,9 +72,6 @@ cleanup() {
 	rm -f "$SKIP_START_FILE"
 	release_reinstall_dependencies
 }
-
-trap cleanup EXIT
-trap 'exit 1' INT TERM HUP
 
 have_command() {
 	command -v "$1" >/dev/null 2>&1
@@ -89,6 +100,10 @@ clear_kernel_backup() {
 	[ "$PRESERVE_KERNEL_TMP_DIR" = "1" ] && return 0
 	[ -n "$KERNEL_BACKUP_TMP" ] && rm -f "$KERNEL_BACKUP_TMP"
 	KERNEL_BACKUP_TMP=""
+	KERNEL_STAGED_BIN=""
+	KERNEL_STAGED_TAG=""
+	KERNEL_STAGED_ARCH=""
+	KERNEL_TRANSACTION_APPLIED=0
 	rm -rf "$KERNEL_TMP_DIR"
 	PRESERVE_KERNEL_TMP_DIR=0
 }
@@ -103,7 +118,8 @@ preserve_kernel_backup_dir() {
 
 stage_kernel_backup() {
 	[ -f "$CLASH_BIN" ] || {
-		clear_kernel_backup
+		[ -n "$KERNEL_BACKUP_TMP" ] && rm -f "$KERNEL_BACKUP_TMP"
+		KERNEL_BACKUP_TMP=""
 		return 0
 	}
 
@@ -127,12 +143,60 @@ restore_kernel_backup() {
 	return 0
 }
 
+clear_kernel_stage() {
+	[ -n "$KERNEL_STAGED_BIN" ] && rm -f "$KERNEL_STAGED_BIN"
+	KERNEL_STAGED_BIN=""
+	KERNEL_STAGED_TAG=""
+	KERNEL_STAGED_ARCH=""
+}
+
+kernel_stage_available() {
+	[ -n "$KERNEL_STAGED_BIN" ] && [ -x "$KERNEL_STAGED_BIN" ]
+}
+
 set_skip_start() {
 	: > "$SKIP_START_FILE"
 }
 
 clear_skip_start() {
 	rm -f "$SKIP_START_FILE"
+}
+
+begin_install_transaction() {
+	INSTALL_TRANSACTION_REINSTALL="${1:-0}"
+	INSTALL_TRANSACTION_PACKAGE_STARTED=0
+	KERNEL_TRANSACTION_APPLIED=0
+	INSTALL_TRANSACTION_ACTIVE=1
+}
+
+end_install_transaction() {
+	INSTALL_TRANSACTION_ACTIVE=0
+	INSTALL_TRANSACTION_REINSTALL=0
+	INSTALL_TRANSACTION_PACKAGE_STARTED=0
+}
+
+rollback_active_transaction() {
+	[ "$INSTALL_TRANSACTION_ACTIVE" = "1" ] || return 0
+
+	clear_skip_start
+	if [ "$INSTALL_TRANSACTION_REINSTALL" = "1" ] && [ "$INSTALL_TRANSACTION_PACKAGE_STARTED" != "1" ]; then
+		rollback_reinstall_state 1 || {
+			preserve_backup_dir
+			preserve_kernel_backup_dir
+			return 1
+		}
+	else
+		handle_install_failure "$INSTALL_TRANSACTION_REINSTALL" "installer interrupted" || true
+	fi
+
+	end_install_transaction
+}
+
+handle_signal() {
+	trap - INT TERM HUP
+	warn "installer interrupted; rolling back active transaction"
+	rollback_active_transaction || warn "active transaction rollback failed"
+	exit 1
 }
 
 wait_for_service_running() {
@@ -159,17 +223,36 @@ stop_service_instance() {
 }
 
 fetch_url() {
-	local have_fetcher=0
+	local have_fetcher=0 tmp_path="$FETCH_TMP"
 
-	if have_command wget && wget -qO- "$1"; then
+	rm -f "$tmp_path"
+	NET_TMP="$tmp_path"
+	if have_command wget && wget -q -T "$FETCH_CONNECT_TIMEOUT" -t "$FETCH_RETRIES" -O "$tmp_path" "$1"; then
+		cat "$tmp_path" || {
+			rm -f "$tmp_path"
+			NET_TMP=""
+			return 1
+		}
+		rm -f "$tmp_path"
+		NET_TMP=""
 		return 0
 	fi
 	have_command wget && have_fetcher=1
+	rm -f "$tmp_path"
 
-	if have_command curl && curl -fsL "$1"; then
+	if have_command curl && curl -fsL --retry "$FETCH_RETRIES" --connect-timeout "$FETCH_CONNECT_TIMEOUT" --max-time "$FETCH_MAX_TIME" -o "$tmp_path" "$1"; then
+		cat "$tmp_path" || {
+			rm -f "$tmp_path"
+			NET_TMP=""
+			return 1
+		}
+		rm -f "$tmp_path"
+		NET_TMP=""
 		return 0
 	fi
 	have_command curl && have_fetcher=1
+	rm -f "$tmp_path"
+	NET_TMP=""
 
 	if [ "$have_fetcher" = "1" ]; then
 		err "failed to fetch $1"
@@ -180,17 +263,34 @@ fetch_url() {
 }
 
 download_file() {
-	local have_fetcher=0
+	local have_fetcher=0 tmp_path="${2}.download.$$"
 
-	if have_command wget && wget -qO "$2" "$1"; then
+	rm -f "$tmp_path"
+	NET_TMP="$tmp_path"
+	if have_command wget && wget -q -T "$FETCH_CONNECT_TIMEOUT" -t "$FETCH_RETRIES" -O "$tmp_path" "$1"; then
+		mv -f "$tmp_path" "$2" || {
+			rm -f "$tmp_path"
+			NET_TMP=""
+			return 1
+		}
+		NET_TMP=""
 		return 0
 	fi
 	have_command wget && have_fetcher=1
+	rm -f "$tmp_path"
 
-	if have_command curl && curl -fsL --retry 3 --connect-timeout 10 -o "$2" "$1"; then
+	if have_command curl && curl -fsL --retry "$FETCH_RETRIES" --connect-timeout "$FETCH_CONNECT_TIMEOUT" --max-time "$FETCH_MAX_TIME" -o "$tmp_path" "$1"; then
+		mv -f "$tmp_path" "$2" || {
+			rm -f "$tmp_path"
+			NET_TMP=""
+			return 1
+		}
+		NET_TMP=""
 		return 0
 	fi
 	have_command curl && have_fetcher=1
+	rm -f "$tmp_path"
+	NET_TMP=""
 
 	if [ "$have_fetcher" = "1" ]; then
 		err "failed to download $1"
@@ -201,7 +301,7 @@ download_file() {
 }
 
 normalize_version() {
-	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV'
+	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV' || true
 }
 
 # Keep in sync with rootfs/usr/lib/mihowrt/helpers.sh.
@@ -249,9 +349,9 @@ kernel_asset_url() {
 		head -n1
 }
 
-kernel_install_or_update() {
+kernel_stage_update() {
 	local arch release_json latest_tag latest_ver current_ver asset_name asset_url
-	local tmpgz tmpbin bindir
+	local tmpgz tmpbin
 
 	clear_kernel_backup
 	require_command gzip
@@ -287,10 +387,8 @@ kernel_install_or_update() {
 	}
 
 	mkdir -p "$KERNEL_TMP_DIR"
-	bindir="${CLASH_BIN%/*}"
-	mkdir -p "$bindir"
 	tmpgz="$KERNEL_TMP_DIR/$asset_name"
-	tmpbin="$KERNEL_TMP_DIR/clash"
+	tmpbin="$KERNEL_TMP_DIR/clash.staged"
 
 	rm -f "$tmpgz" "$tmpbin"
 	download_file "$asset_url" "$tmpgz" || {
@@ -304,39 +402,81 @@ kernel_install_or_update() {
 		err "failed to decompress Mihomo asset"
 		return 1
 	}
+	rm -f "$tmpgz"
 
 	chmod 0755 "$tmpbin" || {
-		rm -f "$tmpgz" "$tmpbin"
+		rm -f "$tmpbin"
 		err "failed to chmod Mihomo binary"
 		return 1
 	}
 
 	"$tmpbin" -v >/dev/null 2>&1 || {
-		rm -f "$tmpgz" "$tmpbin"
+		rm -f "$tmpbin"
 		err "downloaded Mihomo binary failed self-check"
 		return 1
 	}
 
 	if [ -f "$CLASH_BIN" ] && cmp -s "$tmpbin" "$CLASH_BIN" 2>/dev/null; then
-		rm -f "$tmpgz" "$tmpbin"
+		rm -f "$tmpbin"
 		log "Downloaded Mihomo kernel is identical to installed binary"
 		return 0
 	fi
 
+	KERNEL_STAGED_BIN="$tmpbin"
+	KERNEL_STAGED_TAG="$latest_tag"
+	KERNEL_STAGED_ARCH="$arch"
+	log "Prepared Mihomo kernel $latest_tag for arch $arch"
+	return 0
+}
+
+kernel_apply_staged_update() {
+	if [ -n "$KERNEL_STAGED_BIN" ] && ! kernel_stage_available; then
+		err "staged Mihomo kernel is missing"
+		clear_kernel_stage
+		return 1
+	fi
+	kernel_stage_available || return 0
+
+	mkdir -p "${CLASH_BIN%/*}" || return 1
 	stage_kernel_backup || {
-		rm -f "$tmpgz" "$tmpbin"
+		clear_kernel_stage
 		err "failed to stage previous Mihomo kernel"
 		return 1
 	}
-	mv -f "$tmpbin" "$CLASH_BIN" || {
-		rm -f "$tmpgz" "$tmpbin"
+	mv -f "$KERNEL_STAGED_BIN" "$CLASH_BIN" || {
+		clear_kernel_stage
 		err "failed to install Mihomo kernel"
 		return 1
 	}
-	rm -f "$tmpgz"
+	KERNEL_STAGED_BIN=""
+	KERNEL_TRANSACTION_APPLIED=1
 
-	log "Updated Mihomo kernel to $latest_tag for arch $arch"
+	log "Updated Mihomo kernel to $KERNEL_STAGED_TAG for arch $KERNEL_STAGED_ARCH"
+	KERNEL_STAGED_TAG=""
+	KERNEL_STAGED_ARCH=""
 	return 0
+}
+
+kernel_install_or_update() {
+	kernel_stage_update || return 1
+	kernel_apply_staged_update
+}
+
+rollback_kernel_update() {
+	[ "$KERNEL_TRANSACTION_APPLIED" = "1" ] || return 0
+
+	if kernel_backup_available; then
+		restore_kernel_backup || {
+			preserve_kernel_backup_dir
+			return 1
+		}
+		return 0
+	fi
+
+	rm -f "$CLASH_BIN" || return 1
+	KERNEL_TRANSACTION_APPLIED=0
+	clear_kernel_backup
+	log "Removed newly installed Mihomo kernel"
 }
 
 kernel_remove() {
@@ -1758,6 +1898,9 @@ handle_install_failure() {
 			preserve_backup_dir
 			err "failed to restore saved config and policy files"
 		fi
+	elif ! rollback_kernel_update; then
+		preserve_kernel_backup_dir
+		warn "failed to roll back Mihomo kernel after install failure"
 	fi
 
 	clear_kernel_backup
@@ -1845,6 +1988,8 @@ perform_package_action() {
 	local reinstall=0
 	local asset_url=""
 
+	package_installed && reinstall=1 || reinstall=0
+
 	asset_url="$(latest_asset_url)" || {
 		err "failed to query latest ${PKG_NAME} release"
 		return 1
@@ -1854,61 +1999,73 @@ perform_package_action() {
 		return 1
 	}
 
-	if package_installed; then
-		reinstall=1
-		log "Saving current config and policy state..."
-		if ! prepare_update; then
-			rollback_reinstall_state "$reinstall"
-			return 1
-		fi
-	fi
-
-	log "Installing/updating Mihomo kernel..."
-	if ! kernel_install_or_update; then
-		rollback_reinstall_state "$reinstall"
-		err "kernel install/update failed"
-		return 1
-	fi
-
-	if ! set_skip_start; then
-		rollback_reinstall_state "$reinstall"
-		err "failed to set skip-start marker"
-		return 1
-	fi
-
 	if ! create_tmp_apk; then
-		clear_skip_start
-		rollback_reinstall_state "$reinstall"
 		err "failed to allocate temporary apk path"
 		return 1
 	fi
 
 	log "Downloading latest release asset..."
 	if ! download_file "$asset_url" "$TMP_APK"; then
-		clear_skip_start
-		rollback_reinstall_state "$reinstall"
 		err "failed to download latest ${PKG_NAME} apk"
 		return 1
 	fi
+
+	log "Preparing Mihomo kernel..."
+	if ! kernel_stage_update; then
+		err "kernel prepare failed"
+		return 1
+	fi
+
+	if [ "$reinstall" = "1" ]; then
+		begin_install_transaction "$reinstall"
+		log "Saving current config and policy state..."
+		if ! prepare_update; then
+			rollback_reinstall_state "$reinstall"
+			end_install_transaction
+			return 1
+		fi
+	else
+		begin_install_transaction "$reinstall"
+	fi
+
+	log "Installing/updating Mihomo kernel..."
+	if ! kernel_apply_staged_update; then
+		rollback_reinstall_state "$reinstall"
+		end_install_transaction
+		err "kernel install/update failed"
+		return 1
+	fi
+
+	if ! set_skip_start; then
+		rollback_reinstall_state "$reinstall"
+		end_install_transaction
+		err "failed to set skip-start marker"
+		return 1
+	fi
+
+	INSTALL_TRANSACTION_PACKAGE_STARTED=1
 	if ! install_package "$reinstall" "$TMP_APK"; then
 		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
+		end_install_transaction
 		return 1
 	fi
 	clear_skip_start
 
 	if ! verify_required_packages; then
 		handle_install_failure "$reinstall" "package install incomplete; missing packages: $MISSING_PACKAGES"
+		end_install_transaction
 		return 1
 	fi
 
 	if [ "$reinstall" = "1" ]; then
-	if ! quiesce_postinstall_service; then
-		preserve_backup_dir
-		preserve_kernel_backup_dir
-		err "failed to quiesce auto-started service after package install"
-		return 1
-	fi
-	log "Restoring saved config and policy state..."
+		if ! quiesce_postinstall_service; then
+			preserve_backup_dir
+			preserve_kernel_backup_dir
+			end_install_transaction
+			err "failed to quiesce auto-started service after package install"
+			return 1
+		fi
+		log "Restoring saved config and policy state..."
 		if ! restore_user_state; then
 			if [ -x "$INIT_SCRIPT" ]; then
 				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
@@ -1920,6 +2077,7 @@ perform_package_action() {
 				fi
 			fi
 			preserve_backup_dir
+			end_install_transaction
 			err "failed to restore saved config and policy state"
 			return 1
 		fi
@@ -1928,21 +2086,31 @@ perform_package_action() {
 				warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
 				restore_kernel_backup || {
 					preserve_kernel_backup_dir
+					end_install_transaction
 					err "failed to restore previous Mihomo kernel after runtime restore failure"
 					return 1
 				}
-				restore_runtime_state || return 1
+				if ! restore_runtime_state; then
+					end_install_transaction
+					return 1
+				fi
 			else
+				end_install_transaction
 				return 1
 			fi
 		fi
 		clear_kernel_backup
 		release_reinstall_dependencies
+		end_install_transaction
 		return 0
 	fi
 
 	clear_kernel_backup
-	start_fresh_install_service || return 1
+	if ! start_fresh_install_service; then
+		end_install_transaction
+		return 1
+	fi
+	end_install_transaction
 	return 0
 }
 
@@ -2052,5 +2220,8 @@ main() {
 			;;
 	esac
 }
+
+trap cleanup EXIT
+trap 'handle_signal' INT TERM HUP
 
 main "$@"

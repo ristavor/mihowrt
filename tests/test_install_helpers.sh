@@ -70,6 +70,35 @@ have_command() {
 assert_false "download_file should fail without any fetcher" download_file "https://example.com/fail" "$tmpdir/out.bin"
 assert_file_contains "$fetch_error_log" "need wget or curl" "download_file should report missing fetcher tools"
 
+network_log="$tmpdir/network.log"
+FETCH_RETRIES=7
+FETCH_CONNECT_TIMEOUT=11
+FETCH_MAX_TIME=22
+have_command() {
+	[[ "$1" == "wget" ]]
+}
+wget() {
+	printf 'wget:%s\n' "$*" >>"$network_log"
+	case "$*" in
+		*' -O - '*)
+			printf 'payload'
+			;;
+		*)
+			printf 'payload' > "${@: -2:1}"
+			;;
+	esac
+}
+: > "$network_log"
+assert_eq "payload" "$(fetch_url "https://example.com/ok")" "fetch_url should return wget output"
+assert_file_contains "$network_log" "-T 11" "fetch_url should bound wget network timeout"
+assert_file_contains "$network_log" "-t 7" "fetch_url should set wget retries"
+
+: > "$network_log"
+download_file "https://example.com/file" "$tmpdir/out.bin"
+assert_file_contains "$tmpdir/out.bin" "payload" "download_file should move successful temporary download into target"
+assert_file_contains "$network_log" "-T 11" "download_file should bound wget network timeout"
+assert_file_contains "$network_log" "-t 7" "download_file should set wget retries"
+
 package_present() {
 	[[ "$1" == "nftables-json" ]]
 }

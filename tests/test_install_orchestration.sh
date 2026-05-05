@@ -421,6 +421,36 @@ assert_file_contains "$event_log" "err:failed to restore runtime state during ro
 assert_file_not_contains "$event_log" "release_reinstall_dependencies" "rollback_reinstall_state should not clear dependency hold on runtime rollback failure"
 assert_file_not_contains "$event_log" "clear_kernel_backup" "rollback_reinstall_state should not drop kernel rollback state on runtime rollback failure"
 
+restore_runtime_state() {
+	printf 'restore_runtime_state\n' >>"$event_log"
+	return 0
+}
+
+: > "$event_log"
+begin_install_transaction 1
+rollback_active_transaction
+assert_file_contains "$event_log" "restore_runtime_state" "rollback_active_transaction should use runtime rollback before package mutation"
+assert_file_not_contains "$event_log" "err:installer interrupted" "rollback_active_transaction should not use incomplete-install handler before package mutation"
+assert_eq "0" "$INSTALL_TRANSACTION_ACTIVE" "rollback_active_transaction should clear active flag after rollback"
+
+: > "$event_log"
+: > "$init_log"
+begin_install_transaction 1
+INSTALL_TRANSACTION_PACKAGE_STARTED=1
+rollback_active_transaction
+assert_file_contains "$event_log" "err:installer interrupted" "rollback_active_transaction should use incomplete-install handler after package mutation starts"
+assert_file_contains "$event_log" "restore_user_state" "rollback_active_transaction should restore saved user state after interrupted reinstall mutation"
+assert_eq "0" "$INSTALL_TRANSACTION_ACTIVE" "rollback_active_transaction should clear active flag after incomplete reinstall cleanup"
+
+: > "$event_log"
+: > "$init_log"
+begin_install_transaction 0
+INSTALL_TRANSACTION_PACKAGE_STARTED=1
+rollback_active_transaction
+assert_file_contains "$event_log" "err:installer interrupted" "rollback_active_transaction should clean interrupted fresh install"
+assert_file_not_contains "$event_log" "restore_user_state" "rollback_active_transaction should not restore reinstall-only user state for fresh install"
+assert_eq "0" "$INSTALL_TRANSACTION_ACTIVE" "rollback_active_transaction should clear active flag after interrupted fresh install cleanup"
+
 : > "$event_log"
 : > "$init_log"
 release_reinstall_dependencies() {
@@ -507,6 +537,29 @@ assert_file_contains "$event_log" "restore_kernel_backup" "handle_install_failur
 assert_file_contains "$event_log" "preserve_kernel_backup_dir" "handle_install_failure should preserve tmpfs kernel backup when restore fails"
 assert_file_contains "$event_log" "warn:failed to restore previous Mihomo kernel after install failure" "handle_install_failure should warn when previous kernel restore fails"
 
+rollback_kernel_update() {
+	printf 'rollback_kernel_update\n' >>"$event_log"
+	return 0
+}
+
+: > "$event_log"
+: > "$init_log"
+assert_false "handle_install_failure should roll back fresh kernel update" handle_install_failure 0 "fresh package broke"
+assert_file_contains "$event_log" "rollback_kernel_update" "handle_install_failure should roll back kernel for failed fresh install"
+assert_file_not_contains "$event_log" "restore_user_state" "handle_install_failure should not restore reinstall state for failed fresh install"
+
+rollback_kernel_update() {
+	printf 'rollback_kernel_update\n' >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+: > "$init_log"
+assert_false "handle_install_failure should preserve backup when fresh kernel rollback fails" handle_install_failure 0 "fresh kernel rollback broke"
+assert_file_contains "$event_log" "rollback_kernel_update" "handle_install_failure should try fresh kernel rollback"
+assert_file_contains "$event_log" "preserve_kernel_backup_dir" "handle_install_failure should preserve tmpfs kernel backup when fresh rollback fails"
+assert_file_contains "$event_log" "warn:failed to roll back Mihomo kernel after install failure" "handle_install_failure should warn when fresh kernel rollback fails"
+
 : > "$event_log"
 : > "$init_log"
 TEST_INIT_START_RC=0
@@ -553,8 +606,13 @@ prepare_update() {
 	return 0
 }
 
-kernel_install_or_update() {
-	printf 'kernel_install_or_update\n' >>"$event_log"
+kernel_stage_update() {
+	printf 'kernel_stage_update\n' >>"$event_log"
+	return 0
+}
+
+kernel_apply_staged_update() {
+	printf 'kernel_apply_staged_update\n' >>"$event_log"
 	return 0
 }
 
@@ -617,7 +675,8 @@ start_fresh_install_service() {
 TEST_PACKAGE_INSTALLED_RC=0
 perform_package_action
 assert_file_contains "$event_log" "prepare_update" "perform_package_action should prepare reinstall state"
-assert_file_contains "$event_log" "kernel_install_or_update" "perform_package_action should update kernel first"
+assert_file_contains "$event_log" "kernel_stage_update" "perform_package_action should prepare kernel before reinstall state changes"
+assert_file_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should install prepared kernel inside transaction"
 assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before package install"
 assert_file_contains "$event_log" "create_tmp_apk" "perform_package_action should allocate temporary APK path"
 assert_file_contains "$event_log" "download_file:https://example.com/luci-app-mihowrt.apk:$tmpdir/downloaded.apk" "perform_package_action should download latest package asset"
@@ -653,9 +712,11 @@ prepare_update() {
 : > "$event_log"
 assert_false "perform_package_action should fail when prepare_update fails" perform_package_action
 assert_file_contains "$event_log" "prepare_update" "perform_package_action should attempt prepare_update on reinstall"
+assert_file_contains "$event_log" "kernel_stage_update" "perform_package_action should prepare kernel before prepare_update"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after prepare_update failure"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after prepare_update failure"
-assert_file_not_contains "$event_log" "kernel_install_or_update" "perform_package_action should not continue after prepare_update failure"
+assert_file_not_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should not mutate kernel after prepare_update failure"
+assert_eq "0" "$INSTALL_TRANSACTION_ACTIVE" "perform_package_action should clear transaction after prepare_update failure"
 
 prepare_update() {
 	printf 'prepare_update\n' >>"$event_log"
@@ -668,10 +729,10 @@ set_skip_start() {
 	return 1
 }
 assert_false "perform_package_action should fail when skip-start marker setup fails" perform_package_action
+assert_file_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should apply prepared kernel before skip-start marker"
 assert_file_contains "$event_log" "set_skip_start" "perform_package_action should try setting skip-start marker"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after skip-start failure"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after skip-start failure"
-assert_file_not_contains "$event_log" "create_tmp_apk" "perform_package_action should stop before tmp apk allocation on skip-start failure"
 
 set_skip_start() {
 	printf 'set_skip_start\n' >>"$event_log"
@@ -684,11 +745,9 @@ create_tmp_apk() {
 
 : > "$event_log"
 assert_false "perform_package_action should fail when tmp apk allocation fails" perform_package_action
-assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before tmp apk allocation"
 assert_file_contains "$event_log" "create_tmp_apk" "perform_package_action should try allocating temporary apk path"
-assert_file_contains "$event_log" "clear_skip_start" "perform_package_action should clear skip-start after tmp apk allocation failure"
-assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after tmp apk allocation failure"
-assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after tmp apk allocation failure"
+assert_file_not_contains "$event_log" "kernel_stage_update" "perform_package_action should not prepare kernel before tmp apk allocation succeeds"
+assert_file_not_contains "$event_log" "prepare_update" "perform_package_action should not touch runtime before tmp apk allocation succeeds"
 assert_file_not_contains "$event_log" "download_file:https://example.com/luci-app-mihowrt.apk:$tmpdir/downloaded.apk" "perform_package_action should stop before download after tmp apk allocation failure"
 
 create_tmp_apk() {
@@ -703,12 +762,11 @@ download_file() {
 
 : > "$event_log"
 assert_false "perform_package_action should fail when package download fails during reinstall" perform_package_action
-assert_file_contains "$event_log" "prepare_update" "perform_package_action should still prepare reinstall state before download failure"
-assert_file_contains "$event_log" "kernel_install_or_update" "perform_package_action should still update kernel before package download failure"
-assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before package download"
-assert_file_contains "$event_log" "clear_skip_start" "perform_package_action should clear skip-start when package download fails"
-assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after package download failure"
-assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after package download failure"
+assert_file_contains "$event_log" "create_tmp_apk" "perform_package_action should allocate temporary APK path before download"
+assert_file_contains "$event_log" "download_file:https://example.com/luci-app-mihowrt.apk:$tmpdir/downloaded.apk" "perform_package_action should try downloading package before transaction"
+assert_file_not_contains "$event_log" "kernel_stage_update" "perform_package_action should not prepare kernel after package download failure"
+assert_file_not_contains "$event_log" "prepare_update" "perform_package_action should not touch runtime after package download failure"
+assert_file_not_contains "$event_log" "set_skip_start" "perform_package_action should not enter transaction after package download failure"
 assert_file_not_contains "$event_log" "install_package:1:$tmpdir/downloaded.apk" "perform_package_action should not try package install after package download failure"
 
 download_file() {

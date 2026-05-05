@@ -11,21 +11,25 @@ cli_log="$tmpdir/cli.log"
 msg_log="$tmpdir/msg.log"
 procd_log="$tmpdir/procd.log"
 orch_log="$tmpdir/orch.log"
+clash_log="$tmpdir/clash.log"
 
 source_mihowrt_cli_lib
 
 CLASH_DIR="$tmpdir/clash"
 CLASH_BIN="$tmpdir/clash-bin"
+CLASH_CONFIG="$tmpdir/config.yaml"
 PKG_STATE_DIR="$tmpdir/run"
 SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
 mkdir -p "$CLASH_DIR"
 
 cat > "$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TEST_CLASH_LOG"
 sleep "${TEST_CLASH_SLEEP:-0}"
 exit "${TEST_CLASH_RC:-0}"
 EOF
 chmod +x "$CLASH_BIN"
+export TEST_CLASH_LOG="$clash_log"
 
 log() {
 	printf 'log:%s\n' "$*" >>"$cli_log"
@@ -116,6 +120,7 @@ runtime_snapshot_status_json() {
 eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh")"
 
 : > "$cli_log"
+: > "$clash_log"
 TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
@@ -125,6 +130,7 @@ assert_file_contains "$cli_log" "load_runtime_config" "run_service should load r
 assert_file_contains "$cli_log" "validate_runtime_config" "run_service should validate runtime config"
 assert_file_contains "$cli_log" "init_runtime_layout" "run_service should initialize runtime layout"
 assert_file_contains "$cli_log" "wait_for_mihomo_ready:7874:7894:" "run_service should wait for Mihomo ports"
+assert_file_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG" "run_service should start Mihomo with explicit config path"
 assert_file_contains "$cli_log" "apply_runtime_state" "run_service should apply runtime state after Mihomo is ready"
 assert_file_contains "$cli_log" "log:MihoWRT service ready" "run_service should log service readiness only after Mihomo and policy state are ready"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean up runtime state on exit"

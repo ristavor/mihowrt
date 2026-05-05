@@ -88,4 +88,14 @@ CATCH_FAKEIP="1"
 FAKEIP_RANGE="bad-range"
 assert_false "validate_runtime_config should reject invalid fake-ip ranges" validate_runtime_config
 
+FAKEIP_RANGE="198.18.0.0/15"
+MIHOMO_ROUTING_MARK="0"
+assert_false "validate_runtime_config should reject zero routing mark" validate_runtime_config
+
+MIHOMO_ROUTING_MARK="4096"
+assert_false "validate_runtime_config should reject intercept mark conflict" validate_runtime_config
+
+MIHOMO_ROUTING_MARK="4294967296"
+assert_false "validate_runtime_config should reject routing mark outside uint32" validate_runtime_config
+
 pass "policy validation helpers"

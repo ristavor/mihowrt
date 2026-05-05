@@ -29,6 +29,7 @@ check_required_file /usr/lib/mihowrt/runtime.sh
 
 run_service() {
 	local pid dns_port cleanup_done=0 stop_requested=0 rc=1 cleanup_rc=0
+	local clash_config="${CLASH_CONFIG:-$CLASH_DIR/config.yaml}"
 
 	log "MihoWRT runtime bootstrap starting"
 	load_runtime_config || return 1
@@ -58,7 +59,7 @@ run_service() {
 
 	trap 'request_service_stop' INT TERM HUP
 
-	"$CLASH_BIN" -d "$CLASH_DIR" &
+	"$CLASH_BIN" -d "$CLASH_DIR" -f "$clash_config" &
 	pid=$!
 	echo "$pid" > "$SERVICE_PID_FILE"
 	log "Mihomo process spawned"

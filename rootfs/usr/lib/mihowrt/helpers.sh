@@ -44,6 +44,36 @@ is_uint() {
 	return 0
 }
 
+normalize_uint() {
+	local value="$1"
+
+	while [ "${value#0}" != "$value" ]; do
+		value="${value#0}"
+	done
+	[ -n "$value" ] || value=0
+	printf '%s' "$value"
+}
+
+is_valid_uint32_mark() {
+	local value=""
+
+	is_uint "$1" || return 1
+	value="$(normalize_uint "$1")"
+	[ "$value" != "0" ] || return 1
+
+	case "${#value}" in
+		1|2|3|4|5|6|7|8|9)
+			return 0
+			;;
+		10)
+			[ "$value" = "4294967295" ] || [ "$value" \< "4294967295" ]
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 is_valid_port() {
 	local value="$1"
 	if ! is_uint "$value"; then
@@ -537,7 +567,7 @@ EOF
 
 	if [ -z "$routing_mark" ]; then
 		append_error "Missing routing-mark in $CLASH_CONFIG"
-	elif ! is_uint "$routing_mark"; then
+	elif ! is_valid_uint32_mark "$routing_mark"; then
 		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
 	fi
 

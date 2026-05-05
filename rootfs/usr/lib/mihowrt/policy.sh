@@ -382,7 +382,7 @@ load_runtime_config() {
 }
 
 validate_runtime_config() {
-	local iface
+	local iface routing_mark="" intercept_mark=""
 
 	[ -x "$CLASH_BIN" ] || {
 		err "Mihomo binary missing at $CLASH_BIN"
@@ -404,10 +404,16 @@ validate_runtime_config() {
 		return 1
 	}
 
-	is_uint "$MIHOMO_ROUTING_MARK" || {
+	is_valid_uint32_mark "$MIHOMO_ROUTING_MARK" || {
 		err "Invalid Mihomo routing mark: $MIHOMO_ROUTING_MARK"
 		return 1
 	}
+	routing_mark="$(normalize_uint "$MIHOMO_ROUTING_MARK")"
+	intercept_mark="$(normalize_uint "$(( ${NFT_INTERCEPT_MARK:-0x00001000} ))")"
+	if [ "$routing_mark" = "$intercept_mark" ]; then
+		err "Mihomo routing mark conflicts with MihoWRT intercept mark: $MIHOMO_ROUTING_MARK"
+		return 1
+	fi
 
 	if [ -n "$MIHOMO_ROUTE_TABLE_ID" ]; then
 		is_valid_route_table_id "$MIHOMO_ROUTE_TABLE_ID" || {

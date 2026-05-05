@@ -101,6 +101,7 @@ assert_eq "0" "$(printf '%s\n' "$quoted_json" | jq -r '.errors | length')" "read
 
 cat > "$CLASH_CONFIG" <<'EOF'
 tproxy-port: bad
+routing-mark: 4294967296
 
 dns:
   listen: not-an-addr
@@ -112,7 +113,7 @@ invalid_json="$(read_config_json)"
 assert_eq "4" "$(printf '%s\n' "$invalid_json" | jq -r '.errors | length')" "read_config_json should emit expected error count"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Invalid dns.listen"))')" "read_config_json should report invalid dns.listen"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Invalid tproxy-port"))')" "read_config_json should report invalid tproxy-port"
-assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Missing routing-mark"))')" "read_config_json should report missing routing mark"
+assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Invalid routing-mark"))')" "read_config_json should report invalid routing mark"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Missing dns.fake-ip-range"))')" "read_config_json should report missing fake-ip range"
 
 cat > "$CLASH_CONFIG" <<'EOF'

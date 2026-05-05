@@ -90,17 +90,20 @@ ip() {
 				return "${TEST_ROUTE_SHOW_RC}"
 			fi
 			if [[ "${3:-}" == "table" && "${TEST_ROUTE_PRESENT:-0}" = "1" ]]; then
-				printf 'local 0.0.0.0/0 dev lo scope host\n'
+				printf 'local default dev lo scope host\n'
 			fi
 			return 0
 			;;
-		route:flush)
-			if [[ "${TEST_ROUTE_FLUSH_RC:-0}" != "0" ]]; then
-				return "${TEST_ROUTE_FLUSH_RC}"
+		route:del)
+			if [[ "${TEST_ROUTE_DEL_RC:-0}" != "0" ]]; then
+				return "${TEST_ROUTE_DEL_RC}"
 			fi
-			TEST_ROUTE_PRESENT=0
-			export TEST_ROUTE_PRESENT
-			return 0
+			if [[ "${TEST_ROUTE_PRESENT:-0}" = "1" ]]; then
+				TEST_ROUTE_PRESENT=0
+				export TEST_ROUTE_PRESENT
+				return 0
+			fi
+			return 2
 			;;
 	esac
 	return 0
@@ -150,14 +153,15 @@ TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
 TEST_ROUTE_SHOW_RC=0
-TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_DEL_RC=0
 TEST_ROUTE_TABLE_ID=201
 TEST_ROUTE_RULE_PRIORITY=10001
 : > "$NET_LOG"
 cleanup_runtime_fallback
 assert_file_contains "$NET_LOG" "nft delete table inet $NFT_TABLE_NAME" "cleanup_runtime_fallback should drop nft table"
 assert_file_contains "$NET_LOG" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 201 priority 10001" "cleanup_runtime_fallback should delete policy route rule"
-assert_file_contains "$NET_LOG" "ip route flush table 201" "cleanup_runtime_fallback should flush policy route table"
+assert_file_contains "$NET_LOG" "ip route del local 0.0.0.0/0 dev lo table 201" "cleanup_runtime_fallback should delete only managed policy route"
+assert_file_not_contains "$NET_LOG" "ip route flush table 201" "cleanup_runtime_fallback should not flush policy route table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
@@ -173,7 +177,7 @@ TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=0
 TEST_ROUTE_SHOW_RC=0
-TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_DEL_RC=0
 : > "$NET_LOG"
 assert_true "cleanup_runtime_fallback should treat already-absent live state as clean" cleanup_runtime_fallback
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should remove route state file when live state is already absent"
@@ -198,7 +202,7 @@ TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=0
 TEST_ROUTE_SHOW_RC=0
-TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_DEL_RC=0
 TEST_ROUTE_TABLE_ID=201
 TEST_ROUTE_RULE_PRIORITY=10001
 assert_false "cleanup_runtime_fallback should fail when nft probe command breaks" cleanup_runtime_fallback
@@ -216,12 +220,12 @@ TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
 TEST_ROUTE_SHOW_RC=0
-TEST_ROUTE_FLUSH_RC=1
+TEST_ROUTE_DEL_RC=1
 TEST_ROUTE_TABLE_ID=201
 TEST_ROUTE_RULE_PRIORITY=10001
 : > "$NET_LOG"
-assert_false "cleanup_runtime_fallback should fail when route flush leaves table entries behind" cleanup_runtime_fallback
-[[ -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should preserve route state file after route flush failure"
+assert_false "cleanup_runtime_fallback should fail when managed route delete fails" cleanup_runtime_fallback
+[[ -e "$ROUTE_STATE_FILE" ]] || fail "cleanup_runtime_fallback should preserve route state file after managed route delete failure"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=201
@@ -236,7 +240,7 @@ TEST_RULE_SHOW_RC=2
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
 TEST_ROUTE_SHOW_RC=0
-TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_DEL_RC=0
 TEST_ROUTE_TABLE_ID=201
 TEST_ROUTE_RULE_PRIORITY=10001
 : > "$NET_LOG"
@@ -256,7 +260,7 @@ TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
 TEST_ROUTE_PRESENT=1
 TEST_ROUTE_SHOW_RC=2
-TEST_ROUTE_FLUSH_RC=0
+TEST_ROUTE_DEL_RC=0
 TEST_ROUTE_TABLE_ID=201
 TEST_ROUTE_RULE_PRIORITY=10001
 : > "$NET_LOG"

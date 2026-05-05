@@ -1231,14 +1231,74 @@ route_rule_exists_fallback() {
 	'
 }
 
-route_table_has_entries_fallback() {
+route_managed_route_exists_fallback() {
 	local route_table_id="$1"
 	local route_output=""
 
 	[ -n "$route_table_id" ] || return 1
 	have_command ip || return 2
-	route_output="$(ip route show table "$route_table_id" 2>/dev/null)" || return 2
-	printf '%s\n' "$route_output" | grep -q .
+	route_output="$(route_show_table_fallback "$route_table_id")" || return 2
+	printf '%s\n' "$route_output" | awk '
+		$1 == "local" && ($2 == "0.0.0.0/0" || $2 == "default") {
+			for (i = 3; i <= NF; i++) {
+				if ($i == "dev" && (i + 1) <= NF && $(i + 1) == "lo") {
+					found=1
+				}
+			}
+		}
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+route_show_table_fallback() {
+	local route_table_id="$1"
+	local route_output="" route_rc=0
+
+	if route_output="$(ip route show table "$route_table_id" 2>&1)"; then
+		printf '%s\n' "$route_output"
+		return 0
+	else
+		route_rc=$?
+	fi
+
+	case "$route_output" in
+		*"FIB table does not exist"*|*"No such file"*|*"does not exist"*)
+			return 0
+			;;
+	esac
+	return "$route_rc"
+}
+
+route_delete_managed_route_fallback() {
+	local route_table_id="$1"
+	local route_state=1
+
+	[ -n "$route_table_id" ] || return 0
+
+	if route_managed_route_exists_fallback "$route_table_id"; then
+		route_state=0
+	else
+		route_state=$?
+	fi
+	case "$route_state" in
+		0)
+			:
+			;;
+		1)
+			return 0
+			;;
+		*)
+			return 1
+			;;
+	esac
+
+	while ip route del local 0.0.0.0/0 dev lo table "$route_table_id" 2>/dev/null; do :; done
+	if route_managed_route_exists_fallback "$route_table_id"; then
+		route_state=0
+	else
+		route_state=$?
+	fi
+	[ "$route_state" -eq 1 ]
 }
 
 route_delete_rule_fallback() {
@@ -1249,8 +1309,11 @@ route_delete_rule_fallback() {
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 
-	route_rule_exists_fallback "$route_table_id" "$route_rule_priority"
-	rule_state=$?
+	if route_rule_exists_fallback "$route_table_id" "$route_rule_priority"; then
+		rule_state=0
+	else
+		rule_state=$?
+	fi
 	case "$rule_state" in
 		0)
 			:
@@ -1264,29 +1327,33 @@ route_delete_rule_fallback() {
 	esac
 
 	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-	route_rule_exists_fallback "$route_table_id" "$route_rule_priority"
-	rule_state=$?
+	if route_rule_exists_fallback "$route_table_id" "$route_rule_priority"; then
+		rule_state=0
+	else
+		rule_state=$?
+	fi
 	[ "$rule_state" -eq 1 ]
 }
 
 route_teardown_ids_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
-	local table_state=1
+	local route_state=1
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 	have_command ip || return 1
 
 	route_delete_rule_fallback "$route_table_id" "$route_rule_priority" || return 1
-	route_table_has_entries_fallback "$route_table_id"
-	table_state=$?
-	case "$table_state" in
+	route_delete_managed_route_fallback "$route_table_id" || return 1
+	if route_managed_route_exists_fallback "$route_table_id"; then
+		route_state=0
+	else
+		route_state=$?
+	fi
+	case "$route_state" in
 		0)
-			ip route flush table "$route_table_id" 2>/dev/null || return 1
-			route_table_has_entries_fallback "$route_table_id"
-			table_state=$?
-			[ "$table_state" -eq 1 ] || return 1
+			return 1
 			;;
 		1)
 			:

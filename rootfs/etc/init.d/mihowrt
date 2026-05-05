@@ -33,7 +33,7 @@ validate_service_inputs() {
 		return 1
 	}
 
-	if ! "$CLASH_BIN" -d "$CLASH_DIR" -t; then
+	if ! "$CLASH_BIN" -d "$CLASH_DIR" -f "$CLASH_CONFIG" -t; then
 		msg "ERROR: Mihomo configuration test failed"
 		return 1
 	fi

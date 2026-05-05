@@ -270,9 +270,23 @@ nft_remove_policy() {
 }
 
 policy_route_state_read() {
+	local line=""
+
 	[ -f "$ROUTE_STATE_FILE" ] || return 1
-	ROUTE_TABLE_ID_EFFECTIVE="$(sed -n 's/^ROUTE_TABLE_ID=//p' "$ROUTE_STATE_FILE" 2>/dev/null | head -n1)"
-	ROUTE_RULE_PRIORITY_EFFECTIVE="$(sed -n 's/^ROUTE_RULE_PRIORITY=//p' "$ROUTE_STATE_FILE" 2>/dev/null | head -n1)"
+
+	ROUTE_TABLE_ID_EFFECTIVE=""
+	ROUTE_RULE_PRIORITY_EFFECTIVE=""
+	while IFS= read -r line; do
+		case "$line" in
+			ROUTE_TABLE_ID=*)
+				[ -z "$ROUTE_TABLE_ID_EFFECTIVE" ] && ROUTE_TABLE_ID_EFFECTIVE="${line#ROUTE_TABLE_ID=}"
+				;;
+			ROUTE_RULE_PRIORITY=*)
+				[ -z "$ROUTE_RULE_PRIORITY_EFFECTIVE" ] && ROUTE_RULE_PRIORITY_EFFECTIVE="${line#ROUTE_RULE_PRIORITY=}"
+				;;
+		esac
+	done < "$ROUTE_STATE_FILE"
+
 	is_valid_route_table_id "$ROUTE_TABLE_ID_EFFECTIVE" || return 1
 	is_valid_route_rule_priority "$ROUTE_RULE_PRIORITY_EFFECTIVE" || return 1
 	return 0
@@ -300,6 +314,11 @@ policy_route_resolve_table_id() {
 		return 0
 	fi
 
+	if policy_route_state_read; then
+		printf '%s\n' "$ROUTE_TABLE_ID_EFFECTIVE"
+		return 0
+	fi
+
 	route_table_id="$ROUTE_TABLE_ID_AUTO_MIN"
 	while [ "$route_table_id" -le "$ROUTE_TABLE_ID_AUTO_MAX" ]; do
 		if ! policy_route_table_id_in_use "$route_table_id"; then
@@ -318,6 +337,11 @@ policy_route_resolve_priority() {
 
 	if [ -n "$MIHOMO_ROUTE_RULE_PRIORITY" ]; then
 		printf '%s\n' "$MIHOMO_ROUTE_RULE_PRIORITY"
+		return 0
+	fi
+
+	if policy_route_state_read; then
+		printf '%s\n' "$ROUTE_RULE_PRIORITY_EFFECTIVE"
 		return 0
 	fi
 
@@ -423,7 +447,7 @@ policy_route_setup() {
 	route_table_id="$(policy_route_resolve_table_id)" || return 1
 	route_rule_priority="$(policy_route_resolve_priority)" || return 1
 
-	policy_route_delete_rule "$route_table_id" "$route_rule_priority"
+	policy_route_delete_rule "$route_table_id" "$route_rule_priority" || return 1
 	ip route replace local 0.0.0.0/0 dev lo table "$route_table_id" 2>/dev/null || return 1
 	ip rule add fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null || {
 		policy_route_teardown_ids "$route_table_id" "$route_rule_priority"

@@ -41,7 +41,7 @@ validate_service_inputs() {
 	if ! "$ORCHESTRATOR" validate; then
 		msg "ERROR: Policy validation failed"
 		return 1
-		fi
+	fi
 }
 
 start_service() {

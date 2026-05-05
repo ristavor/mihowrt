@@ -12,21 +12,29 @@ append_source_interface() {
 }
 
 is_valid_iface_name() {
-	printf '%s' "$1" | grep -qE '^[A-Za-z0-9_.:@-]+$'
+	case "$1" in
+		''|*[!A-Za-z0-9_.:@-]*)
+			return 1
+			;;
+	esac
+
+	return 0
 }
 
 detect_lan_interface() {
 	local iface=""
 
 	iface="$(uci -q get network.lan.device 2>/dev/null)"
-	iface="$(printf '%s\n' "$iface" | awk 'NR == 1 { print $1 }')"
+	iface="$(trim "$iface")"
+	iface="${iface%%[[:space:]]*}"
 	if is_valid_iface_name "$iface"; then
 		printf '%s' "$iface"
 		return 0
 	fi
 
 	iface="$(uci -q get network.lan.ifname 2>/dev/null)"
-	iface="$(printf '%s\n' "$iface" | awk 'NR == 1 { print $1 }')"
+	iface="$(trim "$iface")"
+	iface="${iface%%[[:space:]]*}"
 	if is_valid_iface_name "$iface"; then
 		printf '%s' "$iface"
 		return 0
@@ -598,16 +606,17 @@ reload_runtime_state() {
 service_ready_runtime_state() {
 	local dns_port="" active_json="" snapshot_enabled="" snapshot_dns_listen=""
 	local tproxy_port=""
+	local snapshot_vars=""
 
 	service_running_state || return 1
 
 	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
 	if [ -n "$active_json" ]; then
-		dns_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_port // ""' 2>/dev/null || true)"
-		tproxy_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_tproxy_port // ""' 2>/dev/null || true)"
-		snapshot_enabled="$(printf '%s\n' "$active_json" | jq -r '.enabled // false' 2>/dev/null || true)"
+		snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
+			@sh "dns_port=\(.mihomo_dns_port // "") tproxy_port=\(.mihomo_tproxy_port // "") snapshot_enabled=\(.enabled // false) snapshot_dns_listen=\(.mihomo_dns_listen // "")"
+		' 2>/dev/null)" || return 1
+		eval "$snapshot_vars" || return 1
 		if [ -z "$dns_port" ]; then
-			snapshot_dns_listen="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_listen // ""' 2>/dev/null || true)"
 			[ -n "$snapshot_dns_listen" ] && dns_port="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
 		fi
 		mihomo_ready_state "$dns_port" "$tproxy_port" || return 1
@@ -671,7 +680,7 @@ status_default_active_json() {
 		fakeip_range: "",
 		source_network_interfaces: [],
 		always_proxy_dst_count: 0,
-	always_proxy_src_count: 0
+		always_proxy_src_count: 0
 	}'
 }
 
@@ -748,6 +757,7 @@ load_status_runtime_state_json() {
 	local runtime_snapshot_present=0 runtime_snapshot_valid=0 runtime_live_present=0 active_json="" runtime_errors_raw=""
 	local dns_port="" tproxy_port="" readiness_dns_port="" readiness_tproxy_port=""
 	local desired_enabled="false" desired_settings_loaded="false" active_enabled="false"
+	local status_vars=""
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
@@ -756,11 +766,6 @@ load_status_runtime_state_json() {
 	dns_backup_exists && dns_recovery_backup_active_flag=1 || dns_recovery_backup_active_flag=0
 	dns_backup_valid && dns_recovery_backup_valid_flag=1 || dns_recovery_backup_valid_flag=0
 	runtime_live_state_present && runtime_live_present=1 || runtime_live_present=0
-
-	if [ -n "$config_json" ]; then
-		dns_port="$(printf '%s\n' "$config_json" | jq -r '.dns_port // ""' 2>/dev/null || true)"
-		tproxy_port="$(printf '%s\n' "$config_json" | jq -r '.tproxy_port // ""' 2>/dev/null || true)"
-	fi
 
 	if policy_route_state_read; then
 		route_state_present=1
@@ -780,16 +785,15 @@ load_status_runtime_state_json() {
 		active_json="$(status_default_active_json)"
 	fi
 
-	if [ -n "$desired_json" ]; then
-		desired_enabled="$(printf '%s\n' "$desired_json" | jq -r '.enabled // false' 2>/dev/null || true)"
-		desired_settings_loaded="$(printf '%s\n' "$desired_json" | jq -r '.settings_loaded // false' 2>/dev/null || true)"
-	fi
-	active_enabled="$(printf '%s\n' "$active_json" | jq -r '.enabled // false' 2>/dev/null || true)"
+	status_vars="$(jq -nr \
+		--argjson config "$config_json" \
+		--argjson desired "$desired_json" \
+		--argjson active "$active_json" \
+		'@sh "dns_port=\($config.dns_port // "") tproxy_port=\($config.tproxy_port // "") desired_enabled=\($desired.enabled // false) desired_settings_loaded=\($desired.settings_loaded // false) active_enabled=\($active.enabled // false) readiness_dns_port=\($active.mihomo_dns_port // "") readiness_tproxy_port=\($active.mihomo_tproxy_port // "")"'
+	)" || return 1
+	eval "$status_vars" || return 1
 
 	if [ "$service_running" = "1" ]; then
-		readiness_dns_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_dns_port // ""' 2>/dev/null || true)"
-		readiness_tproxy_port="$(printf '%s\n' "$active_json" | jq -r '.mihomo_tproxy_port // ""' 2>/dev/null || true)"
-
 		[ -n "$readiness_dns_port" ] || readiness_dns_port="$dns_port"
 		[ -n "$readiness_tproxy_port" ] || readiness_tproxy_port="$tproxy_port"
 
@@ -943,7 +947,7 @@ status_runtime_state() {
 	require_command jq || return 1
 	status_json_output="$(status_json)" || return 1
 
-		printf '%s\n' "$status_json_output" | jq -r '
+	printf '%s\n' "$status_json_output" | jq -r '
 			"enabled=\(if .enabled then 1 else 0 end)",
 			"service_ready=\(if .service_ready then 1 else 0 end)",
 			"mihomo_dns_port=\(.config.dns_port // "")",

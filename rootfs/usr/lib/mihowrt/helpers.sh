@@ -35,7 +35,13 @@ remove_path_if_exists() {
 }
 
 is_uint() {
-	printf '%s' "$1" | grep -qE '^[0-9]+$'
+	case "$1" in
+		''|*[!0-9]*)
+			return 1
+			;;
+	esac
+
+	return 0
 }
 
 is_valid_port() {
@@ -65,8 +71,49 @@ is_valid_route_rule_priority() {
 	[ "$value" -ge 1 ] && [ "$value" -le 32765 ]
 }
 
+is_ipv4_octet() {
+	local octet="$1"
+
+	is_uint "$octet" || return 1
+	case "$octet" in
+		?|??|???)
+			;;
+		*)
+			return 1
+			;;
+	esac
+	[ "$octet" -le 255 ]
+}
+
 is_ipv4() {
-	printf '%s' "$1" | grep -qE '^((25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
+	local value="$1"
+	local octet1="" octet2="" octet3="" octet4="" rest=""
+
+	case "$value" in
+		*.*.*.*)
+			;;
+		*)
+			return 1
+			;;
+	esac
+
+	octet1="${value%%.*}"
+	rest="${value#*.}"
+	octet2="${rest%%.*}"
+	rest="${rest#*.}"
+	octet3="${rest%%.*}"
+	octet4="${rest#*.}"
+
+	case "$octet4" in
+		*.*)
+			return 1
+			;;
+	esac
+
+	is_ipv4_octet "$octet1" &&
+		is_ipv4_octet "$octet2" &&
+		is_ipv4_octet "$octet3" &&
+		is_ipv4_octet "$octet4"
 }
 
 is_ipv4_cidr() {
@@ -77,8 +124,20 @@ is_ipv4_cidr() {
 		*/*)
 			ip="${value%/*}"
 			prefix="${value#*/}"
+			case "$ip:$prefix" in
+				*/*)
+					return 1
+					;;
+			esac
 			is_ipv4 "$ip" || return 1
-			printf '%s' "$prefix" | grep -qE '^([0-9]|[12][0-9]|3[0-2])$'
+			case "$prefix" in
+				[0-9]|[12][0-9]|3[0-2])
+					return 0
+					;;
+				*)
+					return 1
+					;;
+			esac
 			;;
 		*)
 			is_ipv4 "$value"
@@ -86,8 +145,43 @@ is_ipv4_cidr() {
 	esac
 }
 
+shell_name_chars_valid() {
+	case "$1" in
+		''|*[!A-Za-z0-9._:%@:-]*)
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
 is_dns_listen_host() {
-	printf '%s' "$1" | grep -qE '^(\[[A-Za-z0-9._:%@:-]+\]|[A-Za-z0-9._:%@:-]+)$'
+	local value="$1"
+	local inner=""
+
+	case "$value" in
+		\[*\])
+			inner="${value#\[}"
+			inner="${inner%\]}"
+			shell_name_chars_valid "$inner"
+			;;
+		''|*'['*|*']'*)
+			return 1
+			;;
+		*)
+			shell_name_chars_valid "$value"
+			;;
+	esac
+}
+
+string_has_space() {
+	case "$1" in
+		*[[:space:]]*)
+			return 0
+			;;
+	esac
+
+	return 1
 }
 
 is_dns_listen() {
@@ -293,7 +387,7 @@ yaml_cleanup_scalar() {
 			;;
 	esac
 
-	value="$(printf '%s\n' "$value" | sed 's/[[:space:]]#.*$//')"
+	value="${value%%[[:space:]]#*}"
 	value="$(trim "$value")"
 	printf '%s' "$value"
 }

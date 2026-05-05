@@ -17,15 +17,27 @@ dns_persist_backup_valid() {
 }
 
 dns_backup_text_has_controls() {
-	printf '%s' "$1" | grep -q '[[:cntrl:]]'
+	case "$1" in
+		*[[:cntrl:]]*)
+			return 0
+			;;
+	esac
+
+	return 1
 }
 
 dns_backup_server_atom_valid() {
-	printf '%s' "$1" | grep -qE '^(\[[A-Za-z0-9._:%@:-]+\]|[A-Za-z0-9._:%@:-]+)$'
+	is_dns_listen_host "$1"
 }
 
 dns_backup_server_selector_valid() {
-	printf '%s' "$1" | grep -qE '^[#A-Za-z0-9._*:/-]+$'
+	case "$1" in
+		''|*[!#A-Za-z0-9._*:/-]*)
+			return 1
+			;;
+	esac
+
+	return 0
 }
 
 dns_backup_server_target_valid() {
@@ -34,7 +46,7 @@ dns_backup_server_target_valid() {
 
 	[ -n "$value" ] || return 1
 	dns_backup_text_has_controls "$value" && return 1
-	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+	string_has_space "$value" && return 1
 
 	case "$value" in
 		*#*)
@@ -68,26 +80,25 @@ dns_backup_server_value_valid() {
 
 	[ -n "$value" ] || return 1
 	dns_backup_text_has_controls "$value" && return 1
-	printf '%s' "$value" | grep -q '[[:space:]]' && return 1
+	string_has_space "$value" && return 1
 
 	case "$value" in
 		/*)
 			rest="${value#/}"
 			case "$rest" in
 				*/*)
-					:
 					;;
-			*)
-				return 1
+				*)
+					return 1
+					;;
+			esac
+			prefix="${rest%/*}"
+			target="${rest##*/}"
+			dns_backup_server_selector_valid "$prefix" || return 1
+			[ -z "$target" ] && return 0
+			[ "$target" = "#" ] && return 0
+			dns_backup_server_target_valid "$target"
 				;;
-		esac
-		prefix="${rest%/*}"
-		target="${rest##*/}"
-		dns_backup_server_selector_valid "$prefix" || return 1
-		[ -z "$target" ] && return 0
-		[ "$target" = "#" ] && return 0
-		dns_backup_server_target_valid "$target"
-			;;
 		*)
 			dns_backup_server_target_valid "$value"
 			;;
@@ -136,13 +147,9 @@ dns_backup_parsed_state_valid() {
 dns_backup_parse_expected_state() {
 	local backup_path="$1"
 	local line server tab="" server_sep=""
+	local seen_backup=0 seen_cachesize=0 seen_noresolv=0 seen_resolvfile=0
 
 	[ -f "$backup_path" ] || return 1
-
-	grep -q '^DNSMASQ_BACKUP=1$' "$backup_path" 2>/dev/null || return 1
-	grep -q '^ORIG_CACHESIZE=' "$backup_path" 2>/dev/null || return 1
-	grep -q '^ORIG_NORESOLV=' "$backup_path" 2>/dev/null || return 1
-	grep -q '^ORIG_RESOLVFILE=' "$backup_path" 2>/dev/null || return 1
 
 	DNS_BACKUP_EXPECTED_CACHESIZE=''
 	DNS_BACKUP_EXPECTED_NORESOLV=''
@@ -156,33 +163,40 @@ dns_backup_parse_expected_state() {
 
 	while IFS= read -r line; do
 		case "$line" in
-			DNSMASQ_BACKUP=*)
-				:
+			DNSMASQ_BACKUP=1)
+				seen_backup=1
 				;;
 			MIHOMO_DNS_TARGET=*)
 				DNS_BACKUP_MIHOMO_TARGET="${line#MIHOMO_DNS_TARGET=}"
 				;;
 			ORIG_CACHESIZE=*)
+				seen_cachesize=1
 				DNS_BACKUP_EXPECTED_CACHESIZE="${line#ORIG_CACHESIZE=}"
 				;;
 			ORIG_NORESOLV=*)
+				seen_noresolv=1
 				DNS_BACKUP_EXPECTED_NORESOLV="${line#ORIG_NORESOLV=}"
 				;;
 			ORIG_RESOLVFILE=*)
+				seen_resolvfile=1
 				DNS_BACKUP_EXPECTED_RESOLVFILE="${line#ORIG_RESOLVFILE=}"
 				;;
-				ORIG_SERVER=*)
-					server="${line#ORIG_SERVER=}"
-					if [ -n "$server" ]; then
-						dns_backup_server_value_valid "$server" || return 1
-						DNS_BACKUP_EXPECTED_SERVERS="${DNS_BACKUP_EXPECTED_SERVERS}${server_sep}${server}"
-						server_sep="$tab"
-						DNS_BACKUP_EXPECTED_HAS_SERVERS=1
-					fi
+			ORIG_SERVER=*)
+				server="${line#ORIG_SERVER=}"
+				if [ -n "$server" ]; then
+					dns_backup_server_value_valid "$server" || return 1
+					DNS_BACKUP_EXPECTED_SERVERS="${DNS_BACKUP_EXPECTED_SERVERS}${server_sep}${server}"
+					server_sep="$tab"
+					DNS_BACKUP_EXPECTED_HAS_SERVERS=1
+				fi
 				;;
 		esac
 	done < "$backup_path"
 
+	[ "$seen_backup" -eq 1 ] || return 1
+	[ "$seen_cachesize" -eq 1 ] || return 1
+	[ "$seen_noresolv" -eq 1 ] || return 1
+	[ "$seen_resolvfile" -eq 1 ] || return 1
 	dns_backup_parsed_state_valid || return 1
 
 	DNS_BACKUP_EXPECTED_TARGET_NORESOLV="$DNS_BACKUP_EXPECTED_NORESOLV"
@@ -271,7 +285,7 @@ dns_current_state_looks_hijacked() {
 }
 
 dns_runtime_mihomo_target() {
-	local config_json="" config_errors="" mihomo_dns_listen="" snapshot_json=""
+	local config_json="" mihomo_dns_listen="" snapshot_json=""
 
 	if [ -n "${MIHOMO_DNS_LISTEN:-}" ]; then
 		normalize_dns_server_target "$MIHOMO_DNS_LISTEN"
@@ -292,10 +306,9 @@ dns_runtime_mihomo_target() {
 	config_json="$(read_config_json 2>/dev/null || true)"
 	[ -n "$config_json" ] || return 1
 
-	config_errors="$(printf '%s\n' "$config_json" | jq -r '.errors[]?' 2>/dev/null || true)"
-	[ -z "$config_errors" ] || return 1
-
-	mihomo_dns_listen="$(printf '%s\n' "$config_json" | jq -r '.mihomo_dns_listen // ""' 2>/dev/null || true)"
+	mihomo_dns_listen="$(printf '%s\n' "$config_json" | jq -r '
+		if ((.errors // []) | length) > 0 then empty else (.mihomo_dns_listen // "") end
+	' 2>/dev/null || true)"
 	[ -n "$mihomo_dns_listen" ] || return 1
 
 	normalize_dns_server_target "$mihomo_dns_listen"
@@ -403,11 +416,7 @@ dns_restore_fallback() {
 	warn "dnsmasq backup state unavailable, applying fallback recovery"
 
 	resolvfile="${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}"
-	if [ -f "$resolvfile" ]; then
-		:
-	else
-		resolvfile=''
-	fi
+	[ -f "$resolvfile" ] || resolvfile=''
 
 	if dnsmasq_state_matches "" "0" "$resolvfile" ""; then
 		dns_cleanup_backup_files

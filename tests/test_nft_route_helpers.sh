@@ -76,6 +76,8 @@ EOF
 assert_true "policy_route_state_read should parse valid route state" policy_route_state_read
 assert_eq "200" "$ROUTE_TABLE_ID_EFFECTIVE" "policy_route_state_read should load table id"
 assert_eq "10000" "$ROUTE_RULE_PRIORITY_EFFECTIVE" "policy_route_state_read should load rule priority"
+assert_eq "200" "$(policy_route_resolve_table_id)" "policy_route_resolve_table_id should reuse existing auto table id"
+assert_eq "10000" "$(policy_route_resolve_priority)" "policy_route_resolve_priority should reuse existing auto priority"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=999

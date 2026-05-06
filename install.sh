@@ -223,12 +223,28 @@ stop_service_instance() {
 	wait_for_service_stop || true
 }
 
+wget_download_to() {
+	local url="$1" output="$2" retries="$FETCH_RETRIES" attempt=1
+
+	case "$retries" in
+		''|*[!0-9]*|0) retries=1 ;;
+	esac
+
+	while [ "$attempt" -le "$retries" ]; do
+		rm -f "$output"
+		wget -q -T "$FETCH_CONNECT_TIMEOUT" -O "$output" "$url" && return 0
+		attempt=$((attempt + 1))
+	done
+
+	return 1
+}
+
 fetch_url() {
 	local have_fetcher=0 tmp_path="$FETCH_TMP"
 
 	rm -f "$tmp_path"
 	NET_TMP="$tmp_path"
-	if have_command wget && wget -q -T "$FETCH_CONNECT_TIMEOUT" -t "$FETCH_RETRIES" -O "$tmp_path" "$1"; then
+	if have_command wget && wget_download_to "$1" "$tmp_path"; then
 		cat "$tmp_path" || {
 			rm -f "$tmp_path"
 			NET_TMP=""
@@ -268,7 +284,7 @@ download_file() {
 
 	rm -f "$tmp_path"
 	NET_TMP="$tmp_path"
-	if have_command wget && wget -q -T "$FETCH_CONNECT_TIMEOUT" -t "$FETCH_RETRIES" -O "$tmp_path" "$1"; then
+	if have_command wget && wget_download_to "$1" "$tmp_path"; then
 		mv -f "$tmp_path" "$2" || {
 			rm -f "$tmp_path"
 			NET_TMP=""

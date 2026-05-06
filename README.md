@@ -146,6 +146,10 @@ conffiles. APK protected paths also mark them as user-owned state.
 Updates should preserve user edits and explicit user deletion of default
 list files.
 
+The package also installs `/lib/upgrade/keep.d/mihowrt`, so OpenWrt
+`sysupgrade` with config preservation keeps MihoWRT's UCI config,
+Mihomo config, policy list directory, and persistent DNS recovery state.
+
 ## Source Of Truth
 
 MihoWRT has three user-controlled inputs.

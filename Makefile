@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.2.52
+PKG_VERSION:=0.2.53
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -75,6 +75,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_dst.txt $(1)/opt/clash/lst/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_src.txt $(1)/opt/clash/lst/
+
+	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
+	$(INSTALL_DATA) ./rootfs/lib/upgrade/keep.d/mihowrt $(1)/lib/upgrade/keep.d/
 
 ifdef CONFIG_USE_APK
 	$(INSTALL_DIR) $(1)/etc/apk/protected_paths.d

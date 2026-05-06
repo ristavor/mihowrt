@@ -91,13 +91,25 @@ wget() {
 : > "$network_log"
 assert_eq "payload" "$(fetch_url "https://example.com/ok")" "fetch_url should return wget output"
 assert_file_contains "$network_log" "-T 11" "fetch_url should bound wget network timeout"
-assert_file_contains "$network_log" "-t 7" "fetch_url should set wget retries"
+assert_file_not_contains "$network_log" "-t " "fetch_url should avoid wget retry flag unsupported by BusyBox"
 
 : > "$network_log"
 download_file "https://example.com/file" "$tmpdir/out.bin"
 assert_file_contains "$tmpdir/out.bin" "payload" "download_file should move successful temporary download into target"
 assert_file_contains "$network_log" "-T 11" "download_file should bound wget network timeout"
-assert_file_contains "$network_log" "-t 7" "download_file should set wget retries"
+assert_file_not_contains "$network_log" "-t " "download_file should avoid wget retry flag unsupported by BusyBox"
+
+FETCH_RETRIES=3
+wget_attempts=0
+wget() {
+	wget_attempts=$((wget_attempts + 1))
+	printf 'wget:%s\n' "$*" >>"$network_log"
+	[ "$wget_attempts" -lt 3 ] && return 1
+	printf 'payload' > "${@: -2:1}"
+}
+: > "$network_log"
+assert_eq "payload" "$(fetch_url "https://example.com/retry")" "fetch_url should retry wget failures in shell"
+assert_eq "3" "$(grep -c '^wget:' "$network_log")" "fetch_url should honor FETCH_RETRIES without wget -t"
 
 package_present() {
 	[[ "$1" == "nftables-json" ]]

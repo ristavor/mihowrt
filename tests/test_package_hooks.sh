@@ -13,6 +13,7 @@ script_path="$tmpdir/postinst.sh"
 prerm_path="$tmpdir/prerm.sh"
 hook_log="$tmpdir/hook.log"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
+keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
 extract_hook() {
 	local hook="$1"
@@ -97,5 +98,12 @@ IPKG_INSTROOT="$tmpdir/root" "$prerm_path"
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/bin/clash"] // null' "$acl_file")" "ACL should not allow direct Mihomo binary execution from LuCI"
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".write.file["/opt/clash/config.yaml"] // null' "$acl_file")" "ACL should not allow bypassing validated config apply"
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".write.file["/usr/bin/mihowrt"]' "$acl_file")" "ACL should keep validated backend execution"
+
+assert_file_contains "$ROOT_DIR/Makefile" '$(1)/lib/upgrade/keep.d' "package should install sysupgrade keep directory"
+assert_file_contains "$ROOT_DIR/Makefile" './rootfs/lib/upgrade/keep.d/mihowrt' "package should install MihoWRT sysupgrade keep list"
+assert_file_contains "$keep_file" "/etc/config/mihowrt" "sysupgrade keep list should preserve UCI config"
+assert_file_contains "$keep_file" "/etc/mihowrt" "sysupgrade keep list should preserve persistent MihoWRT state"
+assert_file_contains "$keep_file" "/opt/clash/config.yaml" "sysupgrade keep list should preserve Mihomo config"
+assert_file_contains "$keep_file" "/opt/clash/lst" "sysupgrade keep list should preserve policy lists"
 
 pass "package hook snippets"

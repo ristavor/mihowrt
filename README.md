@@ -631,8 +631,8 @@ For package install/update:
    - `/etc/mihowrt/dns.backup`
 4. Hold required dependencies with an APK virtual package when supported.
 5. Restore system DNS/routing defaults before update.
-6. Download and stage latest Mihomo core for detected architecture.
-7. Download latest `luci-app-mihowrt-*.apk`.
+6. Download latest `luci-app-mihowrt-*.apk`.
+7. Download and stage latest Mihomo core for detected architecture.
 8. Install Mihomo core.
 9. Create skip-start marker so package postinst cannot auto-start the
    service mid-transaction.

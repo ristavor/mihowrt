@@ -734,6 +734,20 @@ assert_file_contains "$event_log" "set_skip_start" "perform_package_action shoul
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after skip-start failure"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after skip-start failure"
 
+rollback_kernel_update() {
+	printf 'rollback_kernel_update\n' >>"$event_log"
+	return 0
+}
+
+: > "$event_log"
+TEST_PACKAGE_INSTALLED_RC=1
+assert_false "perform_package_action should roll back fresh kernel when skip-start marker setup fails" perform_package_action
+assert_file_contains "$event_log" "kernel_apply_staged_update" "fresh install skip-start failure should happen after kernel apply"
+assert_file_contains "$event_log" "set_skip_start" "fresh install should try setting skip-start marker"
+assert_file_contains "$event_log" "rollback_kernel_update" "fresh install should roll back applied kernel after skip-start failure"
+assert_file_not_contains "$event_log" "restore_runtime_state" "fresh install skip-start failure should not use reinstall runtime rollback"
+TEST_PACKAGE_INSTALLED_RC=0
+
 set_skip_start() {
 	printf 'set_skip_start\n' >>"$event_log"
 }

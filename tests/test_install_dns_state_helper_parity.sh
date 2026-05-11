@@ -50,7 +50,13 @@ eval "$(extract_install_dns_helper dns_backup_mihomo_target)"
 eval "$(extract_install_dns_helper dns_backup_file_valid_for_restore)"
 
 have_command() {
-	[[ "${1:-}" == "uci" ]]
+	case "${1:-}" in
+		uci|jq)
+			return 0
+			;;
+	esac
+
+	command -v "$1" >/dev/null 2>&1
 }
 
 ensure_dns_state_helpers() {
@@ -79,7 +85,8 @@ uci() {
 
 assert_eq "$(printf '1.1.1.1\n2.2.2.2\n' | dns_flatten_lines)" "$(printf '1.1.1.1\n2.2.2.2\n' | install_dns_flatten_lines)" "dns_flatten_lines should stay in sync with installer fallback"
 assert_eq "$(trim '  value  ')" "$(trim_value '  value  ')" "trim_value should stay in sync with runtime trim helper"
-assert_eq "$(yaml_cleanup_scalar ' \"[::]:7874\" # comment ')" "$(yaml_cleanup_scalar_value ' \"[::]:7874\" # comment ')" "yaml_cleanup_scalar_value should stay in sync with runtime scalar cleanup"
+assert_eq "$(yaml_cleanup_scalar ' "[::]:7874" # comment ')" "$(yaml_cleanup_scalar_value ' "[::]:7874" # comment ')" "yaml_cleanup_scalar_value should stay in sync with runtime scalar cleanup"
+assert_eq "abc#123" "$(yaml_cleanup_scalar_value ' "abc#123" # comment ')" "yaml_cleanup_scalar_value should preserve hash inside quoted scalars"
 assert_eq "$(port_from_addr '[::]:7874')" "$(port_from_addr_value '[::]:7874')" "port_from_addr_value should stay in sync with runtime port parser"
 assert_eq "$(normalize_dns_server_target '0.0.0.0#7874')" "$(normalize_dns_server_target_value '0.0.0.0:7874')" "normalize_dns_server_target_value should stay in sync with runtime target normalization"
 assert_true "runtime is_uint should accept integers" is_uint "123"
@@ -117,6 +124,12 @@ dns:
   listen: "[::]:7874" # comment
 EOF
 assert_eq "$(read_config_json_for_path "$tmpdir/config.yaml" | jq -r '.mihomo_dns_listen')" "$(config_mihomo_dns_target_from_path "$tmpdir/config.yaml")" "config_mihomo_dns_target_from_path should stay in sync with runtime config parser"
+
+cat > "$tmpdir/config-bound-host-comment.yaml" <<'EOF'
+dns:
+  listen: "192.168.70.1:7874" # comment
+EOF
+assert_eq "$(read_config_json_for_path "$tmpdir/config-bound-host-comment.yaml" | jq -r '.mihomo_dns_listen')" "$(config_mihomo_dns_target_from_path "$tmpdir/config-bound-host-comment.yaml")" "config_mihomo_dns_target_from_path should parse quoted listen values with trailing comments"
 
 cat > "$tmpdir/config-bound-host.yaml" <<'EOF'
 dns:

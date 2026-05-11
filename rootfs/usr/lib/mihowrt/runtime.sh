@@ -5,6 +5,7 @@ install_runtime_symlink() {
 	local dst="$2"
 	local tmp_link="${src}.tmp.$$"
 	local backup_src="${src}.bak.$$"
+	local old_link_target=""
 
 	ensure_dir "$(dirname "$src")"
 	rm -f "$tmp_link"
@@ -28,9 +29,15 @@ install_runtime_symlink() {
 		return 0
 	fi
 
+	[ -L "$src" ] && old_link_target="$(readlink "$src" 2>/dev/null || true)"
 	ln -s "$dst" "$tmp_link" || return 1
+	rm -f "$src" || {
+		rm -f "$tmp_link"
+		return 1
+	}
 	mv -f "$tmp_link" "$src" || {
 		rm -f "$tmp_link"
+		[ -n "$old_link_target" ] && ln -s "$old_link_target" "$src" 2>/dev/null || true
 		return 1
 	}
 

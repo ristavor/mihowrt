@@ -470,4 +470,31 @@ assert_file_contains "$net_log" "ip route del local 0.0.0.0/0 dev lo table 200" 
 assert_file_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 202" "policy_route_setup should install route in first free table"
 assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_TABLE_ID=202" "policy_route_setup should persist moved table id"
 
+: > "$net_log"
+rm -f "$ROUTE_STATE_FILE"
+MIHOMO_ROUTE_TABLE_ID=""
+MIHOMO_ROUTE_RULE_PRIORITY=""
+policy_route_state_can_reuse_calls=0
+policy_route_state_can_reuse() {
+	policy_route_state_can_reuse_calls=$((policy_route_state_can_reuse_calls + 1))
+	ROUTE_TABLE_ID_EFFECTIVE=200
+	ROUTE_RULE_PRIORITY_EFFECTIVE=10000
+	return 0
+}
+policy_route_table_has_foreign_entries() {
+	return 1
+}
+policy_route_priority_conflicts() {
+	return 1
+}
+policy_route_delete_rule() {
+	return 0
+}
+ip() {
+	printf 'ip %s\n' "$*" >>"$net_log"
+	return 0
+}
+assert_true "policy_route_setup should resolve reusable auto route ids once" policy_route_setup
+assert_eq "1" "$policy_route_state_can_reuse_calls" "policy_route_setup should not repeat route state reuse probes for table and priority"
+
 pass "nft and route helper logic"

@@ -523,6 +523,71 @@ policy_route_drop_saved_state() {
 	rm -f "$ROUTE_STATE_FILE"
 }
 
+policy_route_find_free_table_id() {
+	local route_table_id="$ROUTE_TABLE_ID_AUTO_MIN"
+
+	while [ "$route_table_id" -le "$ROUTE_TABLE_ID_AUTO_MAX" ]; do
+		if ! policy_route_table_id_in_use "$route_table_id"; then
+			printf '%s\n' "$route_table_id"
+			return 0
+		fi
+		route_table_id=$((route_table_id + 1))
+	done
+
+	err "Unable to find free route table id"
+	return 1
+}
+
+policy_route_find_free_priority() {
+	local route_rule_priority="$ROUTE_RULE_PRIORITY_AUTO_MIN"
+
+	while [ "$route_rule_priority" -le "$ROUTE_RULE_PRIORITY_AUTO_MAX" ]; do
+		if ! policy_route_priority_in_use "$route_rule_priority"; then
+			printf '%s\n' "$route_rule_priority"
+			return 0
+		fi
+		route_rule_priority=$((route_rule_priority + 1))
+	done
+
+	err "Unable to find free route rule priority"
+	return 1
+}
+
+policy_route_resolve_ids() {
+	local route_table_id="$MIHOMO_ROUTE_TABLE_ID"
+	local route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
+	local state_rc=1
+
+	if [ -z "$route_table_id" ] || [ -z "$route_rule_priority" ]; then
+		if policy_route_state_can_reuse; then
+			state_rc=0
+		else
+			state_rc=$?
+		fi
+		case "$state_rc" in
+			0)
+				[ -n "$route_table_id" ] || route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
+				[ -n "$route_rule_priority" ] || route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+				;;
+			2)
+				return 1
+				;;
+		esac
+	fi
+
+	if [ -z "$route_table_id" ] || [ -z "$route_rule_priority" ]; then
+		if policy_route_state_read; then
+			policy_route_drop_saved_state || return 1
+		fi
+	fi
+
+	[ -n "$route_table_id" ] || route_table_id="$(policy_route_find_free_table_id)" || return 1
+	[ -n "$route_rule_priority" ] || route_rule_priority="$(policy_route_find_free_priority)" || return 1
+
+	ROUTE_TABLE_ID_RESOLVED="$route_table_id"
+	ROUTE_RULE_PRIORITY_RESOLVED="$route_rule_priority"
+}
+
 policy_route_resolve_table_id() {
 	local route_table_id
 	local state_rc=1
@@ -551,17 +616,7 @@ policy_route_resolve_table_id() {
 		policy_route_drop_saved_state || return 1
 	fi
 
-	route_table_id="$ROUTE_TABLE_ID_AUTO_MIN"
-	while [ "$route_table_id" -le "$ROUTE_TABLE_ID_AUTO_MAX" ]; do
-		if ! policy_route_table_id_in_use "$route_table_id"; then
-			printf '%s\n' "$route_table_id"
-			return 0
-		fi
-		route_table_id=$((route_table_id + 1))
-	done
-
-	err "Unable to find free route table id"
-	return 1
+	policy_route_find_free_table_id
 }
 
 policy_route_resolve_priority() {
@@ -592,17 +647,7 @@ policy_route_resolve_priority() {
 		policy_route_drop_saved_state || return 1
 	fi
 
-	route_rule_priority="$ROUTE_RULE_PRIORITY_AUTO_MIN"
-	while [ "$route_rule_priority" -le "$ROUTE_RULE_PRIORITY_AUTO_MAX" ]; do
-		if ! policy_route_priority_in_use "$route_rule_priority"; then
-			printf '%s\n' "$route_rule_priority"
-			return 0
-		fi
-		route_rule_priority=$((route_rule_priority + 1))
-	done
-
-	err "Unable to find free route rule priority"
-	return 1
+	policy_route_find_free_priority
 }
 
 policy_route_teardown_ids() {
@@ -799,8 +844,11 @@ policy_route_setup() {
 	local route_table_id route_rule_priority
 	local table_state=1 priority_state=1
 
-	route_table_id="$(policy_route_resolve_table_id)" || return 1
-	route_rule_priority="$(policy_route_resolve_priority)" || return 1
+	ROUTE_TABLE_ID_RESOLVED=""
+	ROUTE_RULE_PRIORITY_RESOLVED=""
+	policy_route_resolve_ids || return 1
+	route_table_id="$ROUTE_TABLE_ID_RESOLVED"
+	route_rule_priority="$ROUTE_RULE_PRIORITY_RESOLVED"
 
 	if policy_route_table_has_foreign_entries "$route_table_id"; then
 		table_state=0

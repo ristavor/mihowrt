@@ -1008,8 +1008,49 @@ trim_value() {
 
 yaml_cleanup_scalar_value() {
 	local value="$1"
+	local out="" char="" prev="" in_single=0 in_double=0
 
 	value="$(trim_value "$value")"
+
+	while [ -n "$value" ]; do
+		char="${value%"${value#?}"}"
+		value="${value#?}"
+
+		case "$char" in
+			"'")
+				if [ "$in_double" -eq 0 ]; then
+					if [ "$in_single" -eq 1 ]; then
+						in_single=0
+					else
+						in_single=1
+					fi
+				fi
+				;;
+			'"')
+				if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
+					if [ "$in_double" -eq 1 ]; then
+						in_double=0
+					else
+						in_double=1
+					fi
+				fi
+				;;
+			'#')
+				if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+					case "$prev" in
+						''|[[:space:]])
+							break
+							;;
+					esac
+				fi
+				;;
+		esac
+
+		out="${out}${char}"
+		prev="$char"
+	done
+
+	value="$(trim_value "$out")"
 
 	case "$value" in
 		\"*\")
@@ -1026,7 +1067,6 @@ yaml_cleanup_scalar_value() {
 			;;
 	esac
 
-	value="${value%%[[:space:]]#*}"
 	trim_value "$value"
 }
 
@@ -2064,7 +2104,11 @@ perform_package_action() {
 	fi
 
 	if ! set_skip_start; then
-		rollback_reinstall_state "$reinstall"
+		if [ "$reinstall" = "1" ]; then
+			rollback_reinstall_state "$reinstall"
+		elif ! rollback_kernel_update; then
+			preserve_kernel_backup_dir
+		fi
 		end_install_transaction
 		err "failed to set skip-start marker"
 		return 1

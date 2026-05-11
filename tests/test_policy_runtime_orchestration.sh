@@ -163,7 +163,7 @@ assert_false "cleanup_runtime_state should fail when any teardown step fails" cl
 assert_file_contains "$event_log" "dns_restore" "cleanup_runtime_state should try DNS restore"
 assert_file_contains "$event_log" "nft_remove_policy" "cleanup_runtime_state should try nft cleanup"
 assert_file_contains "$event_log" "policy_route_cleanup" "cleanup_runtime_state should try route cleanup"
-assert_file_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should clear runtime snapshot"
+assert_file_not_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should preserve runtime snapshot after partial cleanup failure"
 assert_file_contains "$event_log" "err:Failed to restore dnsmasq state during cleanup" "cleanup_runtime_state should report dns cleanup failure"
 assert_file_contains "$event_log" "err:Failed to remove nft policy during cleanup" "cleanup_runtime_state should report nft cleanup failure"
 assert_file_contains "$event_log" "err:Failed to remove policy routing during cleanup" "cleanup_runtime_state should report route cleanup failure"
@@ -209,6 +209,7 @@ runtime_snapshot_restore() {
 
 policy_route_teardown_ids() {
 	printf 'policy_route_teardown_ids:%s:%s\n' "$1" "$2" >>"$event_log"
+	return "${TEST_POLICY_ROUTE_TEARDOWN_RC:-0}"
 }
 
 policy_route_state_read() {
@@ -252,6 +253,25 @@ assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state sh
 assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_runtime_state should remove previous route ids after successful apply"
 assert_file_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should log successful safer reload"
 assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should not tear down live state before apply when snapshot exists"
+TEST_POLICY_ROUTE_TEARDOWN_RC=0
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_LOAD_RUNTIME_RC=0
+TEST_VALIDATE_RUNTIME_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_RESTORE_RC=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_ROUTE_STATE_SEQUENCE="reload-success"
+TEST_ROUTE_STATE_READ_COUNT=0
+TEST_POLICY_ROUTE_TEARDOWN_RC=1
+assert_false "reload_runtime_state should fail when previous route teardown fails" reload_runtime_state
+assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_runtime_state should attempt to remove old route ids"
+assert_file_contains "$event_log" "err:Failed to remove previous policy routing table 200 priority 10000" "reload_runtime_state should report stale route teardown failure"
+assert_file_not_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should not report success after stale route teardown failure"
+TEST_POLICY_ROUTE_TEARDOWN_RC=0
 
 : > "$event_log"
 TEST_ENABLED=0

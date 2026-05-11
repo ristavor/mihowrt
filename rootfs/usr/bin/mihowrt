@@ -128,6 +128,18 @@ run_service() {
 	service-ready)
 		service_ready_runtime_state
 		;;
+	restart-validated-service)
+		init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
+		[ -x "$init_script" ] || {
+			echo "Error: init script '$init_script' is missing or not executable" >&2
+			exit 1
+		}
+		if current_config_has_validated_stamp; then
+			MIHOWRT_SKIP_CLASH_TEST=1 "$init_script" restart
+		else
+			"$init_script" restart
+		fi
+		;;
 	validate)
 		load_runtime_config && validate_runtime_config
 		;;
@@ -165,7 +177,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

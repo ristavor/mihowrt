@@ -187,7 +187,7 @@ function applyServiceState(running, enabled) {
 }
 
 async function readServiceState() {
-	const status = await backendHelper.readStatus();
+	const status = await backendHelper.readServiceState();
 
 	if (!status.available)
 		throw new Error(serviceStateErrorDetail(status));
@@ -394,11 +394,13 @@ function editorContentForSave(value) {
 async function restartRunningService(wasRunning) {
 	if (!wasRunning)
 		return { restarted: false, error: null };
-	const restartResult = await fs.exec(SERVICE_SCRIPT, ['restart']);
-	return {
-		restarted: restartResult.code === 0,
-		error: restartResult.code === 0 ? null : mihowrtUi.execErrorDetail(restartResult)
-	};
+	try {
+		await backendHelper.restartValidatedService();
+		return { restarted: true, error: null };
+	}
+	catch (e) {
+		return { restarted: false, error: e.message || String(e) };
+	}
 }
 
 return view.extend({

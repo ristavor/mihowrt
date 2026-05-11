@@ -33,7 +33,9 @@ validate_service_inputs() {
 		return 1
 	}
 
-	if ! "$CLASH_BIN" -d "$CLASH_DIR" -f "$CLASH_CONFIG" -t; then
+	if [ "${MIHOWRT_SKIP_CLASH_TEST:-0}" = "1" ]; then
+		msg "Skipping duplicate Mihomo configuration test"
+	elif ! "$CLASH_BIN" -d "$CLASH_DIR" -f "$CLASH_CONFIG" -t; then
 		msg "ERROR: Mihomo configuration test failed"
 		return 1
 	fi

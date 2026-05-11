@@ -4,6 +4,7 @@
 'require mihowrt.exec as execHelper';
 
 const BACKEND = '/usr/bin/mihowrt';
+const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 
 function emptyConfigState() {
 	return {
@@ -82,6 +83,30 @@ function emptyLogState() {
 	};
 }
 
+function tempConfigPath() {
+	const suffix = '%s-%s'.format(Date.now(), Math.floor(Math.random() * 0x100000000).toString(16));
+	return `/tmp/mihowrt-config.${suffix}`;
+}
+
+async function removeTempFile(path) {
+	try {
+		await fs.remove(path);
+	}
+	catch (e) {
+		if (e && (e.name === 'NotFoundError' || /not found/i.test(e.message || '')))
+			return;
+		throw e;
+	}
+}
+
+function commandResultState(result) {
+	if (result.code === 0)
+		return true;
+	if (result.code === 1)
+		return false;
+	throw new Error(execHelper.errorDetail(result));
+}
+
 function assignConfigState(state, payload) {
 	state.configPath = String(payload?.config_path || state.configPath);
 	state.dnsPort = String(payload?.dns_port || '');
@@ -128,10 +153,49 @@ return baseclass.extend({
 	readConfig: readConfig,
 
 	applyConfig: async function(configContents) {
-		const result = await fs.exec(BACKEND, [ 'apply-config-contents', String(configContents ?? '') ]);
+		const tempPath = tempConfigPath();
+
+		await fs.write(tempPath, String(configContents ?? ''));
+		try {
+			const result = await fs.exec(BACKEND, [ 'apply-config', tempPath ]);
+
+			if (result.code !== 0)
+				throw new Error(execHelper.errorDetail(result));
+		}
+		finally {
+			await removeTempFile(tempPath);
+		}
+	},
+
+	restartValidatedService: async function() {
+		const result = await fs.exec(BACKEND, [ 'restart-validated-service' ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
+	},
+
+	readServiceState: async function() {
+		const state = {
+			available: false,
+			serviceEnabled: false,
+			serviceRunning: false,
+			serviceReady: false,
+			errors: []
+		};
+
+		try {
+			state.serviceEnabled = commandResultState(await fs.exec(SERVICE_SCRIPT, [ 'enabled' ]));
+			state.serviceRunning = commandResultState(await fs.exec(BACKEND, [ 'service-running' ]));
+			state.serviceReady = state.serviceRunning
+				? commandResultState(await fs.exec(BACKEND, [ 'service-ready' ]))
+				: false;
+			state.available = true;
+			return state;
+		}
+		catch (e) {
+			state.errors = [ e.message || String(e) ];
+			return state;
+		}
 	},
 
 	readStatus: async function() {

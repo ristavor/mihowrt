@@ -20,6 +20,7 @@
 		"write": {
 			"file": {
 				"/usr/bin/mihowrt": [ "exec" ],
+				"/tmp/mihowrt-config.*": [ "write" ],
 				"/opt/clash/lst/always_proxy_dst.txt": [ "write" ],
 				"/opt/clash/lst/always_proxy_src.txt": [ "write" ],
 				"/etc/init.d/mihowrt": [ "exec" ]

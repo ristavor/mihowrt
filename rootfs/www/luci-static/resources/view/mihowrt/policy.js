@@ -50,8 +50,18 @@ function hasListValueChanges() {
 		currentNormalizedListValue(srcListOption) !== (srcValueCache || '');
 }
 
-function hasPendingUciChanges(changes) {
-	return Object.values(changes || {}).some(list => Array.isArray(list) && list.length > 0);
+function hasMihowrtUciChanges(changes) {
+	const mihowrtChanges = changes?.mihowrt;
+	return Array.isArray(mihowrtChanges) && mihowrtChanges.length > 0;
+}
+
+async function reloadPolicyIfNeeded(listChanged, wasRunning) {
+	if (!listChanged || !wasRunning)
+		return;
+
+	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
+	if (reloadResult.code !== 0)
+		mihowrtUi.notify(_('Saved, but failed to reload policy: %s').format(mihowrtUi.execErrorDetail(reloadResult)), 'error');
 }
 
 async function removeListFileIfPresent(filePath) {
@@ -124,16 +134,13 @@ return view.extend({
 		await this.handleSave(ev);
 
 		const changes = await uci.changes();
-		if (hasPendingUciChanges(changes)) {
-			return ui.changes.apply(mode == '0');
+		if (hasMihowrtUciChanges(changes)) {
+			await ui.changes.apply(mode == '0');
+			await reloadPolicyIfNeeded(listChanged, wasRunning);
+			return;
 		}
 
-		if (!listChanged || !wasRunning)
-			return;
-
-		const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
-		if (reloadResult.code !== 0)
-			mihowrtUi.notify(_('Saved, but failed to reload policy: %s').format(mihowrtUi.execErrorDetail(reloadResult)), 'error');
+		await reloadPolicyIfNeeded(listChanged, wasRunning);
 	},
 
 	load: function() {

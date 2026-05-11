@@ -575,8 +575,49 @@ mihomo_ready_state() {
 
 yaml_cleanup_scalar() {
 	local value="$1"
+	local out="" char="" prev="" in_single=0 in_double=0
 
 	value="$(trim "$value")"
+
+	while [ -n "$value" ]; do
+		char="${value%"${value#?}"}"
+		value="${value#?}"
+
+		case "$char" in
+			"'")
+				if [ "$in_double" -eq 0 ]; then
+					if [ "$in_single" -eq 1 ]; then
+						in_single=0
+					else
+						in_single=1
+					fi
+				fi
+				;;
+			'"')
+				if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
+					if [ "$in_double" -eq 1 ]; then
+						in_double=0
+					else
+						in_double=1
+					fi
+				fi
+				;;
+			'#')
+				if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+					case "$prev" in
+						''|[[:space:]])
+							break
+							;;
+					esac
+				fi
+				;;
+		esac
+
+		out="${out}${char}"
+		prev="$char"
+	done
+
+	value="$(trim "$out")"
 
 	case "$value" in
 		\"*\")
@@ -593,7 +634,6 @@ yaml_cleanup_scalar() {
 			;;
 	esac
 
-	value="${value%%[[:space:]]#*}"
 	value="$(trim "$value")"
 	printf '%s' "$value"
 }
@@ -806,6 +846,25 @@ read_config_json_for_path() {
 	return "$rc"
 }
 
+validated_config_stamp_file() {
+	printf '%s\n' "${VALIDATED_CONFIG_FILE:-${PKG_TMP_DIR:-/tmp/mihowrt}/validated.config}"
+}
+
+mark_validated_config() {
+	local stamp_file
+
+	stamp_file="$(validated_config_stamp_file)"
+	ensure_dir "$(dirname "$stamp_file")" || return 1
+	cp -f "$CLASH_CONFIG" "$stamp_file"
+}
+
+current_config_has_validated_stamp() {
+	local stamp_file
+
+	stamp_file="$(validated_config_stamp_file)"
+	[ -r "$CLASH_CONFIG" ] && [ -r "$stamp_file" ] && cmp -s "$CLASH_CONFIG" "$stamp_file"
+}
+
 apply_config_file() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
@@ -868,6 +927,7 @@ apply_config_file() {
 
 	if [ -f "$active_config" ] && cmp -s "$candidate" "$active_config" 2>/dev/null; then
 		rm -f "$candidate"
+		mark_validated_config || err "Failed to record validated config marker"
 		return 0
 	fi
 
@@ -884,6 +944,7 @@ apply_config_file() {
 	}
 
 	rm -f "$candidate"
+	mark_validated_config || err "Failed to record validated config marker"
 	return 0
 }
 

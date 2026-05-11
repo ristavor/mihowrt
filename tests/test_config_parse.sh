@@ -100,6 +100,27 @@ assert_eq "meta cube" "$(printf '%s\n' "$quoted_json" | jq -r '.external_ui_name
 assert_eq "0" "$(printf '%s\n' "$quoted_json" | jq -r '.errors | length')" "read_config_json should ignore unrelated nested dns keys"
 
 cat > "$CLASH_CONFIG" <<'EOF'
+external-controller: "127.0.0.1:9090" # inline comment
+secret: "abc#123" # inline comment
+tproxy-port: "7894" # inline comment
+routing-mark: "100" # inline comment
+
+dns:
+  listen: "0.0.0.0:5353" # inline comment
+  enhanced-mode: fake-ip # inline comment
+  fake-ip-range: "198.18.0.0/15" # inline comment
+EOF
+
+quoted_comment_json="$(read_config_json)"
+
+assert_eq "5353" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.dns_port')" "read_config_json should parse quoted dns.listen with trailing comment"
+assert_eq "7894" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.tproxy_port')" "read_config_json should parse quoted tproxy-port with trailing comment"
+assert_eq "100" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.routing_mark')" "read_config_json should parse quoted routing-mark with trailing comment"
+assert_eq "abc#123" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.secret')" "read_config_json should preserve hash inside quoted secret before trailing comment"
+assert_eq "198.18.0.0/15" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.fake_ip_range')" "read_config_json should parse quoted fake-ip-range with trailing comment"
+assert_eq "0" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.errors | length')" "read_config_json should accept valid quoted scalars with trailing comments"
+
+cat > "$CLASH_CONFIG" <<'EOF'
 tproxy-port: bad
 routing-mark: 4294967296
 

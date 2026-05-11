@@ -117,6 +117,11 @@ runtime_snapshot_status_json() {
 	printf '%s\n' "$TEST_RUNTIME_SNAPSHOT_JSON"
 }
 
+runtime_snapshot_readiness_json() {
+	[ -n "${TEST_RUNTIME_SNAPSHOT_JSON:-}" ] || return 1
+	printf '%s\n' "$TEST_RUNTIME_SNAPSHOT_JSON"
+}
+
 eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh")"
 
 : > "$cli_log"
@@ -267,6 +272,50 @@ service_ready_output="$(
 )"
 assert_eq "ready" "$service_ready_output" "service-ready command should dispatch to runtime readiness helper"
 
+restart_validated_output="$(
+	set -- restart-validated-service
+	PKG_NAME="mihowrt"
+	current_config_has_validated_stamp() {
+		return 0
+	}
+	init_path="$tmpdir/restart-validated-init"
+	cat > "$init_path" <<'EOF'
+#!/usr/bin/env bash
+printf 'skip=%s args=%s\n' "${MIHOWRT_SKIP_CLASH_TEST:-0}" "$*"
+EOF
+	chmod +x "$init_path"
+	# shellcheck disable=SC1090
+	source <(
+		sed \
+			-e '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			-e "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g" \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "skip=1 args=restart" "$restart_validated_output" "restart-validated-service command should skip duplicate Mihomo config test on init restart"
+
+restart_unvalidated_output="$(
+	set -- restart-validated-service
+	PKG_NAME="mihowrt"
+	current_config_has_validated_stamp() {
+		return 1
+	}
+	init_path="$tmpdir/restart-unvalidated-init"
+	cat > "$init_path" <<'EOF'
+#!/usr/bin/env bash
+printf 'skip=%s args=%s\n' "${MIHOWRT_SKIP_CLASH_TEST:-0}" "$*"
+EOF
+	chmod +x "$init_path"
+	# shellcheck disable=SC1090
+	source <(
+		sed \
+			-e '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			-e "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g" \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "skip=0 args=restart" "$restart_unvalidated_output" "restart-validated-service command should keep full init validation when active config marker is stale"
+
 source_init_mihowrt_lib
 
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
@@ -309,6 +358,7 @@ EOF
 
 cat > "$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TEST_CLASH_LOG"
 case " $* " in
 	*" -t "*)
 		exit "${TEST_CLASH_TEST_RC:-0}"
@@ -357,6 +407,15 @@ assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start
 assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
 assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should return after procd registration"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
+
+: > "$msg_log"
+: > "$orch_log"
+: > "$clash_log"
+MIHOWRT_SKIP_CLASH_TEST=1 validate_service_inputs
+assert_file_not_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG -t" "validate_service_inputs should skip duplicate Mihomo syntax test when backend already validated config"
+assert_file_contains "$orch_log" "validate" "validate_service_inputs should still run MihoWRT policy validation when syntax test is skipped"
+assert_file_contains "$msg_log" "Skipping duplicate Mihomo configuration test" "validate_service_inputs should log skipped duplicate syntax validation"
+unset MIHOWRT_SKIP_CLASH_TEST
 
 : > "$msg_log"
 : > "$procd_log"

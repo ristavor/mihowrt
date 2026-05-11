@@ -44,6 +44,7 @@ export PATH="$tmpbin:$PATH"
 export CLASH_DIR="$tmpdir/opt/clash"
 export CLASH_BIN="$tmpbin/clash"
 export CLASH_CONFIG="$tmpdir/opt/clash/config.yaml"
+export PKG_TMP_DIR="$tmpdir/run"
 
 mkdir -p "$CLASH_DIR"
 cat > "$CLASH_CONFIG" <<'EOF'
@@ -72,6 +73,7 @@ candidate_valid="$tmpdir/candidate-valid.yaml"
 cp "$tmpdir/expected.yaml" "$candidate_valid"
 apply_config_file "$candidate_valid"
 cmp -s "$CLASH_CONFIG" "$tmpdir/expected.yaml" || fail "apply_config_file should install validated config"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should record active config as validated after install"
 [[ ! -e "$candidate_valid" ]] || fail "apply_config_file should remove temp candidate after success"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after success"
 
@@ -84,6 +86,7 @@ expected_contents="${expected_contents%$'\001'}"
 apply_config_contents "$expected_contents"
 tmp_candidates_after="$(find /tmp -maxdepth 1 -name 'mihowrt-config.*' -print | sort)"
 cmp -s "$CLASH_CONFIG" "$tmpdir/expected.yaml" || fail "apply_config_contents should install validated config"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_contents should refresh validated config marker"
 assert_eq "$tmp_candidates_before" "$tmp_candidates_after" "apply_config_contents should clean up staged /tmp config file"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_contents should not leave flash-side temp config after success"
 
@@ -94,6 +97,7 @@ sleep 1
 apply_config_file "$candidate_same"
 after_mtime="$(stat -c %Y "$CLASH_CONFIG")"
 assert_eq "$before_mtime" "$after_mtime" "apply_config_file should skip replacing identical config to avoid extra flash writes"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should keep validated config marker after identical-config no-op"
 [[ ! -e "$candidate_same" ]] || fail "apply_config_file should remove temp candidate after identical-config no-op"
 
 cp "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml"
@@ -108,6 +112,7 @@ EOF
 
 assert_false "apply_config_file should reject policy-invalid config" apply_config_file "$candidate_parse"
 cmp -s "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml" || fail "apply_config_file should keep old config on policy validation failure"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should preserve previous validated marker after policy validation failure"
 [[ ! -e "$candidate_parse" ]] || fail "apply_config_file should remove temp candidate after policy validation failure"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after policy validation failure"
 
@@ -124,7 +129,12 @@ EOF
 
 assert_false "apply_config_file should reject Mihomo syntax-invalid config" apply_config_file "$candidate_syntax"
 cmp -s "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml" || fail "apply_config_file should keep old config on syntax validation failure"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should preserve previous validated marker after syntax validation failure"
 [[ ! -e "$candidate_syntax" ]] || fail "apply_config_file should remove temp candidate after syntax validation failure"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after syntax validation failure"
+
+assert_true "current_config_has_validated_stamp should accept unchanged validated config" current_config_has_validated_stamp
+printf '%s\n' '# external edit' >> "$CLASH_CONFIG"
+assert_false "current_config_has_validated_stamp should reject externally modified config" current_config_has_validated_stamp
 
 pass "config apply helper"

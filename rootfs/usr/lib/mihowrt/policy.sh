@@ -340,6 +340,21 @@ runtime_snapshot_status_json() {
 		}' "$snapshot_file"
 }
 
+runtime_snapshot_readiness_json() {
+	local snapshot_file
+
+	require_command jq || return 1
+	runtime_snapshot_exists || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	jq -c '{
+		enabled: (.enabled // false),
+		mihomo_dns_port: (.mihomo_dns_port // ""),
+		mihomo_dns_listen: (.mihomo_dns_listen // ""),
+		mihomo_tproxy_port: (.mihomo_tproxy_port // "")
+	}' "$snapshot_file"
+}
+
 load_runtime_config_from_yaml() {
 	local config_json
 	local config_errors
@@ -519,9 +534,9 @@ cleanup_runtime_state() {
 		err "Failed to remove policy routing during cleanup"
 		rc=1
 	}
-	runtime_snapshot_clear
 
 	if [ "$rc" -eq 0 ]; then
+		runtime_snapshot_clear
 		log "Cleaned up direct-first policy state"
 		return 0
 	fi
@@ -602,7 +617,10 @@ reload_runtime_state() {
 
 	if [ -n "$old_route_table_id" ] && [ -n "$old_route_rule_priority" ] &&
 		[ "$old_route_table_id:$old_route_rule_priority" != "$new_route_table_id:$new_route_rule_priority" ]; then
-		policy_route_teardown_ids "$old_route_table_id" "$old_route_rule_priority"
+		policy_route_teardown_ids "$old_route_table_id" "$old_route_rule_priority" || {
+			err "Failed to remove previous policy routing table $old_route_table_id priority $old_route_rule_priority"
+			return 1
+		}
 	fi
 
 	log "Reloaded direct-first policy state"
@@ -616,7 +634,7 @@ service_ready_runtime_state() {
 
 	service_running_state || return 1
 
-	active_json="$(runtime_snapshot_status_json 2>/dev/null || true)"
+	active_json="$(runtime_snapshot_readiness_json 2>/dev/null || true)"
 	if [ -n "$active_json" ]; then
 		snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
 			@sh "dns_port=\(.mihomo_dns_port // "") tproxy_port=\(.mihomo_tproxy_port // "") snapshot_enabled=\(.enabled // false) snapshot_dns_listen=\(.mihomo_dns_listen // "")"

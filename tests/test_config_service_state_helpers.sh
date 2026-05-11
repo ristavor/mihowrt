@@ -24,7 +24,7 @@ const readStateFnSource = readStateMatch[0].replace(/\n\nasync function refreshS
 
 const context = {
 	backendHelper: {
-		readStatus: async() => ({ available: false, errors: ['backend down'] })
+		readServiceState: async() => ({ available: false, errors: ['backend down'] })
 	}
 };
 
@@ -57,7 +57,7 @@ globalThis.getLastServiceState = () => lastServiceState;
 	if (preserved.running !== true || preserved.enabled !== false || preserved.ready !== true)
 		throw new Error('readServiceState() should preserve last known state on backend errors');
 
-	context.backendHelper.readStatus = async() => ({
+	context.backendHelper.readServiceState = async() => ({
 		available: true,
 		errors: [],
 		serviceRunning: false,

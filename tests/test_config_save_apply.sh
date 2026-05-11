@@ -61,6 +61,7 @@ function createContext(overrides = {}) {
 		appliedStates: [],
 		refreshCalls: 0,
 		serviceStatusCalls: 0,
+		restartValidatedCalls: 0,
 		disabledDuringApply: false,
 		fs: {
 			write: async(path, value) => {
@@ -75,6 +76,9 @@ function createContext(overrides = {}) {
 			applyConfig: async(path) => {
 				context.disabledDuringApply = context.saveApplyButton.disabled;
 				context.applyConfigPath = path;
+			},
+			restartValidatedService: async() => {
+				context.restartValidatedCalls += 1;
 			}
 		},
 		mihowrtUi: {
@@ -138,7 +142,8 @@ globalThis.getSaveInFlight = () => saveInFlight;
 	assert(success.serviceStatusCalls === 1, 'saveAndApply should read service state before apply');
 	assert(success.writeCalls.length === 0, 'saveAndApply should not write temp config from frontend');
 	assert(success.applyConfigPath === 'mode: direct\n', 'saveAndApply should pass raw editor contents to backend apply');
-	assert(success.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should restart running service after apply');
+	assert(success.restartValidatedCalls === 1, 'saveAndApply should restart running service through validated backend restart');
+	assert(!success.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should avoid duplicate init restart validation after backend apply');
 	assert(!success.execCalls.some(call => call.cmd === '/bin/sh'), 'saveAndApply should not shell out for temp config cleanup');
 	assert(success.pollPredicateResult === true, 'saveAndApply should wait for ready service state after restart');
 	assert(success.appliedStates.length === 1 && success.appliedStates[0].running === true && success.appliedStates[0].enabled === true, 'saveAndApply should apply settled running state after restart');
@@ -158,7 +163,7 @@ globalThis.getSaveInFlight = () => saveInFlight;
 
 	assert(failure.writeCalls.length === 0, 'saveAndApply should not write temp config before backend failure');
 	assert(!failure.execCalls.some(call => call.cmd === '/bin/sh'), 'saveAndApply should not attempt temp config cleanup after backend failure');
-	assert(!failure.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should not restart service when backend apply fails');
+	assert(failure.restartValidatedCalls === 0, 'saveAndApply should not restart service when backend apply fails');
 	assert(failure.getSaveInFlight() === false, 'saveAndApply should clear save lock after backend failure');
 	assert(failure.saveApplyButton.disabled === false, 'saveAndApply should re-enable controls after backend failure');
 	assert(failure.notifications.some(item => item.level === 'error' && String(item.message).includes('Unable to save contents: apply broke')), 'saveAndApply should surface backend apply failure');

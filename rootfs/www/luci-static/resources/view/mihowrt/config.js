@@ -25,6 +25,7 @@ let serviceActionInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 let savedConfigContent = '';
+let savedSubscriptionUrl = null;
 let lastServiceState = {
 	running: false,
 	enabled: false,
@@ -422,6 +423,28 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return String(input?.value || '').trim();
 }
 
+async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
+	const value = String(subscriptionUrl || '').trim();
+
+	if (savedSubscriptionUrl !== null && value === savedSubscriptionUrl)
+		return false;
+
+	await backendHelper.saveSubscriptionUrl(value);
+	savedSubscriptionUrl = value;
+	return true;
+}
+
+function editorHasUnsavedChanges() {
+	return !!editor && editorContentForSave(editor.getValue()) !== savedConfigContent;
+}
+
+function confirmSubscriptionOverwrite() {
+	if (!editorHasUnsavedChanges())
+		return true;
+
+	return window.confirm(_('Replace unsaved editor contents with downloaded subscription?'));
+}
+
 async function withSubscriptionLock(fn) {
 	subscriptionInFlight = true;
 	updateControlDisabledState();
@@ -435,11 +458,14 @@ async function withSubscriptionLock(fn) {
 	}
 }
 
-async function loadSubscriptionIntoEditor(subscriptionUrl) {
+async function loadSubscriptionIntoEditor(subscriptionUrl, expectedEditorContent) {
 	if (!editor)
 		throw new Error(_('Editor is still loading. Please try again in a moment.'));
 
 	const contents = await backendHelper.fetchSubscription(subscriptionUrl);
+	if (expectedEditorContent != null && editorContentForSave(editor.getValue()) !== expectedEditorContent)
+		throw new Error(_('Editor content changed during subscription download. Fetch again after saving or discarding edits.'));
+
 	editor.setValue(editorContentForSave(contents), -1);
 	return contents;
 }
@@ -465,14 +491,13 @@ return view.extend({
 		if (subscriptionState.errors && subscriptionState.errors.length)
 			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(subscriptionStateErrorDetail(subscriptionState)), 'warning');
 		savedConfigContent = editorContentForSave(config);
+		savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
+			? null
+			: subscriptionUrlInputValue({ value: subscriptionState.subscriptionUrl || '' });
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'
 		});
-
-		const persistSubscriptionUrl = async function(value) {
-			await backendHelper.saveSubscriptionUrl(value);
-		};
 
 		const saveSubscription = async function() {
 			if (controlsBusy())
@@ -480,7 +505,12 @@ return view.extend({
 
 			await withSubscriptionLock(async () => {
 				const value = subscriptionUrlInputValue();
-				await persistSubscriptionUrl(value);
+				const changed = await persistSubscriptionUrlIfChanged(value);
+				if (!changed) {
+					mihowrtUi.notify(_('Subscription URL is unchanged.'), 'info');
+					return;
+				}
+
 				mihowrtUi.notify(value ? _('Subscription URL saved.') : _('Subscription disabled.'), 'info');
 			}).catch(e => {
 				mihowrtUi.notify(_('Unable to save subscription URL: %s').format(e.message), 'error');
@@ -498,11 +528,21 @@ return view.extend({
 					return;
 				}
 
-				await persistSubscriptionUrl(value);
-				const contents = await loadSubscriptionIntoEditor(value);
+				if (!confirmSubscriptionOverwrite())
+					return;
+
+				const expectedEditorContent = editor ? editorContentForSave(editor.getValue()) : null;
+				const contents = await loadSubscriptionIntoEditor(value, expectedEditorContent);
 				if (!contents) {
 					mihowrtUi.notify(_('Subscription returned empty config.'), 'error');
 					return;
+				}
+
+				try {
+					await persistSubscriptionUrlIfChanged(value);
+				}
+				catch (e) {
+					mihowrtUi.notify(_('Subscription loaded, but URL was not saved: %s').format(e.message), 'warning');
 				}
 
 				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');

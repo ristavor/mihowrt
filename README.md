@@ -230,6 +230,8 @@ Buttons:
 - `Fetch Subscription`: downloads the subscription with `wget`, using
   `mihowrt/<package-version>` as User-Agent, and loads the result into
   the editor. The config is not saved until `Validate & Apply Config`.
+  Downloads are limited to 1 MiB by default to keep LuCI responsive on
+  routers.
 - `Validate & Apply Config`: validates YAML through Mihomo, validates
   required MihoWRT runtime fields, writes the config only after
   validation succeeds, and restarts MihoWRT if it was running.

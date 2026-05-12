@@ -67,13 +67,21 @@ case "${TEST_WGET_MODE:-ok}" in
 		exit 1
 		;;
 	empty)
-		: >"$output"
+		[ "$output" = "-" ] || : >"$output"
 		;;
 	large)
-		printf '1234567890' >"$output"
+		if [ "$output" = "-" ]; then
+			printf '1234567890'
+		else
+			printf '1234567890' >"$output"
+		fi
 		;;
 	*)
-		printf 'mode: rule\n' >"$output"
+		if [ "$output" = "-" ]; then
+			printf 'mode: rule\n'
+		else
+			printf 'mode: rule\n' >"$output"
+		fi
 		;;
 esac
 EOF
@@ -101,11 +109,19 @@ assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" 
 
 : >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "
+assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should read current URL before writing"
 assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings=settings" "set_subscription_url should ensure named UCI section"
 assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_url=https://example.com/new.yaml" "set_subscription_url should store trimmed URL"
 assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should commit UCI config"
 
 : >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/same.yaml"
+set_subscription_url "https://example.com/same.yaml"
+assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should still read current URL for no-op saves"
+assert_file_not_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should avoid NAND writes when URL is unchanged"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
 set_subscription_url ""
 assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_url" "set_subscription_url should delete empty URL"
 assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should commit URL deletion"
@@ -117,10 +133,15 @@ assert_false "set_subscription_url should reject unsupported schemes" set_subscr
 : >"$TEST_WGET_LOG"
 SUBSCRIPTION_FETCH_TIMEOUT=7
 SUBSCRIPTION_MAX_BYTES=128
+assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor valid override"
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
 assert_file_contains "$TEST_WGET_LOG" "-T 7" "fetch_subscription_config should bound wget timeout"
 assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.5" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-O -" "fetch_subscription_config should stream wget output through size cap"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to wget"
+
+SUBSCRIPTION_MAX_BYTES=bad
+assert_eq "1048576" "$(subscription_max_bytes)" "subscription_max_bytes should default to 1 MiB on invalid override"
 
 export TEST_WGET_MODE=empty
 assert_false "fetch_subscription_config should reject empty downloads" fetch_subscription_config "https://example.com/empty.yaml" >/dev/null

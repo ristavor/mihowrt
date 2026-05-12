@@ -27,6 +27,7 @@ export PATH="$tmpbin:$PATH"
 source_install_lib
 REAL_QUIESCE_POSTINSTALL_SERVICE="$(declare -f quiesce_postinstall_service)"
 REAL_INSTALL_SERVICE_RUNNING="$(declare -f service_running)"
+REAL_MIGRATE_RESTORED_POLICY_LISTS="$(declare -f migrate_restored_policy_lists)"
 
 INIT_SCRIPT="$tmpdir/init.sh"
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
@@ -126,6 +127,11 @@ restore_user_state() {
 	return 0
 }
 
+migrate_restored_policy_lists() {
+	printf 'migrate_restored_policy_lists\n' >>"$event_log"
+	return 0
+}
+
 preserve_backup_dir() {
 	printf 'preserve_backup_dir\n' >>"$event_log"
 }
@@ -196,6 +202,15 @@ service_running() {
 	return "${TEST_SERVICE_RUNNING_RC:-0}"
 }
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
+
+: > "$orch_log"
+eval "$REAL_MIGRATE_RESTORED_POLICY_LISTS"
+assert_true "migrate_restored_policy_lists should invoke installed orchestrator when present" migrate_restored_policy_lists
+assert_file_contains "$orch_log" "migrate-policy-lists" "migrate_restored_policy_lists should run policy list migration command"
+migrate_restored_policy_lists() {
+	printf 'migrate_restored_policy_lists\n' >>"$event_log"
+	return 0
+}
 
 : > "$event_log"
 : > "$init_log"
@@ -684,6 +699,7 @@ assert_file_contains "$event_log" "install_package:1:$tmpdir/downloaded.apk" "pe
 assert_file_contains "$event_log" "verify_required_packages" "perform_package_action should verify required packages"
 assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should quiesce postinstall service on reinstall"
 assert_file_contains "$event_log" "restore_user_state" "perform_package_action should restore saved user state on reinstall"
+assert_file_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should migrate restored policy lists on reinstall"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state on reinstall"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after reinstall"
 assert_file_not_contains "$event_log" "start_fresh_install_service" "perform_package_action should not use fresh-install branch for reinstall"
@@ -798,6 +814,7 @@ restore_user_state() {
 assert_false "perform_package_action should fail when restore_user_state fails" perform_package_action
 assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should still quiesce service before restore"
 assert_file_contains "$event_log" "restore_user_state" "perform_package_action should try restoring saved state"
+assert_file_not_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should not migrate policy lists after restore failure"
 assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when restore fails"
 assert_file_contains "$event_log" "err:failed to restore saved config and policy state" "perform_package_action should report restore failure"
 assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after restore failure"
@@ -836,12 +853,38 @@ restore_user_state() {
 }
 
 : > "$event_log"
+: > "$init_log"
+kernel_backup_available() {
+	return 0
+}
+restore_kernel_backup() {
+	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 0
+}
+migrate_restored_policy_lists() {
+	printf 'migrate_restored_policy_lists\n' >>"$event_log"
+	return 1
+}
+assert_false "perform_package_action should fail when restored policy list migration fails" perform_package_action
+assert_file_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should attempt policy list migration after restore"
+assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel after migration failure"
+assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when migration fails"
+assert_file_contains "$event_log" "err:failed to migrate restored policy list syntax" "perform_package_action should report policy list migration failure"
+assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after migration failure"
+assert_file_contains "$init_log" "disable" "perform_package_action should disable service after migration failure"
+
+: > "$event_log"
 kernel_backup_available() {
 	return 0
 }
 
 restore_kernel_backup() {
 	printf 'restore_kernel_backup\n' >>"$event_log"
+	return 0
+}
+
+migrate_restored_policy_lists() {
+	printf 'migrate_restored_policy_lists\n' >>"$event_log"
 	return 0
 }
 

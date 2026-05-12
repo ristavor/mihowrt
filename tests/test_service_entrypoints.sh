@@ -333,6 +333,19 @@ update_policy_lists_output="$(
 )"
 assert_eq "updated=0" "$update_policy_lists_output" "update-policy-lists command should dispatch to remote list updater"
 
+migrate_policy_lists_output="$(
+	set -- migrate-policy-lists
+	migrate_policy_list_files() {
+		printf 'migrated\n'
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "migrated" "$migrate_policy_lists_output" "migrate-policy-lists command should dispatch to policy list migration helper"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {

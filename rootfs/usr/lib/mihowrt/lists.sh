@@ -4,6 +4,89 @@ ensure_policy_files() {
 	ensure_dir "$LIST_DIR"
 }
 
+policy_entry_has_legacy_colon_ports() {
+	case "$1" in
+		*';'*|*:*:*)
+			return 1
+			;;
+		*:*)
+			is_policy_entry "$1" && policy_entry_has_ports "$1"
+			return $?
+			;;
+	esac
+
+	return 1
+}
+
+policy_entry_legacy_colon_to_semicolon() {
+	local value="$1"
+
+	policy_entry_has_legacy_colon_ports "$value" || return 1
+	printf '%s;%s' "${value%:*}" "${value##*:}"
+}
+
+policy_list_file_needs_migration() {
+	local file="$1"
+	local line="" trimmed=""
+
+	[ -f "$file" ] || return 1
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		trimmed="$(trim "$line")"
+		case "$trimmed" in
+			''|'#'*) continue ;;
+		esac
+
+		policy_entry_has_legacy_colon_ports "$trimmed" && return 0
+	done < "$file"
+
+	return 1
+}
+
+migrate_policy_list_file() {
+	local file="$1"
+	local tmp="" line="" trimmed="" migrated=""
+
+	[ -f "$file" ] || return 0
+	policy_list_file_needs_migration "$file" || return 0
+
+	tmp="$(mktemp "/tmp/mihowrt-policy-list.XXXXXX")" || return 1
+	while IFS= read -r line || [ -n "$line" ]; do
+		trimmed="$(trim "$line")"
+		if policy_entry_has_legacy_colon_ports "$trimmed"; then
+			migrated="$(policy_entry_legacy_colon_to_semicolon "$trimmed")" || {
+				rm -f "$tmp"
+				return 1
+			}
+			printf '%s\n' "$migrated"
+		else
+			printf '%s\n' "$line"
+		fi
+	done < "$file" > "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+
+	if cmp -s "$tmp" "$file" 2>/dev/null; then
+		rm -f "$tmp"
+		return 0
+	fi
+
+	cat "$tmp" > "$file" || {
+		rm -f "$tmp"
+		return 1
+	}
+	rm -f "$tmp"
+	log "Migrated legacy policy list port syntax in $file"
+}
+
+migrate_policy_list_files() {
+	ensure_policy_files || return 1
+	migrate_policy_list_file "$DST_LIST_FILE" || return 1
+	migrate_policy_list_file "$SRC_LIST_FILE" || return 1
+	migrate_policy_list_file "$DIRECT_DST_LIST_FILE" || return 1
+}
+
 policy_remote_list_max_bytes() {
 	local max_bytes="${POLICY_REMOTE_LIST_MAX_BYTES:-262144}"
 

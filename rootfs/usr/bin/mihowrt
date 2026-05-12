@@ -193,6 +193,9 @@ run_service() {
 	update-policy-lists)
 		with_runtime_lock update_runtime_policy_lists
 		;;
+	migrate-policy-lists)
+		migrate_policy_list_files
+		;;
 	service-running)
 		service_running_state
 		;;
@@ -265,7 +268,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-policy-lists|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

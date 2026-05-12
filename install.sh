@@ -665,6 +665,11 @@ restore_user_state() {
 	restore_file_or_remove direct_dst.txt /opt/clash/lst/direct_dst.txt || return 1
 }
 
+migrate_restored_policy_lists() {
+	[ -x "$ORCHESTRATOR" ] || return 0
+	"$ORCHESTRATOR" migrate-policy-lists >/dev/null 2>&1
+}
+
 service_enabled() {
 	[ -x "$INIT_SCRIPT" ] || return 1
 	"$INIT_SCRIPT" enabled >/dev/null 2>&1
@@ -2160,6 +2165,22 @@ perform_package_action() {
 			preserve_backup_dir
 			end_install_transaction
 			err "failed to restore saved config and policy state"
+			return 1
+		fi
+		log "Migrating restored policy lists..."
+		if ! migrate_restored_policy_lists; then
+			if [ -x "$INIT_SCRIPT" ]; then
+				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+			fi
+			if kernel_backup_available; then
+				if ! restore_kernel_backup; then
+					preserve_kernel_backup_dir
+					warn "failed to restore previous Mihomo kernel after policy-list migration failure"
+				fi
+			fi
+			preserve_backup_dir
+			end_install_transaction
+			err "failed to migrate restored policy list syntax"
 			return 1
 		fi
 		if ! restore_runtime_state; then

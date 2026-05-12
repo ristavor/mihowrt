@@ -179,4 +179,22 @@ cat > "$DST_LIST_FILE" <<'EOF'
 EOF
 assert_eq "6" "$(count_valid_list_entries "$DST_LIST_FILE")" "count_valid_list_entries should count port-scoped policy entries"
 
+cat > "$DST_LIST_FILE" <<'EOF'
+# keep comment
+1.1.1.1:443
+:53
+100.100.100.0/24:15-2000
+https://example.com/list.txt
+https://example.com/list.txt;443
+bad:value
+2.2.2.2;8443
+EOF
+migrate_policy_list_file "$DST_LIST_FILE"
+assert_eq $'# keep comment\n1.1.1.1;443\n;53\n100.100.100.0/24;15-2000\nhttps://example.com/list.txt\nhttps://example.com/list.txt;443\nbad:value\n2.2.2.2;8443' "$(cat "$DST_LIST_FILE")" "migrate_policy_list_file should convert legacy colon policy ports only"
+touch -d '2024-01-01 00:00:00' "$DST_LIST_FILE"
+before_migration_mtime="$(stat -c %Y "$DST_LIST_FILE")"
+migrate_policy_list_file "$DST_LIST_FILE"
+after_migration_mtime="$(stat -c %Y "$DST_LIST_FILE")"
+assert_eq "$before_migration_mtime" "$after_migration_mtime" "migrate_policy_list_file should skip rewrites when no legacy entries remain"
+
 pass "policy validation helpers"

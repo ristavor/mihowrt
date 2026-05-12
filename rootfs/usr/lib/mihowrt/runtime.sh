@@ -115,5 +115,6 @@ setup_clash_runtime_dirs() {
 
 init_runtime_layout() {
 	ensure_policy_files || return 1
+	migrate_policy_list_files || return 1
 	setup_clash_runtime_dirs
 }

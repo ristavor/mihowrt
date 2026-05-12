@@ -30,6 +30,7 @@ extract_postinst() {
 		sed \
 			-e "s|\$(PKG_CONFIG_BACKUP_FILE)|$backup_path|g" \
 			-e "s|/opt/clash/config.yaml|$live_config|g" \
+			-e 's|/usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1|true|g' \
 			-e 's|/usr/bin/mihowrt init-layout >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/rpcd reload|true|g' \
@@ -46,6 +47,9 @@ extract_prerm() {
 }
 
 mkdir -p "$(dirname "$live_config")"
+
+extract_hook "postinst" > "$tmpdir/postinst.raw"
+assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-policy-lists" "postinst should migrate legacy policy list syntax on package upgrade"
 
 extract_postinst > "$script_path"
 chmod +x "$script_path"

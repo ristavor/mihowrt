@@ -60,4 +60,8 @@ assert_true "installer version_ge should accept newer version" installer_version
 assert_false "runtime version_ge should reject older version" version_ge "1.2.2" "1.2.3"
 assert_false "installer version_ge should reject older version" installer_version_ge "1.2.2" "1.2.3"
 
+makefile_pkg_version="$(sed -n 's/^PKG_VERSION:=//p' "$ROOT_DIR/Makefile")"
+runtime_pkg_version="$(sed -n 's/^PKG_VERSION="\([^"]*\)"/\1/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh")"
+assert_eq "$makefile_pkg_version" "$runtime_pkg_version" "runtime package version should match Makefile version for subscription User-Agent"
+
 pass "version helper parity"

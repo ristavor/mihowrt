@@ -3,13 +3,13 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.4
+PKG_VERSION:=0.5
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 
 LUCI_TITLE:=LuCI Support for MihoWRT
-LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy
+LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy +@wget-any
 LUCI_PKGARCH:=all
 
 PKG_BUILD_DEPENDS:=luci-base/host
@@ -26,7 +26,7 @@ define Package/$(PKG_NAME)
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI interface and direct-first nft policy layer for MihoWRT on OpenWrt 25.12 APK systems.
+	LuCI interface and nft policy layer for MihoWRT on OpenWrt 25.12 APK systems.
 endef
 
 define Build/Prepare

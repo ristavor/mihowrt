@@ -52,6 +52,9 @@ function createContext(overrides = {}) {
 		enableDisableButton: { disabled: false },
 		dashboardButton: { disabled: false },
 		saveApplyButton: { disabled: false },
+		subscriptionUrlInput: { disabled: false },
+		subscriptionSaveButton: { disabled: false },
+		subscriptionFetchButton: { disabled: false },
 		editor: {
 			getValue: () => 'mode: direct\n'
 		},
@@ -118,9 +121,13 @@ let startStopButton = globalThis.startStopButton;
 let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
 let saveApplyButton = globalThis.saveApplyButton;
+let subscriptionUrlInput = globalThis.subscriptionUrlInput;
+let subscriptionSaveButton = globalThis.subscriptionSaveButton;
+let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let editor = globalThis.editor;
 let serviceActionInFlight = false;
 let saveInFlight = false;
+let subscriptionInFlight = false;
 let savedConfigContent = 'mode: old\\n';
 ${controlsFnSource}
 ${updateFnSource}

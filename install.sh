@@ -43,7 +43,7 @@ SKIP_START_FILE="/tmp/${PKG_NAME}.skip-start"
 CLASH_DIR="/opt/clash"
 CLASH_BIN="${CLASH_DIR}/bin/clash"
 KERNEL_TMP_DIR="/tmp/mihowrt/kernel-update"
-REQUIRED_REPO_PACKAGES="luci-base nftables jq kmod-nft-tproxy"
+REQUIRED_REPO_PACKAGES="luci-base nftables jq kmod-nft-tproxy wget-any"
 REINSTALL_HOLD_VIRTUAL="${PKG_NAME}-reinstall-deps"
 REQUIRED_APK_PACKAGES="${PKG_NAME} ${REQUIRED_REPO_PACKAGES}"
 MISSING_PACKAGES=""
@@ -527,6 +527,13 @@ package_requirement_present() {
 			package_present nftables-json ||
 			package_present nftables-nojson ||
 			have_command nft
+			;;
+		wget|wget-any)
+			package_present wget ||
+			package_present wget-ssl ||
+			package_present wget-nossl ||
+			package_present uclient-fetch ||
+			have_command wget
 			;;
 		*)
 			package_present "$1"

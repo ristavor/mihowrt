@@ -124,6 +124,22 @@ package_present() {
 }
 assert_true "package_requirement_present should accept ordinary package presence" package_requirement_present "jq"
 
+package_present() {
+	[[ "$1" == "uclient-fetch" ]]
+}
+have_command() {
+	return 1
+}
+assert_true "package_requirement_present should accept wget provider packages" package_requirement_present "wget-any"
+
+package_present() {
+	return 1
+}
+have_command() {
+	[[ "$1" == "wget" ]]
+}
+assert_true "package_requirement_present should accept preinstalled wget command" package_requirement_present "wget-any"
+
 package_requirement_present() {
 	[[ "$1" == "pkg1" ]]
 }

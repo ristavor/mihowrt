@@ -15,11 +15,15 @@ let startStopButton = null;
 let enableDisableButton = null;
 let dashboardButton = null;
 let saveApplyButton = null;
+let subscriptionUrlInput = null;
+let subscriptionSaveButton = null;
+let subscriptionFetchButton = null;
 let serviceStatusBadge = null;
 let serviceEnabledBadge = null;
 let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
+let subscriptionInFlight = false;
 let savedConfigContent = '';
 let lastServiceState = {
 	running: false,
@@ -28,7 +32,7 @@ let lastServiceState = {
 };
 
 function controlsBusy() {
-	return serviceActionInFlight || saveInFlight;
+	return serviceActionInFlight || saveInFlight || subscriptionInFlight;
 }
 
 function updateControlDisabledState() {
@@ -42,6 +46,12 @@ function updateControlDisabledState() {
 		dashboardButton.disabled = disabled;
 	if (saveApplyButton)
 		saveApplyButton.disabled = disabled;
+	if (subscriptionUrlInput)
+		subscriptionUrlInput.disabled = disabled;
+	if (subscriptionSaveButton)
+		subscriptionSaveButton.disabled = disabled;
+	if (subscriptionFetchButton)
+		subscriptionFetchButton.disabled = disabled;
 }
 
 async function withServiceActionLock(fn) {
@@ -403,12 +413,48 @@ async function restartRunningService(wasRunning) {
 	}
 }
 
+function subscriptionStateErrorDetail(state) {
+	const errors = Array.isArray(state?.errors) ? state.errors.map(String).filter(Boolean) : [];
+	return errors.join('; ') || _('unknown error');
+}
+
+function subscriptionUrlInputValue(input = subscriptionUrlInput) {
+	return String(input?.value || '').trim();
+}
+
+async function withSubscriptionLock(fn) {
+	subscriptionInFlight = true;
+	updateControlDisabledState();
+
+	try {
+		return await fn();
+	}
+	finally {
+		subscriptionInFlight = false;
+		updateControlDisabledState();
+	}
+}
+
+async function loadSubscriptionIntoEditor(subscriptionUrl) {
+	if (!editor)
+		throw new Error(_('Editor is still loading. Please try again in a moment.'));
+
+	const contents = await backendHelper.fetchSubscription(subscriptionUrl);
+	editor.setValue(editorContentForSave(contents), -1);
+	return contents;
+}
+
 return view.extend({
 	load: function() {
-		return L.resolveDefault(fs.read(CLASH_CONFIG), '');
+		return Promise.all([
+			L.resolveDefault(fs.read(CLASH_CONFIG), ''),
+			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] })
+		]);
 	},
 
-	render: async function(config) {
+	render: async function(data) {
+		const config = data?.[0] ?? '';
+		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
 		let serviceState = lastServiceState;
 		try {
 			serviceState = await readServiceState();
@@ -416,11 +462,54 @@ return view.extend({
 		catch (e) {
 			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
 		}
+		if (subscriptionState.errors && subscriptionState.errors.length)
+			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(subscriptionStateErrorDetail(subscriptionState)), 'warning');
 		savedConfigContent = editorContentForSave(config);
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'
 		});
+
+		const persistSubscriptionUrl = async function(value) {
+			await backendHelper.saveSubscriptionUrl(value);
+		};
+
+		const saveSubscription = async function() {
+			if (controlsBusy())
+				return;
+
+			await withSubscriptionLock(async () => {
+				const value = subscriptionUrlInputValue();
+				await persistSubscriptionUrl(value);
+				mihowrtUi.notify(value ? _('Subscription URL saved.') : _('Subscription disabled.'), 'info');
+			}).catch(e => {
+				mihowrtUi.notify(_('Unable to save subscription URL: %s').format(e.message), 'error');
+			});
+		};
+
+		const fetchSubscription = async function() {
+			if (controlsBusy())
+				return;
+
+			await withSubscriptionLock(async () => {
+				const value = subscriptionUrlInputValue();
+				if (!value) {
+					mihowrtUi.notify(_('Subscription URL is empty.'), 'warning');
+					return;
+				}
+
+				await persistSubscriptionUrl(value);
+				const contents = await loadSubscriptionIntoEditor(value);
+				if (!contents) {
+					mihowrtUi.notify(_('Subscription returned empty config.'), 'error');
+					return;
+				}
+
+				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');
+			}).catch(e => {
+				mihowrtUi.notify(_('Unable to fetch subscription: %s').format(e.message), 'error');
+			});
+		};
 
 		const saveAndApply = async function() {
 			if (controlsBusy())
@@ -521,14 +610,32 @@ return view.extend({
 			]),
 			E('h2', _('Mihomo YAML Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
-				editorNode,
-				E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
-					(saveApplyButton = E('button', {
-						class: 'btn cbi-button-apply',
-						click: saveAndApply
-					}, _('Validate & Apply Config')))
-				])
-			]);
+			E('div', {
+				style: 'margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
+			}, [
+				(subscriptionUrlInput = E('input', {
+					type: 'url',
+					value: String(subscriptionState.subscriptionUrl || ''),
+					placeholder: _('Subscription URL'),
+					style: 'flex: 1 1 360px; min-width: 220px; max-width: 100%;'
+				})),
+				(subscriptionSaveButton = E('button', {
+					class: 'btn',
+					click: saveSubscription
+				}, _('Save Subscription URL'))),
+				(subscriptionFetchButton = E('button', {
+					class: 'btn cbi-button-action',
+					click: fetchSubscription
+				}, _('Fetch Subscription')))
+			]),
+			editorNode,
+			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
+				(saveApplyButton = E('button', {
+					class: 'btn cbi-button-apply',
+					click: saveAndApply
+				}, _('Validate & Apply Config')))
+			])
+		]);
 
 		applyServiceState(serviceState.running, serviceState.enabled);
 		updateControlDisabledState();

@@ -9,8 +9,8 @@ and TPROXY listener. MihoWRT wraps that with OpenWrt-specific glue:
 
 - LuCI pages for service control, Mihomo config editing, traffic policy,
   and diagnostics.
-- A direct-first nftables policy that marks selected IPv4 traffic and
-  sends it to Mihomo through TPROXY.
+- Direct-first and proxy-first nftables policy modes that send selected
+  IPv4 traffic to Mihomo through TPROXY.
 - Policy routing for marked packets.
 - Optional DNS/53 redirect from selected client interfaces.
 - `dnsmasq` upstream redirection to Mihomo DNS while the policy layer is
@@ -34,6 +34,7 @@ luci-base
 jq
 nftables
 kmod-nft-tproxy
+wget-any (wget provider)
 ```
 
 The runtime also expects normal OpenWrt base tools and services:
@@ -112,6 +113,7 @@ Main runtime files:
 /opt/clash/config.yaml
 /opt/clash/lst/always_proxy_dst.txt
 /opt/clash/lst/always_proxy_src.txt
+/opt/clash/lst/direct_dst.txt
 ```
 
 Mihomo dashboard UI is not stored in this repository. The default
@@ -141,7 +143,7 @@ Persistent recovery state:
 /etc/apk/protected_paths.d/mihowrt.list
 ```
 
-`/opt/clash/config.yaml` and both policy list files are package
+`/opt/clash/config.yaml` and policy list files are package
 conffiles. APK protected paths also mark them as user-owned state.
 Updates should preserve user edits and explicit user deletion of default
 list files.
@@ -152,7 +154,7 @@ Mihomo config, policy list directory, and persistent DNS recovery state.
 
 ## Source Of Truth
 
-MihoWRT has three user-controlled inputs.
+MihoWRT has four user-controlled inputs.
 
 1. `/opt/clash/config.yaml`
 
@@ -187,15 +189,22 @@ MihoWRT has three user-controlled inputs.
    option disable_quic '1'
    option route_table_id ''
    option route_rule_priority ''
+   option subscription_url ''
    ```
 
    Empty `route_table_id` and `route_rule_priority` mean auto-select.
+   Empty `subscription_url` means no subscription is configured.
 
 3. `/opt/clash/lst/always_proxy_dst.txt` and
    `/opt/clash/lst/always_proxy_src.txt`
 
    These lists define traffic that must be sent to Mihomo before Mihomo
    rule matching. See "Traffic Policy Lists" below.
+
+4. `/opt/clash/lst/direct_dst.txt`
+
+   In proxy-first mode, this list defines destination IPs or destination
+   IP + port rules that bypass Mihomo.
 
 Runtime snapshots in `/var/run/mihowrt` are not a source of truth. They
 describe what is currently applied so reload, diagnostics, and cleanup
@@ -216,6 +225,11 @@ Buttons:
 - `Enable Autostart`: enables `/etc/init.d/mihowrt`.
 - `Disable Autostart`: disables `/etc/init.d/mihowrt`.
 - `Open Mihomo Dashboard`: opens the configured Mihomo external UI.
+- `Save Subscription URL`: stores the subscription URL in UCI without
+  changing the active Mihomo config.
+- `Fetch Subscription`: downloads the subscription with `wget`, using
+  `mihowrt/<package-version>` as User-Agent, and loads the result into
+  the editor. The config is not saved until `Validate & Apply Config`.
 - `Validate & Apply Config`: validates YAML through Mihomo, validates
   required MihoWRT runtime fields, writes the config only after
   validation succeeds, and restarts MihoWRT if it was running.
@@ -225,11 +239,11 @@ the live config until both checks pass:
 
 1. Mihomo accepts the YAML with `-t`.
 2. MihoWRT can read valid DNS listen, TPROXY port, routing mark, and
-   fake-ip settings if fake-ip mode is enabled.
+   fake-ip settings.
 
 ### Traffic Policy
 
-This page edits `/etc/config/mihowrt` and both policy list files.
+This page edits `/etc/config/mihowrt` and policy list files.
 
 Standard LuCI save buttons keep their normal meaning:
 
@@ -522,11 +536,12 @@ Applying policy creates:
 /var/run/mihowrt/runtime.snapshot.json
 /var/run/mihowrt/always_proxy_dst.snapshot
 /var/run/mihowrt/always_proxy_src.snapshot
+/var/run/mihowrt/direct_dst.snapshot
 ```
 
 The snapshot records applied UCI settings, parsed Mihomo runtime fields,
 effective route table/priority, source interfaces, fake-ip state, and
-copies of both policy list files.
+copies of policy list files.
 
 Reload behavior:
 
@@ -627,7 +642,7 @@ For package install/update:
 3. Back up:
    - `/opt/clash/config.yaml`
    - `/etc/config/mihowrt`
-   - both policy list files
+   - policy list files
    - `/etc/mihowrt/dns.backup`
 4. Hold required dependencies with an APK virtual package when supported.
 5. Restore system DNS/routing defaults before update.

@@ -165,6 +165,23 @@ run_service() {
 		}
 		apply_config_contents "$2"
 		;;
+	subscription-json)
+		subscription_url_json
+		;;
+	set-subscription-url)
+		[ "${2+x}" = x ] || {
+			echo "Usage: $0 set-subscription-url <url>" >&2
+			exit 1
+		}
+		set_subscription_url "$2"
+		;;
+	fetch-subscription)
+		[ -n "${2:-}" ] || {
+			echo "Usage: $0 fetch-subscription <url>" >&2
+			exit 1
+		}
+		fetch_subscription_config "$2"
+		;;
 	status-json)
 		status_json
 		;;
@@ -175,7 +192,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

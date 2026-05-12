@@ -15,6 +15,8 @@ const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\
 const uiPathMatch = source.match(/function computeUiPath[\s\S]*?\n}\n\nasync function openDashboard/);
 const dashboardMatch = source.match(/async function openDashboard[\s\S]*?\n}\n\nasync function initializeAceEditor/);
 const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nasync function restartRunningService/);
+const subscriptionStateMatch = source.match(/function subscriptionStateErrorDetail[\s\S]*?\n}\n\nfunction subscriptionUrlInputValue/);
+const subscriptionInputMatch = source.match(/function subscriptionUrlInputValue[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
 const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceEnabledToggleLabel/);
 const serviceEnabledLabelMatch = source.match(/function serviceEnabledToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
@@ -29,6 +31,10 @@ if (!dashboardMatch)
 	throw new Error('openDashboard() not found');
 if (!editorMatch)
 	throw new Error('editorContentForSave() not found');
+if (!subscriptionStateMatch)
+	throw new Error('subscriptionStateErrorDetail() not found');
+if (!subscriptionInputMatch)
+	throw new Error('subscriptionUrlInputValue() not found');
 if (!busyMatch)
 	throw new Error('controlsBusy() not found');
 if (!serviceLabelMatch)
@@ -46,6 +52,8 @@ const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
 const uiPathFnSource = uiPathMatch[0].replace(/\n\nasync function openDashboard$/, '');
 const dashboardFnSource = dashboardMatch[0].replace(/\n\nasync function initializeAceEditor$/, '');
 const editorFnSource = editorMatch[0].replace(/\n\nasync function restartRunningService$/, '');
+const subscriptionStateFnSource = subscriptionStateMatch[0].replace(/\n\nfunction subscriptionUrlInputValue$/, '');
+const subscriptionInputFnSource = subscriptionInputMatch[0].replace(/\n\nasync function withSubscriptionLock$/, '');
 const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
 const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceEnabledToggleLabel$/, '');
 const serviceEnabledLabelFnSource = serviceEnabledLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');
@@ -53,10 +61,12 @@ const serviceTextFnSource = serviceTextMatch[0].replace(/\n\nfunction serviceBad
 const serviceColorFnSource = serviceColorMatch[0].replace(/\n\nfunction serviceEnabledBadgeText$/, '');
 const context = {};
 vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceEnabledLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceEnabledToggleLabel = serviceEnabledToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; };`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false; let subscriptionInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${subscriptionStateFnSource}\n${subscriptionInputFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceEnabledLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.subscriptionStateErrorDetail = subscriptionStateErrorDetail;\nglobalThis.subscriptionUrlInputValue = subscriptionUrlInputValue;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceEnabledToggleLabel = serviceEnabledToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; subscriptionInFlight = subscriptionBusy; };`, context);
 
 const normalize = context.normalizeHostPortFromAddr;
 const editorContentForSave = context.editorContentForSave;
+const subscriptionStateErrorDetail = context.subscriptionStateErrorDetail;
+const subscriptionUrlInputValue = context.subscriptionUrlInputValue;
 const controlsBusy = context.controlsBusy;
 const serviceToggleLabel = context.serviceToggleLabel;
 const serviceEnabledToggleLabel = context.serviceEnabledToggleLabel;
@@ -87,6 +97,10 @@ assertHostPort('', fallbackHost, fallbackPort, 'Empty controller should keep fal
 assertEq(editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
 assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
 assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
+assertEq(subscriptionStateErrorDetail({ errors: ['first', '', 'second'] }), 'first; second', 'subscriptionStateErrorDetail should join non-empty errors');
+assertEq(subscriptionStateErrorDetail({ errors: [] }), 'unknown error', 'subscriptionStateErrorDetail should fallback on empty errors');
+assertEq(subscriptionUrlInputValue({ value: ' https://example.com/sub.yaml ' }), 'https://example.com/sub.yaml', 'subscriptionUrlInputValue should trim pasted URLs');
+assertEq(subscriptionUrlInputValue({}), '', 'subscriptionUrlInputValue should tolerate empty inputs');
 assertEq(serviceToggleLabel(true), 'Stop MihoWRT', 'serviceToggleLabel should render running action');
 assertEq(serviceToggleLabel(false), 'Start MihoWRT', 'serviceToggleLabel should render stopped action');
 assertEq(serviceEnabledToggleLabel(true), 'Disable Autostart', 'serviceEnabledToggleLabel should render disable-boot action');
@@ -95,12 +109,14 @@ assertEq(serviceBadgeText(true), 'MihoWRT is running', 'serviceBadgeText should 
 assertEq(serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
 assertEq(serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');
 assertEq(serviceBadgeColor(false), '#d9534f', 'serviceBadgeColor should use stopped color');
-context.setBusyFlags(false, false);
+context.setBusyFlags(false, false, false);
 assertEq(String(controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
-context.setBusyFlags(true, false);
+context.setBusyFlags(true, false, false);
 assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
-context.setBusyFlags(false, true);
+context.setBusyFlags(false, true, false);
 assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save is running');
+context.setBusyFlags(false, false, true);
+assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
 
 	(async () => {
 		const notifications = [];

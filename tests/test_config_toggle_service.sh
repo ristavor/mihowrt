@@ -41,7 +41,10 @@ function assertDisabledState(context, expected, message) {
 		context.startStopButton.disabled,
 		context.enableDisableButton.disabled,
 		context.dashboardButton.disabled,
-		context.saveApplyButton.disabled
+		context.saveApplyButton.disabled,
+		context.subscriptionUrlInput.disabled,
+		context.subscriptionSaveButton.disabled,
+		context.subscriptionFetchButton.disabled
 	];
 
 	if (actual.some(value => value !== expected))
@@ -69,6 +72,9 @@ function createContext(initialState) {
 		enableDisableButton: { disabled: false },
 		dashboardButton: { disabled: false },
 		saveApplyButton: { disabled: false },
+		subscriptionUrlInput: { disabled: false },
+		subscriptionSaveButton: { disabled: false },
+		subscriptionFetchButton: { disabled: false },
 		stopServiceCalls: 0,
 		startServiceCalls: 0,
 		notifications: [],
@@ -109,8 +115,12 @@ let startStopButton = globalThis.startStopButton;
 let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
 let saveApplyButton = globalThis.saveApplyButton;
+let subscriptionUrlInput = globalThis.subscriptionUrlInput;
+let subscriptionSaveButton = globalThis.subscriptionSaveButton;
+let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let serviceActionInFlight = false;
 let saveInFlight = false;
+let subscriptionInFlight = false;
 ${controlsFnSource}
 ${updateFnSource}
 ${lockFnSource}

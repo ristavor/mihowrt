@@ -268,6 +268,45 @@ assert_eq "mode: direct
 dns:
   listen: 0.0.0.0:7874" "$apply_config_contents_output" "apply-config-contents command should forward raw config contents"
 
+subscription_json_output="$(
+	set -- subscription-json
+	subscription_url_json() {
+		printf 'subscription-json\n'
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "subscription-json" "$subscription_json_output" "subscription-json command should dispatch to subscription JSON helper"
+
+set_subscription_output="$(
+	set -- set-subscription-url "https://example.com/sub.yaml"
+	set_subscription_url() {
+		printf '%s\n' "$1"
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "https://example.com/sub.yaml" "$set_subscription_output" "set-subscription-url command should forward URL"
+
+fetch_subscription_output="$(
+	set -- fetch-subscription "https://example.com/sub.yaml"
+	fetch_subscription_config() {
+		printf '%s\n' "$1"
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "https://example.com/sub.yaml" "$fetch_subscription_output" "fetch-subscription command should forward URL"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {

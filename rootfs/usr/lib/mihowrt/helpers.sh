@@ -971,6 +971,111 @@ apply_config_contents() {
 	apply_config_file "$candidate"
 }
 
+subscription_user_agent() {
+	printf 'mihowrt/%s' "${PKG_VERSION:-unknown}"
+}
+
+is_subscription_url() {
+	local url="$1"
+
+	case "$url" in
+		''|*[[:space:]]*)
+			return 1
+			;;
+		http:///*|https:///*)
+			return 1
+			;;
+		http://?*|https://?*)
+			return 0
+			;;
+	esac
+
+	return 1
+}
+
+subscription_url_json() {
+	local subscription_url=""
+
+	require_command jq || return 1
+	require_command uci || return 1
+	subscription_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true)"
+
+	jq -nc --arg subscription_url "$subscription_url" '{ subscription_url: $subscription_url }'
+}
+
+set_subscription_url() {
+	local url=""
+
+	url="$(trim "${1:-}")"
+	if [ -n "$url" ] && ! is_subscription_url "$url"; then
+		err "Invalid subscription URL: use http:// or https:// without whitespace"
+		return 1
+	fi
+
+	require_command uci || return 1
+	uci -q set "${PKG_CONFIG:-mihowrt}.settings=settings" || {
+		err "Failed to prepare subscription UCI section"
+		return 1
+	}
+
+	if [ -n "$url" ]; then
+		uci -q set "${PKG_CONFIG:-mihowrt}.settings.subscription_url=$url" || {
+			err "Failed to store subscription URL"
+			return 1
+		}
+	else
+		uci -q delete "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true
+	fi
+
+	uci -q commit "${PKG_CONFIG:-mihowrt}" || {
+		err "Failed to commit subscription URL"
+		return 1
+	}
+}
+
+fetch_subscription_config() {
+	local url="" output="" size="" rc=0 max_bytes="${SUBSCRIPTION_MAX_BYTES:-4194304}"
+	local timeout="${SUBSCRIPTION_FETCH_TIMEOUT:-30}"
+
+	url="$(trim "${1:-}")"
+	if ! is_subscription_url "$url"; then
+		err "Invalid subscription URL: use http:// or https:// without whitespace"
+		return 1
+	fi
+
+	require_command wget || return 1
+	require_command mktemp || return 1
+
+	output="$(mktemp /tmp/mihowrt-subscription.XXXXXX)" || {
+		err "Failed to allocate temporary subscription path"
+		return 1
+	}
+
+	if ! wget -q -T "$timeout" -U "$(subscription_user_agent)" -O "$output" "$url"; then
+		err "Failed to fetch subscription from $url"
+		rm -f "$output"
+		return 1
+	fi
+
+	if [ ! -s "$output" ]; then
+		err "Subscription returned empty config"
+		rm -f "$output"
+		return 1
+	fi
+
+	size="$(wc -c < "$output" 2>/dev/null | tr -d '[:space:]')"
+	if is_uint "$max_bytes" && is_uint "$size" && [ "$size" -gt "$max_bytes" ]; then
+		err "Subscription config is too large: $size bytes, limit $max_bytes"
+		rm -f "$output"
+		return 1
+	fi
+
+	cat "$output"
+	rc=$?
+	rm -f "$output"
+	return "$rc"
+}
+
 logs_json() {
 	local limit="${1:-200}"
 	local logread_cmd="" lines=""

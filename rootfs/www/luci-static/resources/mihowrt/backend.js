@@ -87,6 +87,13 @@ function emptyLogState() {
 	};
 }
 
+function emptySubscriptionState() {
+	return {
+		subscriptionUrl: '',
+		errors: []
+	};
+}
+
 function tempConfigPath() {
 	const suffix = '%s-%s'.format(Date.now(), Math.floor(Math.random() * 0x100000000).toString(16));
 	return `/tmp/mihowrt-config.${suffix}`;
@@ -176,6 +183,43 @@ return baseclass.extend({
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
+	},
+
+	readSubscriptionUrl: async function() {
+		const state = emptySubscriptionState();
+
+		try {
+			const result = await fs.exec(BACKEND, [ 'subscription-json' ]);
+
+			if (result.code !== 0) {
+				state.errors = [ execHelper.errorDetail(result) ];
+				return state;
+			}
+
+			const payload = JSON.parse(result.stdout || '{}');
+			state.subscriptionUrl = String(payload.subscription_url || '');
+			return state;
+		}
+		catch (e) {
+			state.errors = [ e.message || String(e) ];
+			return state;
+		}
+	},
+
+	saveSubscriptionUrl: async function(subscriptionUrl) {
+		const result = await fs.exec(BACKEND, [ 'set-subscription-url', String(subscriptionUrl ?? '') ]);
+
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+	},
+
+	fetchSubscription: async function(subscriptionUrl) {
+		const result = await fs.exec(BACKEND, [ 'fetch-subscription', String(subscriptionUrl ?? '') ]);
+
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+
+		return String(result.stdout || '');
 	},
 
 	readServiceState: async function() {

@@ -226,12 +226,36 @@ is_policy_port_spec() {
 	esac
 }
 
+policy_entry_has_semicolon_ports() {
+	local value="$1" ports=""
+
+	case "$value" in
+		*';'*)
+			ports="${value##*;}"
+			is_policy_port_spec "$ports"
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 is_policy_entry() {
 	local value="$1"
 	local addr ports
 
 	case "$value" in
-		''|*:*:*)
+		'')
+			return 1
+			;;
+		*';'*)
+			addr="${value%;*}"
+			ports="${value##*;}"
+			[ -n "$ports" ] || return 1
+			[ -z "$addr" ] || is_ipv4_cidr "$addr" || return 1
+			is_policy_port_spec "$ports"
+			;;
+		*:*:*)
 			return 1
 			;;
 		*:*)
@@ -248,6 +272,10 @@ is_policy_entry() {
 }
 
 policy_entry_has_ports() {
+	if policy_entry_has_semicolon_ports "$1"; then
+		return 0
+	fi
+
 	case "$1" in
 		*:*:*)
 			return 1
@@ -261,10 +289,25 @@ policy_entry_has_ports() {
 }
 
 policy_entry_ip() {
-	printf '%s' "${1%:*}"
+	if policy_entry_has_semicolon_ports "$1"; then
+		printf '%s' "${1%;*}"
+		return 0
+	fi
+
+	if policy_entry_has_ports "$1"; then
+		printf '%s' "${1%:*}"
+		return 0
+	fi
+
+	printf '%s' "$1"
 }
 
 policy_entry_ports() {
+	if policy_entry_has_semicolon_ports "$1"; then
+		printf '%s' "${1##*;}"
+		return 0
+	fi
+
 	printf '%s' "${1##*:}"
 }
 
@@ -334,6 +377,19 @@ policy_entry_normalized() {
 	else
 		printf '%s' "$value"
 	fi
+}
+
+policy_entry_with_ports() {
+	local value="$1" ports="$2" normalized_ports=""
+
+	is_policy_entry "$value" || return 1
+	policy_entry_has_ports "$value" && {
+		policy_entry_normalized "$value"
+		return $?
+	}
+
+	normalized_ports="$(policy_ports_normalized_spec "$ports")" || return 1
+	printf '%s:%s' "$value" "$normalized_ports"
 }
 
 policy_ports_nft_expr() {

@@ -113,7 +113,41 @@ policy_remote_list_effective_timeout() {
 }
 
 is_policy_remote_list_url() {
-	is_http_fetch_url "$1"
+	policy_remote_list_url "$1" >/dev/null
+}
+
+policy_remote_list_url() {
+	local value="$1" url="" ports=""
+
+	case "$value" in
+		*';'*)
+			url="${value%;*}"
+			ports="${value##*;}"
+			is_http_fetch_url "$url" || return 1
+			is_policy_port_spec "$ports" || return 1
+			printf '%s' "$url"
+			return 0
+			;;
+	esac
+
+	is_http_fetch_url "$value" || return 1
+	printf '%s' "$value"
+}
+
+policy_remote_list_ports() {
+	local value="$1" url="" ports=""
+
+	case "$value" in
+		*';'*)
+			url="${value%;*}"
+			ports="${value##*;}"
+			is_http_fetch_url "$url" || return 1
+			policy_ports_normalized_spec "$ports"
+			return $?
+			;;
+	esac
+
+	printf '%s' ''
 }
 
 count_remote_list_urls() {
@@ -175,7 +209,8 @@ policy_merge_list_file() {
 	local output="$2"
 	local label="$3"
 	local allow_urls="$4"
-	local line="" entry="" remote_file=""
+	local inherited_ports="${5:-}"
+	local line="" entry="" remote_file="" remote_url="" remote_ports=""
 	local remote_max_bytes="" remote_timeout=""
 
 	[ -f "$source" ] || return 0
@@ -192,7 +227,9 @@ policy_merge_list_file() {
 				continue
 			fi
 
-			policy_remote_list_register_url "$line" "$label" || return 1
+			remote_url="$(policy_remote_list_url "$line")" || return 1
+			remote_ports="$(policy_remote_list_ports "$line")" || return 1
+			policy_remote_list_register_url "$remote_url" "$label" || return 1
 			remote_file="$(mktemp "$PKG_TMP_DIR/policy-remote.XXXXXX")" || {
 				err "Failed to allocate temporary remote policy list path"
 				return 1
@@ -203,11 +240,11 @@ policy_merge_list_file() {
 				rm -f "$remote_file"
 				return 1
 			}
-			if ! fetch_http_body_limited "$line" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
+			if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
 				rm -f "$remote_file"
 				return 1
 			fi
-			policy_merge_list_file "$remote_file" "$output" "$line" 0 || {
+			policy_merge_list_file "$remote_file" "$output" "$remote_url" 0 "$remote_ports" || {
 				rm -f "$remote_file"
 				return 1
 			}
@@ -221,6 +258,9 @@ policy_merge_list_file() {
 		fi
 
 		entry="$(policy_entry_normalized "$line")" || return 1
+		if [ -n "$inherited_ports" ] && ! policy_entry_has_ports "$entry"; then
+			entry="$(policy_entry_with_ports "$entry" "$inherited_ports")" || return 1
+		fi
 		policy_effective_list_append_entry "$output" "$entry" || return 1
 	done < "$source"
 }

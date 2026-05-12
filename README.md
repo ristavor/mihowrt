@@ -347,9 +347,11 @@ Valid entries:
 ```text
 ip
 ip/mask
-ip:port
-ip/mask:port
-:port
+ip;port
+ip/mask;port
+;port
+http(s)://url
+http(s)://url;port
 ```
 
 Port formats:
@@ -368,6 +370,12 @@ Rules:
 - Mixed range/list syntax like `15-20,443` is intentionally invalid.
 - IPv6 entries are not supported.
 - Invalid entries are skipped and logged as warnings.
+- `;` is the preferred port separator because `:` is part of URLs.
+  Legacy `ip:port`, `ip/mask:port`, and `:port` entries are still
+  accepted for compatibility.
+- For `http(s)://url;ports`, MihoWRT fetches `http(s)://url`; the port
+  suffix is applied to unscoped IP/CIDR entries from that remote list.
+  Port-scoped entries inside the remote list keep their own ports.
 - Remote URLs inside a remote list are ignored, so lists do not recurse.
 - A remote list fetch failure fails policy apply/reload. Existing runtime
   state is kept through rollback when a snapshot exists.
@@ -389,27 +397,30 @@ Examples:
 8.8.8.0/24
 
 # Only destination port 443 for this IP
-1.1.1.1:443
+1.1.1.1;443
 
 # Destination port range for this subnet
-100.100.100.100/20:15-2000
+100.100.100.100/20;15-2000
 
 # Concrete destination ports for this IP
-1.1.1.1:15,443,8443
+1.1.1.1;15,443,8443
 
 # Any IPv4 destination/client on these ports
-:443
-:80,443
+;443
+;80,443
 
 # Merge remote entries with manual entries
 https://example.com/mihowrt-list.txt
+
+# Merge remote entries and apply ports to unscoped remote entries
+https://example.com/mihowrt-list.txt;443,8443
 ```
 
 Destination list semantics:
 
 - `always_proxy_dst.txt` matches destination address.
 - Port-qualified entries match destination port.
-- `:port` matches any IPv4 destination on that destination port.
+- `;port` matches any IPv4 destination on that destination port.
 - Destination policy applies to client traffic in prerouting and to
   router-originated traffic in output.
 
@@ -417,7 +428,7 @@ Source list semantics:
 
 - `always_proxy_src.txt` matches source/client address.
 - Port-qualified entries still filter by destination port.
-- `:port` means any IPv4 client traffic from selected source interfaces
+- `;port` means any IPv4 client traffic from selected source interfaces
   to that destination port.
 - Source policy applies only to prerouting traffic from configured
   source interfaces. It does not apply to router-originated output
@@ -469,7 +480,7 @@ Important rule order:
    `source_ifaces`.
 3. `localv4` destinations return early. Private, loopback, multicast,
    reserved, and other local IPv4 ranges are not proxied, even with
-   `:port` entries.
+   `;port` entries.
 4. Already marked packets return to avoid re-marking loops.
 5. If QUIC blocking is enabled, UDP/443 selected by policy is rejected
    before marking.
@@ -782,7 +793,7 @@ tests/
 
 - IPv6 traffic is not intercepted by MihoWRT policy rules.
 - `localv4` destinations are excluded before manual policy matching.
-  `:port` entries do not override that safety exclusion.
+  `;port` entries do not override that safety exclusion.
 - Port-qualified policy entries are direct nft rules, not interval set
   elements. Very large port-qualified lists will create more nft rules
   than IP-only lists.

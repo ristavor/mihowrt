@@ -59,6 +59,12 @@ LIST
 5.5.5.5
 LIST
 		;;
+	https://example.com/scoped-url.txt)
+		cat <<'LIST'
+10.10.10.10
+10.10.20.0/24;0080
+LIST
+		;;
 	https://example.com/direct-a.txt)
 		cat <<'LIST'
 8.8.8.8
@@ -135,6 +141,19 @@ assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "poli
 policy_clear_runtime_list_overrides
 assert_unset POLICY_DST_LIST_FILE "policy_clear_runtime_list_overrides should unset destination override"
 assert_unset POLICY_SRC_LIST_FILE "policy_clear_runtime_list_overrides should unset source override"
+
+cat > "$DST_LIST_FILE" <<'EOF'
+https://example.com/scoped-url.txt;0443,0053
+11.11.11.11;00080
+EOF
+: > "$SRC_LIST_FILE"
+POLICY_MODE="direct-first"
+: >"$TEST_WGET_LOG"
+policy_resolve_runtime_lists
+assert_eq_file $'10.10.10.10:53,443\n10.10.20.0/24:80\n11.11.11.11:80' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should apply semicolon URL ports to unscoped remote entries"
+assert_file_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt" "URL port suffix should be stripped before fetch"
+assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt;0443" "URL port suffix should not be passed to wget"
+policy_clear_runtime_list_overrides
 
 cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
 https://example.com/direct-a.txt

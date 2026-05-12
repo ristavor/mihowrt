@@ -126,15 +126,26 @@ assert_true "is_policy_entry should accept comma-separated ports" is_policy_entr
 assert_true "is_policy_entry should accept port without IP" is_policy_entry ":443"
 assert_true "is_policy_entry should accept port range without IP" is_policy_entry ":15-2000"
 assert_true "is_policy_entry should accept port list without IP" is_policy_entry ":15,443"
+assert_true "is_policy_entry should accept semicolon port syntax" is_policy_entry "1.2.3.4;443"
+assert_true "is_policy_entry should accept semicolon CIDR port ranges" is_policy_entry "100.100.100.100/20;15-2000"
+assert_true "is_policy_entry should accept semicolon port-only entries" is_policy_entry ";15,443"
 assert_false "is_policy_entry should reject empty addr and empty port" is_policy_entry ":"
+assert_false "is_policy_entry should reject empty addr and empty semicolon port" is_policy_entry ";"
 assert_false "is_policy_entry should reject zero port without IP" is_policy_entry ":0"
+assert_false "is_policy_entry should reject zero semicolon port without IP" is_policy_entry ";0"
 assert_false "is_policy_entry should reject double colon" is_policy_entry "::443"
 assert_false "is_policy_entry should reject empty port" is_policy_entry "1.2.3.4:"
+assert_false "is_policy_entry should reject empty semicolon port" is_policy_entry "1.2.3.4;"
 assert_false "is_policy_entry should reject zero port" is_policy_entry "1.2.3.4:0"
+assert_false "is_policy_entry should reject zero semicolon port" is_policy_entry "1.2.3.4;0"
 assert_false "is_policy_entry should reject out-of-range port" is_policy_entry "1.2.3.4:65536"
+assert_false "is_policy_entry should reject out-of-range semicolon port" is_policy_entry "1.2.3.4;65536"
 assert_false "is_policy_entry should reject reversed port range" is_policy_entry "1.2.3.4:2000-15"
+assert_false "is_policy_entry should reject reversed semicolon port range" is_policy_entry "1.2.3.4;2000-15"
 assert_false "is_policy_entry should reject mixed range/list ports" is_policy_entry "1.2.3.4:15-20,443"
+assert_false "is_policy_entry should reject mixed semicolon range/list ports" is_policy_entry "1.2.3.4;15-20,443"
 assert_false "is_policy_entry should reject blank port list item" is_policy_entry "1.2.3.4:15,,443"
+assert_false "is_policy_entry should reject blank semicolon port list item" is_policy_entry "1.2.3.4;15,,443"
 assert_false "is_policy_entry should reject huge port without shell overflow" is_policy_entry "1.2.3.4:999999999999999999999999"
 
 assert_eq "443" "$(policy_ports_nft_expr "0443")" "policy_ports_nft_expr should normalize single port"
@@ -145,7 +156,13 @@ assert_eq "443" "$(policy_ports_nft_expr "0443,443")" "policy_ports_nft_expr sho
 assert_eq "15,443" "$(policy_ports_normalized_spec "0015,0443,443")" "policy_ports_normalized_spec should normalize and dedupe port lists"
 assert_eq "15,443" "$(policy_ports_normalized_spec "0443,0015,443")" "policy_ports_normalized_spec should sort port lists"
 assert_eq "1.2.3.4:15,443" "$(policy_entry_normalized "1.2.3.4:0443,15")" "policy_entry_normalized should normalize port-scoped entries"
+assert_eq "1.2.3.4:15,443" "$(policy_entry_normalized "1.2.3.4;0443,15")" "policy_entry_normalized should normalize semicolon port-scoped entries"
 assert_eq ":15-2000" "$(policy_entry_normalized ":0015-02000")" "policy_entry_normalized should normalize port-only entries"
+assert_eq ":15-2000" "$(policy_entry_normalized ";0015-02000")" "policy_entry_normalized should normalize semicolon port-only entries"
+assert_eq "https://example.com/list.txt" "$(policy_remote_list_url "https://example.com/list.txt;0443,53")" "policy_remote_list_url should strip semicolon port suffix"
+assert_eq "53,443" "$(policy_remote_list_ports "https://example.com/list.txt;0443,53")" "policy_remote_list_ports should normalize semicolon URL ports"
+assert_true "is_policy_remote_list_url should accept URL with semicolon ports" is_policy_remote_list_url "https://example.com/list.txt;443"
+assert_false "is_policy_remote_list_url should reject URL with invalid semicolon ports" is_policy_remote_list_url "https://example.com/list.txt;0"
 assert_true "policy_ports_include_port should find port inside range" policy_ports_include_port "15-2000" 443
 assert_true "policy_ports_include_port should find port inside list" policy_ports_include_port "15,443" 443
 assert_false "policy_ports_include_port should reject missing port" policy_ports_include_port "15,80" 443
@@ -156,8 +173,10 @@ cat > "$DST_LIST_FILE" <<'EOF'
 1.1.1.0/24:443
 1.1.2.2:15,443
 :8443
+1.1.4.4;443
+;53
 1.1.3.3:0
 EOF
-assert_eq "4" "$(count_valid_list_entries "$DST_LIST_FILE")" "count_valid_list_entries should count port-scoped policy entries"
+assert_eq "6" "$(count_valid_list_entries "$DST_LIST_FILE")" "count_valid_list_entries should count port-scoped policy entries"
 
 pass "policy validation helpers"

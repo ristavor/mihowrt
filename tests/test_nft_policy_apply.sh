@@ -71,17 +71,17 @@ FAKEIP_RANGE="198.18.0.0/15"
 cat > "$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 2.2.2.0/24
-4.4.4.4:443
-5.5.5.0/24:15-2000
-6.6.6.6:15,443
-:8443
-9.9.9.9:0
+4.4.4.4;443
+5.5.5.0/24;15-2000
+6.6.6.6;15,443
+;8443
+9.9.9.9;0
 EOF
 
 cat > "$SRC_LIST_FILE" <<'EOF'
 3.3.3.3
-7.7.7.0/24:53
-:853
+7.7.7.0/24;53
+;853
 EOF
 
 nft_apply_policy
@@ -115,7 +115,7 @@ assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr 9.9.9.9" "nft_apply_polic
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 udp dport 443 reject" "nft_apply_policy should not reject QUIC for source port filters without 443"
 
 cat > "$DST_LIST_FILE" <<'EOF'
-:443
+;443
 EOF
 : > "$SRC_LIST_FILE"
 NFT_CAPTURE_FILE="$tmpdir/nft-port-only.batch"
@@ -150,7 +150,7 @@ cat > "$SRC_LIST_FILE" <<'EOF'
 EOF
 cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
 8.8.8.8
-9.9.9.0/24:443
+9.9.9.0/24;443
 EOF
 NFT_CAPTURE_FILE="$tmpdir/nft-proxy-first.batch"
 

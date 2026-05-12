@@ -202,8 +202,8 @@ TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
 TEST_NFT_TABLE_EXISTS_RC=0
 status_output_disabled_clean="$(status_json)"
-assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.service_ready')" "status_json should keep service ready on listener health alone when policy layer is disabled"
-assert_eq "true" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should treat disabled policy and clean runtime as matching"
+assert_eq "false" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.service_ready')" "status_json should require runtime policy even when legacy enabled setting is disabled"
+assert_eq "false" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should not treat clean runtime as matching mandatory policy"
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
@@ -230,7 +230,7 @@ TEST_ENABLED_SETTING=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 status_output_disabled_with_active="$(status_json)"
-assert_eq "false" "$(printf '%s\n' "$status_output_disabled_with_active" | jq -r '.runtime_matches_desired')" "status_json should report drift when disabled policy still has active runtime snapshot"
+assert_eq "true" "$(printf '%s\n' "$status_output_disabled_with_active" | jq -r '.runtime_matches_desired')" "status_json should ignore legacy disabled setting when active runtime matches mandatory policy"
 
 runtime_snapshot_status_json() {
 	printf '%s\n' 'runtime snapshot parse failed' >&2

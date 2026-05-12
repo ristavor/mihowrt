@@ -66,6 +66,7 @@ MIHOMO_TPROXY_PORT="7894"
 MIHOMO_ROUTING_MARK="2"
 MIHOMO_ROUTE_TABLE_ID="200"
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
+DNS_ENHANCED_MODE="fake-ip"
 CATCH_FAKEIP="1"
 FAKEIP_RANGE="198.18.0.0/15"
 SOURCE_INTERFACES="br-lan wg0"
@@ -84,11 +85,20 @@ assert_false "validate_runtime_config should reject out-of-range route table id"
 
 MIHOMO_ROUTE_TABLE_ID="200"
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
+DNS_ENHANCED_MODE="fake-ip"
 CATCH_FAKEIP="1"
 FAKEIP_RANGE="bad-range"
 assert_false "validate_runtime_config should reject invalid fake-ip ranges" validate_runtime_config
 
 FAKEIP_RANGE="198.18.0.0/15"
+DNS_ENHANCED_MODE="redir-host"
+assert_false "validate_runtime_config should reject non fake-ip enhanced mode" validate_runtime_config
+
+DNS_ENHANCED_MODE="fake-ip"
+CATCH_FAKEIP="0"
+assert_false "validate_runtime_config should require fake-ip interception" validate_runtime_config
+
+CATCH_FAKEIP="1"
 MIHOMO_ROUTING_MARK="0"
 assert_false "validate_runtime_config should reject zero routing mark" validate_runtime_config
 

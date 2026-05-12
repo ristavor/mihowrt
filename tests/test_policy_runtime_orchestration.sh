@@ -279,9 +279,8 @@ TEST_ROUTE_STATE_SEQUENCE="single"
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
 reload_runtime_state
-assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should clean runtime state when policy layer is disabled"
-assert_file_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should log disabled cleanup path"
-assert_file_not_contains "$event_log" "apply_runtime_state" "reload_runtime_state should skip runtime apply when policy layer is disabled"
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply runtime state even when legacy enabled flag is disabled"
+assert_file_not_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should not support disabled policy path"
 
 : > "$event_log"
 TEST_ENABLED=1

@@ -170,6 +170,15 @@ assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
 
 : > "$cli_log"
+TEST_ENABLED=0
+TEST_WAIT_READY_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_CLEANUP_RUNTIME_RC=0
+run_service
+assert_file_contains "$cli_log" "apply_runtime_state" "run_service should apply runtime state even when legacy enabled flag is disabled"
+assert_file_contains "$cli_log" "log:Runtime policy applied" "run_service should report mandatory policy apply"
+
+: > "$cli_log"
 TEST_ENABLED=1
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
@@ -200,8 +209,8 @@ TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_SNAPSHOT_JSON=''
 TEST_LOAD_RUNTIME_CONFIG_RC=0
-assert_true "service_ready_runtime_state should skip policy markers when policy layer is disabled" service_ready_runtime_state
-assert_file_not_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should not require runtime markers when policy layer is disabled"
+assert_false "service_ready_runtime_state should require policy markers even when legacy enabled flag is disabled" service_ready_runtime_state
+assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should require runtime markers for mandatory policy layer"
 
 : > "$cli_log"
 TEST_ENABLED=1

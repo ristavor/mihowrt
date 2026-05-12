@@ -161,11 +161,7 @@ return view.extend({
 		s.anonymous = true;
 		s.addremove = false;
 
-		let o = s.option(form.Flag, 'enabled', _('Enable Traffic Policy'));
-		o.rmempty = false;
-		o.default = '1';
-
-		o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
+		let o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
 		o.placeholder = 'br-lan';
 		o.description = _('Interfaces from which prerouting traffic may enter the Mihomo policy path.');
 		o.validate = function(section_id, value) {

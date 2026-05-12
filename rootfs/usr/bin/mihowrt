@@ -76,18 +76,16 @@ run_service() {
 	fi
 	log "Mihomo listeners ready"
 
-	if [ "$ENABLED" = "1" ]; then
-		if ! apply_runtime_state; then
-			err "Failed to apply runtime policy after Mihomo became ready"
-			kill "$pid" 2>/dev/null || true
-			wait "$pid" 2>/dev/null || true
-			cleanup_service
-			clear_service_traps
-			[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
-			return 1
-		fi
-		log "Runtime policy applied"
+	if ! apply_runtime_state; then
+		err "Failed to apply runtime policy after Mihomo became ready"
+		kill "$pid" 2>/dev/null || true
+		wait "$pid" 2>/dev/null || true
+		cleanup_service
+		clear_service_traps
+		[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
+		return 1
 	fi
+	log "Runtime policy applied"
 
 	log "MihoWRT service ready"
 	rc=0

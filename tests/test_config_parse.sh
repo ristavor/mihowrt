@@ -65,6 +65,8 @@ routing-mark: 2
 
 dns:
   listen: 192.168.70.1:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
 EOF
 
 bound_json="$(read_config_json)"
@@ -72,6 +74,32 @@ bound_json="$(read_config_json)"
 assert_eq "7874" "$(printf '%s\n' "$bound_json" | jq -r '.dns_port')" "read_config_json should keep dns port for bound host"
 assert_eq "192.168.70.1#7874" "$(printf '%s\n' "$bound_json" | jq -r '.mihomo_dns_listen')" "read_config_json should preserve non-loopback dns.listen host"
 assert_eq "0" "$(printf '%s\n' "$bound_json" | jq -r '.errors | length')" "read_config_json should accept valid bound host"
+
+cat > "$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+routing-mark: 2
+
+dns:
+  listen: 0.0.0.0:7874
+EOF
+
+missing_mode_json="$(read_config_json)"
+
+assert_eq "true" "$(printf '%s\n' "$missing_mode_json" | jq -r 'any(.errors[]; contains("Missing dns.enhanced-mode"))')" "read_config_json should require dns.enhanced-mode"
+
+cat > "$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+routing-mark: 2
+
+dns:
+  listen: 0.0.0.0:7874
+  enhanced-mode: redir-host
+  fake-ip-range: 198.18.0.0/15
+EOF
+
+redir_host_json="$(read_config_json)"
+
+assert_eq "true" "$(printf '%s\n' "$redir_host_json" | jq -r 'any(.errors[]; contains("fake-ip is required"))')" "read_config_json should reject non fake-ip enhanced modes"
 
 cat > "$CLASH_CONFIG" <<'EOF'
 # parser should keep quoted scalars intact and ignore unrelated nested dns keys

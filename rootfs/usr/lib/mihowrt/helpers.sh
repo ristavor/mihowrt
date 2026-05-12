@@ -788,7 +788,11 @@ EOF
 	fi
 
 	catch_fakeip=0
-	if [ "$enhanced_mode" = "fake-ip" ]; then
+	if [ -z "$enhanced_mode" ]; then
+		append_error "Missing dns.enhanced-mode in $CLASH_CONFIG; fake-ip is required"
+	elif [ "$enhanced_mode" != "fake-ip" ]; then
+		append_error "Invalid dns.enhanced-mode in $CLASH_CONFIG: $enhanced_mode; fake-ip is required"
+	else
 		catch_fakeip=1
 		if [ -z "$fake_ip_range" ]; then
 			append_error "Missing dns.fake-ip-range in $CLASH_CONFIG while dns.enhanced-mode=fake-ip"

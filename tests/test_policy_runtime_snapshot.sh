@@ -70,6 +70,13 @@ assert_eq "wg0" "$(jq -r '.source_network_interfaces[1]' "$snapshot_file")" "run
 assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save should snapshot destination list contents"
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should snapshot source list contents"
 
+snapshot_backup="$tmpdir/runtime.snapshot.good.json"
+cp "$snapshot_file" "$snapshot_backup"
+jq '.enabled = false' "$snapshot_backup" > "$snapshot_file"
+assert_false "runtime_snapshot_valid should reject disabled legacy snapshots" runtime_snapshot_valid
+cp "$snapshot_backup" "$snapshot_file"
+assert_true "runtime_snapshot_valid should accept mandatory fake-ip policy snapshots" runtime_snapshot_valid
+
 TEST_FAIL_MV_DEST=""
 mv() {
 	local dest="${@: -1}"

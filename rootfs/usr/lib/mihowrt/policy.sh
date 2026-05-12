@@ -317,10 +317,18 @@ runtime_snapshot_status_json() {
 	dst_count="$(count_valid_list_entries "$dst_snapshot")"
 	src_count="$(count_valid_list_entries "$src_snapshot")"
 
-	jq -c \
+	jq -ec \
 		--arg dst_count "$dst_count" \
 		--arg src_count "$src_count" \
-		'{
+		'if ((.enabled // false) != true) then
+			error("runtime snapshot has disabled policy")
+		elif ((.dns_enhanced_mode // "") != "fake-ip") then
+			error("runtime snapshot is not fake-ip policy")
+		elif ((.catch_fakeip // false) != true) then
+			error("runtime snapshot does not catch fake-ip")
+		elif ((.fakeip_range // "") == "") then
+			error("runtime snapshot has empty fake-ip range")
+		else {
 			present: true,
 			enabled: (.enabled // false),
 			dns_hijack: (.dns_hijack // false),
@@ -337,18 +345,17 @@ runtime_snapshot_status_json() {
 			source_network_interfaces: (.source_network_interfaces // []),
 			always_proxy_dst_count: ($dst_count | tonumber? // 0),
 			always_proxy_src_count: ($src_count | tonumber? // 0)
-		}' "$snapshot_file"
+		} end' "$snapshot_file"
 }
 
 runtime_snapshot_readiness_json() {
 	local snapshot_file
 
 	require_command jq || return 1
-	runtime_snapshot_exists || return 1
+	runtime_snapshot_valid || return 1
 
 	snapshot_file="$(runtime_snapshot_file)"
 	jq -c '{
-		enabled: (.enabled // false),
 		mihomo_dns_port: (.mihomo_dns_port // ""),
 		mihomo_dns_listen: (.mihomo_dns_listen // ""),
 		mihomo_tproxy_port: (.mihomo_tproxy_port // "")
@@ -385,7 +392,7 @@ load_runtime_config() {
 
 	config_load "$PKG_CONFIG" || return 1
 
-	config_get_bool ENABLED "settings" "enabled" 1
+	ENABLED=1
 	config_get_bool DNS_HIJACK "settings" "dns_hijack" 1
 	config_get MIHOMO_ROUTE_TABLE_ID "settings" "route_table_id" ""
 	config_get MIHOMO_ROUTE_RULE_PRIORITY "settings" "route_rule_priority" ""
@@ -444,12 +451,20 @@ validate_runtime_config() {
 		}
 	fi
 
-	if [ "$CATCH_FAKEIP" = "1" ]; then
-		is_ipv4_cidr "$FAKEIP_RANGE" || {
-			err "Invalid fake-ip range: $FAKEIP_RANGE"
-			return 1
-		}
-	fi
+	[ "$DNS_ENHANCED_MODE" = "fake-ip" ] || {
+		err "Mihomo dns.enhanced-mode must be fake-ip"
+		return 1
+	}
+
+	[ "$CATCH_FAKEIP" = "1" ] || {
+		err "MihoWRT policy layer requires fake-ip interception"
+		return 1
+	}
+
+	is_ipv4_cidr "$FAKEIP_RANGE" || {
+		err "Invalid fake-ip range: $FAKEIP_RANGE"
+		return 1
+	}
 
 	for iface in $SOURCE_INTERFACES; do
 		is_valid_iface_name "$iface" || {
@@ -571,12 +586,6 @@ reload_runtime_state() {
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
 
-	if [ "$ENABLED" != "1" ]; then
-		cleanup_runtime_state || return 1
-		log "Policy layer disabled; runtime state left clean"
-		return 0
-	fi
-
 	if [ "$had_snapshot" -eq 0 ] && [ "$snapshot_files_present" -eq 1 ]; then
 		if [ "$live_runtime_present" -eq 1 ]; then
 			err "Runtime snapshot invalid; refusing in-place reload while live policy state exists"
@@ -628,7 +637,7 @@ reload_runtime_state() {
 }
 
 service_ready_runtime_state() {
-	local dns_port="" active_json="" snapshot_enabled="" snapshot_dns_listen=""
+	local dns_port="" active_json="" snapshot_dns_listen=""
 	local tproxy_port=""
 	local snapshot_vars=""
 
@@ -637,14 +646,13 @@ service_ready_runtime_state() {
 	active_json="$(runtime_snapshot_readiness_json 2>/dev/null || true)"
 	if [ -n "$active_json" ]; then
 		snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
-			@sh "dns_port=\(.mihomo_dns_port // "") tproxy_port=\(.mihomo_tproxy_port // "") snapshot_enabled=\(.enabled // false) snapshot_dns_listen=\(.mihomo_dns_listen // "")"
+			@sh "dns_port=\(.mihomo_dns_port // "") tproxy_port=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
 		' 2>/dev/null)" || return 1
 		eval "$snapshot_vars" || return 1
 		if [ -z "$dns_port" ]; then
 			[ -n "$snapshot_dns_listen" ] && dns_port="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
 		fi
 		mihomo_ready_state "$dns_port" "$tproxy_port" || return 1
-		[ "$snapshot_enabled" = "true" ] || return 0
 		runtime_policy_ready_state
 		return $?
 	fi
@@ -652,7 +660,6 @@ service_ready_runtime_state() {
 	load_runtime_config || return 1
 	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
 	mihomo_ready_state "$dns_port" "$MIHOMO_TPROXY_PORT" || return 1
-	[ "$ENABLED" = "1" ] || return 0
 	runtime_policy_ready_state
 }
 
@@ -717,7 +724,7 @@ load_status_config_json() {
 }
 
 load_status_desired_state_json() {
-	local enabled=0 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
+	local enabled=1 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 settings_loaded=0
 	local status_errors_raw=""
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
@@ -728,7 +735,6 @@ load_status_desired_state_json() {
 
 	if config_load "$pkg_config" 2>/dev/null; then
 		settings_loaded=1
-		config_get_bool enabled "settings" "enabled" 1
 		config_get_bool dns_hijack "settings" "dns_hijack" 1
 		config_get route_table_id "settings" "route_table_id" ""
 		config_get route_rule_priority "settings" "route_rule_priority" ""

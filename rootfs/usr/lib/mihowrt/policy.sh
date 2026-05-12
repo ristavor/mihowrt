@@ -586,16 +586,28 @@ apply_runtime_state_internal() {
 }
 
 apply_runtime_state() {
-	apply_runtime_state_internal || return 1
+	local lists_resolved=0
+
+	if command -v policy_resolve_runtime_lists >/dev/null 2>&1; then
+		policy_resolve_runtime_lists || return 1
+		lists_resolved=1
+	fi
+
+	if ! apply_runtime_state_internal; then
+		[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
+		return 1
+	fi
 
 	runtime_snapshot_save || {
 		err "Failed to persist runtime snapshot"
 		dns_restore || true
 		nft_remove_policy || true
 		policy_route_cleanup || true
+		[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
 		return 1
 	}
 
+	[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
 	return 0
 }
 

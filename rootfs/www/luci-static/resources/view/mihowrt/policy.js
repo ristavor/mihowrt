@@ -222,20 +222,20 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks. DNS/53 hijack is not affected.');
 
-		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[:Port] or :Port)'));
+		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[:Port], :Port, or URL)'));
 		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;
-		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 destination.'));
+		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Remote lists are fetched on apply/start and merged with manual entries without changing this file.'));
 
-		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients (IP/CIDR[:Port] or :Port)'));
+		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients (IP/CIDR[:Port], :Port, or URL)'));
 		o.depends('policy_mode', 'direct-first');
 		srcListOption = o;
-		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 client.'));
+		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Remote lists are fetched on apply/start and merged with manual entries without changing this file.'));
 
-		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations (IP/CIDR[:Port])'));
+		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations (IP/CIDR[:Port], :Port, or URL)'));
 		o.depends('policy_mode', 'proxy-first');
 		directDstListOption = o;
-		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any non-local IPv4 destination on that port. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS; domain flows resolved to fake-ip are still handled by Mihomo.'));
+		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Remote lists are fetched on apply/start and merged with manual entries without changing this file. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS.'));
 
 		return m.render();
 	}

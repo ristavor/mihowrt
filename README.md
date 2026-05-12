@@ -199,12 +199,14 @@ MihoWRT has four user-controlled inputs.
    `/opt/clash/lst/always_proxy_src.txt`
 
    These lists define traffic that must be sent to Mihomo before Mihomo
-   rule matching. See "Traffic Policy Lists" below.
+   rule matching. They can contain manual entries and remote http(s)
+   list URLs. See "Traffic Policy Lists" below.
 
 4. `/opt/clash/lst/direct_dst.txt`
 
    In proxy-first mode, this list defines destination IPs or destination
-   IP + port rules that bypass Mihomo.
+   IP + port rules that bypass Mihomo. It can contain manual entries and
+   remote http(s) list URLs.
 
 Runtime snapshots in `/var/run/mihowrt` are not a source of truth. They
 describe what is currently applied so reload, diagnostics, and cleanup
@@ -334,7 +336,10 @@ kept in `/var/run/mihowrt`, not flash.
 
 ## Traffic Policy Lists
 
-Policy list files support comments and blank lines.
+Policy list files support comments, blank lines, manual entries, and
+remote `http://` or `https://` list URLs. Remote lists are fetched when
+policy is applied or the service starts. Their contents are merged with
+manual entries in `/tmp`; the persistent list files are not rewritten.
 
 Valid entries:
 
@@ -362,6 +367,11 @@ Rules:
 - Mixed range/list syntax like `15-20,443` is intentionally invalid.
 - IPv6 entries are not supported.
 - Invalid entries are skipped and logged as warnings.
+- Remote URLs inside a remote list are ignored, so lists do not recurse.
+- A remote list fetch failure fails policy apply/reload. Existing runtime
+  state is kept through rollback when a snapshot exists.
+- Each remote list is limited to 256 KiB by default. Each effective list
+  is limited to 1 MiB by default.
 
 Examples:
 
@@ -384,6 +394,9 @@ Examples:
 # Any IPv4 destination/client on these ports
 :443
 :80,443
+
+# Merge remote entries with manual entries
+https://example.com/mihowrt-list.txt
 ```
 
 Destination list semantics:
@@ -408,7 +421,7 @@ Source list semantics:
 Performance model:
 
 - IP-only entries are loaded into nftables interval sets:
-  `proxy_dst` and `proxy_src`.
+  `proxy_dst`, `proxy_src`, and `direct_dst`.
 - Port-qualified entries are emitted as direct nftables rules, because
   the existing `ipv4_addr` interval sets cannot also carry port
   metadata without changing set type and old behavior.
@@ -543,7 +556,7 @@ Applying policy creates:
 
 The snapshot records applied UCI settings, parsed Mihomo runtime fields,
 effective route table/priority, source interfaces, fake-ip state, and
-copies of policy list files.
+copies of the effective policy list files after remote lists are merged.
 
 Reload behavior:
 

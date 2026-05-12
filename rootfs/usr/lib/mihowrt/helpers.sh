@@ -268,6 +268,62 @@ policy_entry_ports() {
 	printf '%s' "${1##*:}"
 }
 
+policy_ports_normalized_spec() {
+	local value="$1"
+	local rest item start end expr="" seen=""
+
+	is_policy_port_spec "$value" || return 1
+
+	case "$value" in
+		*,*)
+			rest="$value"
+			while :; do
+				item="$(normalize_uint "${rest%%,*}")"
+				case " $seen " in
+					*" $item "*)
+						;;
+					*)
+						if [ -n "$expr" ]; then
+							expr="$expr,$item"
+						else
+							expr="$item"
+						fi
+						seen="$seen $item"
+						;;
+				esac
+				[ "$rest" != "${rest#*,}" ] || break
+				rest="${rest#*,}"
+			done
+			printf '%s' "$expr"
+			;;
+		*-*)
+			start="$(normalize_uint "${value%%-*}")"
+			end="$(normalize_uint "${value#*-}")"
+			if [ "$start" -eq "$end" ]; then
+				printf '%s' "$start"
+			else
+				printf '%s-%s' "$start" "$end"
+			fi
+			;;
+		*)
+			normalize_uint "$value"
+			;;
+	esac
+}
+
+policy_entry_normalized() {
+	local value="$1" addr="" ports=""
+
+	is_policy_entry "$value" || return 1
+	if policy_entry_has_ports "$value"; then
+		addr="$(policy_entry_ip "$value")"
+		ports="$(policy_ports_normalized_spec "$(policy_entry_ports "$value")")" || return 1
+		printf '%s:%s' "$addr" "$ports"
+	else
+		printf '%s' "$value"
+	fi
+}
+
 policy_ports_nft_expr() {
 	local value="$1"
 	local rest item start end expr="" seen="" unique_count=0

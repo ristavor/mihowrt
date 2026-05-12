@@ -14,8 +14,9 @@ const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resour
 const normalizeMatch = source.match(/function normalizeBlock[\s\S]*?\n}\n\nfunction currentNormalizedListValue/);
 const syncMatch = source.match(/function syncListCaches[\s\S]*?\n}\n\nfunction hasListValueChanges/);
 const listChangesMatch = source.match(/function hasListValueChanges[\s\S]*?\n}\n\nfunction hasMihowrtUciChanges/);
-const mihowrtChangesMatch = source.match(/function hasMihowrtUciChanges[\s\S]*?\n}\n\nasync function reloadPolicyIfNeeded/);
-const reloadMatch = source.match(/async function reloadPolicyIfNeeded[\s\S]*?\n}\n\nasync function removeListFileIfPresent/);
+	const mihowrtChangesMatch = source.match(/function hasMihowrtUciChanges[\s\S]*?\n}\n\nasync function reloadPolicyIfNeeded/);
+	const reloadMatch = source.match(/async function reloadPolicyIfNeeded[\s\S]*?\n}\n\nasync function updateRemoteLists/);
+	const updateMatch = source.match(/async function updateRemoteLists[\s\S]*?\n}\n\nasync function removeListFileIfPresent/);
 const removeMatch = source.match(/async function removeListFileIfPresent[\s\S]*?\n}\n\nfunction bindTextFileOption/);
 const bindMatch = source.match(/function bindTextFileOption[\s\S]*?\n}\n\nreturn view.extend/);
 const handleSaveApplyStart = source.indexOf('\thandleSaveApply: async function(ev, mode) {');
@@ -29,8 +30,10 @@ if (!listChangesMatch)
 	throw new Error('hasListValueChanges() not found');
 if (!mihowrtChangesMatch)
 	throw new Error('hasMihowrtUciChanges() not found');
-if (!reloadMatch)
-	throw new Error('reloadPolicyIfNeeded() not found');
+	if (!reloadMatch)
+		throw new Error('reloadPolicyIfNeeded() not found');
+	if (!updateMatch)
+		throw new Error('updateRemoteLists() not found');
 if (!removeMatch)
 	throw new Error('removeListFileIfPresent() not found');
 if (!bindMatch)
@@ -42,7 +45,8 @@ const normalizeFnSource = normalizeMatch[0].replace(/\n\nfunction currentNormali
 const syncFnSource = syncMatch[0].replace(/\n\nfunction hasListValueChanges$/, '');
 const listChangesFnSource = listChangesMatch[0].replace(/\n\nfunction hasMihowrtUciChanges$/, '');
 const mihowrtChangesFnSource = mihowrtChangesMatch[0].replace(/\n\nasync function reloadPolicyIfNeeded$/, '');
-const reloadFnSource = reloadMatch[0].replace(/\n\nasync function removeListFileIfPresent$/, '');
+	const reloadFnSource = reloadMatch[0].replace(/\n\nasync function updateRemoteLists$/, '');
+	const updateFnSource = updateMatch[0].replace(/\n\nasync function removeListFileIfPresent$/, '');
 const removeFnSource = removeMatch[0].replace(/\n\nfunction bindTextFileOption$/, '');
 const bindFnSource = bindMatch[0].replace(/\n\nreturn view.extend$/, '');
 const handleSaveApplySource = source
@@ -53,10 +57,12 @@ const context = {
 	writeError: null,
 	removeError: null,
 	execCalls: [],
-	notifications: [],
-	uciChanges: {},
-	applyCalls: [],
-	fs: {
+		notifications: [],
+		uciChanges: {},
+		applyCalls: [],
+		updateChanged: false,
+		updateError: null,
+		fs: {
 		writeCalls: [],
 		removeCalls: [],
 		write(path, value) {
@@ -88,16 +94,24 @@ const context = {
 			apply: async(mode) => context.applyCalls.push(mode)
 		}
 	},
-	mihowrtUi: {
-		getServiceStatus: async() => true,
-		execErrorDetail: result => String(result?.stderr || result?.stdout || '').trim() || 'unknown error',
-		notify: (message, level) => context.notifications.push({ message, level })
-	},
-	SERVICE_SCRIPT: '/etc/init.d/mihowrt'
-};
+		mihowrtUi: {
+			getServiceStatus: async() => true,
+			execErrorDetail: result => String(result?.stderr || result?.stdout || '').trim() || 'unknown error',
+			notify: (message, level) => context.notifications.push({ message, level })
+		},
+		backendHelper: {
+			updatePolicyLists: async() => {
+				if (context.updateError)
+					throw new Error(context.updateError);
+				context.execCalls.push({ cmd: '/usr/bin/mihowrt', args: ['update-policy-lists'] });
+				return context.updateChanged;
+			}
+		},
+		SERVICE_SCRIPT: '/etc/init.d/mihowrt'
+	};
 
-vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${reloadFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
+	vm.createContext(context);
+	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
 
 (async () => {
 	const option = {};
@@ -227,6 +241,41 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 		throw new Error('handleSaveApply should apply mihowrt UCI changes through LuCI');
 	if (!context.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'reload'))
 		throw new Error('handleSaveApply should reload after applying mihowrt UCI when list files also changed');
+
+		context.execCalls.length = 0;
+		context.notifications.length = 0;
+		context.syncListCaches('1.1.1.1\n', '', '');
+		context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' }, { formvalue: () => '' });
+		context.updateChanged = false;
+		await context.updateRemoteLists();
+		if (context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'update-policy-lists'))
+			throw new Error('updateRemoteLists should not run backend while active list edits are unsaved');
+		if (!context.notifications.some(item => item.level === 'warning' && item.message.includes('Save policy list changes')))
+			throw new Error('updateRemoteLists should ask to save unsaved list edits before update');
+
+		context.execCalls.length = 0;
+		context.notifications.length = 0;
+		context.syncListCaches('2.2.2.2\n', '', '');
+		context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' }, { formvalue: () => '' });
+		context.updateChanged = false;
+		await context.updateRemoteLists();
+		if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'update-policy-lists'))
+		throw new Error('updateRemoteLists should call backend remote-list update command');
+	if (!context.notifications.some(item => item.level === 'info' && item.message.includes('unchanged')))
+		throw new Error('updateRemoteLists should report unchanged lists without error');
+
+	context.execCalls.length = 0;
+	context.notifications.length = 0;
+	context.updateChanged = true;
+	await context.updateRemoteLists();
+	if (!context.notifications.some(item => item.level === 'info' && item.message.includes('updated')))
+		throw new Error('updateRemoteLists should report changed lists after backend update');
+
+	context.notifications.length = 0;
+	context.updateError = 'fetch failed';
+	await context.updateRemoteLists();
+	if (!context.notifications.some(item => item.level === 'error' && item.message.includes('fetch failed')))
+		throw new Error('updateRemoteLists should surface backend update failures');
 	})().catch(err => {
 		throw err;
 	});

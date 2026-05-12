@@ -10,8 +10,9 @@ CLASH_BIN="${CLASH_DIR}/bin/clash"
 CLASH_CONFIG="${CLASH_DIR}/config.yaml"
 ORCHESTRATOR="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
-EXTRA_COMMANDS="apply"
-EXTRA_HELP="        apply   Validate and apply on-disk MihoWRT config/policy"
+EXTRA_COMMANDS="apply update_lists"
+EXTRA_HELP="        apply         Validate and apply on-disk MihoWRT config/policy
+        update_lists  Fetch remote policy lists and reload nft only when changed"
 
 msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
@@ -92,6 +93,22 @@ reload_service() {
 	fi
 
 	msg "MihoWRT policy reloaded"
+}
+
+update_lists() {
+	msg "Updating MihoWRT remote policy lists..."
+
+	if ! service_running; then
+		msg "MihoWRT service is not running; skipping remote list update"
+		return 0
+	fi
+
+	if ! "$ORCHESTRATOR" update-policy-lists >/dev/null 2>&1; then
+		msg "ERROR: Remote policy list update failed"
+		return 1
+	fi
+
+	msg "MihoWRT remote policy list update finished"
 }
 
 apply() {

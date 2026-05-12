@@ -20,6 +20,7 @@ CLASH_BIN="$tmpdir/clash-bin"
 CLASH_CONFIG="$tmpdir/config.yaml"
 PKG_STATE_DIR="$tmpdir/run"
 SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
+RUNTIME_LOCK_FILE="$tmpdir/runtime.lock"
 mkdir -p "$CLASH_DIR"
 
 cat > "$CLASH_BIN" <<'EOF'
@@ -57,6 +58,18 @@ ensure_dir() {
 	printf 'ensure_dir:%s\n' "$1" >>"$cli_log"
 	mkdir -p "$1"
 }
+
+: > "$cli_log"
+lock_body() {
+	[ -L "$RUNTIME_LOCK_FILE" ] || fail "with_runtime_lock should hold symlink lock while command runs"
+	printf 'lock_body\n' >>"$cli_log"
+}
+with_runtime_lock lock_body
+assert_file_contains "$cli_log" "lock_body" "with_runtime_lock should execute locked command"
+[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should remove lock after command success"
+ln -s 999999 "$RUNTIME_LOCK_FILE"
+with_runtime_lock lock_body
+[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release stale lock"
 
 init_runtime_layout() {
 	printf 'init_runtime_layout\n' >>"$cli_log"
@@ -307,6 +320,19 @@ fetch_subscription_output="$(
 )"
 assert_eq "https://example.com/sub.yaml" "$fetch_subscription_output" "fetch-subscription command should forward URL"
 
+update_policy_lists_output="$(
+	set -- update-policy-lists
+	update_runtime_policy_lists() {
+		printf 'updated=0\n'
+	}
+	# shellcheck disable=SC1090
+	source <(
+		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
+			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	)
+)"
+assert_eq "updated=0" "$update_policy_lists_output" "update-policy-lists command should dispatch to remote list updater"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {
@@ -397,7 +423,7 @@ case "${1:-}" in
 	cleanup)
 			exit "${TEST_ORCH_CLEANUP_RC:-0}"
 			;;
-		recover|run-service)
+		recover|run-service|update-policy-lists)
 			exit 0
 			;;
 esac
@@ -505,6 +531,23 @@ reload_service
 assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy reload" "reload_service should skip policy reload when service is stopped"
 assert_file_contains "$orch_log" "service-running" "reload_service should still ask orchestrator for service state when service is stopped"
 assert_file_not_contains "$orch_log" "reload-policy" "reload_service should not invoke policy reload when service is stopped"
+
+: > "$msg_log"
+: > "$orch_log"
+printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+update_lists
+assert_file_contains "$msg_log" "Updating MihoWRT remote policy lists..." "update_lists should log remote list update"
+assert_file_contains "$orch_log" "service-running" "update_lists should check service state through orchestrator"
+assert_file_contains "$orch_log" "update-policy-lists" "update_lists should invoke backend remote list update"
+assert_file_contains "$msg_log" "MihoWRT remote policy list update finished" "update_lists should confirm remote list update"
+
+: > "$msg_log"
+: > "$orch_log"
+rm -f "$SERVICE_PID_FILE"
+update_lists
+assert_file_contains "$msg_log" "MihoWRT service is not running; skipping remote list update" "update_lists should skip when service is stopped"
+assert_file_contains "$orch_log" "service-running" "update_lists should still ask orchestrator for service state"
+assert_file_not_contains "$orch_log" "update-policy-lists" "update_lists should not update remote lists when service is stopped"
 
 : > "$msg_log"
 : > "$orch_log"

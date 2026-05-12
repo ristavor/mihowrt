@@ -225,6 +225,15 @@ return baseclass.extend({
 		return String(result.stdout || '');
 	},
 
+	updatePolicyLists: async function() {
+		const result = await fs.exec(BACKEND, [ 'update-policy-lists' ]);
+
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+
+		return /^updated=1$/m.test(String(result.stdout || ''));
+	},
+
 	readServiceState: async function() {
 		const state = {
 			available: false,

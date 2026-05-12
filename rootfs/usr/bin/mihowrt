@@ -27,6 +27,76 @@ check_required_file /usr/lib/mihowrt/runtime.sh
 . /usr/lib/mihowrt/policy.sh
 . /usr/lib/mihowrt/runtime.sh
 
+runtime_lock_file() {
+	printf '%s\n' "${RUNTIME_LOCK_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.lock}"
+}
+
+runtime_lock_owner_stale() {
+	local owner="$1"
+
+	case "$owner" in
+		''|*[!0-9]*)
+			return 0
+			;;
+	esac
+
+	kill -0 "$owner" 2>/dev/null && return 1
+	return 0
+}
+
+runtime_lock_acquire() {
+	local lock_file="" lock_dir="" owner="" waited=0
+	local timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
+
+	case "$timeout" in
+		''|*[!0-9]*)
+			timeout=120
+			;;
+	esac
+
+	lock_file="$(runtime_lock_file)"
+	lock_dir="$(dirname "$lock_file")"
+	if command -v ensure_dir >/dev/null 2>&1; then
+		ensure_dir "$lock_dir" || return 1
+	else
+		mkdir -p "$lock_dir" || return 1
+	fi
+
+	while ! ln -s "$$" "$lock_file" 2>/dev/null; do
+		owner="$(readlink "$lock_file" 2>/dev/null || true)"
+		if runtime_lock_owner_stale "$owner"; then
+			rm -f "$lock_file"
+			continue
+		fi
+
+		if [ "$waited" -ge "$timeout" ]; then
+			err "Runtime state is busy by process $owner"
+			return 1
+		fi
+
+		sleep 1
+		waited=$((waited + 1))
+	done
+}
+
+runtime_lock_release() {
+	local lock_file="" owner=""
+
+	lock_file="$(runtime_lock_file)"
+	owner="$(readlink "$lock_file" 2>/dev/null || true)"
+	[ "$owner" = "$$" ] && rm -f "$lock_file"
+}
+
+with_runtime_lock() {
+	local rc=0
+
+	runtime_lock_acquire || return 1
+	"$@"
+	rc=$?
+	runtime_lock_release
+	return "$rc"
+}
+
 run_service() {
 	local pid dns_port cleanup_done=0 stop_requested=0 rc=1 cleanup_rc=0
 	local clash_config="${CLASH_CONFIG:-$CLASH_DIR/config.yaml}"
@@ -42,7 +112,7 @@ run_service() {
 
 	cleanup_service() {
 		if [ "$cleanup_done" -eq 0 ]; then
-			cleanup_runtime_state || cleanup_rc=$?
+			with_runtime_lock cleanup_runtime_state || cleanup_rc=$?
 			cleanup_done=1
 		fi
 		rm -f "$SERVICE_PID_FILE"
@@ -76,7 +146,7 @@ run_service() {
 	fi
 	log "Mihomo listeners ready"
 
-	if ! apply_runtime_state; then
+	if ! with_runtime_lock apply_runtime_state; then
 		err "Failed to apply runtime policy after Mihomo became ready"
 		kill "$pid" 2>/dev/null || true
 		wait "$pid" 2>/dev/null || true
@@ -109,16 +179,19 @@ run_service() {
 
 	case "$1" in
 	prepare|start)
-		prepare_runtime_state
+		with_runtime_lock prepare_runtime_state
 		;;
 	cleanup|stop)
-		cleanup_runtime_state
+		with_runtime_lock cleanup_runtime_state
 		;;
 	recover)
-		recover_runtime_state
+		with_runtime_lock recover_runtime_state
 		;;
 	reload|reload-policy)
-		reload_runtime_state
+		with_runtime_lock reload_runtime_state
+		;;
+	update-policy-lists)
+		with_runtime_lock update_runtime_policy_lists
 		;;
 	service-running)
 		service_running_state
@@ -156,14 +229,14 @@ run_service() {
 			echo "Usage: $0 apply-config <temp-config-path>" >&2
 			exit 1
 		}
-		apply_config_file "$2"
+		with_runtime_lock apply_config_file "$2"
 		;;
 	apply-config-contents)
 		[ "${2+x}" = x ] || {
 			echo "Usage: $0 apply-config-contents <config-contents>" >&2
 			exit 1
 		}
-		apply_config_contents "$2"
+		with_runtime_lock apply_config_contents "$2"
 		;;
 	subscription-json)
 		subscription_url_json
@@ -192,7 +265,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

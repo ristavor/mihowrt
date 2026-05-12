@@ -4,6 +4,7 @@
 'require uci';
 'require fs';
 'require ui';
+'require mihowrt.backend as backendHelper';
 'require mihowrt.ui as mihowrtUi';
 
 const DST_LIST_FILE = '/opt/clash/lst/always_proxy_dst.txt';
@@ -21,6 +22,8 @@ let policyModeOption = null;
 let dstListOption = null;
 let srcListOption = null;
 let directDstListOption = null;
+let updateListsButton = null;
+let policyActionInFlight = false;
 
 function validateNumericRange(value, label, min, max) {
 	if (!value)
@@ -67,6 +70,16 @@ function hasMihowrtUciChanges(changes) {
 	return Array.isArray(mihowrtChanges) && mihowrtChanges.length > 0;
 }
 
+function setPolicyActionBusy(busy) {
+	policyActionInFlight = busy;
+	if (updateListsButton)
+		updateListsButton.disabled = busy;
+}
+
+async function savePolicyMap() {
+	return policyMap ? policyMap.save() : Promise.resolve();
+}
+
 async function reloadPolicyIfNeeded(listChanged, wasRunning) {
 	if (!listChanged || !wasRunning)
 		return;
@@ -74,6 +87,31 @@ async function reloadPolicyIfNeeded(listChanged, wasRunning) {
 	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
 	if (reloadResult.code !== 0)
 		mihowrtUi.notify(_('Saved, but failed to reload policy: %s').format(mihowrtUi.execErrorDetail(reloadResult)), 'error');
+}
+
+async function updateRemoteLists() {
+	if (policyActionInFlight)
+		return;
+
+	if (hasListValueChanges()) {
+		mihowrtUi.notify(_('Save policy list changes before updating remote lists.'), 'warning');
+		return;
+	}
+
+	setPolicyActionBusy(true);
+
+	try {
+		const changed = await backendHelper.updatePolicyLists();
+		mihowrtUi.notify(changed
+			? _('Remote policy lists changed; nft policy updated.')
+			: _('Remote policy lists unchanged; nft policy left untouched.'), 'info');
+	}
+	catch (e) {
+		mihowrtUi.notify(_('Unable to update remote policy lists: %s').format(e.message), 'error');
+	}
+	finally {
+		setPolicyActionBusy(false);
+	}
 }
 
 async function removeListFileIfPresent(filePath) {
@@ -133,34 +171,57 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 }
 
 return view.extend({
-	handleSave: function() {
-		return policyMap ? policyMap.save() : Promise.resolve();
-	},
-
-	handleSaveApply: async function(ev, mode) {
-		const listChanged = hasListValueChanges();
-		let wasRunning = false;
-
-		if (listChanged) {
-			try {
-				wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT);
-			}
-			catch (e) {
-				mihowrtUi.notify(_('Unable to determine service state before reload: %s').format(e.message), 'error');
-				return;
-			}
-		}
-
-		await this.handleSave(ev);
-
-		const changes = await uci.changes();
-		if (hasMihowrtUciChanges(changes)) {
-			await ui.changes.apply(mode == '0');
-			await reloadPolicyIfNeeded(listChanged, wasRunning);
+	handleSave: async function() {
+		if (policyActionInFlight) {
+			mihowrtUi.notify(_('Another policy action is still running.'), 'warning');
 			return;
 		}
 
-		await reloadPolicyIfNeeded(listChanged, wasRunning);
+		setPolicyActionBusy(true);
+		try {
+			await savePolicyMap();
+		}
+		finally {
+			setPolicyActionBusy(false);
+		}
+	},
+
+	handleSaveApply: async function(ev, mode) {
+		if (policyActionInFlight) {
+			mihowrtUi.notify(_('Another policy action is still running.'), 'warning');
+			return;
+		}
+
+		setPolicyActionBusy(true);
+
+		try {
+			const listChanged = hasListValueChanges();
+			let wasRunning = false;
+
+			if (listChanged) {
+				try {
+					wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT);
+				}
+				catch (e) {
+					mihowrtUi.notify(_('Unable to determine service state before reload: %s').format(e.message), 'error');
+					return;
+				}
+			}
+
+			await savePolicyMap();
+
+			const changes = await uci.changes();
+			if (hasMihowrtUciChanges(changes)) {
+				await ui.changes.apply(mode == '0');
+				await reloadPolicyIfNeeded(listChanged, wasRunning);
+				return;
+			}
+
+			await reloadPolicyIfNeeded(listChanged, wasRunning);
+		}
+		finally {
+			setPolicyActionBusy(false);
+		}
 	},
 
 	load: function() {
@@ -237,6 +298,15 @@ return view.extend({
 		directDstListOption = o;
 		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Remote lists are fetched on apply/start and merged with manual entries without changing this file. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS.'));
 
-		return m.render();
+		const toolbar = E('div', {
+			style: 'margin-bottom: 15px; display: flex; justify-content: flex-end;'
+		}, [
+			(updateListsButton = E('button', {
+				class: 'btn cbi-button-action',
+				click: updateRemoteLists
+			}, _('Update Remote Lists')))
+		]);
+
+		return Promise.resolve(m.render()).then(mapNode => E([toolbar, mapNode]));
 	}
 });

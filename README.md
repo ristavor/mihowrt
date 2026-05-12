@@ -338,8 +338,9 @@ kept in `/var/run/mihowrt`, not flash.
 
 Policy list files support comments, blank lines, manual entries, and
 remote `http://` or `https://` list URLs. Remote lists are fetched when
-policy is applied or the service starts. Their contents are merged with
-manual entries in `/tmp`; the persistent list files are not rewritten.
+policy is applied, the service starts, or the policy page `Update Remote
+Lists` action is used. Their contents are merged with manual entries in
+`/tmp`; the persistent list files are not rewritten.
 
 Valid entries:
 
@@ -374,6 +375,9 @@ Rules:
   is limited to 1 MiB by default.
 - Remote list fetches use a 15 second per-URL timeout, a 60 second total
   apply budget, and a 32 URL safety cap by default.
+- Manual remote-list update compares the freshly resolved active list with
+  the runtime snapshot. If it is unchanged, nftables is left untouched; if
+  it changed, MihoWRT reloads the policy and updates the snapshot.
 
 Examples:
 

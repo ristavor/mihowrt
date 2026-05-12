@@ -166,6 +166,26 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('fetchSubscription should return backend stdout');
 
 	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt update-policy-lists'] = {
+		code: 0,
+		stdout: 'updated=1\n'
+	};
+	const policyListsChanged = await context.backend.updatePolicyLists();
+	if (!policyListsChanged)
+		throw new Error('updatePolicyLists should report changed lists from backend stdout');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'update-policy-lists'))
+		throw new Error('updatePolicyLists should dispatch through backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt update-policy-lists'] = {
+		code: 0,
+		stdout: 'updated=0\n'
+	};
+	const policyListsUnchanged = await context.backend.updatePolicyLists();
+	if (policyListsUnchanged)
+		throw new Error('updatePolicyLists should report unchanged lists from backend stdout');
+
+	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt fetch-subscription https://example.com/bad.yaml'] = {
 		code: 1,
 		stderr: 'download failed'

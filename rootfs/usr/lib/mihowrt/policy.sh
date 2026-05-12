@@ -450,6 +450,66 @@ runtime_snapshot_mihomo_config_matches_current() {
 	[ "$snapshot_fakeip_range" = "$FAKEIP_RANGE" ] || return 1
 }
 
+runtime_snapshot_policy_config_matches_current() {
+	local snapshot_file snapshot_vars=""
+	local snapshot_policy_mode="" snapshot_dns_hijack="" snapshot_disable_quic=""
+	local snapshot_source_interfaces="" snapshot_route_table_id="" snapshot_route_rule_priority=""
+
+	require_command jq || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	[ -f "$snapshot_file" ] || return 1
+
+	snapshot_vars="$(jq -r '
+		@sh "snapshot_policy_mode=\(.policy_mode // "direct-first") snapshot_dns_hijack=\(if .dns_hijack then 1 else 0 end) snapshot_disable_quic=\(if .disable_quic then 1 else 0 end) snapshot_source_interfaces=\((.source_network_interfaces // []) | join(" ")) snapshot_route_table_id=\(.route_table_id_effective // "") snapshot_route_rule_priority=\(.route_rule_priority_effective // "")"
+	' "$snapshot_file")" || return 1
+	eval "$snapshot_vars" || return 1
+
+	[ "$snapshot_policy_mode" = "${POLICY_MODE:-direct-first}" ] || return 1
+	[ "$snapshot_dns_hijack" = "$DNS_HIJACK" ] || return 1
+	[ "$snapshot_disable_quic" = "$DISABLE_QUIC" ] || return 1
+	[ "$snapshot_source_interfaces" = "$SOURCE_INTERFACES" ] || return 1
+	if [ -n "$MIHOMO_ROUTE_TABLE_ID" ]; then
+		[ "$snapshot_route_table_id" = "$MIHOMO_ROUTE_TABLE_ID" ] || return 1
+	fi
+	if [ -n "$MIHOMO_ROUTE_RULE_PRIORITY" ]; then
+		[ "$snapshot_route_rule_priority" = "$MIHOMO_ROUTE_RULE_PRIORITY" ] || return 1
+	fi
+}
+
+runtime_snapshot_route_state_matches_live() {
+	local snapshot_file snapshot_vars=""
+	local snapshot_route_table_id="" snapshot_route_rule_priority=""
+
+	require_command jq || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	[ -f "$snapshot_file" ] || return 1
+
+	snapshot_vars="$(jq -r '
+		@sh "snapshot_route_table_id=\(.route_table_id_effective // "") snapshot_route_rule_priority=\(.route_rule_priority_effective // "")"
+	' "$snapshot_file")" || return 1
+	eval "$snapshot_vars" || return 1
+
+	[ "$snapshot_route_table_id" = "$ROUTE_TABLE_ID_EFFECTIVE" ] || return 1
+	[ "$snapshot_route_rule_priority" = "$ROUTE_RULE_PRIORITY_EFFECTIVE" ] || return 1
+}
+
+runtime_resolved_policy_lists_match_snapshot() {
+	case "${POLICY_MODE:-direct-first}" in
+		direct-first)
+			cmp -s "$(runtime_snapshot_dst_file)" "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" || return 1
+			cmp -s "$(runtime_snapshot_src_file)" "${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}" || return 1
+			;;
+		proxy-first)
+			cmp -s "$(runtime_snapshot_direct_file)" "${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}" || return 1
+			;;
+		*)
+			return 1
+			;;
+	esac
+}
+
 load_runtime_config_from_yaml() {
 	local config_json
 	local config_errors
@@ -598,6 +658,13 @@ apply_runtime_state_internal() {
 	fi
 
 	log "Prepared ${POLICY_MODE:-direct-first} policy state"
+	return 0
+}
+
+apply_runtime_nft_policy_only() {
+	ensure_dir "$PKG_TMP_DIR"
+	nft_apply_policy || return 1
+	log "Updated ${POLICY_MODE:-direct-first} nft policy"
 	return 0
 }
 
@@ -756,6 +823,89 @@ reload_runtime_state() {
 	fi
 
 	log "Reloaded ${POLICY_MODE:-direct-first} policy state"
+	return 0
+}
+
+update_runtime_policy_lists() {
+	local apply_rc=0 snapshot_rc=0 lists_changed=1
+
+	runtime_snapshot_valid || {
+		err "Runtime snapshot unavailable; cannot update remote policy lists safely"
+		return 1
+	}
+	runtime_live_state_present || {
+		err "Runtime policy state is not active; cannot update remote policy lists"
+		return 1
+	}
+
+	policy_route_state_read || {
+		err "Policy route state unavailable; cannot update remote policy lists safely"
+		return 1
+	}
+	if ! runtime_snapshot_route_state_matches_live; then
+		err "Policy route state changed since runtime snapshot; reload or restart MihoWRT before updating remote lists"
+		return 1
+	fi
+
+	load_runtime_config || return 1
+	validate_runtime_config || return 1
+
+	if ! runtime_snapshot_mihomo_config_matches_current; then
+		err "Mihomo config changed since runtime snapshot; restart MihoWRT service to apply DNS/TPROXY/fake-ip settings"
+		return 1
+	fi
+	if ! runtime_snapshot_policy_config_matches_current; then
+		err "Policy config changed since runtime snapshot; apply policy settings before updating remote lists"
+		return 1
+	fi
+
+	policy_resolve_runtime_lists || {
+		err "Failed to prepare updated policy lists"
+		return 1
+	}
+
+	runtime_resolved_policy_lists_match_snapshot && lists_changed=0 || lists_changed=1
+	if [ "$lists_changed" -eq 0 ]; then
+		if ! runtime_snapshot_save; then
+			policy_clear_runtime_list_overrides
+			err "Failed to refresh runtime snapshot metadata"
+			return 1
+		fi
+
+		policy_clear_runtime_list_overrides
+		log "Remote policy lists unchanged; nft policy left untouched"
+		printf '%s\n' 'updated=0'
+		return 0
+	fi
+
+	apply_runtime_nft_policy_only
+	apply_rc=$?
+	if [ "$apply_rc" -ne 0 ]; then
+		policy_clear_runtime_list_overrides
+		err "Failed to apply updated policy lists; restoring previous runtime state"
+		runtime_snapshot_restore || {
+			err "Failed to restore previous runtime state"
+			return 1
+		}
+		return 1
+	fi
+
+	runtime_snapshot_save
+	snapshot_rc=$?
+	if [ "$snapshot_rc" -ne 0 ]; then
+		err "Failed to persist runtime snapshot"
+		policy_clear_runtime_list_overrides
+		runtime_snapshot_restore || {
+			err "Failed to restore previous runtime state"
+			return 1
+		}
+		return 1
+	fi
+
+	policy_clear_runtime_list_overrides
+
+	log "Updated remote policy lists and refreshed ${POLICY_MODE:-direct-first} nft policy"
+	printf '%s\n' 'updated=1'
 	return 0
 }
 

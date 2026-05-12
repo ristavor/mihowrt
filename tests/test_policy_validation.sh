@@ -189,12 +189,34 @@ https://example.com/list.txt;443
 bad:value
 2.2.2.2;8443
 EOF
+chmod 0640 "$DST_LIST_FILE"
 migrate_policy_list_file "$DST_LIST_FILE"
 assert_eq $'# keep comment\n1.1.1.1;443\n;53\n100.100.100.0/24;15-2000\nhttps://example.com/list.txt\nhttps://example.com/list.txt;443\nbad:value\n2.2.2.2;8443' "$(cat "$DST_LIST_FILE")" "migrate_policy_list_file should convert legacy colon policy ports only"
+assert_eq "640" "$(stat -c %a "$DST_LIST_FILE")" "migrate_policy_list_file should preserve list file mode"
 touch -d '2024-01-01 00:00:00' "$DST_LIST_FILE"
 before_migration_mtime="$(stat -c %Y "$DST_LIST_FILE")"
 migrate_policy_list_file "$DST_LIST_FILE"
 after_migration_mtime="$(stat -c %Y "$DST_LIST_FILE")"
 assert_eq "$before_migration_mtime" "$after_migration_mtime" "migrate_policy_list_file should skip rewrites when no legacy entries remain"
+if compgen -G "$LIST_DIR/.always_proxy_dst.txt.tmp.*" >/dev/null; then
+	fail "migrate_policy_list_file should not leave temporary files after no-op migration"
+fi
+
+cat > "$DST_LIST_FILE" <<'EOF'
+1.1.1.1:443
+:53
+EOF
+mv() {
+	if [[ "${1:-}" == "-f" && "${3:-}" == "$DST_LIST_FILE" ]]; then
+		return 1
+	fi
+	command mv "$@"
+}
+assert_false "migrate_policy_list_file should fail when atomic replace fails" migrate_policy_list_file "$DST_LIST_FILE"
+unset -f mv
+assert_eq $'1.1.1.1:443\n:53' "$(cat "$DST_LIST_FILE")" "migrate_policy_list_file should keep original file when atomic replace fails"
+if compgen -G "$LIST_DIR/.always_proxy_dst.txt.tmp.*" >/dev/null; then
+	fail "migrate_policy_list_file should remove temporary file after atomic replace failure"
+fi
 
 pass "policy validation helpers"

@@ -45,12 +45,19 @@ policy_list_file_needs_migration() {
 
 migrate_policy_list_file() {
 	local file="$1"
-	local tmp="" line="" trimmed="" migrated=""
+	local tmp="" file_dir="" file_base="" line="" trimmed="" migrated=""
 
 	[ -f "$file" ] || return 0
 	policy_list_file_needs_migration "$file" || return 0
 
-	tmp="$(mktemp "/tmp/mihowrt-policy-list.XXXXXX")" || return 1
+	file_dir="$(dirname "$file")" || return 1
+	file_base="$(basename "$file")" || return 1
+	tmp="$(mktemp "$file_dir/.${file_base}.tmp.XXXXXX")" || return 1
+	cp -p "$file" "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+
 	while IFS= read -r line || [ -n "$line" ]; do
 		trimmed="$(trim "$line")"
 		if policy_entry_has_legacy_colon_ports "$trimmed"; then
@@ -72,11 +79,10 @@ migrate_policy_list_file() {
 		return 0
 	fi
 
-	cat "$tmp" > "$file" || {
+	mv -f "$tmp" "$file" || {
 		rm -f "$tmp"
 		return 1
 	}
-	rm -f "$tmp"
 	log "Migrated legacy policy list port syntax in $file"
 }
 

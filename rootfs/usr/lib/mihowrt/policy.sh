@@ -59,6 +59,10 @@ runtime_snapshot_src_file() {
 	printf '%s\n' "${RUNTIME_SNAPSHOT_SRC_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/always_proxy_src.snapshot}"
 }
 
+runtime_snapshot_direct_file() {
+	printf '%s\n' "${RUNTIME_SNAPSHOT_DIRECT_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/direct_dst.snapshot}"
+}
+
 runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_file)" ] || return 1
 	[ -f "$(runtime_snapshot_dst_file)" ] || return 1
@@ -71,7 +75,7 @@ runtime_snapshot_valid() {
 }
 
 runtime_snapshot_clear() {
-	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)"
+	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)" "$(runtime_snapshot_direct_file)"
 }
 
 runtime_snapshot_cleanup_files() {
@@ -117,23 +121,27 @@ runtime_snapshot_restore_backups() {
 	local snapshot_file="$1"
 	local dst_snapshot="$2"
 	local src_snapshot="$3"
-	local snapshot_backup="$4"
-	local dst_backup="$5"
-	local src_backup="$6"
+	local direct_snapshot="$4"
+	local snapshot_backup="$5"
+	local dst_backup="$6"
+	local src_backup="$7"
+	local direct_backup="$8"
 
 	runtime_snapshot_restore_file "$snapshot_file" "$snapshot_backup" || true
 	runtime_snapshot_restore_file "$dst_snapshot" "$dst_backup" || true
 	runtime_snapshot_restore_file "$src_snapshot" "$src_backup" || true
-	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup"
+	runtime_snapshot_restore_file "$direct_snapshot" "$direct_backup" || true
+	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 }
 
 runtime_snapshot_save() {
-	local snapshot_file dst_snapshot src_snapshot
-	local snapshot_tmp dst_tmp src_tmp
-	local snapshot_backup dst_backup src_backup
+	local snapshot_file dst_snapshot src_snapshot direct_snapshot
+	local snapshot_tmp dst_tmp src_tmp direct_tmp
+	local snapshot_backup dst_backup src_backup direct_backup
 	local route_table_id="" route_rule_priority=""
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	local direct_list_file="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
 
 	require_command jq || return 1
 	policy_route_state_read || return 1
@@ -141,6 +149,7 @@ runtime_snapshot_save() {
 	snapshot_file="$(runtime_snapshot_file)"
 	dst_snapshot="$(runtime_snapshot_dst_file)"
 	src_snapshot="$(runtime_snapshot_src_file)"
+	direct_snapshot="$(runtime_snapshot_direct_file)"
 	route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
 	route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
 
@@ -148,21 +157,28 @@ runtime_snapshot_save() {
 	snapshot_tmp="${snapshot_file}.tmp.$$"
 	dst_tmp="${dst_snapshot}.tmp.$$"
 	src_tmp="${src_snapshot}.tmp.$$"
+	direct_tmp="${direct_snapshot}.tmp.$$"
 	snapshot_backup="${snapshot_file}.bak.$$"
 	dst_backup="${dst_snapshot}.bak.$$"
 	src_backup="${src_snapshot}.bak.$$"
+	direct_backup="${direct_snapshot}.bak.$$"
 
 	runtime_snapshot_copy_file "$dst_list_file" "$dst_tmp" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 	runtime_snapshot_copy_file "$src_list_file" "$src_tmp" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	runtime_snapshot_copy_file "$direct_list_file" "$direct_tmp" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 
 	jq -nc \
 		--arg enabled "$ENABLED" \
+		--arg policy_mode "${POLICY_MODE:-direct-first}" \
 		--arg dns_hijack "$DNS_HIJACK" \
 		--arg mihomo_dns_port "$MIHOMO_DNS_PORT" \
 		--arg mihomo_dns_listen "$MIHOMO_DNS_LISTEN" \
@@ -177,6 +193,7 @@ runtime_snapshot_save() {
 		--arg source_interfaces "$SOURCE_INTERFACES" \
 		'{
 			enabled: ($enabled == "1"),
+			policy_mode: $policy_mode,
 			dns_hijack: ($dns_hijack == "1"),
 			mihomo_dns_port: $mihomo_dns_port,
 			mihomo_dns_listen: $mihomo_dns_listen,
@@ -190,53 +207,63 @@ runtime_snapshot_save() {
 			fakeip_range: $fakeip_range,
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
 		}' > "$snapshot_tmp" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 
 	runtime_snapshot_backup_file "$snapshot_file" "$snapshot_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 		return 1
 	}
 	runtime_snapshot_backup_file "$dst_snapshot" "$dst_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 		return 1
 	}
 	runtime_snapshot_backup_file "$src_snapshot" "$src_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$snapshot_backup" "$dst_backup" "$src_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+		return 1
+	}
+	runtime_snapshot_backup_file "$direct_snapshot" "$direct_backup" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 		return 1
 	}
 
 	mv -f "$dst_tmp" "$dst_snapshot" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 	mv -f "$src_tmp" "$src_snapshot" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	mv -f "$direct_tmp" "$direct_snapshot" || {
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 	mv -f "$snapshot_tmp" "$snapshot_file" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp"
+		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
 
-	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup"
+	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 	log "Saved runtime snapshot"
 	return 0
 }
 
 runtime_snapshot_load() {
 	local snapshot_file snapshot_json=""
-	local dst_snapshot src_snapshot
+	local dst_snapshot src_snapshot direct_snapshot
 
 	require_command jq || return 1
 
 	snapshot_file="$(runtime_snapshot_file)"
 	dst_snapshot="$(runtime_snapshot_dst_file)"
 	src_snapshot="$(runtime_snapshot_src_file)"
+	direct_snapshot="$(runtime_snapshot_direct_file)"
 
 	[ -f "$snapshot_file" ] || return 1
 	[ -f "$dst_snapshot" ] || return 1
@@ -246,18 +273,19 @@ runtime_snapshot_load() {
 
 	eval "$(
 		printf '%s\n' "$snapshot_json" | jq -r '
-			@sh "ENABLED=\(if .enabled then 1 else 0 end) DNS_HIJACK=\(if .dns_hijack then 1 else 0 end) MIHOMO_DNS_PORT=\(.mihomo_dns_port // "") MIHOMO_DNS_LISTEN=\(.mihomo_dns_listen // "") MIHOMO_TPROXY_PORT=\(.mihomo_tproxy_port // "") MIHOMO_ROUTING_MARK=\(.mihomo_routing_mark // "") MIHOMO_ROUTE_TABLE_ID=\(.route_table_id_effective // "") MIHOMO_ROUTE_RULE_PRIORITY=\(.route_rule_priority_effective // "") DISABLE_QUIC=\(if .disable_quic then 1 else 0 end) DNS_ENHANCED_MODE=\(.dns_enhanced_mode // "") CATCH_FAKEIP=\(if .catch_fakeip then 1 else 0 end) FAKEIP_RANGE=\(.fakeip_range // "") SOURCE_INTERFACES=\((.source_network_interfaces // []) | join(" "))"
+			@sh "ENABLED=\(if .enabled then 1 else 0 end) POLICY_MODE=\(.policy_mode // "direct-first") DNS_HIJACK=\(if .dns_hijack then 1 else 0 end) MIHOMO_DNS_PORT=\(.mihomo_dns_port // "") MIHOMO_DNS_LISTEN=\(.mihomo_dns_listen // "") MIHOMO_TPROXY_PORT=\(.mihomo_tproxy_port // "") MIHOMO_ROUTING_MARK=\(.mihomo_routing_mark // "") MIHOMO_ROUTE_TABLE_ID=\(.route_table_id_effective // "") MIHOMO_ROUTE_RULE_PRIORITY=\(.route_rule_priority_effective // "") DISABLE_QUIC=\(if .disable_quic then 1 else 0 end) DNS_ENHANCED_MODE=\(.dns_enhanced_mode // "") CATCH_FAKEIP=\(if .catch_fakeip then 1 else 0 end) FAKEIP_RANGE=\(.fakeip_range // "") SOURCE_INTERFACES=\((.source_network_interfaces // []) | join(" "))"
 		'
 	)" || return 1
 
 	POLICY_DST_LIST_FILE="$dst_snapshot"
 	POLICY_SRC_LIST_FILE="$src_snapshot"
+	POLICY_DIRECT_DST_LIST_FILE="$direct_snapshot"
 	return 0
 }
 
 runtime_snapshot_restore() {
-	local prev_dst_list_file="" prev_src_list_file=""
-	local prev_dst_list_set=0 prev_src_list_set=0
+	local prev_dst_list_file="" prev_src_list_file="" prev_direct_list_file=""
+	local prev_dst_list_set=0 prev_src_list_set=0 prev_direct_list_set=0
 	local rc=0
 
 	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
@@ -267,6 +295,10 @@ runtime_snapshot_restore() {
 	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
 		prev_src_list_set=1
 		prev_src_list_file="$POLICY_SRC_LIST_FILE"
+	}
+	[ "${POLICY_DIRECT_DST_LIST_FILE+x}" = x ] && {
+		prev_direct_list_set=1
+		prev_direct_list_file="$POLICY_DIRECT_DST_LIST_FILE"
 	}
 
 	runtime_snapshot_load || return 1
@@ -282,6 +314,12 @@ runtime_snapshot_restore() {
 		POLICY_SRC_LIST_FILE="$prev_src_list_file"
 	else
 		unset POLICY_SRC_LIST_FILE
+	fi
+
+	if [ "$prev_direct_list_set" -eq 1 ]; then
+		POLICY_DIRECT_DST_LIST_FILE="$prev_direct_list_file"
+	else
+		unset POLICY_DIRECT_DST_LIST_FILE
 	fi
 
 	[ "$rc" -eq 0 ] || return "$rc"
@@ -305,8 +343,8 @@ runtime_live_state_present() {
 }
 
 runtime_snapshot_status_json() {
-	local snapshot_file dst_snapshot src_snapshot
-	local dst_count=0 src_count=0
+	local snapshot_file dst_snapshot src_snapshot direct_snapshot
+	local dst_count=0 src_count=0 direct_count=0
 
 	require_command jq || return 1
 	runtime_snapshot_exists || return 1
@@ -314,14 +352,19 @@ runtime_snapshot_status_json() {
 	snapshot_file="$(runtime_snapshot_file)"
 	dst_snapshot="$(runtime_snapshot_dst_file)"
 	src_snapshot="$(runtime_snapshot_src_file)"
+	direct_snapshot="$(runtime_snapshot_direct_file)"
 	dst_count="$(count_valid_list_entries "$dst_snapshot")"
 	src_count="$(count_valid_list_entries "$src_snapshot")"
+	direct_count="$(count_valid_list_entries "$direct_snapshot")"
 
 	jq -ec \
 		--arg dst_count "$dst_count" \
 		--arg src_count "$src_count" \
+		--arg direct_count "$direct_count" \
 		'if ((.enabled // false) != true) then
 			error("runtime snapshot has disabled policy")
+		elif ((((.policy_mode // "direct-first") == "direct-first") or ((.policy_mode // "direct-first") == "proxy-first")) | not) then
+			error("runtime snapshot has invalid policy mode")
 		elif ((.dns_enhanced_mode // "") != "fake-ip") then
 			error("runtime snapshot is not fake-ip policy")
 		elif ((.catch_fakeip // false) != true) then
@@ -331,6 +374,7 @@ runtime_snapshot_status_json() {
 		else {
 			present: true,
 			enabled: (.enabled // false),
+			policy_mode: (.policy_mode // "direct-first"),
 			dns_hijack: (.dns_hijack // false),
 			mihomo_dns_port: (.mihomo_dns_port // ""),
 			mihomo_dns_listen: (.mihomo_dns_listen // ""),
@@ -343,8 +387,9 @@ runtime_snapshot_status_json() {
 			catch_fakeip: (.catch_fakeip // false),
 			fakeip_range: (.fakeip_range // ""),
 			source_network_interfaces: (.source_network_interfaces // []),
-			always_proxy_dst_count: ($dst_count | tonumber? // 0),
-			always_proxy_src_count: ($src_count | tonumber? // 0)
+			always_proxy_dst_count: (if (.policy_mode // "direct-first") == "direct-first" then ($dst_count | tonumber? // 0) else 0 end),
+			always_proxy_src_count: (if (.policy_mode // "direct-first") == "direct-first" then ($src_count | tonumber? // 0) else 0 end),
+			direct_dst_count: (if (.policy_mode // "direct-first") == "proxy-first" then ($direct_count | tonumber? // 0) else 0 end)
 		} end' "$snapshot_file"
 }
 
@@ -393,6 +438,7 @@ load_runtime_config() {
 	config_load "$PKG_CONFIG" || return 1
 
 	ENABLED=1
+	config_get POLICY_MODE "settings" "policy_mode" "direct-first"
 	config_get_bool DNS_HIJACK "settings" "dns_hijack" 1
 	config_get MIHOMO_ROUTE_TABLE_ID "settings" "route_table_id" ""
 	config_get MIHOMO_ROUTE_RULE_PRIORITY "settings" "route_rule_priority" ""
@@ -451,6 +497,15 @@ validate_runtime_config() {
 		}
 	fi
 
+	case "${POLICY_MODE:-direct-first}" in
+		direct-first|proxy-first)
+			;;
+		*)
+			err "Invalid policy mode: ${POLICY_MODE:-}"
+			return 1
+			;;
+	esac
+
 	[ "$DNS_ENHANCED_MODE" = "fake-ip" ] || {
 		err "Mihomo dns.enhanced-mode must be fake-ip"
 		return 1
@@ -499,7 +554,7 @@ apply_runtime_state_internal() {
 		return 1
 	fi
 
-	log "Prepared direct-first policy state"
+	log "Prepared ${POLICY_MODE:-direct-first} policy state"
 	return 0
 }
 
@@ -698,6 +753,7 @@ status_default_active_json() {
 	jq -nc '{
 		present: false,
 		enabled: false,
+		policy_mode: "direct-first",
 		dns_hijack: false,
 		mihomo_dns_port: "",
 		mihomo_dns_listen: "",
@@ -711,7 +767,8 @@ status_default_active_json() {
 		fakeip_range: "",
 		source_network_interfaces: [],
 		always_proxy_dst_count: 0,
-		always_proxy_src_count: 0
+		always_proxy_src_count: 0,
+		direct_dst_count: 0
 	}'
 }
 
@@ -725,11 +782,13 @@ load_status_config_json() {
 
 load_status_desired_state_json() {
 	local enabled=1 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
-	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 settings_loaded=0
+	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 direct_dst_count=0 settings_loaded=0
+	local policy_mode="direct-first"
 	local status_errors_raw=""
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 	local dst_list_file="${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}"
 	local src_list_file="${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}"
+	local direct_list_file="${DIRECT_DST_LIST_FILE:-/opt/clash/lst/direct_dst.txt}"
 
 	SOURCE_INTERFACES=""
 
@@ -738,6 +797,7 @@ load_status_desired_state_json() {
 		config_get_bool dns_hijack "settings" "dns_hijack" 1
 		config_get route_table_id "settings" "route_table_id" ""
 		config_get route_rule_priority "settings" "route_rule_priority" ""
+		config_get policy_mode "settings" "policy_mode" "direct-first"
 		config_get_bool disable_quic "settings" "disable_quic" 0
 		config_list_foreach "settings" "source_network_interfaces" append_source_interface
 		source_interfaces="$SOURCE_INTERFACES"
@@ -749,11 +809,23 @@ load_status_desired_state_json() {
 		source_interfaces="$(default_source_interface)"
 	fi
 
-	proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
-	proxy_src_count="$(count_valid_list_entries "$src_list_file")"
+	case "$policy_mode" in
+		direct-first)
+			proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
+			proxy_src_count="$(count_valid_list_entries "$src_list_file")"
+			;;
+		proxy-first)
+			direct_dst_count="$(count_valid_list_entries "$direct_list_file")"
+			;;
+		*)
+			status_errors_raw="${status_errors_raw}${status_errors_raw:+
+}Invalid policy mode: $policy_mode"
+			;;
+	esac
 
 	jq -nc \
 		--arg enabled "$enabled" \
+		--arg policy_mode "$policy_mode" \
 		--arg dns_hijack "$dns_hijack" \
 		--arg route_table_id "$route_table_id" \
 		--arg route_rule_priority "$route_rule_priority" \
@@ -761,10 +833,12 @@ load_status_desired_state_json() {
 		--arg source_interfaces "$source_interfaces" \
 		--arg proxy_dst_count "$proxy_dst_count" \
 		--arg proxy_src_count "$proxy_src_count" \
+		--arg direct_dst_count "$direct_dst_count" \
 		--arg settings_loaded "$settings_loaded" \
 		--arg status_errors_raw "$status_errors_raw" \
 		'{
 			enabled: ($enabled == "1"),
+			policy_mode: $policy_mode,
 			dns_hijack: ($dns_hijack == "1"),
 			route_table_id_raw: $route_table_id,
 			route_rule_priority_raw: $route_rule_priority,
@@ -774,6 +848,7 @@ load_status_desired_state_json() {
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0))),
 			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),
 			always_proxy_src_count: ($proxy_src_count | tonumber? // 0),
+			direct_dst_count: ($direct_dst_count | tonumber? // 0),
 			settings_loaded: ($settings_loaded == "1"),
 			errors: ($status_errors_raw | split("\n") | map(select(length > 0)))
 		}'
@@ -899,11 +974,13 @@ compare_status_runtime_state_json() {
 				elif $runtime.runtime_snapshot_present then
 					(
 						($runtime.active.enabled == $desired.enabled) and
+						(($runtime.active.policy_mode // "direct-first") == ($desired.policy_mode // "direct-first")) and
 						($runtime.active.dns_hijack == $desired.dns_hijack) and
 						($runtime.active.disable_quic == $desired.disable_quic) and
 						($runtime.active.source_network_interfaces == $desired.source_network_interfaces) and
 						($runtime.active.always_proxy_dst_count == $desired.always_proxy_dst_count) and
 						($runtime.active.always_proxy_src_count == $desired.always_proxy_src_count) and
+						(($runtime.active.direct_dst_count // 0) == ($desired.direct_dst_count // 0)) and
 						(($desired.route_table_id_raw == "") or ($runtime.active.route_table_id == $desired.route_table_id_raw)) and
 						(($desired.route_rule_priority_raw == "") or ($runtime.active.route_rule_priority == $desired.route_rule_priority_raw)) and
 						(($runtime.active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
@@ -942,6 +1019,7 @@ emit_status_json() {
 			route_table_id_effective: $runtime.route_table_id_effective,
 			route_rule_priority_effective: $runtime.route_rule_priority_effective,
 			enabled: $desired.enabled,
+			policy_mode: $desired.policy_mode,
 			dns_hijack: $desired.dns_hijack,
 			route_table_id: $desired.route_table_id,
 			route_rule_priority: $desired.route_rule_priority,
@@ -949,6 +1027,7 @@ emit_status_json() {
 			source_network_interfaces: $desired.source_network_interfaces,
 			always_proxy_dst_count: $desired.always_proxy_dst_count,
 			always_proxy_src_count: $desired.always_proxy_src_count,
+			direct_dst_count: $desired.direct_dst_count,
 			runtime_snapshot_present: $runtime.runtime_snapshot_present,
 			runtime_snapshot_valid: $runtime.runtime_snapshot_valid,
 			runtime_live_state_present: $runtime.runtime_live_state_present,
@@ -979,6 +1058,7 @@ status_runtime_state() {
 
 	printf '%s\n' "$status_json_output" | jq -r '
 			"enabled=\(if .enabled then 1 else 0 end)",
+			"policy_mode=\(.policy_mode // "direct-first")",
 			"service_ready=\(if .service_ready then 1 else 0 end)",
 			"mihomo_dns_port=\(.config.dns_port // "")",
 		"mihomo_dns_listen=\(.config.mihomo_dns_listen // "")",
@@ -994,6 +1074,7 @@ status_runtime_state() {
 		"source_network_interfaces=\((.source_network_interfaces // []) | join(" "))",
 		"always_proxy_dst_count=\(.always_proxy_dst_count // 0)",
 		"always_proxy_src_count=\(.always_proxy_src_count // 0)",
+		"direct_dst_count=\(.direct_dst_count // 0)",
 		"runtime_snapshot_present=\(if .runtime_snapshot_present then 1 else 0 end)",
 		"runtime_snapshot_valid=\(if .runtime_snapshot_valid then 1 else 0 end)",
 		"runtime_live_state_present=\(if .runtime_live_state_present then 1 else 0 end)",
@@ -1001,13 +1082,15 @@ status_runtime_state() {
 		"runtime_matches_desired=\(if .runtime_matches_desired then 1 else 0 end)",
 		(if .runtime_snapshot_present then
 			"active_enabled=\(if .active.enabled then 1 else 0 end)",
+			"active_policy_mode=\(.active.policy_mode // "direct-first")",
 			"active_dns_hijack=\(if .active.dns_hijack then 1 else 0 end)",
 			"active_route_table_id=\(.active.route_table_id // "")",
 			"active_route_rule_priority=\(.active.route_rule_priority // "")",
 			"active_disable_quic=\(if .active.disable_quic then 1 else 0 end)",
 			"active_source_network_interfaces=\((.active.source_network_interfaces // []) | join(" "))",
 			"active_always_proxy_dst_count=\(.active.always_proxy_dst_count // 0)",
-			"active_always_proxy_src_count=\(.active.always_proxy_src_count // 0)"
+			"active_always_proxy_src_count=\(.active.always_proxy_src_count // 0)",
+			"active_direct_dst_count=\(.active.direct_dst_count // 0)"
 		else empty end)
 	'
 }

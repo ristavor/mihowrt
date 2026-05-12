@@ -8,15 +8,19 @@
 
 const DST_LIST_FILE = '/opt/clash/lst/always_proxy_dst.txt';
 const SRC_LIST_FILE = '/opt/clash/lst/always_proxy_src.txt';
+const DIRECT_DST_LIST_FILE = '/opt/clash/lst/direct_dst.txt';
 const SETTINGS_SECTION_ID = 'settings';
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 
 let dstValueCache = null;
 let srcValueCache = null;
+let directDstValueCache = null;
 let policyMap = null;
+let policyModeOption = null;
 let dstListOption = null;
 let srcListOption = null;
+let directDstListOption = null;
 
 function validateNumericRange(value, label, min, max) {
 	if (!value)
@@ -40,12 +44,20 @@ function currentNormalizedListValue(option) {
 	return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : '';
 }
 
-function syncListCaches(dstValue, srcValue) {
+function syncListCaches(dstValue, srcValue, directDstValue) {
 	dstValueCache = normalizeBlock(dstValue || '');
 	srcValueCache = normalizeBlock(srcValue || '');
+	directDstValueCache = normalizeBlock(directDstValue || '');
+}
+
+function currentPolicyMode() {
+	return policyModeOption ? (policyModeOption.formvalue(SETTINGS_SECTION_ID) || 'direct-first') : 'direct-first';
 }
 
 function hasListValueChanges() {
+	if (currentPolicyMode() === 'proxy-first')
+		return currentNormalizedListValue(directDstListOption) !== (directDstValueCache || '');
+
 	return currentNormalizedListValue(dstListOption) !== (dstValueCache || '') ||
 		currentNormalizedListValue(srcListOption) !== (srcValueCache || '');
 }
@@ -81,11 +93,15 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 	option.monospace = true;
 	option.description = description;
 	option.cfgvalue = function() {
-		return cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+		if (cacheName === 'dst')
+			return dstValueCache || '';
+		if (cacheName === 'src')
+			return srcValueCache || '';
+		return directDstValueCache || '';
 	};
 	option.write = async function(section_id, value) {
 		const normalized = normalizeBlock(value);
-		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+		const current = this.cfgvalue(section_id);
 		if (normalized === current)
 			return;
 
@@ -96,19 +112,23 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 
 		if (cacheName === 'dst')
 			dstValueCache = normalized;
-		else
+		else if (cacheName === 'src')
 			srcValueCache = normalized;
+		else
+			directDstValueCache = normalized;
 	};
 	option.remove = async function() {
-		const current = cacheName === 'dst' ? (dstValueCache || '') : (srcValueCache || '');
+		const current = this.cfgvalue(SETTINGS_SECTION_ID);
 		if (!current)
 			return;
 
 		await removeListFileIfPresent(filePath);
 		if (cacheName === 'dst')
 			dstValueCache = '';
-		else
+		else if (cacheName === 'src')
 			srcValueCache = '';
+		else
+			directDstValueCache = '';
 	};
 }
 
@@ -147,21 +167,29 @@ return view.extend({
 		return Promise.all([
 			uci.load('mihowrt'),
 			L.resolveDefault(fs.read(DST_LIST_FILE), ''),
-			L.resolveDefault(fs.read(SRC_LIST_FILE), '')
+			L.resolveDefault(fs.read(SRC_LIST_FILE), ''),
+			L.resolveDefault(fs.read(DIRECT_DST_LIST_FILE), '')
 		]);
 	},
 
 	render: function(data) {
-		syncListCaches(data[1], data[2]);
+		syncListCaches(data[1], data[2], data[3]);
 
-		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Direct-first traffic policy. Selected traffic is marked by nftables before Mihomo TPROXY handling.'));
+		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Fake-IP policy layer. Direct-first proxies selected traffic; proxy-first proxies everything except direct destinations.'));
 		policyMap = m;
 		const s = m.section(form.NamedSection, 'settings', 'settings', _('Traffic Policy Settings'));
 
 		s.anonymous = true;
 		s.addremove = false;
 
-		let o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
+		let o = s.option(form.ListValue, 'policy_mode', _('Policy Mode'));
+		policyModeOption = o;
+		o.default = 'direct-first';
+		o.rmempty = false;
+		o.value('direct-first', _('Direct-first'));
+		o.value('proxy-first', _('Proxy-first'));
+
+		o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
 		o.placeholder = 'br-lan';
 		o.description = _('Interfaces from which prerouting traffic may enter the Mihomo policy path.');
 		o.validate = function(section_id, value) {
@@ -195,12 +223,19 @@ return view.extend({
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks.');
 
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[:Port] or :Port)'));
+		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;
 		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 destination.'));
 
 		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients (IP/CIDR[:Port] or :Port)'));
+		o.depends('policy_mode', 'direct-first');
 		srcListOption = o;
 		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any IPv4 client.'));
+
+		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations (IP/CIDR[:Port])'));
+		o.depends('policy_mode', 'proxy-first');
+		directDstListOption = o;
+		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port. Matching traffic bypasses Mihomo in proxy-first mode.'));
 
 		return m.render();
 	}

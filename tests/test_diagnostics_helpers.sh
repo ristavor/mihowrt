@@ -51,6 +51,7 @@ config_get() {
 	case "$3" in
 		route_table_id) printf -v "$1" '%s' "" ;;
 		route_rule_priority) printf -v "$1" '%s' "10010" ;;
+		policy_mode) printf -v "$1" '%s' "${TEST_POLICY_MODE_SETTING:-direct-first}" ;;
 	esac
 }
 
@@ -158,6 +159,20 @@ assert_eq "201" "$(printf '%s\n' "$status_output" | jq -r '.active.route_table_i
 status_runtime_output="$(status_runtime_state)"
 assert_eq "1" "$(printf '%s\n' "$status_runtime_output" | sed -n 's/^runtime_matches_desired=//p')" "status_runtime_state should report desired/runtime parity when snapshot matches"
 assert_eq "201" "$(printf '%s\n' "$status_runtime_output" | sed -n 's/^active_route_table_id=//p')" "status_runtime_state should expose applied route table id"
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"policy_mode":"proxy-first","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":0,"always_proxy_src_count":0,"direct_dst_count":2}
+EOF
+}
+
+TEST_POLICY_MODE_SETTING=proxy-first
+status_output_proxy_first="$(status_json)"
+assert_eq "proxy-first" "$(printf '%s\n' "$status_output_proxy_first" | jq -r '.policy_mode')" "status_json should expose proxy-first policy mode"
+assert_eq "0" "$(printf '%s\n' "$status_output_proxy_first" | jq -r '.always_proxy_dst_count')" "status_json should disable always-proxy destination count in proxy-first mode"
+assert_eq "2" "$(printf '%s\n' "$status_output_proxy_first" | jq -r '.direct_dst_count')" "status_json should count direct destinations in proxy-first mode"
+assert_eq "true" "$(printf '%s\n' "$status_output_proxy_first" | jq -r '.runtime_matches_desired')" "status_json should match proxy-first runtime snapshot"
+TEST_POLICY_MODE_SETTING=direct-first
 
 logs_output="$(logs_json 2)"
 assert_eq "true" "$(printf '%s\n' "$logs_output" | jq -r '.available')" "logs_json should report available logread command"

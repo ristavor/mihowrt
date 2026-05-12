@@ -95,6 +95,7 @@ assert_file_contains "$backup_log" "/opt/clash/config.yaml|config.yaml" "backup_
 assert_file_contains "$backup_log" "/etc/config/mihowrt|mihowrt.uci" "backup_user_state should include uci config"
 assert_file_contains "$backup_log" "/opt/clash/lst/always_proxy_dst.txt|always_proxy_dst.txt" "backup_user_state should include destination list"
 assert_file_contains "$backup_log" "/opt/clash/lst/always_proxy_src.txt|always_proxy_src.txt" "backup_user_state should include source list"
+assert_file_contains "$backup_log" "/opt/clash/lst/direct_dst.txt|direct_dst.txt" "backup_user_state should include direct destination list"
 assert_file_contains "$backup_log" "$DNS_BACKUP_FILE|$DNS_BACKUP_NAME" "backup_user_state should include DNS backup"
 
 : > "$restore_log"
@@ -103,6 +104,7 @@ assert_file_contains "$restore_log" "config.yaml|/opt/clash/config.yaml" "restor
 assert_file_contains "$restore_log" "mihowrt.uci|/etc/config/mihowrt" "restore_user_state should restore uci config"
 assert_file_contains "$restore_log" "always_proxy_dst.txt|/opt/clash/lst/always_proxy_dst.txt" "restore_user_state should restore destination list"
 assert_file_contains "$restore_log" "always_proxy_src.txt|/opt/clash/lst/always_proxy_src.txt" "restore_user_state should restore source list"
+assert_file_contains "$restore_log" "direct_dst.txt|/opt/clash/lst/direct_dst.txt" "restore_user_state should restore direct destination list"
 
 create_backup_dir() {
 	printf 'create_backup_dir\n' >>"$backup_log"

@@ -461,8 +461,10 @@ EOF
 
 status_output="$(status_runtime_state)"
 assert_eq "enabled=1" "$(printf '%s\n' "$status_output" | sed -n '1p')" "status_runtime_state should report enabled flag"
+assert_eq "policy_mode=direct-first" "$(printf '%s\n' "$status_output" | grep '^policy_mode=')" "status_runtime_state should report policy mode"
 assert_eq "route_table_id=auto" "$(printf '%s\n' "$status_output" | grep '^route_table_id=')" "status_runtime_state should show auto route table when unset"
 assert_eq "always_proxy_dst_count=2" "$(printf '%s\n' "$status_output" | grep '^always_proxy_dst_count=')" "status_runtime_state should report destination list count"
 assert_eq "always_proxy_src_count=3" "$(printf '%s\n' "$status_output" | grep '^always_proxy_src_count=')" "status_runtime_state should report source list count"
+assert_eq "direct_dst_count=0" "$(printf '%s\n' "$status_output" | grep '^direct_dst_count=')" "status_runtime_state should report inactive direct destination count in direct-first mode"
 
 pass "policy runtime orchestration"

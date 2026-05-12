@@ -153,9 +153,11 @@ function deriveAppliedState(status) {
 		routeRulePriority: '',
 		dnsHijack: null,
 		disableQuic: null,
+		policyMode: null,
 		sourceNetworkInterfaces: null,
 		alwaysProxyDstCount: null,
-		alwaysProxySrcCount: null
+		alwaysProxySrcCount: null,
+		directDstCount: null
 	};
 }
 
@@ -227,11 +229,14 @@ return view.extend({
 					renderField(_('Applied Route Rule Priority'), active.routeRulePriority || _('not active')),
 					renderField(_('Configured Route Table'), status.routeTableId),
 					renderField(_('Configured Route Rule Priority'), status.routeRulePriority),
+					renderField(_('Configured Policy Mode'), status.policyMode || _('direct-first')),
+					renderField(_('Applied Policy Mode'), active.policyMode || _('not active')),
 					renderField(_('Applied DNS Hijack'), renderAppliedBoolean(active.dnsHijack)),
 					renderField(_('Applied Disable QUIC'), renderAppliedBoolean(active.disableQuic)),
 					renderField(_('Applied Source Interfaces'), renderAppliedList(active.sourceNetworkInterfaces)),
 					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
 					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
+					renderField(_('Applied Direct Dst Count'), renderAppliedCount(active.directDstCount)),
 					renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
 					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
 					renderField(_('Runtime Snapshot Valid'), status.runtimeSnapshotValid ? _('yes') : _('no')),

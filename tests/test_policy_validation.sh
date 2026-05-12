@@ -40,6 +40,7 @@ export CLASH_CONFIG="$tmpdir/config.yaml"
 export LIST_DIR="$tmpdir/opt/clash/lst"
 export DST_LIST_FILE="$LIST_DIR/always_proxy_dst.txt"
 export SRC_LIST_FILE="$LIST_DIR/always_proxy_src.txt"
+export DIRECT_DST_LIST_FILE="$LIST_DIR/direct_dst.txt"
 
 cat > "$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
@@ -66,6 +67,7 @@ MIHOMO_TPROXY_PORT="7894"
 MIHOMO_ROUTING_MARK="2"
 MIHOMO_ROUTE_TABLE_ID="200"
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
+POLICY_MODE="direct-first"
 DNS_ENHANCED_MODE="fake-ip"
 CATCH_FAKEIP="1"
 FAKEIP_RANGE="198.18.0.0/15"
@@ -75,6 +77,7 @@ assert_true "validate_runtime_config should accept valid runtime values" validat
 [[ -d "$LIST_DIR" ]] || fail "validate_runtime_config should ensure list directory exists"
 [[ ! -e "$DST_LIST_FILE" ]] || fail "validate_runtime_config should not auto-create destination list file"
 [[ ! -e "$SRC_LIST_FILE" ]] || fail "validate_runtime_config should not auto-create source list file"
+[[ ! -e "$DIRECT_DST_LIST_FILE" ]] || fail "validate_runtime_config should not auto-create direct destination list file"
 
 SOURCE_INTERFACES="bad/iface"
 assert_false "validate_runtime_config should reject invalid interface names" validate_runtime_config
@@ -85,6 +88,13 @@ assert_false "validate_runtime_config should reject out-of-range route table id"
 
 MIHOMO_ROUTE_TABLE_ID="200"
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
+POLICY_MODE="invalid"
+assert_false "validate_runtime_config should reject invalid policy mode" validate_runtime_config
+
+POLICY_MODE="proxy-first"
+assert_true "validate_runtime_config should accept proxy-first policy mode" validate_runtime_config
+
+POLICY_MODE="direct-first"
 DNS_ENHANCED_MODE="fake-ip"
 CATCH_FAKEIP="1"
 FAKEIP_RANGE="bad-range"

@@ -88,6 +88,10 @@ if (state.runtimeSafeReloadReady !== false)
 	throw new Error('emptyStatusState should default runtimeSafeReloadReady to false');
 if (state.runtimeMatchesDesired !== false)
 	throw new Error('emptyStatusState should default runtimeMatchesDesired to false');
+if (state.policyMode !== 'direct-first')
+	throw new Error('emptyStatusState should default policyMode to direct-first');
+if (state.directDstCount !== 0)
+	throw new Error('emptyStatusState should default directDstCount to zero');
 
 (async() => {
 	await context.backend.applyConfig('mode: rule\n');

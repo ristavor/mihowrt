@@ -97,7 +97,7 @@ const context = {
 };
 
 vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let dstListOption = null; let srcListOption = null;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${reloadFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setListOptions = (dst, src) => { dstListOption = dst; srcListOption = src; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${reloadFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
 
 (async () => {
 	const option = {};
@@ -167,13 +167,36 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 		throw new Error('bindTextFileOption.remove should keep cache unchanged on remove failure');
 	context.removeError = null;
 
+	context.fs.writeCalls.length = 0;
+	context.setDirectDstCache('8.8.8.8\n');
+	const directOption = {};
+	context.bindTextFileOption(directOption, 'direct-dst', '/opt/clash/lst/direct_dst.txt', 'desc');
+	await directOption.write('settings', '9.9.9.9');
+	if (context.fs.writeCalls.length !== 1 || context.fs.writeCalls[0].path !== '/opt/clash/lst/direct_dst.txt')
+		throw new Error('bindTextFileOption.write should persist direct destination content');
+	if (context.getDirectDstCache() !== '9.9.9.9\n')
+		throw new Error('bindTextFileOption.write should update direct destination cache');
+
 	context.setDstCache('stale\n');
 	context.setSrcCache('old\n');
-	context.syncListCaches(' 3.3.3.3\r\n', '');
+	context.setDirectDstCache('direct-old\n');
+	context.syncListCaches(' 3.3.3.3\r\n', '', ' 8.8.8.8\r\n');
 	if (context.getDstCache() !== '3.3.3.3\n')
 		throw new Error('syncListCaches should refresh destination cache from latest file contents');
 	if (context.getSrcCache() !== '')
 		throw new Error('syncListCaches should refresh source cache from latest file contents');
+	if (context.getDirectDstCache() !== '8.8.8.8\n')
+		throw new Error('syncListCaches should refresh direct destination cache from latest file contents');
+
+	context.setPolicyMode('direct-first');
+	context.setListOptions({ formvalue: () => '1.1.1.1\n' }, { formvalue: () => '' }, { formvalue: () => 'changed-direct\n' });
+	context.syncListCaches('1.1.1.1\n', '', 'old-direct\n');
+	if (context.hasListValueChanges())
+		throw new Error('hasListValueChanges should ignore direct list changes in direct-first mode');
+
+	context.setPolicyMode('proxy-first');
+	if (!context.hasListValueChanges())
+		throw new Error('hasListValueChanges should detect direct list changes in proxy-first mode');
 
 	if (context.hasMihowrtUciChanges({ network: [['set']] }))
 		throw new Error('hasMihowrtUciChanges should ignore unrelated UCI package changes');
@@ -184,8 +207,9 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 	context.applyCalls.length = 0;
 	context.notifications.length = 0;
 	context.uciChanges = { network: [['set', 'lan']] };
-	context.syncListCaches('1.1.1.1\n', '');
-	context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' });
+	context.setPolicyMode('direct-first');
+	context.syncListCaches('1.1.1.1\n', '', '');
+	context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' }, { formvalue: () => '' });
 	await context.handleSaveApply.call({ handleSave: async() => {} }, null, '0');
 	if (context.applyCalls.length !== 0)
 		throw new Error('handleSaveApply should not apply unrelated pending UCI changes');
@@ -195,8 +219,9 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;
 	context.uciChanges = { mihowrt: [['set', 'settings']] };
-	context.syncListCaches('1.1.1.1\n', '');
-	context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' });
+	context.setPolicyMode('direct-first');
+	context.syncListCaches('1.1.1.1\n', '', '');
+	context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' }, { formvalue: () => '' });
 	await context.handleSaveApply.call({ handleSave: async() => {} }, null, '1');
 	if (context.applyCalls.length !== 1 || context.applyCalls[0] !== false)
 		throw new Error('handleSaveApply should apply mihowrt UCI changes through LuCI');

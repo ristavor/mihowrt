@@ -1,0 +1,5 @@
+# One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port.
+# Matching destinations bypass Mihomo in proxy-first mode.
+# Example:
+# 8.8.8.8
+# 9.9.9.0/24

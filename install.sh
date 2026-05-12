@@ -645,6 +645,7 @@ backup_user_state() {
 	backup_file_or_mark_missing /etc/config/mihowrt mihowrt.uci || return 1
 	backup_file_or_mark_missing /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt || return 1
 	backup_file_or_mark_missing /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt || return 1
+	backup_file_or_mark_missing /opt/clash/lst/direct_dst.txt direct_dst.txt || return 1
 	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME" || return 1
 }
 
@@ -654,6 +655,7 @@ restore_user_state() {
 	restore_file_or_remove mihowrt.uci /etc/config/mihowrt || return 1
 	restore_file_or_remove always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt || return 1
 	restore_file_or_remove always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || return 1
+	restore_file_or_remove direct_dst.txt /opt/clash/lst/direct_dst.txt || return 1
 }
 
 service_enabled() {
@@ -1983,6 +1985,7 @@ remove_user_state() {
 	rm -f /opt/clash/config.yaml
 	rm -f /opt/clash/lst/always_proxy_dst.txt
 	rm -f /opt/clash/lst/always_proxy_src.txt
+	rm -f /opt/clash/lst/direct_dst.txt
 	rm -rf /opt/clash/ruleset
 	rm -rf /opt/clash/proxy_providers
 	rm -f /opt/clash/cache.db

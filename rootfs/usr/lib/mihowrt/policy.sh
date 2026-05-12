@@ -143,6 +143,10 @@ runtime_snapshot_save() {
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
 	local direct_list_file="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
+	local source_dst_list_file="${POLICY_SOURCE_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local source_src_list_file="${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	local source_direct_list_file="${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
+	local dst_source_hash="" src_source_hash="" direct_source_hash=""
 
 	require_command jq || return 1
 	policy_route_state_read || return 1
@@ -153,6 +157,9 @@ runtime_snapshot_save() {
 	direct_snapshot="$(runtime_snapshot_direct_file)"
 	route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
 	route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+	dst_source_hash="$(policy_list_fingerprint "$source_dst_list_file")" || return 1
+	src_source_hash="$(policy_list_fingerprint "$source_src_list_file")" || return 1
+	direct_source_hash="$(policy_list_fingerprint "$source_direct_list_file")" || return 1
 
 	ensure_dir "$(dirname "$snapshot_file")" || return 1
 	snapshot_tmp="${snapshot_file}.tmp.$$"
@@ -192,6 +199,9 @@ runtime_snapshot_save() {
 		--arg catch_fakeip "$CATCH_FAKEIP" \
 		--arg fakeip_range "$FAKEIP_RANGE" \
 		--arg source_interfaces "$SOURCE_INTERFACES" \
+		--arg dst_source_hash "$dst_source_hash" \
+		--arg src_source_hash "$src_source_hash" \
+		--arg direct_source_hash "$direct_source_hash" \
 		'{
 			enabled: ($enabled == "1"),
 			policy_mode: $policy_mode,
@@ -206,6 +216,9 @@ runtime_snapshot_save() {
 			dns_enhanced_mode: $dns_enhanced_mode,
 			catch_fakeip: ($catch_fakeip == "1"),
 			fakeip_range: $fakeip_range,
+			always_proxy_dst_source_hash: $dst_source_hash,
+			always_proxy_src_source_hash: $src_source_hash,
+			direct_dst_source_hash: $direct_source_hash,
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
 		}' > "$snapshot_tmp" || {
 		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
@@ -389,6 +402,9 @@ runtime_snapshot_status_json() {
 			catch_fakeip: (.catch_fakeip // false),
 			fakeip_range: (.fakeip_range // ""),
 			source_network_interfaces: (.source_network_interfaces // []),
+			always_proxy_dst_source_hash: (.always_proxy_dst_source_hash // ""),
+			always_proxy_src_source_hash: (.always_proxy_src_source_hash // ""),
+			direct_dst_source_hash: (.direct_dst_source_hash // ""),
 			always_proxy_dst_count: (if (.policy_mode // "direct-first") == "direct-first" then ($dst_count | tonumber? // 0) else 0 end),
 			always_proxy_src_count: (if (.policy_mode // "direct-first") == "direct-first" then ($src_count | tonumber? // 0) else 0 end),
 			direct_dst_count: (if (.policy_mode // "direct-first") == "proxy-first" then ($direct_count | tonumber? // 0) else 0 end)
@@ -589,7 +605,7 @@ apply_runtime_state() {
 	local lists_resolved=0
 
 	if command -v policy_resolve_runtime_lists >/dev/null 2>&1; then
-		policy_resolve_runtime_lists || return 1
+		policy_resolve_runtime_lists || return 2
 		lists_resolved=1
 	fi
 
@@ -668,6 +684,7 @@ reload_runtime_state() {
 	local old_route_table_id="" old_route_rule_priority=""
 	local new_route_table_id="" new_route_rule_priority=""
 	local had_snapshot=0 snapshot_files_present=0 live_runtime_present=0
+	local apply_rc=0
 
 	if policy_route_state_read; then
 		old_route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
@@ -709,7 +726,14 @@ reload_runtime_state() {
 		return 1
 	fi
 
-	if ! apply_runtime_state; then
+	apply_runtime_state
+	apply_rc=$?
+	if [ "$apply_rc" -ne 0 ]; then
+		if [ "$apply_rc" -eq 2 ]; then
+			err "Failed to prepare updated policy lists"
+			return 1
+		fi
+
 		err "Failed to apply updated policy; restoring previous runtime state"
 		runtime_snapshot_restore || {
 			err "Failed to restore previous runtime state"
@@ -810,6 +834,9 @@ status_default_active_json() {
 		catch_fakeip: false,
 		fakeip_range: "",
 		source_network_interfaces: [],
+		always_proxy_dst_source_hash: "",
+		always_proxy_src_source_hash: "",
+		direct_dst_source_hash: "",
 		always_proxy_dst_count: 0,
 		always_proxy_src_count: 0,
 		direct_dst_count: 0
@@ -827,6 +854,8 @@ load_status_config_json() {
 load_status_desired_state_json() {
 	local enabled=1 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 direct_dst_count=0 settings_loaded=0
+	local proxy_dst_url_count=0 proxy_src_url_count=0 direct_dst_url_count=0
+	local proxy_dst_source_hash="" proxy_src_source_hash="" direct_dst_source_hash=""
 	local policy_mode="direct-first"
 	local status_errors_raw=""
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
@@ -852,14 +881,20 @@ load_status_desired_state_json() {
 	if [ "$settings_loaded" -eq 1 ] && [ -z "$source_interfaces" ]; then
 		source_interfaces="$(default_source_interface)"
 	fi
+	proxy_dst_source_hash="$(policy_list_fingerprint "$dst_list_file")"
+	proxy_src_source_hash="$(policy_list_fingerprint "$src_list_file")"
+	direct_dst_source_hash="$(policy_list_fingerprint "$direct_list_file")"
 
 	case "$policy_mode" in
 		direct-first)
 			proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
 			proxy_src_count="$(count_valid_list_entries "$src_list_file")"
+			proxy_dst_url_count="$(count_remote_list_urls "$dst_list_file")"
+			proxy_src_url_count="$(count_remote_list_urls "$src_list_file")"
 			;;
 		proxy-first)
 			direct_dst_count="$(count_valid_list_entries "$direct_list_file")"
+			direct_dst_url_count="$(count_remote_list_urls "$direct_list_file")"
 			;;
 		*)
 			status_errors_raw="${status_errors_raw}${status_errors_raw:+
@@ -878,6 +913,12 @@ load_status_desired_state_json() {
 		--arg proxy_dst_count "$proxy_dst_count" \
 		--arg proxy_src_count "$proxy_src_count" \
 		--arg direct_dst_count "$direct_dst_count" \
+		--arg proxy_dst_url_count "$proxy_dst_url_count" \
+		--arg proxy_src_url_count "$proxy_src_url_count" \
+		--arg direct_dst_url_count "$direct_dst_url_count" \
+		--arg proxy_dst_source_hash "$proxy_dst_source_hash" \
+		--arg proxy_src_source_hash "$proxy_src_source_hash" \
+		--arg direct_dst_source_hash "$direct_dst_source_hash" \
 		--arg settings_loaded "$settings_loaded" \
 		--arg status_errors_raw "$status_errors_raw" \
 		'{
@@ -893,6 +934,12 @@ load_status_desired_state_json() {
 			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),
 			always_proxy_src_count: ($proxy_src_count | tonumber? // 0),
 			direct_dst_count: ($direct_dst_count | tonumber? // 0),
+			always_proxy_dst_remote_url_count: ($proxy_dst_url_count | tonumber? // 0),
+			always_proxy_src_remote_url_count: ($proxy_src_url_count | tonumber? // 0),
+			direct_dst_remote_url_count: ($direct_dst_url_count | tonumber? // 0),
+			always_proxy_dst_source_hash: $proxy_dst_source_hash,
+			always_proxy_src_source_hash: $proxy_src_source_hash,
+			direct_dst_source_hash: $direct_dst_source_hash,
 			settings_loaded: ($settings_loaded == "1"),
 			errors: ($status_errors_raw | split("\n") | map(select(length > 0)))
 		}'
@@ -1001,7 +1048,13 @@ compare_status_runtime_state_json() {
 		--argjson config "$config_json" \
 		--argjson desired "$desired_json" \
 		--argjson runtime "$runtime_json" \
-		'{
+		'def list_matches($active_count; $desired_count; $active_hash; $desired_hash; $remote_urls):
+			if (($remote_urls // 0) > 0) then
+				(($active_hash // "") != "" and ($desired_hash // "") != "" and ($active_hash == $desired_hash))
+			else
+				($active_count == $desired_count)
+			end;
+		{
 			runtime_safe_reload_ready: (
 				if ($desired.settings_loaded | not) then true
 				elif ($runtime.runtime_snapshot_present and ($runtime.runtime_snapshot_valid | not) and $runtime.runtime_live_state_present) then false
@@ -1022,9 +1075,9 @@ compare_status_runtime_state_json() {
 						($runtime.active.dns_hijack == $desired.dns_hijack) and
 						($runtime.active.disable_quic == $desired.disable_quic) and
 						($runtime.active.source_network_interfaces == $desired.source_network_interfaces) and
-						($runtime.active.always_proxy_dst_count == $desired.always_proxy_dst_count) and
-						($runtime.active.always_proxy_src_count == $desired.always_proxy_src_count) and
-						(($runtime.active.direct_dst_count // 0) == ($desired.direct_dst_count // 0)) and
+						list_matches($runtime.active.always_proxy_dst_count; $desired.always_proxy_dst_count; $runtime.active.always_proxy_dst_source_hash; $desired.always_proxy_dst_source_hash; $desired.always_proxy_dst_remote_url_count) and
+						list_matches($runtime.active.always_proxy_src_count; $desired.always_proxy_src_count; $runtime.active.always_proxy_src_source_hash; $desired.always_proxy_src_source_hash; $desired.always_proxy_src_remote_url_count) and
+						list_matches(($runtime.active.direct_dst_count // 0); ($desired.direct_dst_count // 0); $runtime.active.direct_dst_source_hash; $desired.direct_dst_source_hash; $desired.direct_dst_remote_url_count) and
 						(($desired.route_table_id_raw == "") or ($runtime.active.route_table_id == $desired.route_table_id_raw)) and
 						(($desired.route_rule_priority_raw == "") or ($runtime.active.route_rule_priority == $desired.route_rule_priority_raw)) and
 						(($runtime.active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
@@ -1072,6 +1125,9 @@ emit_status_json() {
 			always_proxy_dst_count: $desired.always_proxy_dst_count,
 			always_proxy_src_count: $desired.always_proxy_src_count,
 			direct_dst_count: $desired.direct_dst_count,
+			always_proxy_dst_remote_url_count: $desired.always_proxy_dst_remote_url_count,
+			always_proxy_src_remote_url_count: $desired.always_proxy_src_remote_url_count,
+			direct_dst_remote_url_count: $desired.direct_dst_remote_url_count,
 			runtime_snapshot_present: $runtime.runtime_snapshot_present,
 			runtime_snapshot_valid: $runtime.runtime_snapshot_valid,
 			runtime_live_state_present: $runtime.runtime_live_state_present,
@@ -1119,6 +1175,9 @@ status_runtime_state() {
 		"always_proxy_dst_count=\(.always_proxy_dst_count // 0)",
 		"always_proxy_src_count=\(.always_proxy_src_count // 0)",
 		"direct_dst_count=\(.direct_dst_count // 0)",
+		"always_proxy_dst_remote_url_count=\(.always_proxy_dst_remote_url_count // 0)",
+		"always_proxy_src_remote_url_count=\(.always_proxy_src_remote_url_count // 0)",
+		"direct_dst_remote_url_count=\(.direct_dst_remote_url_count // 0)",
 		"runtime_snapshot_present=\(if .runtime_snapshot_present then 1 else 0 end)",
 		"runtime_snapshot_valid=\(if .runtime_snapshot_valid then 1 else 0 end)",
 		"runtime_live_state_present=\(if .runtime_live_state_present then 1 else 0 end)",

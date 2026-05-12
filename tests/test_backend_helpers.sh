@@ -96,6 +96,8 @@ if (state.policyMode !== 'direct-first')
 	throw new Error('emptyStatusState should default policyMode to direct-first');
 if (state.directDstCount !== 0)
 	throw new Error('emptyStatusState should default directDstCount to zero');
+if (state.directDstRemoteUrlCount !== 0)
+	throw new Error('emptyStatusState should default directDstRemoteUrlCount to zero');
 
 (async() => {
 	await context.backend.applyConfig('mode: rule\n');

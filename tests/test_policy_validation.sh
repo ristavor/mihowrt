@@ -143,7 +143,8 @@ assert_eq "443" "$(policy_ports_nft_expr "0443-443")" "policy_ports_nft_expr sho
 assert_eq "{ 15, 443 }" "$(policy_ports_nft_expr "0015,0443")" "policy_ports_nft_expr should format port set"
 assert_eq "443" "$(policy_ports_nft_expr "0443,443")" "policy_ports_nft_expr should dedupe port set"
 assert_eq "15,443" "$(policy_ports_normalized_spec "0015,0443,443")" "policy_ports_normalized_spec should normalize and dedupe port lists"
-assert_eq "1.2.3.4:443" "$(policy_entry_normalized "1.2.3.4:0443,443")" "policy_entry_normalized should normalize port-scoped entries"
+assert_eq "15,443" "$(policy_ports_normalized_spec "0443,0015,443")" "policy_ports_normalized_spec should sort port lists"
+assert_eq "1.2.3.4:15,443" "$(policy_entry_normalized "1.2.3.4:0443,15")" "policy_entry_normalized should normalize port-scoped entries"
 assert_eq ":15-2000" "$(policy_entry_normalized ":0015-02000")" "policy_entry_normalized should normalize port-only entries"
 assert_true "policy_ports_include_port should find port inside range" policy_ports_include_port "15-2000" 443
 assert_true "policy_ports_include_port should find port inside list" policy_ports_include_port "15,443" 443

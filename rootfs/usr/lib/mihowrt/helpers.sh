@@ -270,7 +270,7 @@ policy_entry_ports() {
 
 policy_ports_normalized_spec() {
 	local value="$1"
-	local rest item start end expr="" seen=""
+	local rest item start end expr="" items="" sorted="" current="" inserted=0
 
 	is_policy_port_spec "$value" || return 1
 
@@ -279,20 +279,32 @@ policy_ports_normalized_spec() {
 			rest="$value"
 			while :; do
 				item="$(normalize_uint "${rest%%,*}")"
-				case " $seen " in
+				case " $items " in
 					*" $item "*)
 						;;
 					*)
-						if [ -n "$expr" ]; then
-							expr="$expr,$item"
-						else
-							expr="$item"
-						fi
-						seen="$seen $item"
+						sorted=""
+						inserted=0
+						for current in $items; do
+							if [ "$inserted" -eq 0 ] && [ "$item" -lt "$current" ]; then
+								sorted="${sorted:+$sorted }$item"
+								inserted=1
+							fi
+							sorted="${sorted:+$sorted }$current"
+						done
+						[ "$inserted" -eq 1 ] || sorted="${sorted:+$sorted }$item"
+						items="$sorted"
 						;;
 				esac
 				[ "$rest" != "${rest#*,}" ] || break
 				rest="${rest#*,}"
+			done
+			for item in $items; do
+				if [ -n "$expr" ]; then
+					expr="$expr,$item"
+				else
+					expr="$item"
+				fi
 			done
 			printf '%s' "$expr"
 			;;

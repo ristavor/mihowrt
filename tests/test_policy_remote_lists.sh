@@ -54,6 +54,11 @@ LIST
 :0053
 LIST
 		;;
+	https://example.com/dst-b.txt)
+		cat <<'LIST'
+5.5.5.5
+LIST
+		;;
 	https://example.com/direct-a.txt)
 		cat <<'LIST'
 8.8.8.8
@@ -152,11 +157,35 @@ assert_false "policy_resolve_runtime_lists should fail when remote list fetch fa
 assert_unset POLICY_DST_LIST_FILE "failed policy_resolve_runtime_lists should clean destination override"
 
 cat > "$DST_LIST_FILE" <<'EOF'
+https://example.com/dst-a.txt
+https://example.com/dst-b.txt
+EOF
+: > "$SRC_LIST_FILE"
+POLICY_REMOTE_LIST_MAX_URLS=1
+: >"$TEST_WGET_LOG"
+assert_false "policy_resolve_runtime_lists should reject too many remote list URLs" policy_resolve_runtime_lists
+assert_file_contains "$TEST_WGET_LOG" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should fetch remote URLs up to the URL limit"
+assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/dst-b.txt" "policy_resolve_runtime_lists should stop before fetching URLs beyond the URL limit"
+unset POLICY_REMOTE_LIST_MAX_URLS
+
+cat > "$DST_LIST_FILE" <<'EOF'
 https://example.com/large.txt
 EOF
 POLICY_REMOTE_LIST_MAX_BYTES=4
 assert_false "policy_resolve_runtime_lists should reject oversized remote lists" policy_resolve_runtime_lists
 unset POLICY_REMOTE_LIST_MAX_BYTES
+
+cat > "$DST_LIST_FILE" <<'EOF'
+1.1.1.1
+1.1.1.1
+1.1.1.1
+EOF
+: > "$SRC_LIST_FILE"
+POLICY_EFFECTIVE_LIST_MAX_BYTES=8
+policy_resolve_runtime_lists
+assert_eq_file "1.1.1.1" "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should dedupe before enforcing effective size"
+policy_clear_runtime_list_overrides
+unset POLICY_EFFECTIVE_LIST_MAX_BYTES
 
 cat > "$DST_LIST_FILE" <<'EOF'
 1.1.1.1

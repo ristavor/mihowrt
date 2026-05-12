@@ -372,6 +372,8 @@ Rules:
   state is kept through rollback when a snapshot exists.
 - Each remote list is limited to 256 KiB by default. Each effective list
   is limited to 1 MiB by default.
+- Remote list fetches use a 15 second per-URL timeout, a 60 second total
+  apply budget, and a 32 URL safety cap by default.
 
 Examples:
 
@@ -555,8 +557,9 @@ Applying policy creates:
 ```
 
 The snapshot records applied UCI settings, parsed Mihomo runtime fields,
-effective route table/priority, source interfaces, fake-ip state, and
-copies of the effective policy list files after remote lists are merged.
+effective route table/priority, source interfaces, fake-ip state, source
+list fingerprints, and copies of the effective policy list files after
+remote lists are merged.
 
 Reload behavior:
 

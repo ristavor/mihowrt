@@ -330,6 +330,19 @@ TEST_APPLY_RUNTIME_RC=0
 
 : > "$event_log"
 TEST_ENABLED=1
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_APPLY_RUNTIME_RC=2
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+assert_false "reload_runtime_state should fail without rollback when pre-apply list preparation fails" reload_runtime_state
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should call apply before detecting pre-apply failure"
+assert_file_contains "$event_log" "err:Failed to prepare updated policy lists" "reload_runtime_state should report pre-apply list failure"
+assert_file_not_contains "$event_log" "runtime_snapshot_restore" "reload_runtime_state should not restore snapshot when runtime was not changed"
+assert_file_not_contains "$event_log" "err:Failed to apply updated policy; restoring previous runtime state" "reload_runtime_state should not log rollback for pre-apply failures"
+TEST_APPLY_RUNTIME_RC=0
+
+: > "$event_log"
+TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
@@ -415,6 +428,18 @@ count_valid_list_entries() {
 	fi
 }
 
+count_remote_list_urls() {
+	if [[ "$1" == "$DST_LIST_FILE" ]]; then
+		printf '1\n'
+	else
+		printf '0\n'
+	fi
+}
+
+policy_list_fingerprint() {
+	printf 'hash:%s' "$1"
+}
+
 require_command() {
 	return 0
 }
@@ -490,5 +515,6 @@ assert_eq "route_table_id=auto" "$(printf '%s\n' "$status_output" | grep '^route
 assert_eq "always_proxy_dst_count=2" "$(printf '%s\n' "$status_output" | grep '^always_proxy_dst_count=')" "status_runtime_state should report destination list count"
 assert_eq "always_proxy_src_count=3" "$(printf '%s\n' "$status_output" | grep '^always_proxy_src_count=')" "status_runtime_state should report source list count"
 assert_eq "direct_dst_count=0" "$(printf '%s\n' "$status_output" | grep '^direct_dst_count=')" "status_runtime_state should report inactive direct destination count in direct-first mode"
+assert_eq "always_proxy_dst_remote_url_count=1" "$(printf '%s\n' "$status_output" | grep '^always_proxy_dst_remote_url_count=')" "status_runtime_state should report configured remote destination URLs"
 
 pass "policy runtime orchestration"

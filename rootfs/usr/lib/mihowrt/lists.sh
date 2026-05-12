@@ -34,8 +34,125 @@ policy_remote_list_fetch_timeout() {
 	printf '%s' "$timeout"
 }
 
+policy_remote_list_fetch_budget() {
+	local budget="${POLICY_REMOTE_LIST_FETCH_BUDGET:-60}"
+
+	if ! is_uint "$budget" || [ "$budget" -le 0 ]; then
+		budget=60
+	fi
+
+	printf '%s' "$budget"
+}
+
+policy_remote_list_max_urls() {
+	local max_urls="${POLICY_REMOTE_LIST_MAX_URLS:-32}"
+
+	if ! is_uint "$max_urls" || [ "$max_urls" -le 0 ]; then
+		max_urls=32
+	fi
+
+	printf '%s' "$max_urls"
+}
+
+policy_remote_list_fetch_limits_begin() {
+	local now="" budget=""
+
+	require_command date || return 1
+	now="$(date +%s)" || return 1
+	is_uint "$now" || {
+		err "Failed to read current time for remote policy list budget"
+		return 1
+	}
+
+	budget="$(policy_remote_list_fetch_budget)"
+	POLICY_REMOTE_LIST_URL_COUNT=0
+	POLICY_REMOTE_LIST_FETCH_DEADLINE=$((now + budget))
+}
+
+policy_remote_list_register_url() {
+	local url="$1"
+	local label="$2"
+	local max_urls=""
+
+	max_urls="$(policy_remote_list_max_urls)"
+	POLICY_REMOTE_LIST_URL_COUNT=$((${POLICY_REMOTE_LIST_URL_COUNT:-0} + 1))
+	if [ "$POLICY_REMOTE_LIST_URL_COUNT" -gt "$max_urls" ]; then
+		err "Too many remote policy list URLs in $label: $POLICY_REMOTE_LIST_URL_COUNT, limit $max_urls"
+		return 1
+	fi
+
+	log "Fetching remote policy list $url"
+}
+
+policy_remote_list_effective_timeout() {
+	local timeout="$1"
+	local now="" remaining=0
+
+	[ -n "${POLICY_REMOTE_LIST_FETCH_DEADLINE:-}" ] || {
+		printf '%s' "$timeout"
+		return 0
+	}
+
+	now="$(date +%s)" || return 1
+	is_uint "$now" || {
+		err "Failed to read current time for remote policy list budget"
+		return 1
+	}
+
+	remaining=$((POLICY_REMOTE_LIST_FETCH_DEADLINE - now))
+	if [ "$remaining" -le 0 ]; then
+		err "Remote policy list fetch budget exceeded"
+		return 1
+	fi
+
+	if [ "$timeout" -gt "$remaining" ]; then
+		printf '%s' "$remaining"
+	else
+		printf '%s' "$timeout"
+	fi
+}
+
 is_policy_remote_list_url() {
 	is_http_fetch_url "$1"
+}
+
+count_remote_list_urls() {
+	local file="$1"
+	local count=0
+	local line
+
+	[ -f "$file" ] || {
+		echo 0
+		return 0
+	}
+
+	while IFS= read -r line; do
+		line="$(trim "$line")"
+		case "$line" in
+			''|'#'*) continue ;;
+		esac
+
+		if is_policy_remote_list_url "$line"; then
+			count=$((count + 1))
+		fi
+	done < "$file"
+
+	echo "$count"
+}
+
+policy_list_fingerprint() {
+	local file="$1"
+
+	have_command cksum && have_command awk || {
+		printf '%s' ''
+		return 0
+	}
+
+	if [ -f "$file" ]; then
+		cksum "$file" | awk '{ printf "%s:%s", $1, $2 }'
+	else
+		printf '%s' '4294967295:0'
+	fi
 }
 
 policy_effective_list_cleanup() {
@@ -49,17 +166,8 @@ policy_effective_list_cleanup() {
 policy_effective_list_append_entry() {
 	local output="$1"
 	local entry="$2"
-	local max_bytes="$3"
-	local next_bytes=0
-
-	next_bytes=$((POLICY_EFFECTIVE_LIST_BYTES + ${#entry} + 1))
-	if [ "$next_bytes" -gt "$max_bytes" ]; then
-		err "Effective policy list is too large: $next_bytes bytes, limit $max_bytes"
-		return 1
-	fi
 
 	printf '%s\n' "$entry" >> "$output" || return 1
-	POLICY_EFFECTIVE_LIST_BYTES="$next_bytes"
 }
 
 policy_merge_list_file() {
@@ -67,7 +175,6 @@ policy_merge_list_file() {
 	local output="$2"
 	local label="$3"
 	local allow_urls="$4"
-	local max_bytes="$5"
 	local line="" entry="" remote_file=""
 	local remote_max_bytes="" remote_timeout=""
 
@@ -85,17 +192,22 @@ policy_merge_list_file() {
 				continue
 			fi
 
+			policy_remote_list_register_url "$line" "$label" || return 1
 			remote_file="$(mktemp "$PKG_TMP_DIR/policy-remote.XXXXXX")" || {
 				err "Failed to allocate temporary remote policy list path"
 				return 1
 			}
 			remote_max_bytes="$(policy_remote_list_max_bytes)"
 			remote_timeout="$(policy_remote_list_fetch_timeout)"
+			remote_timeout="$(policy_remote_list_effective_timeout "$remote_timeout")" || {
+				rm -f "$remote_file"
+				return 1
+			}
 			if ! fetch_http_body_limited "$line" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
 				rm -f "$remote_file"
 				return 1
 			fi
-			policy_merge_list_file "$remote_file" "$output" "$line" 0 "$max_bytes" || {
+			policy_merge_list_file "$remote_file" "$output" "$line" 0 || {
 				rm -f "$remote_file"
 				return 1
 			}
@@ -109,7 +221,7 @@ policy_merge_list_file() {
 		fi
 
 		entry="$(policy_entry_normalized "$line")" || return 1
-		policy_effective_list_append_entry "$output" "$entry" "$max_bytes" || return 1
+		policy_effective_list_append_entry "$output" "$entry" || return 1
 	done < "$source"
 }
 
@@ -119,6 +231,7 @@ policy_resolve_list_file() {
 	local label="$3"
 	local raw_output=""
 	local max_bytes=""
+	local dedup_rc=0
 
 	require_command mktemp || return 1
 	require_command awk || return 1
@@ -132,17 +245,30 @@ policy_resolve_list_file() {
 		return 1
 	}
 
-	POLICY_EFFECTIVE_LIST_BYTES=0
 	max_bytes="$(policy_effective_list_max_bytes)"
-	policy_merge_list_file "$source" "$raw_output" "$label" 1 "$max_bytes" || {
+	policy_merge_list_file "$source" "$raw_output" "$label" 1 || {
 		rm -f "$raw_output"
 		return 1
 	}
 
-	awk '!seen[$0]++' "$raw_output" > "$output" || {
+	awk -v max_bytes="$max_bytes" '
+		!seen[$0]++ {
+			total += length($0) + 1
+			if (total > max_bytes)
+				exit 2
+			print
+		}
+	' "$raw_output" > "$output"
+	dedup_rc=$?
+	if [ "$dedup_rc" -ne 0 ]; then
+		if [ "$dedup_rc" -eq 2 ]; then
+			err "Effective policy list is too large after dedup: limit $max_bytes"
+		else
+			err "Failed to build effective policy list"
+		fi
 		rm -f "$raw_output"
 		return 1
-	}
+	fi
 	rm -f "$raw_output"
 }
 
@@ -186,8 +312,9 @@ policy_clear_runtime_list_overrides() {
 
 	unset POLICY_EFFECTIVE_LIST_FILES
 	unset POLICY_PREV_DST_LIST_FILE POLICY_PREV_SRC_LIST_FILE POLICY_PREV_DIRECT_LIST_FILE
+	unset POLICY_SOURCE_DST_LIST_FILE POLICY_SOURCE_SRC_LIST_FILE POLICY_SOURCE_DIRECT_LIST_FILE
 	unset POLICY_PREV_DST_LIST_FILE_SET POLICY_PREV_SRC_LIST_FILE_SET POLICY_PREV_DIRECT_LIST_FILE_SET
-	unset POLICY_EFFECTIVE_LIST_BYTES
+	unset POLICY_REMOTE_LIST_URL_COUNT POLICY_REMOTE_LIST_FETCH_DEADLINE
 }
 
 policy_resolve_runtime_lists() {
@@ -196,10 +323,14 @@ policy_resolve_runtime_lists() {
 
 	ensure_dir "$PKG_TMP_DIR"
 	[ -z "${POLICY_EFFECTIVE_LIST_FILES:-}" ] || policy_clear_runtime_list_overrides
+	policy_remote_list_fetch_limits_begin || return 1
 
 	POLICY_PREV_DST_LIST_FILE_SET=0
 	POLICY_PREV_SRC_LIST_FILE_SET=0
 	POLICY_PREV_DIRECT_LIST_FILE_SET=0
+	POLICY_SOURCE_DST_LIST_FILE="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	POLICY_SOURCE_SRC_LIST_FILE="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	POLICY_SOURCE_DIRECT_LIST_FILE="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
 	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
 		POLICY_PREV_DST_LIST_FILE_SET=1
 		POLICY_PREV_DST_LIST_FILE="$POLICY_DST_LIST_FILE"

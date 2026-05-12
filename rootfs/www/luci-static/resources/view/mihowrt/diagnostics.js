@@ -237,6 +237,11 @@ return view.extend({
 					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
 					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
 					renderField(_('Applied Direct Dst Count'), renderAppliedCount(active.directDstCount)),
+					renderField(_('Configured Remote List URLs'), [
+						_('dst: %d').format(status.alwaysProxyDstRemoteUrlCount || 0),
+						_('src: %d').format(status.alwaysProxySrcRemoteUrlCount || 0),
+						_('direct: %d').format(status.directDstRemoteUrlCount || 0)
+					].join(', ')),
 					renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
 					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
 					renderField(_('Runtime Snapshot Valid'), status.runtimeSnapshotValid ? _('yes') : _('no')),

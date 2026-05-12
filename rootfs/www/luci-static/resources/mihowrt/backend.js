@@ -48,6 +48,9 @@ function emptyStatusState() {
 		alwaysProxyDstCount: 0,
 		alwaysProxySrcCount: 0,
 		directDstCount: 0,
+		alwaysProxyDstRemoteUrlCount: 0,
+		alwaysProxySrcRemoteUrlCount: 0,
+		directDstRemoteUrlCount: 0,
 		runtimeSnapshotPresent: false,
 		runtimeSnapshotValid: false,
 		runtimeLiveStatePresent: false,
@@ -279,6 +282,9 @@ return baseclass.extend({
 			state.alwaysProxyDstCount = Number(payload.always_proxy_dst_count || 0);
 			state.alwaysProxySrcCount = Number(payload.always_proxy_src_count || 0);
 			state.directDstCount = Number(payload.direct_dst_count || 0);
+			state.alwaysProxyDstRemoteUrlCount = Number(payload.always_proxy_dst_remote_url_count || 0);
+			state.alwaysProxySrcRemoteUrlCount = Number(payload.always_proxy_src_remote_url_count || 0);
+			state.directDstRemoteUrlCount = Number(payload.direct_dst_remote_url_count || 0);
 			state.runtimeSnapshotPresent = !!payload.runtime_snapshot_present;
 			state.runtimeSnapshotValid = !!payload.runtime_snapshot_valid;
 			state.runtimeLiveStatePresent = !!payload.runtime_live_state_present;

@@ -175,7 +175,7 @@ return view.extend({
 	render: function(data) {
 		syncListCaches(data[1], data[2], data[3]);
 
-		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Fake-IP policy layer. Direct-first proxies selected traffic; proxy-first proxies everything except direct destinations.'));
+		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Fake-IP policy layer. Direct-first proxies selected traffic; proxy-first proxies non-local traffic except direct destinations. DNS/53 hijack, when enabled, is always handled by Mihomo DNS before proxy policy.'));
 		policyMap = m;
 		const s = m.section(form.NamedSection, 'settings', 'settings', _('Traffic Policy Settings'));
 
@@ -220,7 +220,7 @@ return view.extend({
 		o = s.option(form.Flag, 'disable_quic', _('Block QUIC for Proxied Traffic'));
 		o.default = '1';
 		o.rmempty = false;
-		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks.');
+		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks. DNS/53 hijack is not affected.');
 
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[:Port] or :Port)'));
 		o.depends('policy_mode', 'direct-first');
@@ -235,7 +235,7 @@ return view.extend({
 		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations (IP/CIDR[:Port])'));
 		o.depends('policy_mode', 'proxy-first');
 		directDstListOption = o;
-		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port. Matching traffic bypasses Mihomo in proxy-first mode.'));
+		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port filters destination port; :port without IP matches any non-local IPv4 destination on that port. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS; domain flows resolved to fake-ip are still handled by Mihomo.'));
 
 		return m.render();
 	}

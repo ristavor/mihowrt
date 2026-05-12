@@ -1,5 +1,9 @@
 # One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port.
-# Matching destinations bypass Mihomo in proxy-first mode.
+# Use :port without IP to bypass any non-local IPv4 destination on that port.
+# Matching non-local destinations bypass Mihomo in proxy-first mode.
+# DNS/53 hijack still goes to Mihomo DNS when enabled.
+# Domain flows resolved to fake-ip are still handled by Mihomo.
 # Example:
 # 8.8.8.8
 # 9.9.9.0/24
+# :443

@@ -39,6 +39,19 @@ source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
 
+assert_file_line_before() {
+	local file="$1"
+	local before="$2"
+	local after="$3"
+	local message="$4"
+	local before_line after_line
+
+	before_line="$(grep -nF -- "$before" "$file" | head -n1 | cut -d: -f1 || true)"
+	after_line="$(grep -nF -- "$after" "$file" | head -n1 | cut -d: -f1 || true)"
+	[[ -n "$before_line" && -n "$after_line" ]] || fail "$message: missing expected rule"
+	(( before_line < after_line )) || fail "$message: '$before' should appear before '$after'"
+}
+
 PKG_TMP_DIR="$tmpdir/runtime"
 NFT_CAPTURE_FILE="$tmpdir/nft.batch"
 export NFT_CAPTURE_FILE
@@ -89,6 +102,15 @@ assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHA
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 tcp dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 destination by port"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT meta nfproto ipv4 tcp dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should apply any-port destination rules to output chain"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 udp dport 853 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 client by destination port"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_DNS_HIJACK iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET udp dport 53 redirect to :7874" "nft_apply_policy should keep DNS hijack redirect enabled"
+assert_file_line_before "$NFT_CAPTURE_FILE" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY udp dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr @$NFT_PROXY_DST_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" \
+	"direct-first should leave hijacked DNS unmarked before destination policy"
+assert_file_line_before "$NFT_CAPTURE_FILE" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY tcp dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip saddr 7.7.7.0/24 tcp dport 53 meta mark set $NFT_INTERCEPT_MARK" \
+	"direct-first should leave hijacked DNS unmarked before source policy"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr 9.9.9.9" "nft_apply_policy should skip invalid port-scoped entries"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 udp dport 443 reject" "nft_apply_policy should not reject QUIC for source port filters without 443"
 
@@ -142,6 +164,10 @@ assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHA
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr 9.9.9.0/24 tcp dport 443 return" "proxy-first should bypass port-scoped direct destinations"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "proxy-first should mark all non-direct prerouting TCP/UDP"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "proxy-first should mark all non-direct output TCP/UDP"
+assert_file_line_before "$NFT_CAPTURE_FILE" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY udp dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" \
+	"proxy-first should leave hijacked DNS unmarked before mark-all policy"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr @$NFT_PROXY_DST_SET meta l4proto" "proxy-first should not use always-proxy destination set"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip saddr @$NFT_PROXY_SRC_SET meta l4proto" "proxy-first should not use always-proxy source set"
 

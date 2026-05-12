@@ -67,6 +67,7 @@ runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_file)" ] || return 1
 	[ -f "$(runtime_snapshot_dst_file)" ] || return 1
 	[ -f "$(runtime_snapshot_src_file)" ] || return 1
+	[ -f "$(runtime_snapshot_direct_file)" ] || return 1
 }
 
 runtime_snapshot_valid() {
@@ -268,6 +269,7 @@ runtime_snapshot_load() {
 	[ -f "$snapshot_file" ] || return 1
 	[ -f "$dst_snapshot" ] || return 1
 	[ -f "$src_snapshot" ] || return 1
+	[ -f "$direct_snapshot" ] || return 1
 
 	snapshot_json="$(cat "$snapshot_file")" || return 1
 
@@ -405,6 +407,31 @@ runtime_snapshot_readiness_json() {
 		mihomo_dns_listen: (.mihomo_dns_listen // ""),
 		mihomo_tproxy_port: (.mihomo_tproxy_port // "")
 	}' "$snapshot_file"
+}
+
+runtime_snapshot_mihomo_config_matches_current() {
+	local snapshot_file snapshot_vars=""
+	local snapshot_mihomo_dns_port="" snapshot_mihomo_dns_listen=""
+	local snapshot_mihomo_tproxy_port="" snapshot_mihomo_routing_mark=""
+	local snapshot_dns_enhanced_mode="" snapshot_catch_fakeip="" snapshot_fakeip_range=""
+
+	require_command jq || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	[ -f "$snapshot_file" ] || return 1
+
+	snapshot_vars="$(jq -r '
+		@sh "snapshot_mihomo_dns_port=\(.mihomo_dns_port // "") snapshot_mihomo_dns_listen=\(.mihomo_dns_listen // "") snapshot_mihomo_tproxy_port=\(.mihomo_tproxy_port // "") snapshot_mihomo_routing_mark=\(.mihomo_routing_mark // "") snapshot_dns_enhanced_mode=\(.dns_enhanced_mode // "") snapshot_catch_fakeip=\(if .catch_fakeip then 1 else 0 end) snapshot_fakeip_range=\(.fakeip_range // "")"
+	' "$snapshot_file")" || return 1
+	eval "$snapshot_vars" || return 1
+
+	[ "$snapshot_mihomo_dns_port" = "$MIHOMO_DNS_PORT" ] || return 1
+	[ "$snapshot_mihomo_dns_listen" = "$MIHOMO_DNS_LISTEN" ] || return 1
+	[ "$snapshot_mihomo_tproxy_port" = "$MIHOMO_TPROXY_PORT" ] || return 1
+	[ "$snapshot_mihomo_routing_mark" = "$MIHOMO_ROUTING_MARK" ] || return 1
+	[ "$snapshot_dns_enhanced_mode" = "$DNS_ENHANCED_MODE" ] || return 1
+	[ "$snapshot_catch_fakeip" = "$CATCH_FAKEIP" ] || return 1
+	[ "$snapshot_fakeip_range" = "$FAKEIP_RANGE" ] || return 1
 }
 
 load_runtime_config_from_yaml() {
@@ -583,7 +610,7 @@ cleanup_runtime_state() {
 		case "$live_state_rc" in
 			1)
 				runtime_snapshot_clear
-				log "Direct-first policy state already clean"
+				log "Policy state already clean"
 				return 0
 				;;
 			*)
@@ -607,11 +634,11 @@ cleanup_runtime_state() {
 
 	if [ "$rc" -eq 0 ]; then
 		runtime_snapshot_clear
-		log "Cleaned up direct-first policy state"
+		log "Cleaned up policy state"
 		return 0
 	fi
 
-	err "Direct-first policy cleanup incomplete"
+	err "Policy cleanup incomplete"
 	return 1
 }
 
@@ -665,6 +692,11 @@ reload_runtime_state() {
 		return $?
 	fi
 
+	if ! runtime_snapshot_mihomo_config_matches_current; then
+		err "Mihomo config changed since runtime snapshot; restart MihoWRT service to apply DNS/TPROXY/fake-ip settings"
+		return 1
+	fi
+
 	if ! apply_runtime_state; then
 		err "Failed to apply updated policy; restoring previous runtime state"
 		runtime_snapshot_restore || {
@@ -687,7 +719,7 @@ reload_runtime_state() {
 		}
 	fi
 
-	log "Reloaded direct-first policy state"
+	log "Reloaded ${POLICY_MODE:-direct-first} policy state"
 	return 0
 }
 

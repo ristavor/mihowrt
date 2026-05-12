@@ -98,7 +98,7 @@ assert_file_not_contains "$event_log" "dns_restore" "cleanup_runtime_state shoul
 assert_file_not_contains "$event_log" "nft_remove_policy" "cleanup_runtime_state should skip nft cleanup when runtime state is already clean"
 assert_file_not_contains "$event_log" "policy_route_cleanup" "cleanup_runtime_state should skip route cleanup when runtime state is already clean"
 assert_file_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_state should still clear runtime snapshot on already-clean cleanup"
-assert_file_contains "$event_log" "log:Direct-first policy state already clean" "cleanup_runtime_state should report already-clean state on no-op cleanup"
+assert_file_contains "$event_log" "log:Policy state already clean" "cleanup_runtime_state should report already-clean state on no-op cleanup"
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 
 nft_apply_policy() {
@@ -167,7 +167,7 @@ assert_file_not_contains "$event_log" "runtime_snapshot_clear" "cleanup_runtime_
 assert_file_contains "$event_log" "err:Failed to restore dnsmasq state during cleanup" "cleanup_runtime_state should report dns cleanup failure"
 assert_file_contains "$event_log" "err:Failed to remove nft policy during cleanup" "cleanup_runtime_state should report nft cleanup failure"
 assert_file_contains "$event_log" "err:Failed to remove policy routing during cleanup" "cleanup_runtime_state should report route cleanup failure"
-assert_file_contains "$event_log" "err:Direct-first policy cleanup incomplete" "cleanup_runtime_state should report partial cleanup"
+assert_file_contains "$event_log" "err:Policy cleanup incomplete" "cleanup_runtime_state should report partial cleanup"
 
 cleanup_runtime_state() {
 	printf 'cleanup_runtime_state\n' >>"$event_log"
@@ -205,6 +205,11 @@ runtime_live_state_present() {
 runtime_snapshot_restore() {
 	printf 'runtime_snapshot_restore\n' >>"$event_log"
 	return "${TEST_RUNTIME_SNAPSHOT_RESTORE_RC:-0}"
+}
+
+runtime_snapshot_mihomo_config_matches_current() {
+	printf 'runtime_snapshot_mihomo_config_matches_current\n' >>"$event_log"
+	return "${TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC:-0}"
 }
 
 policy_route_teardown_ids() {
@@ -249,6 +254,7 @@ TEST_ROUTE_STATE_READ_COUNT=0
 reload_runtime_state
 assert_file_contains "$event_log" "load_runtime_config" "reload_runtime_state should load runtime config before changes"
 assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate runtime config before teardown"
+assert_file_contains "$event_log" "runtime_snapshot_mihomo_config_matches_current" "reload_runtime_state should block reload if Mihomo config needs restart"
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply new runtime state when enabled"
 assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_runtime_state should remove previous route ids after successful apply"
 assert_file_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should log successful safer reload"
@@ -272,6 +278,24 @@ assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_
 assert_file_contains "$event_log" "err:Failed to remove previous policy routing table 200 priority 10000" "reload_runtime_state should report stale route teardown failure"
 assert_file_not_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should not report success after stale route teardown failure"
 TEST_POLICY_ROUTE_TEARDOWN_RC=0
+
+: > "$event_log"
+TEST_ENABLED=1
+TEST_LOAD_RUNTIME_RC=0
+TEST_VALIDATE_RUNTIME_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_RESTORE_RC=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=1
+TEST_ROUTE_STATE_SEQUENCE="single"
+assert_false "reload_runtime_state should reject in-place reload when Mihomo config changed" reload_runtime_state
+assert_file_contains "$event_log" "runtime_snapshot_mihomo_config_matches_current" "reload_runtime_state should compare Mihomo config with snapshot"
+assert_file_contains "$event_log" "err:Mihomo config changed since runtime snapshot; restart MihoWRT service to apply DNS/TPROXY/fake-ip settings" "reload_runtime_state should report restart-required config drift"
+assert_file_not_contains "$event_log" "apply_runtime_state" "reload_runtime_state should not apply policy with stale Mihomo listener config"
+assert_file_not_contains "$event_log" "runtime_snapshot_restore" "reload_runtime_state should not roll back when it refuses before apply"
+TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=0
 
 : > "$event_log"
 TEST_ENABLED=0

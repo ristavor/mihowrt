@@ -40,6 +40,7 @@ define Package/$(PKG_NAME)/conffiles
 /opt/clash/config.yaml
 /opt/clash/lst/always_proxy_dst.txt
 /opt/clash/lst/always_proxy_src.txt
+/opt/clash/lst/direct_dst.txt
 endef
 
 define Package/$(PKG_NAME)/install
@@ -75,6 +76,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_dst.txt $(1)/opt/clash/lst/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_src.txt $(1)/opt/clash/lst/
+	$(INSTALL_DATA) ./rootfs/opt/clash/lst/direct_dst.txt $(1)/opt/clash/lst/
 
 	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./rootfs/lib/upgrade/keep.d/mihowrt $(1)/lib/upgrade/keep.d/

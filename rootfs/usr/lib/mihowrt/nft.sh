@@ -266,6 +266,10 @@ nft_emit_common_policy_start() {
 	nft_emit_rule "$NFT_CHAIN_PREROUTING" "iifname @$NFT_IFACE_SET jump $NFT_CHAIN_PREROUTING_POLICY"
 	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr @$NFT_LOCALV4_SET return"
 	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta mark $NFT_INTERCEPT_MARK return"
+	if [ "$DNS_HIJACK" = "1" ]; then
+		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "udp dport 53 return"
+		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "tcp dport 53 return"
+	fi
 }
 
 nft_emit_common_proxy_rules() {

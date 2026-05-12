@@ -79,12 +79,27 @@ assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save sh
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should snapshot source list contents"
 assert_file_contains "$snapshot_direct_file" "8.8.8.8" "runtime_snapshot_save should snapshot direct destination list contents"
 
+direct_snapshot_backup="$tmpdir/direct.snapshot.good"
+cp "$snapshot_direct_file" "$direct_snapshot_backup"
+rm -f "$snapshot_direct_file"
+assert_false "runtime_snapshot_exists should require direct destination snapshot" runtime_snapshot_exists
+assert_false "runtime_snapshot_valid should reject missing direct destination snapshot" runtime_snapshot_valid
+assert_false "runtime_snapshot_load should reject missing direct destination snapshot" runtime_snapshot_load
+cp "$direct_snapshot_backup" "$snapshot_direct_file"
+
 snapshot_backup="$tmpdir/runtime.snapshot.good.json"
 cp "$snapshot_file" "$snapshot_backup"
 jq '.enabled = false' "$snapshot_backup" > "$snapshot_file"
 assert_false "runtime_snapshot_valid should reject disabled legacy snapshots" runtime_snapshot_valid
 cp "$snapshot_backup" "$snapshot_file"
 assert_true "runtime_snapshot_valid should accept mandatory fake-ip policy snapshots" runtime_snapshot_valid
+assert_true "runtime_snapshot_mihomo_config_matches_current should accept matching Mihomo config" runtime_snapshot_mihomo_config_matches_current
+MIHOMO_TPROXY_PORT="7895"
+assert_false "runtime_snapshot_mihomo_config_matches_current should reject changed TPROXY port" runtime_snapshot_mihomo_config_matches_current
+MIHOMO_TPROXY_PORT="7894"
+FAKEIP_RANGE="198.19.0.0/16"
+assert_false "runtime_snapshot_mihomo_config_matches_current should reject changed fake-ip range" runtime_snapshot_mihomo_config_matches_current
+FAKEIP_RANGE="198.18.0.0/15"
 
 TEST_FAIL_MV_DEST=""
 mv() {

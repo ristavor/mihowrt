@@ -27,6 +27,7 @@ export PATH="$tmpbin:$PATH"
 source_install_lib
 REAL_QUIESCE_POSTINSTALL_SERVICE="$(declare -f quiesce_postinstall_service)"
 REAL_INSTALL_SERVICE_RUNNING="$(declare -f service_running)"
+REAL_MIGRATE_RESTORED_LEGACY_SETTINGS="$(declare -f migrate_restored_legacy_settings)"
 REAL_MIGRATE_RESTORED_POLICY_LISTS="$(declare -f migrate_restored_policy_lists)"
 
 INIT_SCRIPT="$tmpdir/init.sh"
@@ -127,6 +128,11 @@ restore_user_state() {
 	return 0
 }
 
+migrate_restored_legacy_settings() {
+	printf 'migrate_restored_legacy_settings\n' >>"$event_log"
+	return 0
+}
+
 migrate_restored_policy_lists() {
 	printf 'migrate_restored_policy_lists\n' >>"$event_log"
 	return 0
@@ -202,6 +208,15 @@ service_running() {
 	return "${TEST_SERVICE_RUNNING_RC:-0}"
 }
 ORCHESTRATOR="$tmpdir/orchestrator.sh"
+
+: > "$orch_log"
+eval "$REAL_MIGRATE_RESTORED_LEGACY_SETTINGS"
+assert_true "migrate_restored_legacy_settings should invoke installed orchestrator when present" migrate_restored_legacy_settings
+assert_file_contains "$orch_log" "migrate-legacy-settings" "migrate_restored_legacy_settings should run legacy settings migration command"
+migrate_restored_legacy_settings() {
+	printf 'migrate_restored_legacy_settings\n' >>"$event_log"
+	return 0
+}
 
 : > "$orch_log"
 eval "$REAL_MIGRATE_RESTORED_POLICY_LISTS"
@@ -699,6 +714,7 @@ assert_file_contains "$event_log" "install_package:1:$tmpdir/downloaded.apk" "pe
 assert_file_contains "$event_log" "verify_required_packages" "perform_package_action should verify required packages"
 assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should quiesce postinstall service on reinstall"
 assert_file_contains "$event_log" "restore_user_state" "perform_package_action should restore saved user state on reinstall"
+assert_file_contains "$event_log" "migrate_restored_legacy_settings" "perform_package_action should migrate restored legacy settings on reinstall"
 assert_file_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should migrate restored policy lists on reinstall"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state on reinstall"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after reinstall"
@@ -814,6 +830,7 @@ restore_user_state() {
 assert_false "perform_package_action should fail when restore_user_state fails" perform_package_action
 assert_file_contains "$event_log" "quiesce_postinstall_service" "perform_package_action should still quiesce service before restore"
 assert_file_contains "$event_log" "restore_user_state" "perform_package_action should try restoring saved state"
+assert_file_not_contains "$event_log" "migrate_restored_legacy_settings" "perform_package_action should not migrate legacy settings after restore failure"
 assert_file_not_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should not migrate policy lists after restore failure"
 assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when restore fails"
 assert_file_contains "$event_log" "err:failed to restore saved config and policy state" "perform_package_action should report restore failure"
@@ -861,11 +878,31 @@ restore_kernel_backup() {
 	printf 'restore_kernel_backup\n' >>"$event_log"
 	return 0
 }
+migrate_restored_legacy_settings() {
+	printf 'migrate_restored_legacy_settings\n' >>"$event_log"
+	return 1
+}
+assert_false "perform_package_action should fail when legacy settings migration fails" perform_package_action
+assert_file_contains "$event_log" "migrate_restored_legacy_settings" "perform_package_action should attempt legacy settings migration after restore"
+assert_file_not_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should not migrate policy lists after legacy settings migration failure"
+assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel after legacy settings migration failure"
+assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when legacy settings migration fails"
+assert_file_contains "$event_log" "err:failed to migrate restored legacy settings" "perform_package_action should report legacy settings migration failure"
+assert_file_not_contains "$event_log" "restore_runtime_state" "perform_package_action should not restart runtime after legacy settings migration failure"
+assert_file_contains "$init_log" "disable" "perform_package_action should disable service after legacy settings migration failure"
+
+: > "$event_log"
+: > "$init_log"
+migrate_restored_legacy_settings() {
+	printf 'migrate_restored_legacy_settings\n' >>"$event_log"
+	return 0
+}
 migrate_restored_policy_lists() {
 	printf 'migrate_restored_policy_lists\n' >>"$event_log"
 	return 1
 }
 assert_false "perform_package_action should fail when restored policy list migration fails" perform_package_action
+assert_file_contains "$event_log" "migrate_restored_legacy_settings" "perform_package_action should migrate legacy settings before policy lists"
 assert_file_contains "$event_log" "migrate_restored_policy_lists" "perform_package_action should attempt policy list migration after restore"
 assert_file_contains "$event_log" "restore_kernel_backup" "perform_package_action should restore previous kernel after migration failure"
 assert_file_contains "$event_log" "preserve_backup_dir" "perform_package_action should preserve backup dir when migration fails"

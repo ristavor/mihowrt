@@ -308,6 +308,16 @@ migrate_policy_lists_output="$(
 )"
 assert_eq "migrated" "$migrate_policy_lists_output" "migrate-policy-lists command should dispatch to policy list migration helper"
 
+migrate_legacy_settings_output="$(
+	set -- migrate-legacy-settings
+	migrate_legacy_uci_settings() {
+		printf 'legacy-migrated\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "legacy-migrated" "$migrate_legacy_settings_output" "migrate-legacy-settings command should dispatch to legacy UCI migration helper"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {

@@ -796,6 +796,11 @@ migrate_restored_policy_lists() {
 	"$ORCHESTRATOR" migrate-policy-lists >/dev/null 2>&1
 }
 
+migrate_restored_legacy_settings() {
+	[ -x "$ORCHESTRATOR" ] || return 0
+	"$ORCHESTRATOR" migrate-legacy-settings >/dev/null 2>&1
+}
+
 service_enabled() {
 	[ -x "$INIT_SCRIPT" ] || return 1
 	"$INIT_SCRIPT" enabled >/dev/null 2>&1
@@ -2362,6 +2367,14 @@ restore_reinstalled_user_state() {
 		handle_reinstall_state_failure \
 			"failed to restore previous Mihomo kernel after user-state restore failure" \
 			"failed to restore saved config and policy state"
+		return 1
+	fi
+
+	log "Migrating restored legacy settings..."
+	if ! migrate_restored_legacy_settings; then
+		handle_reinstall_state_failure \
+			"failed to restore previous Mihomo kernel after legacy settings migration failure" \
+			"failed to migrate restored legacy settings"
 		return 1
 	fi
 

@@ -94,7 +94,7 @@ export TEST_WGET_LOG="$tmpdir/wget.log"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 
-assert_eq "mihowrt/0.5" "$(subscription_user_agent)" "subscription_user_agent should include package version"
+assert_eq "mihowrt/0.6" "$(subscription_user_agent)" "subscription_user_agent should include package version"
 assert_true "is_subscription_url should accept https URLs" is_subscription_url "https://example.com/sub.yaml"
 assert_true "is_subscription_url should accept http URLs" is_subscription_url "http://example.com/sub.yaml"
 assert_false "is_subscription_url should reject local paths" is_subscription_url "/tmp/sub.yaml"
@@ -136,7 +136,7 @@ SUBSCRIPTION_MAX_BYTES=128
 assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor valid override"
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
 assert_file_contains "$TEST_WGET_LOG" "-T 7" "fetch_subscription_config should bound wget timeout"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.5" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.6" "fetch_subscription_config should send MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "-O -" "fetch_subscription_config should stream wget output through size cap"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to wget"
 

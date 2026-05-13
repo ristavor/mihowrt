@@ -136,7 +136,7 @@ assert_eq_file $'1.1.1.1\n2.2.2.2\n3.3.3.0/24:15-2000\n1.1.1.2:443' "$POLICY_DST
 assert_eq_file $'4.4.4.4\n:53\n:853' "$POLICY_SRC_LIST_FILE" "policy_resolve_runtime_lists should merge source entries"
 assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should not rewrite persistent destination list"
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.5" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.6" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "-T 15" "policy_resolve_runtime_lists should use bounded fetch timeout"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "policy_resolve_runtime_lists should not recursively fetch nested URLs"
 policy_clear_runtime_list_overrides

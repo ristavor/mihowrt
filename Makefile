@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.5
+PKG_VERSION:=0.6
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -107,6 +107,7 @@ define Package/$(PKG_NAME)/postinst
 			rm -f $(PKG_CONFIG_BACKUP_FILE)
 		fi
 	fi
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1 || true
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1 || true
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true

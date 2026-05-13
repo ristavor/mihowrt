@@ -106,7 +106,7 @@ assert_eq '["write"]' "$(jq -c '."luci-app-mihowrt".write.file["/tmp/mihowrt-con
 assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_dst.txt"]' "$acl_file")" "ACL should allow reading direct destination list"
 assert_eq '["write"]' "$(jq -c '."luci-app-mihowrt".write.file["/opt/clash/lst/direct_dst.txt"]' "$acl_file")" "ACL should allow writing direct destination list"
 
-assert_file_contains "$ROOT_DIR/Makefile" '$(1)/lib/upgrade/keep.d' "package should install sysupgrade keep directory"
+assert_file_contains "$ROOT_DIR/Makefile" "\$(1)/lib/upgrade/keep.d" "package should install sysupgrade keep directory"
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/lib/upgrade/keep.d/mihowrt' "package should install MihoWRT sysupgrade keep list"
 assert_file_contains "$ROOT_DIR/Makefile" '/opt/clash/lst/direct_dst.txt' "package conffiles should include direct destination list"
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/direct_dst.txt' "package should install direct destination list"

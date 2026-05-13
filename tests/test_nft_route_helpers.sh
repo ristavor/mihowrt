@@ -169,7 +169,7 @@ table_list_add() {
 	table_list_has "$current" "$table" && return 0
 	current="${current:+$current }$table"
 	printf -v "$var" '%s' "$current"
-	export "$var"
+	export "${var?}"
 }
 
 table_list_remove() {
@@ -183,7 +183,7 @@ table_list_remove() {
 		result="${result:+$result }$item"
 	done
 	printf -v "$var" '%s' "$result"
-	export "$var"
+	export "${var?}"
 }
 
 route_managed_present() {

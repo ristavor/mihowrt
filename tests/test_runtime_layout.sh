@@ -57,7 +57,7 @@ assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "ruleset link should stay
 wrong_rules_target="$tmpdir/wrong-tmp/ruleset"
 mkdir -p "$wrong_rules_target"
 rm -f "$RULESET_LINK"
-ln -s "$wrong_rules_target" "$RULESET_LINK"
+command ln -s "$wrong_rules_target" "$RULESET_LINK"
 init_runtime_layout
 assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "runtime layout should replace stale ruleset symlink to directory"
 compgen -G "$wrong_rules_target/ruleset.tmp.*" >/dev/null && fail "runtime layout should not move replacement symlink inside stale target directory"

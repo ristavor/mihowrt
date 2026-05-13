@@ -36,8 +36,10 @@ assert_eq "$before_same_mtime" "$after_same_mtime" "restore_file should skip rew
 
 missing_dst="$tmpdir/dest/missing-output.txt"
 printf 'to-be-removed\n' > "$missing_dst"
+# shellcheck disable=SC2218
 backup_file_or_mark_missing "$tmpdir/absent.txt" "missing.txt"
 [[ -f "$BACKUP_DIR/missing.txt.missing" ]] || fail "backup_file_or_mark_missing should record missing file tombstone"
+# shellcheck disable=SC2218
 restore_file_or_remove "missing.txt" "$missing_dst"
 assert_false "restore_file_or_remove should preserve deleted user file state" test -e "$missing_dst"
 

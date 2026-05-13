@@ -103,7 +103,8 @@ FAKEIP_RANGE="198.18.0.0/15"
 
 TEST_FAIL_MV_DEST=""
 mv() {
-	local dest="${@: -1}"
+	local args=("$@")
+	local dest="${args[$((${#args[@]} - 1))]}"
 
 	if [ -n "$TEST_FAIL_MV_DEST" ] && [ "$dest" = "$TEST_FAIL_MV_DEST" ]; then
 		TEST_FAIL_MV_DEST=""

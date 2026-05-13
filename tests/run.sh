@@ -4,12 +4,16 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-shell_files=(
+ash_shell_files=(
 	"$ROOT_DIR/install.sh"
 	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
 	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
+)
+
+bash_shell_files=(
+	"$ROOT_DIR"/tests/*.sh
 )
 
 js_syntax_files=(
@@ -41,14 +45,18 @@ run_all_tests() {
 	local shell_file
 
 	printf '==> shell syntax\n'
-	for shell_file in "${shell_files[@]}"; do
+	for shell_file in "${ash_shell_files[@]}"; do
 		sh -n "$shell_file"
+	done
+	for shell_file in "${bash_shell_files[@]}"; do
+		bash -n "$shell_file"
 	done
 	printf 'ok - shell syntax\n'
 
 	printf '==> shell lint\n'
 	if command -v shellcheck >/dev/null 2>&1; then
-		shellcheck -s ash -e SC1091,SC2034 "${shell_files[@]}"
+		shellcheck -s ash -e SC1091,SC2034 "${ash_shell_files[@]}"
+		shellcheck -s bash -e SC1091,SC2034,SC2329 "${bash_shell_files[@]}"
 		printf 'ok - shell lint\n'
 	else
 		printf 'skip - shell lint (shellcheck missing)\n'

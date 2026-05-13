@@ -334,13 +334,55 @@ policy_fetch_remote_list() {
 	printf '%s' "$remote_file"
 }
 
+policy_merge_remote_list_entry() {
+	local line="$1"
+	local output="$2"
+	local label="$3"
+	local allow_urls="$4"
+	local remote_file="" remote_url="" remote_ports=""
+
+	if [ "$allow_urls" -ne 1 ]; then
+		warn "Skipping nested remote policy list URL '$line' in $label"
+		return 0
+	fi
+
+	remote_url="$(policy_remote_list_url "$line")" || return 1
+	remote_ports="$(policy_remote_list_ports "$line")" || return 1
+	policy_remote_list_register_url "$remote_url" "$label" || return 1
+	remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
+	policy_merge_list_file "$remote_file" "$output" "$remote_url" 0 "$remote_ports" || {
+		rm -f "$remote_file"
+		return 1
+	}
+	rm -f "$remote_file"
+}
+
+policy_merge_local_list_entry() {
+	local line="$1"
+	local output="$2"
+	local label="$3"
+	local inherited_ports="${4:-}"
+	local entry=""
+
+	if ! is_policy_entry "$line"; then
+		warn "Skipping invalid policy entry '$line' in $label"
+		return 0
+	fi
+
+	entry="$(policy_entry_normalized "$line")" || return 1
+	if [ -n "$inherited_ports" ] && ! policy_entry_has_ports "$entry"; then
+		entry="$(policy_entry_with_ports "$entry" "$inherited_ports")" || return 1
+	fi
+	policy_effective_list_append_entry "$output" "$entry"
+}
+
 policy_merge_list_file() {
 	local source="$1"
 	local output="$2"
 	local label="$3"
 	local allow_urls="$4"
 	local inherited_ports="${5:-}"
-	local line="" entry="" remote_file="" remote_url="" remote_ports=""
+	local line=""
 
 	[ -f "$source" ] || return 0
 
@@ -351,33 +393,11 @@ policy_merge_list_file() {
 		esac
 
 		if is_policy_remote_list_url "$line"; then
-			if [ "$allow_urls" -ne 1 ]; then
-				warn "Skipping nested remote policy list URL '$line' in $label"
-				continue
-			fi
-
-			remote_url="$(policy_remote_list_url "$line")" || return 1
-			remote_ports="$(policy_remote_list_ports "$line")" || return 1
-			policy_remote_list_register_url "$remote_url" "$label" || return 1
-			remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
-			policy_merge_list_file "$remote_file" "$output" "$remote_url" 0 "$remote_ports" || {
-				rm -f "$remote_file"
-				return 1
-			}
-			rm -f "$remote_file"
+			policy_merge_remote_list_entry "$line" "$output" "$label" "$allow_urls" || return 1
 			continue
 		fi
 
-		if ! is_policy_entry "$line"; then
-			warn "Skipping invalid policy entry '$line' in $label"
-			continue
-		fi
-
-		entry="$(policy_entry_normalized "$line")" || return 1
-		if [ -n "$inherited_ports" ] && ! policy_entry_has_ports "$entry"; then
-			entry="$(policy_entry_with_ports "$entry" "$inherited_ports")" || return 1
-		fi
-		policy_effective_list_append_entry "$output" "$entry" || return 1
+		policy_merge_local_list_entry "$line" "$output" "$label" "$inherited_ports" || return 1
 	done < "$source"
 }
 

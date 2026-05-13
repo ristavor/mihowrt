@@ -2187,23 +2187,27 @@ complete_reinstall_after_package() {
 	return 0
 }
 
+begin_package_transaction() {
+	local reinstall="$1"
+
+	begin_install_transaction "$reinstall"
+	[ "$reinstall" = "1" ] || return 0
+
+	log "Saving current config and policy state..."
+	if ! prepare_update; then
+		rollback_reinstall_state "$reinstall"
+		end_install_transaction
+		return 1
+	fi
+}
+
 perform_package_action() {
 	local reinstall=0
 
 	package_installed && reinstall=1 || reinstall=0
 	prepare_package_payload || return 1
 
-	if [ "$reinstall" = "1" ]; then
-		begin_install_transaction "$reinstall"
-		log "Saving current config and policy state..."
-		if ! prepare_update; then
-			rollback_reinstall_state "$reinstall"
-			end_install_transaction
-			return 1
-		fi
-	else
-		begin_install_transaction "$reinstall"
-	fi
+	begin_package_transaction "$reinstall" || return 1
 
 	log "Installing/updating Mihomo kernel..."
 	if ! kernel_apply_staged_update; then

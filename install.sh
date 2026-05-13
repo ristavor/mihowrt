@@ -1436,6 +1436,28 @@ restore_dhcp_option_value_or_revert() {
 	fi
 }
 
+restore_dhcp_server_list_or_revert() {
+	local servers="$1" server="" tab=""
+
+	[ -n "$servers" ] || return 0
+
+	tab="$(printf '\t')"
+	while [ -n "$servers" ]; do
+		case "$servers" in
+			*"$tab"*)
+				server="${servers%%"$tab"*}"
+				servers="${servers#*"$tab"}"
+				;;
+			*)
+				server="$servers"
+				servers=""
+				;;
+		esac
+		[ -n "$server" ] || continue
+		add_dhcp_list_value_or_revert dhcp.@dnsmasq[0].server "$server" || return 1
+	done
+}
+
 route_state_read() {
 	local line key value
 
@@ -1728,16 +1750,7 @@ restore_dns_from_backup_file() {
 
 	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
 	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile || return 1
-	while IFS= read -r line; do
-		case "$line" in
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				if [ -n "$server" ]; then
-					add_dhcp_list_value_or_revert dhcp.@dnsmasq[0].server "$server" || return 1
-				fi
-				;;
-		esac
-	done < "$backup_path"
+	restore_dhcp_server_list_or_revert "$expected_servers" || return 1
 
 	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
 	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].noresolv "$orig_noresolv" || return 1

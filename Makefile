@@ -107,8 +107,10 @@ define Package/$(PKG_NAME)/postinst
 			rm -f $(PKG_CONFIG_BACKUP_FILE)
 		fi
 	fi
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1 || true
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1 || true
+	if [ ! -f /tmp/luci-app-mihowrt.skip-start ]; then
+		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1 || true
+		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1 || true
+	fi
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload

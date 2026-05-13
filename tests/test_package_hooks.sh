@@ -12,6 +12,7 @@ live_config="$tmpdir/opt/clash/config.yaml"
 script_path="$tmpdir/postinst.sh"
 prerm_path="$tmpdir/prerm.sh"
 hook_log="$tmpdir/hook.log"
+skip_start="$tmpdir/skip-start"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
@@ -30,9 +31,8 @@ extract_postinst() {
 		sed \
 			-e "s|\$(PKG_CONFIG_BACKUP_FILE)|$backup_path|g" \
 			-e "s|/opt/clash/config.yaml|$live_config|g" \
-			-e 's|/usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1|true|g' \
-			-e 's|/usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1|true|g' \
-			-e 's|/usr/bin/mihowrt init-layout >/dev/null 2>&1|true|g' \
+			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
+			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
 			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/rpcd reload|true|g' \
 			-e 's/\$\$/\$/g'
@@ -50,8 +50,16 @@ extract_prerm() {
 mkdir -p "$(dirname "$live_config")"
 
 extract_hook "postinst" > "$tmpdir/postinst.raw"
+assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "postinst should detect installer transactions"
 assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-legacy-settings" "postinst should migrate legacy UCI settings on package upgrade"
 assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-policy-lists" "postinst should migrate legacy policy list syntax on package upgrade"
+
+cat > "$tmpdir/mihowrt" <<EOF
+#!/usr/bin/env bash
+printf 'mihowrt:%s\n' "\$*" >>"$hook_log"
+exit 0
+EOF
+chmod +x "$tmpdir/mihowrt"
 
 extract_postinst > "$script_path"
 chmod +x "$script_path"
@@ -60,16 +68,29 @@ printf 'same-config\n' > "$backup_path"
 printf 'same-config\n' > "$live_config"
 touch -d '2024-01-01 00:00:00' "$live_config"
 before_same_mtime="$(stat -c %Y "$live_config")"
+: > "$hook_log"
 IPKG_INSTROOT="" "$script_path"
 after_same_mtime="$(stat -c %Y "$live_config")"
 assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriting identical config backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should remove identical config backup after skip"
+assert_file_contains "$hook_log" "mihowrt:migrate-legacy-settings" "postinst should migrate legacy settings outside installer transaction"
+assert_file_contains "$hook_log" "mihowrt:migrate-policy-lists" "postinst should migrate policy lists outside installer transaction"
 
 printf 'new-config\n' > "$backup_path"
 printf 'old-config\n' > "$live_config"
 IPKG_INSTROOT="" "$script_path"
 assert_file_contains "$live_config" "new-config" "postinst should restore changed config backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should consume changed config backup"
+
+printf 'skip-config\n' > "$backup_path"
+printf 'skip-config\n' > "$live_config"
+: > "$skip_start"
+: > "$hook_log"
+IPKG_INSTROOT="" "$script_path"
+assert_file_not_contains "$hook_log" "mihowrt:migrate-legacy-settings" "postinst should defer legacy settings migration during installer transaction"
+assert_file_not_contains "$hook_log" "mihowrt:migrate-policy-lists" "postinst should defer policy list migration during installer transaction"
+assert_file_contains "$hook_log" "mihowrt:init-layout" "postinst should still initialize layout during installer transaction"
+rm -f "$skip_start"
 
 extract_prerm > "$prerm_path"
 chmod +x "$prerm_path"

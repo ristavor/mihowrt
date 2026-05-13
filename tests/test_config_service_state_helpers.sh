@@ -5,24 +5,19 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 node <<'EOF'
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
+const harness = require('./tests/js_luci_harness');
 
-const rootDir = process.cwd();
-const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
-const errorMatch = source.match(/function serviceStateErrorDetail[\s\S]*?\n}\n\nasync function pollServiceState/);
+const source = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
 const readStateMatch = source.match(/async function readServiceState[\s\S]*?\n}\n\nasync function refreshServiceState/);
-
-if (!errorMatch)
-	throw new Error('serviceStateErrorDetail() not found');
 if (!readStateMatch)
 	throw new Error('readServiceState() not found');
 
-const errorFnSource = errorMatch[0].replace(/\n\nasync function pollServiceState$/, '');
 const readStateFnSource = readStateMatch[0].replace(/\n\nasync function refreshServiceState$/, '');
+const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');
 
 const context = {
+	configHelper,
 	backendHelper: {
 		readServiceState: async() => ({ available: false, errors: ['backend down'] })
 	}
@@ -30,9 +25,7 @@ const context = {
 
 vm.createContext(context);
 vm.runInContext(`
-function _(value) { return value; }
 let lastServiceState = { running: true, enabled: false, ready: true };
-${errorFnSource}
 ${readStateFnSource}
 globalThis.readServiceState = readServiceState;
 globalThis.getLastServiceState = () => lastServiceState;

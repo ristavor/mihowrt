@@ -5,20 +5,15 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 node <<'EOF'
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
+const harness = require('./tests/js_luci_harness');
 
-const rootDir = process.cwd();
-const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
-const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nasync function restartRunningService/);
+const source = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
 const persistMatch = source.match(/async function persistSubscriptionUrlIfChanged[\s\S]*?\n}\n\nfunction editorHasUnsavedChanges/);
 const unsavedMatch = source.match(/function editorHasUnsavedChanges[\s\S]*?\n}\n\nfunction confirmSubscriptionOverwrite/);
 const confirmMatch = source.match(/function confirmSubscriptionOverwrite[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
 const loadMatch = source.match(/async function loadSubscriptionIntoEditor[\s\S]*?\n}\n\nreturn view\.extend/);
 
-if (!editorMatch)
-	throw new Error('editorContentForSave() not found');
 if (!persistMatch)
 	throw new Error('persistSubscriptionUrlIfChanged() not found');
 if (!unsavedMatch)
@@ -28,11 +23,11 @@ if (!confirmMatch)
 if (!loadMatch)
 	throw new Error('loadSubscriptionIntoEditor() not found');
 
-const editorFnSource = editorMatch[0].replace(/\n\nasync function restartRunningService$/, '');
 const persistFnSource = persistMatch[0].replace(/\n\nfunction editorHasUnsavedChanges$/, '');
 const unsavedFnSource = unsavedMatch[0].replace(/\n\nfunction confirmSubscriptionOverwrite$/, '');
 const confirmFnSource = confirmMatch[0].replace(/\n\nasync function withSubscriptionLock$/, '');
 const loadFnSource = loadMatch[0].replace(/\n\nreturn view\.extend$/, '');
+const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');
 
 function assert(condition, message) {
 	if (!condition)
@@ -62,7 +57,8 @@ function assert(condition, message) {
 				context.confirmCalls += 1;
 				return context.confirmResult;
 			}
-		}
+		},
+		configHelper
 	};
 
 	vm.createContext(context);
@@ -71,7 +67,6 @@ function _(value) { return value; }
 let editor = globalThis.editor;
 let savedConfigContent = 'mode: old\\n';
 let savedSubscriptionUrl = 'https://example.com/same.yaml';
-${editorFnSource}
 ${persistFnSource}
 ${unsavedFnSource}
 ${confirmFnSource}
@@ -131,6 +126,7 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 
 	const missingEditorContext = {
 		editor: null,
+		configHelper,
 		backendHelper: {
 			fetchSubscription: async() => {
 				throw new Error('should not fetch without editor');
@@ -139,10 +135,9 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	};
 
 	vm.createContext(missingEditorContext);
-	vm.runInContext(`
+vm.runInContext(`
 function _(value) { return value; }
 let editor = globalThis.editor;
-${editorFnSource}
 ${loadFnSource}
 globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 `, missingEditorContext);

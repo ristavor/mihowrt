@@ -3,6 +3,7 @@
 'require fs';
 'require mihowrt.ace as aceHelper';
 'require mihowrt.backend as backendHelper';
+'require mihowrt.config as configHelper';
 'require mihowrt.ui as mihowrtUi';
 
 const SERVICE_NAME = 'mihowrt';
@@ -127,11 +128,6 @@ async function setServiceEnabled(enabled) {
 		: _('Unable to disable service at boot: %s'));
 }
 
-function serviceStateErrorDetail(status) {
-	const errors = Array.isArray(status?.errors) ? status.errors.map(String).filter(Boolean) : [];
-	return errors.join('; ') || _('unknown error');
-}
-
 async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 	const startTime = Date.now();
 	let lastError = null;
@@ -156,44 +152,20 @@ async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 	return null;
 }
 
-function serviceToggleLabel(running) {
-	return running ? _('Stop MihoWRT') : _('Start MihoWRT');
-}
-
-function serviceEnabledToggleLabel(enabled) {
-	return enabled ? _('Disable Autostart') : _('Enable Autostart');
-}
-
-function serviceBadgeText(running) {
-	return running ? _('MihoWRT is running') : _('MihoWRT stopped');
-}
-
-function serviceBadgeColor(running) {
-	return running ? '#5cb85c' : '#d9534f';
-}
-
-function serviceEnabledBadgeText(enabled) {
-	return enabled ? _('Enabled at boot') : _('Disabled at boot');
-}
-
-function serviceEnabledBadgeColor(enabled) {
-	return enabled ? '#5cb85c' : '#d9534f';
-}
-
 function applyServiceState(running, enabled) {
 	if (startStopButton)
-		startStopButton.textContent = serviceToggleLabel(running);
+		startStopButton.textContent = configHelper.serviceToggleLabel(running);
 	if (enableDisableButton)
-		enableDisableButton.textContent = serviceEnabledToggleLabel(enabled);
+		enableDisableButton.textContent = configHelper.serviceEnabledToggleLabel(enabled);
 
 	if (serviceStatusBadge) {
-		serviceStatusBadge.textContent = serviceBadgeText(running);
-		serviceStatusBadge.style.backgroundColor = serviceBadgeColor(running);
+		serviceStatusBadge.textContent = configHelper.serviceBadgeText(running);
+		serviceStatusBadge.style.backgroundColor = configHelper.serviceBadgeColor(running);
 	}
 
 	if (serviceEnabledBadge) {
-		serviceEnabledBadge.textContent = serviceEnabledBadgeText(enabled);
-		serviceEnabledBadge.style.backgroundColor = serviceEnabledBadgeColor(enabled);
+		serviceEnabledBadge.textContent = configHelper.serviceEnabledBadgeText(enabled);
+		serviceEnabledBadge.style.backgroundColor = configHelper.serviceEnabledBadgeColor(enabled);
 	}
 }
 
@@ -201,7 +173,7 @@ async function readServiceState() {
 	const status = await backendHelper.readServiceState();
 
 	if (!status.available)
-		throw new Error(serviceStateErrorDetail(status));
+		throw new Error(configHelper.serviceStateErrorDetail(status));
 
 	lastServiceState = {
 		running: !!status.serviceRunning,
@@ -302,93 +274,14 @@ async function toggleServiceEnabled() {
 	});
 }
 
-function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
-	if (!addr)
-		return { host: fallbackHost, port: fallbackPort };
-
-	const cleaned = addr.replace(/["']/g, '').trim();
-	let host = fallbackHost, port = fallbackPort;
-
-	if (cleaned.startsWith('[')) {
-		const endBracket = cleaned.indexOf(']');
-		if (endBracket !== -1) {
-			host = cleaned.slice(1, endBracket);
-			if (cleaned.charAt(endBracket + 1) === ':')
-				port = cleaned.slice(endBracket + 2);
-		}
-	}
-	else {
-		const lastColon = cleaned.lastIndexOf(':');
-		if (lastColon !== -1) {
-			host = cleaned.slice(0, lastColon);
-			port = cleaned.slice(lastColon + 1);
-		}
-	}
-
-	if (/^(?:127(?:\.\d{1,3}){3}|0\.0\.0\.0|::1|::|localhost)?$/i.test(host))
-		host = fallbackHost;
-
-	return { host, port };
-}
-
-function computeUiPath(externalUiName, externalUi) {
-	if (externalUiName) {
-		const name = externalUiName.replace(/(^\/+|\/+$)/g, '');
-		return `/${name}/`;
-	}
-
-	if (externalUi && !/[\/\\\.]/.test(externalUi)) {
-		const name = externalUi.trim();
-		return `/${name}/`;
-	}
-
-	return '/ui/';
-}
-
 async function openDashboard() {
-	try {
-		if (!(await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT))) {
-			mihowrtUi.notify(_('Service is not running.'), 'error');
-			return;
-		}
-
-		const config = await backendHelper.readConfig();
-		if (config.errors && config.errors.length) {
-			mihowrtUi.notify(_('Unable to open dashboard: %s').format(config.errors.join('; ')), 'error');
-			return;
-		}
-
-		const ec = config.externalController;
-		const ecTls = config.externalControllerTls;
-		const secret = config.secret;
-		const externalUi = config.externalUi;
-		const externalUiName = config.externalUiName;
-
-		const baseHost = window.location.hostname;
-		const basePort = '9090';
-		const useTls = !!ecTls;
-		const hostPort = normalizeHostPortFromAddr(useTls ? ecTls : ec, baseHost, basePort);
-		const scheme = useTls ? 'https:' : 'http:';
-		const uiPath = computeUiPath(externalUiName, externalUi);
-		const qp = new URLSearchParams();
-
-		if (secret)
-			qp.set('secret', secret);
-
-		qp.set('hostname', hostPort.host);
-		qp.set('port', hostPort.port);
-
-		const safeHost = hostPort.host.includes(':') && !hostPort.host.startsWith('[')
-			? `[${hostPort.host}]`
-			: hostPort.host;
-		const url = `${scheme}//${safeHost}:${hostPort.port}${uiPath}?${qp.toString()}`;
-		const newWindow = window.open(url, '_blank');
-		if (!newWindow)
-			mihowrtUi.notify(_('Popup was blocked. Please allow popups for this site.'), 'warning');
-	}
-	catch (e) {
-		mihowrtUi.notify(_('Failed to open dashboard: %s').format(e.message), 'error');
-	}
+	return configHelper.openDashboard({
+		serviceName: SERVICE_NAME,
+		serviceScript: SERVICE_SCRIPT,
+		backendHelper: backendHelper,
+		uiHelper: mihowrtUi,
+		windowObject: window
+	});
 }
 
 async function initializeAceEditor(node, content) {
@@ -398,29 +291,12 @@ async function initializeAceEditor(node, content) {
 	editor.setValue(content, -1);
 }
 
-function editorContentForSave(value) {
-	return value == null ? '' : String(value);
-}
-
 async function restartRunningService(wasRunning) {
-	if (!wasRunning)
-		return { restarted: false, error: null };
-	try {
-		await backendHelper.restartValidatedService();
-		return { restarted: true, error: null };
-	}
-	catch (e) {
-		return { restarted: false, error: e.message || String(e) };
-	}
-}
-
-function subscriptionStateErrorDetail(state) {
-	const errors = Array.isArray(state?.errors) ? state.errors.map(String).filter(Boolean) : [];
-	return errors.join('; ') || _('unknown error');
+	return configHelper.restartRunningService(backendHelper, wasRunning);
 }
 
 function subscriptionUrlInputValue(input = subscriptionUrlInput) {
-	return String(input?.value || '').trim();
+	return configHelper.subscriptionUrlInputValue(input);
 }
 
 async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
@@ -435,7 +311,7 @@ async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
 }
 
 function editorHasUnsavedChanges() {
-	return !!editor && editorContentForSave(editor.getValue()) !== savedConfigContent;
+	return !!editor && configHelper.editorContentForSave(editor.getValue()) !== savedConfigContent;
 }
 
 function confirmSubscriptionOverwrite() {
@@ -463,10 +339,10 @@ async function loadSubscriptionIntoEditor(subscriptionUrl, expectedEditorContent
 		throw new Error(_('Editor is still loading. Please try again in a moment.'));
 
 	const contents = await backendHelper.fetchSubscription(subscriptionUrl);
-	if (expectedEditorContent != null && editorContentForSave(editor.getValue()) !== expectedEditorContent)
+	if (expectedEditorContent != null && configHelper.editorContentForSave(editor.getValue()) !== expectedEditorContent)
 		throw new Error(_('Editor content changed during subscription download. Fetch again after saving or discarding edits.'));
 
-	editor.setValue(editorContentForSave(contents), -1);
+	editor.setValue(configHelper.editorContentForSave(contents), -1);
 	return contents;
 }
 
@@ -482,18 +358,18 @@ return view.extend({
 		const config = data?.[0] ?? '';
 		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
 		let serviceState = lastServiceState;
-		try {
-			serviceState = await readServiceState();
-		}
-		catch (e) {
-			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-		}
-		if (subscriptionState.errors && subscriptionState.errors.length)
-			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(subscriptionStateErrorDetail(subscriptionState)), 'warning');
-		savedConfigContent = editorContentForSave(config);
-		savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
-			? null
-			: subscriptionUrlInputValue({ value: subscriptionState.subscriptionUrl || '' });
+	try {
+		serviceState = await readServiceState();
+	}
+	catch (e) {
+		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+	}
+	if (subscriptionState.errors && subscriptionState.errors.length)
+		mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
+	savedConfigContent = configHelper.editorContentForSave(config);
+	savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
+		? null
+		: subscriptionUrlInputValue({ value: subscriptionState.subscriptionUrl || '' });
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'
@@ -531,7 +407,7 @@ return view.extend({
 				if (!confirmSubscriptionOverwrite())
 					return;
 
-				const expectedEditorContent = editor ? editorContentForSave(editor.getValue()) : null;
+				const expectedEditorContent = editor ? configHelper.editorContentForSave(editor.getValue()) : null;
 				const contents = await loadSubscriptionIntoEditor(value, expectedEditorContent);
 				if (!contents) {
 					mihowrtUi.notify(_('Subscription returned empty config.'), 'error');
@@ -564,7 +440,7 @@ return view.extend({
 					return;
 				}
 
-				const value = editorContentForSave(editor.getValue());
+				const value = configHelper.editorContentForSave(editor.getValue());
 				if (value === savedConfigContent) {
 					mihowrtUi.notify(_('Configuration is unchanged.'), 'info');
 					return;
@@ -630,23 +506,23 @@ return view.extend({
 				(startStopButton = E('button', {
 					class: 'btn',
 					click: toggleService
-				}, serviceToggleLabel(serviceState.running))),
+				}, configHelper.serviceToggleLabel(serviceState.running))),
 				(enableDisableButton = E('button', {
 					class: 'btn',
 					click: toggleServiceEnabled
-				}, serviceEnabledToggleLabel(serviceState.enabled))),
+				}, configHelper.serviceEnabledToggleLabel(serviceState.enabled))),
 				(dashboardButton = E('button', {
 					class: 'btn',
 					click: openDashboard
 				}, _('Open Mihomo Dashboard'))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceBadgeColor(serviceState.running) + ';'
-				}, serviceBadgeText(serviceState.running))),
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceBadgeColor(serviceState.running) + ';'
+				}, configHelper.serviceBadgeText(serviceState.running))),
 				(serviceEnabledBadge = E('span', {
 					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + serviceEnabledBadgeColor(serviceState.enabled) + ';'
-				}, serviceEnabledBadgeText(serviceState.enabled)))
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceEnabledBadgeColor(serviceState.enabled) + ';'
+				}, configHelper.serviceEnabledBadgeText(serviceState.enabled)))
 			]),
 			E('h2', _('Mihomo YAML Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),

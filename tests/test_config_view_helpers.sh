@@ -5,196 +5,149 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 node <<'EOF'
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
+const harness = require('./tests/js_luci_harness');
+const { assertEq } = harness;
 
-const rootDir = process.cwd();
-const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
-const hostMatch = source.match(/function normalizeHostPortFromAddr[\s\S]*?\n}\n\nfunction computeUiPath/);
-const uiPathMatch = source.match(/function computeUiPath[\s\S]*?\n}\n\nasync function openDashboard/);
-const dashboardMatch = source.match(/async function openDashboard[\s\S]*?\n}\n\nasync function initializeAceEditor/);
-const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nasync function restartRunningService/);
-const subscriptionStateMatch = source.match(/function subscriptionStateErrorDetail[\s\S]*?\n}\n\nfunction subscriptionUrlInputValue/);
-const subscriptionInputMatch = source.match(/function subscriptionUrlInputValue[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
-const busyMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
-const serviceLabelMatch = source.match(/function serviceToggleLabel[\s\S]*?\n}\n\nfunction serviceEnabledToggleLabel/);
-const serviceEnabledLabelMatch = source.match(/function serviceEnabledToggleLabel[\s\S]*?\n}\n\nfunction serviceBadgeText/);
-const serviceTextMatch = source.match(/function serviceBadgeText[\s\S]*?\n}\n\nfunction serviceBadgeColor/);
-const serviceColorMatch = source.match(/function serviceBadgeColor[\s\S]*?\n}\n\nfunction serviceEnabledBadgeText/);
-
-if (!hostMatch)
-	throw new Error('normalizeHostPortFromAddr() not found');
-if (!uiPathMatch)
-	throw new Error('computeUiPath() not found');
-if (!dashboardMatch)
-	throw new Error('openDashboard() not found');
-if (!editorMatch)
-	throw new Error('editorContentForSave() not found');
-if (!subscriptionStateMatch)
-	throw new Error('subscriptionStateErrorDetail() not found');
-if (!subscriptionInputMatch)
-	throw new Error('subscriptionUrlInputValue() not found');
-if (!busyMatch)
-	throw new Error('controlsBusy() not found');
-if (!serviceLabelMatch)
-	throw new Error('serviceToggleLabel() not found');
-if (!serviceEnabledLabelMatch)
-	throw new Error('serviceEnabledToggleLabel() not found');
-if (!serviceTextMatch)
-	throw new Error('serviceBadgeText() not found');
-if (!serviceColorMatch)
-	throw new Error('serviceBadgeColor() not found');
-if (source.includes('window.location.reload()'))
+const viewSource = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
+if (viewSource.includes('window.location.reload()'))
 	throw new Error('config.js should not do full page reloads after local actions');
 
-const hostFnSource = hostMatch[0].replace(/\n\nfunction computeUiPath$/, '');
-const uiPathFnSource = uiPathMatch[0].replace(/\n\nasync function openDashboard$/, '');
-const dashboardFnSource = dashboardMatch[0].replace(/\n\nasync function initializeAceEditor$/, '');
-const editorFnSource = editorMatch[0].replace(/\n\nasync function restartRunningService$/, '');
-const subscriptionStateFnSource = subscriptionStateMatch[0].replace(/\n\nfunction subscriptionUrlInputValue$/, '');
-const subscriptionInputFnSource = subscriptionInputMatch[0].replace(/\n\nasync function withSubscriptionLock$/, '');
-const busyFnSource = busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
-const serviceLabelFnSource = serviceLabelMatch[0].replace(/\n\nfunction serviceEnabledToggleLabel$/, '');
-const serviceEnabledLabelFnSource = serviceEnabledLabelMatch[0].replace(/\n\nfunction serviceBadgeText$/, '');
-const serviceTextFnSource = serviceTextMatch[0].replace(/\n\nfunction serviceBadgeColor$/, '');
-const serviceColorFnSource = serviceColorMatch[0].replace(/\n\nfunction serviceEnabledBadgeText$/, '');
-const context = {};
-vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet serviceActionInFlight = false; let saveInFlight = false; let subscriptionInFlight = false;\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\n${editorFnSource}\n${subscriptionStateFnSource}\n${subscriptionInputFnSource}\n${busyFnSource}\n${serviceLabelFnSource}\n${serviceEnabledLabelFnSource}\n${serviceTextFnSource}\n${serviceColorFnSource}\nglobalThis.normalizeHostPortFromAddr = normalizeHostPortFromAddr;\nglobalThis.computeUiPath = computeUiPath;\nglobalThis.openDashboard = openDashboard;\nglobalThis.editorContentForSave = editorContentForSave;\nglobalThis.subscriptionStateErrorDetail = subscriptionStateErrorDetail;\nglobalThis.subscriptionUrlInputValue = subscriptionUrlInputValue;\nglobalThis.controlsBusy = controlsBusy;\nglobalThis.serviceToggleLabel = serviceToggleLabel;\nglobalThis.serviceEnabledToggleLabel = serviceEnabledToggleLabel;\nglobalThis.serviceBadgeText = serviceBadgeText;\nglobalThis.serviceBadgeColor = serviceBadgeColor;\nglobalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy) => { serviceActionInFlight = serviceBusy; saveInFlight = saveBusy; subscriptionInFlight = subscriptionBusy; };`, context);
-
-const normalize = context.normalizeHostPortFromAddr;
-const editorContentForSave = context.editorContentForSave;
-const subscriptionStateErrorDetail = context.subscriptionStateErrorDetail;
-const subscriptionUrlInputValue = context.subscriptionUrlInputValue;
-const controlsBusy = context.controlsBusy;
-const serviceToggleLabel = context.serviceToggleLabel;
-const serviceEnabledToggleLabel = context.serviceEnabledToggleLabel;
-const serviceBadgeText = context.serviceBadgeText;
-const serviceBadgeColor = context.serviceBadgeColor;
-const fallbackHost = 'router.lan';
-const fallbackPort = '9090';
-
-function assertEq(actual, expected, message) {
-	if (actual !== expected)
-		throw new Error(`${message}: expected '${expected}', got '${actual}'`);
-}
+const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');
 
 function assertHostPort(addr, expectedHost, expectedPort, message) {
-	const actual = normalize(addr, fallbackHost, fallbackPort);
+	const actual = configHelper.normalizeHostPortFromAddr(addr, 'router.lan', '9090');
 	assertEq(actual.host, expectedHost, `${message} host`);
 	assertEq(actual.port, expectedPort, `${message} port`);
 }
 
-assertHostPort('127.0.0.1:9090', fallbackHost, '9090', 'IPv4 loopback should use LuCI host');
-assertHostPort('127.2.3.4:9090', fallbackHost, '9090', 'Any 127/8 loopback should use LuCI host');
-assertHostPort('[::1]:9090', fallbackHost, '9090', 'IPv6 loopback should use LuCI host');
-assertHostPort('localhost:9090', fallbackHost, '9090', 'localhost should use LuCI host');
-assertHostPort('0.0.0.0:9090', fallbackHost, '9090', 'Wildcard IPv4 should use LuCI host');
-assertHostPort('[::]:9090', fallbackHost, '9090', 'Wildcard IPv6 should use LuCI host');
+assertHostPort('127.0.0.1:9090', 'router.lan', '9090', 'IPv4 loopback should use LuCI host');
+assertHostPort('127.2.3.4:9090', 'router.lan', '9090', 'Any 127/8 loopback should use LuCI host');
+assertHostPort('[::1]:9090', 'router.lan', '9090', 'IPv6 loopback should use LuCI host');
+assertHostPort('localhost:9090', 'router.lan', '9090', 'localhost should use LuCI host');
+assertHostPort('0.0.0.0:9090', 'router.lan', '9090', 'Wildcard IPv4 should use LuCI host');
+assertHostPort('[::]:9090', 'router.lan', '9090', 'Wildcard IPv6 should use LuCI host');
 assertHostPort('192.168.1.10:9090', '192.168.1.10', '9090', 'Remote controller host should stay unchanged');
-assertHostPort('', fallbackHost, fallbackPort, 'Empty controller should keep fallback host/port');
-assertEq(editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
-assertEq(editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
-assertEq(editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
-assertEq(subscriptionStateErrorDetail({ errors: ['first', '', 'second'] }), 'first; second', 'subscriptionStateErrorDetail should join non-empty errors');
-assertEq(subscriptionStateErrorDetail({ errors: [] }), 'unknown error', 'subscriptionStateErrorDetail should fallback on empty errors');
-assertEq(subscriptionUrlInputValue({ value: ' https://example.com/sub.yaml ' }), 'https://example.com/sub.yaml', 'subscriptionUrlInputValue should trim pasted URLs');
-assertEq(subscriptionUrlInputValue({}), '', 'subscriptionUrlInputValue should tolerate empty inputs');
-assertEq(serviceToggleLabel(true), 'Stop MihoWRT', 'serviceToggleLabel should render running action');
-assertEq(serviceToggleLabel(false), 'Start MihoWRT', 'serviceToggleLabel should render stopped action');
-assertEq(serviceEnabledToggleLabel(true), 'Disable Autostart', 'serviceEnabledToggleLabel should render disable-boot action');
-assertEq(serviceEnabledToggleLabel(false), 'Enable Autostart', 'serviceEnabledToggleLabel should render enable-boot action');
-assertEq(serviceBadgeText(true), 'MihoWRT is running', 'serviceBadgeText should render running badge');
-assertEq(serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
-assertEq(serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');
-assertEq(serviceBadgeColor(false), '#d9534f', 'serviceBadgeColor should use stopped color');
-context.setBusyFlags(false, false, false);
-assertEq(String(controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
-context.setBusyFlags(true, false, false);
-assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
-context.setBusyFlags(false, true, false);
-assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when save is running');
-context.setBusyFlags(false, false, true);
-assertEq(String(controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
+assertHostPort('', 'router.lan', '9090', 'Empty controller should keep fallback host/port');
 
-	(async () => {
-		const notifications = [];
-		let openedUrl = null;
-		let probedScript = null;
-		const dashboardContext = {
-			...context,
-			SERVICE_NAME: 'mihowrt',
-			SERVICE_SCRIPT: '/etc/init.d/mihowrt',
-			backendHelper: {
-				readConfig: async() => ({ errors: ['Failed to read config'] })
+assertEq(configHelper.dashboardUrl({
+	externalController: '[2001:db8::1]:9090',
+	externalControllerTls: '',
+	secret: 'top-secret',
+	externalUi: '',
+	externalUiName: 'zashboard'
+}, 'router.lan').startsWith('http://[2001:db8::1]:9090/zashboard/?'), true, 'dashboardUrl should keep IPv6 host bracketed');
+assertEq(configHelper.editorContentForSave('line 1\n\n  tail  '), 'line 1\n\n  tail  ', 'editorContentForSave should preserve whitespace and blank lines');
+assertEq(configHelper.editorContentForSave('plain'), 'plain', 'editorContentForSave should not force trailing newline');
+assertEq(configHelper.editorContentForSave(null), '', 'editorContentForSave should map null to empty string');
+assertEq(configHelper.subscriptionStateErrorDetail({ errors: ['first', '', 'second'] }), 'first; second', 'subscriptionStateErrorDetail should join non-empty errors');
+assertEq(configHelper.subscriptionStateErrorDetail({ errors: [] }), 'unknown error', 'subscriptionStateErrorDetail should fallback on empty errors');
+assertEq(configHelper.subscriptionUrlInputValue({ value: ' https://example.com/sub.yaml ' }), 'https://example.com/sub.yaml', 'subscriptionUrlInputValue should trim pasted URLs');
+assertEq(configHelper.subscriptionUrlInputValue({}), '', 'subscriptionUrlInputValue should tolerate empty inputs');
+assertEq(configHelper.serviceToggleLabel(true), 'Stop MihoWRT', 'serviceToggleLabel should render running action');
+assertEq(configHelper.serviceToggleLabel(false), 'Start MihoWRT', 'serviceToggleLabel should render stopped action');
+assertEq(configHelper.serviceEnabledToggleLabel(true), 'Disable Autostart', 'serviceEnabledToggleLabel should render disable-boot action');
+assertEq(configHelper.serviceEnabledToggleLabel(false), 'Enable Autostart', 'serviceEnabledToggleLabel should render enable-boot action');
+assertEq(configHelper.serviceBadgeText(true), 'MihoWRT is running', 'serviceBadgeText should render running badge');
+assertEq(configHelper.serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
+assertEq(configHelper.serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');
+assertEq(configHelper.serviceBadgeColor(false), '#d9534f', 'serviceBadgeColor should use stopped color');
+
+const busyMatch = viewSource.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
+if (!busyMatch)
+	throw new Error('controlsBusy() not found');
+
+const context = harness.createContext();
+vm.runInContext(`
+let serviceActionInFlight = false;
+let saveInFlight = false;
+let subscriptionInFlight = false;
+${busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '')}
+globalThis.controlsBusy = controlsBusy;
+globalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy) => {
+	serviceActionInFlight = serviceBusy;
+	saveInFlight = saveBusy;
+	subscriptionInFlight = subscriptionBusy;
+};
+`, context);
+
+context.setBusyFlags(false, false, false);
+assertEq(String(context.controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
+context.setBusyFlags(true, false, false);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
+context.setBusyFlags(false, true, false);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when save is running');
+context.setBusyFlags(false, false, true);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
+
+(async () => {
+	const notifications = [];
+	let openedUrl = null;
+	let probedScript = null;
+
+	await configHelper.openDashboard({
+		serviceName: 'mihowrt',
+		serviceScript: '/etc/init.d/mihowrt',
+		backendHelper: {
+			readConfig: async() => ({ errors: ['Failed to read config'] })
+		},
+		uiHelper: {
+			getServiceStatus: async(serviceName, serviceScript) => {
+				probedScript = `${serviceName}:${serviceScript}`;
+				return true;
 			},
-			mihowrtUi: {
-				getServiceStatus: async(serviceName, serviceScript) => {
-					probedScript = `${serviceName}:${serviceScript}`;
-					return true;
-				},
-				notify: (message, level) => notifications.push({ message, level })
-			},
-		window: {
-			location: { hostname: fallbackHost },
+			notify: (message, level) => notifications.push({ message, level })
+		},
+		windowObject: {
+			location: { hostname: 'router.lan' },
 			open: (url) => {
 				openedUrl = url;
 				return {};
 			}
-		},
-		URLSearchParams
-	};
-
-	vm.createContext(dashboardContext);
-	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\nglobalThis.openDashboard = openDashboard;`, dashboardContext);
-	await dashboardContext.openDashboard();
-		assertEq(String(openedUrl), 'null', 'openDashboard should not open guessed URL when config has errors');
-		assertEq(notifications.length, 1, 'openDashboard should emit one notification when config has errors');
-		assertEq(notifications[0].level, 'error', 'openDashboard should surface config errors as error notification');
-		assertEq(probedScript, 'mihowrt:/etc/init.d/mihowrt', 'openDashboard should probe service with init script fallback context');
-		if (!String(notifications[0].message).includes('Failed to read config'))
-			throw new Error('openDashboard should include backend config error details');
-
-		const ipv6Notifications = [];
-		let ipv6OpenedUrl = null;
-		const ipv6Context = {
-			...context,
-			SERVICE_NAME: 'mihowrt',
-			SERVICE_SCRIPT: '/etc/init.d/mihowrt',
-			backendHelper: {
-				readConfig: async() => ({
-					errors: [],
-					externalController: '[2001:db8::1]:9090',
-					externalControllerTls: '',
-					secret: 'top-secret',
-					externalUi: '',
-					externalUiName: 'zashboard'
-				})
-			},
-			mihowrtUi: {
-				getServiceStatus: async() => true,
-				notify: (message, level) => ipv6Notifications.push({ message, level })
-			},
-			window: {
-				location: { hostname: fallbackHost },
-				open: (url) => {
-					ipv6OpenedUrl = url;
-					return {};
-				}
-			},
-			URLSearchParams
-		};
-
-		vm.createContext(ipv6Context);
-		vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\n${hostFnSource}\n${uiPathFnSource}\n${dashboardFnSource}\nglobalThis.openDashboard = openDashboard;`, ipv6Context);
-		await ipv6Context.openDashboard();
-		assertEq(ipv6Notifications.length, 0, 'openDashboard should not warn on valid IPv6 controller config');
-		if (!String(ipv6OpenedUrl).startsWith('http://[2001:db8::1]:9090/zashboard/?'))
-			throw new Error(`openDashboard should keep IPv6 host bracketed, got '${ipv6OpenedUrl}'`);
-	})().catch(err => {
-		throw err;
+		}
 	});
+
+	assertEq(String(openedUrl), 'null', 'openDashboard should not open guessed URL when config has errors');
+	assertEq(notifications.length, 1, 'openDashboard should emit one notification when config has errors');
+	assertEq(notifications[0].level, 'error', 'openDashboard should surface config errors as error notification');
+	assertEq(probedScript, 'mihowrt:/etc/init.d/mihowrt', 'openDashboard should probe service with init script fallback context');
+	if (!String(notifications[0].message).includes('Failed to read config'))
+		throw new Error('openDashboard should include backend config error details');
+
+	const ipv6Notifications = [];
+	let ipv6OpenedUrl = null;
+	await configHelper.openDashboard({
+		serviceName: 'mihowrt',
+		serviceScript: '/etc/init.d/mihowrt',
+		backendHelper: {
+			readConfig: async() => ({
+				errors: [],
+				externalController: '[2001:db8::1]:9090',
+				externalControllerTls: '',
+				secret: 'top-secret',
+				externalUi: '',
+				externalUiName: 'zashboard'
+			})
+		},
+		uiHelper: {
+			getServiceStatus: async() => true,
+			notify: (message, level) => ipv6Notifications.push({ message, level })
+		},
+		windowObject: {
+			location: { hostname: 'router.lan' },
+			open: (url) => {
+				ipv6OpenedUrl = url;
+				return {};
+			}
+		}
+	});
+
+	assertEq(ipv6Notifications.length, 0, 'openDashboard should not warn on valid IPv6 controller config');
+	if (!String(ipv6OpenedUrl).startsWith('http://[2001:db8::1]:9090/zashboard/?'))
+		throw new Error(`openDashboard should keep IPv6 host bracketed, got '${ipv6OpenedUrl}'`);
+})().catch(err => {
+	throw err;
+});
 EOF
 
 pass "config view helpers"

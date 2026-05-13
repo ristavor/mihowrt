@@ -22,6 +22,7 @@ js_syntax_files=(
 	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/backend.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ace.js"
+	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/config.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/exec.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ui.js"
 )

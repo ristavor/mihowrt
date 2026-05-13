@@ -5,16 +5,13 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 node <<'EOF'
-const fs = require('fs');
-const path = require('path');
 const vm = require('vm');
+const harness = require('./tests/js_luci_harness');
 
-const rootDir = process.cwd();
-const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/config.js'), 'utf8');
+const source = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
 const controlsMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 const updateMatch = source.match(/function updateControlDisabledState[\s\S]*?\n}\n\nasync function withServiceActionLock/);
-const editorMatch = source.match(/function editorContentForSave[\s\S]*?\n}\n\nasync function restartRunningService/);
-const restartMatch = source.match(/async function restartRunningService[\s\S]*?\n}\n\nreturn view\.extend/);
+const restartMatch = source.match(/async function restartRunningService[\s\S]*?\n}\n\nfunction subscriptionUrlInputValue/);
 const saveStart = source.indexOf('const saveAndApply = async function() {');
 const saveEnd = source.indexOf('\n\n\t\tconst page = E([', saveStart);
 
@@ -22,8 +19,6 @@ if (!controlsMatch)
 	throw new Error('controlsBusy() not found');
 if (!updateMatch)
 	throw new Error('updateControlDisabledState() not found');
-if (!editorMatch)
-	throw new Error('editorContentForSave() not found');
 if (!restartMatch)
 	throw new Error('restartRunningService() not found');
 if (saveStart === -1 || saveEnd === -1)
@@ -31,13 +26,13 @@ if (saveStart === -1 || saveEnd === -1)
 
 const controlsFnSource = controlsMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '');
 const updateFnSource = updateMatch[0].replace(/\n\nasync function withServiceActionLock$/, '');
-const editorFnSource = editorMatch[0].replace(/\n\nasync function restartRunningService$/, '');
-const restartFnSource = restartMatch[0].replace(/\n\nreturn view\.extend$/, '');
+const restartFnSource = restartMatch[0].replace(/\n\nfunction subscriptionUrlInputValue$/, '');
 const saveFnSource = source
 	.slice(saveStart, saveEnd)
 	.trim()
 	.replace(/^const saveAndApply = /, '')
 	.replace(/;$/, '');
+const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');
 
 function assert(condition, message) {
 	if (!condition)
@@ -102,6 +97,7 @@ function createContext(overrides = {}) {
 			return { running: true, enabled: true, ready: true };
 		},
 		applyServiceState: (running, enabled) => context.appliedStates.push({ running, enabled }),
+		configHelper,
 		Date: { now: () => 1700000000000 },
 		Math
 	};
@@ -131,7 +127,6 @@ let subscriptionInFlight = false;
 let savedConfigContent = 'mode: old\\n';
 ${controlsFnSource}
 ${updateFnSource}
-${editorFnSource}
 ${restartFnSource}
 const saveAndApply = ${saveFnSource};
 globalThis.saveAndApply = saveAndApply;

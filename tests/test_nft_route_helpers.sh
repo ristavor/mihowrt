@@ -10,7 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -31,7 +31,7 @@ export MIHOMO_ROUTE_TABLE_ID=""
 export MIHOMO_ROUTE_RULE_PRIORITY=""
 export ROUTE_TABLES_FILE="$tmpdir/rt_tables"
 net_log="$tmpdir/net.log"
-: > "$ROUTE_TABLES_FILE"
+: >"$ROUTE_TABLES_FILE"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
@@ -67,7 +67,7 @@ ip() {
 }
 
 list_file="$tmpdir/list.txt"
-cat > "$list_file" <<'EOF'
+cat >"$list_file" <<'EOF'
 # comment
 1.1.1.1
 bad-entry
@@ -82,14 +82,14 @@ assert_eq "2" "${NFT_PROXY_DST_COUNT}" "nft_emit_ipv4_file_to_set should return 
 assert_file_contains "$NFT_BATCH_FILE" "add element inet mihowrt proxy_dst { 1.1.1.1,2.2.2.0/24 }" "nft_emit_ipv4_file_to_set should emit nft batch line"
 
 rm -f "$list_file"
-: > "$NFT_BATCH_FILE"
+: >"$NFT_BATCH_FILE"
 NFT_PROXY_DST_COUNT=99
 assert_eq "0" "$(count_valid_list_entries "$list_file")" "count_valid_list_entries should treat missing file as empty list"
 nft_emit_ipv4_file_to_set "$list_file" "proxy_dst" NFT_PROXY_DST_COUNT
 assert_eq "0" "${NFT_PROXY_DST_COUNT}" "nft_emit_ipv4_file_to_set should treat deleted list file as empty"
 [[ ! -s "$NFT_BATCH_FILE" ]] || fail "nft_emit_ipv4_file_to_set should not emit rules for deleted list file"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
@@ -99,12 +99,37 @@ assert_eq "200" "$ROUTE_TABLE_ID_EFFECTIVE" "policy_route_state_read should load
 assert_eq "10000" "$ROUTE_RULE_PRIORITY_EFFECTIVE" "policy_route_state_read should load rule priority"
 assert_resolved_route_ids "200" "10000" "policy_route_resolve_ids should reuse existing auto ids"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=999
 ROUTE_RULE_PRIORITY=bad
 EOF
 
 assert_false "policy_route_state_read should reject invalid route state" policy_route_state_read
+
+: >"$net_log"
+ip() {
+	if [[ "${1:-}" == "rule" && "${2:-}" == "show" ]]; then
+		printf 'ip:rule-show\n' >>"$net_log"
+		printf '10000: from all lookup 200\n'
+		printf '10001: from all lookup 201\n'
+		return 0
+	fi
+	if [[ "${1:-}" == "route" && "${2:-}" == "show" && "${3:-}" == "table" && "${4:-}" == "all" ]]; then
+		printf 'ip:route-show-all\n' >>"$net_log"
+		printf 'local 0.0.0.0/0 dev lo table 200\n'
+		printf 'local 0.0.0.0/0 dev lo table 201\n'
+		return 0
+	fi
+	return 0
+}
+assert_eq "202" "$(policy_route_find_free_table_id)" "policy_route_find_free_table_id should use route table snapshot"
+assert_eq "10002" "$(policy_route_find_free_priority)" "policy_route_find_free_priority should use rule snapshot"
+assert_eq "1" "$(grep -c '^ip:route-show-all$' "$net_log")" "policy_route_find_free_table_id should read route tables once"
+assert_eq "1" "$(grep -c '^ip:rule-show$' "$net_log")" "policy_route_find_free_priority should read rules once"
+
+ip() {
+	return 0
+}
 
 policy_route_table_id_in_use() {
 	[[ "$1" == "200" || "$1" == "201" ]]
@@ -266,6 +291,18 @@ ip() {
 			if [[ "${TEST_ROUTE_SHOW_RC:-0}" != "0" ]]; then
 				return "${TEST_ROUTE_SHOW_RC}"
 			fi
+			if [[ "${3:-}" == "table" && "${4:-}" == "all" ]]; then
+				for table in ${TEST_MANAGED_ROUTE_TABLES:-}; do
+					printf 'local default dev lo table %s scope host\n' "$table"
+				done
+				if [[ "${TEST_ROUTE_PRESENT:-0}" = "1" ]] && ! table_list_has "${TEST_MANAGED_ROUTE_TABLES:-}" "${TEST_ROUTE_TABLE_ID:-200}"; then
+					printf 'local default dev lo table %s scope host\n' "${TEST_ROUTE_TABLE_ID:-200}"
+				fi
+				for table in ${TEST_FOREIGN_ROUTE_TABLES:-}; do
+					printf 'default via 192.0.2.1 dev eth0 table %s\n' "$table"
+				done
+				return 0
+			fi
 			if [[ "${3:-}" == "table" ]] && route_managed_present "${4:-}"; then
 				printf 'local default dev lo scope host\n'
 			fi
@@ -302,7 +339,7 @@ ip() {
 	return 0
 }
 
-: > "$net_log"
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
@@ -311,7 +348,7 @@ assert_file_contains "$net_log" "nft list tables inet" "nft_remove_policy should
 assert_file_not_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should not delete absent nft table"
 assert_file_contains "$net_log" "log:nft policy table $NFT_TABLE_NAME already clean" "nft_remove_policy should log already-clean nft state"
 
-: > "$net_log"
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=1
 TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
@@ -320,7 +357,7 @@ assert_true "nft_remove_policy should delete present nft table" nft_remove_polic
 assert_file_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should delete present nft table"
 assert_file_contains "$net_log" "log:Removed nft policy table $NFT_TABLE_NAME" "nft_remove_policy should log actual nft deletion"
 
-: > "$net_log"
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=0
 TEST_NFT_LEGACY_TABLE_PRESENT=1
 TEST_NFT_LIST_RC=0
@@ -329,21 +366,21 @@ assert_true "nft_remove_policy should delete legacy nft table" nft_remove_policy
 assert_file_contains "$net_log" "nft delete table inet ${NFT_LEGACY_TABLE_NAMES%% *}" "nft_remove_policy should delete legacy nft table"
 assert_file_contains "$net_log" "log:Removed nft policy table ${NFT_LEGACY_TABLE_NAMES%% *}" "nft_remove_policy should log legacy nft deletion"
 
-: > "$net_log"
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=1
 TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=1
 assert_false "nft_remove_policy should fail when nft delete leaves table behind" nft_remove_policy
 
-: > "$net_log"
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=1
 TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=2
 TEST_NFT_DELETE_RC=0
 assert_false "nft_remove_policy should fail when nft probe command breaks" nft_remove_policy
 
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=0
 TEST_FOREIGN_RULE_PRESENT=1
 TEST_FOREIGN_RULE_PRIORITY=10000
@@ -353,11 +390,11 @@ assert_false "policy_route_rule_exists should ignore foreign rule with same prio
 assert_true "policy_route_priority_conflicts should catch foreign rule with same priority" policy_route_priority_conflicts 200 10000
 TEST_FOREIGN_RULE_PRESENT=0
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=0
 TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
@@ -373,11 +410,11 @@ assert_true "policy_route_cleanup should treat absent live route state as alread
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should remove route state file after already-clean teardown"
 assert_file_contains "$net_log" "log:Policy routing for mark $NFT_INTERCEPT_MARK already clean" "policy_route_cleanup should log already-clean route state"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=1
 TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
@@ -391,11 +428,11 @@ assert_file_not_contains "$net_log" "ip route flush table 200" "policy_route_cle
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should remove route state file after successful teardown"
 assert_file_contains "$net_log" "log:Removed policy routing for mark $NFT_INTERCEPT_MARK" "policy_route_cleanup should log actual route teardown"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=1
 TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=1
@@ -405,11 +442,11 @@ TEST_ROUTE_DEL_RC=0
 assert_false "policy_route_cleanup should fail when rule delete does not remove live rule" policy_route_cleanup
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after rule delete failure"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=0
 TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
@@ -419,11 +456,11 @@ TEST_ROUTE_DEL_RC=1
 assert_false "policy_route_cleanup should fail when managed route delete fails" policy_route_cleanup
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after managed route delete failure"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=1
 TEST_RULE_SHOW_RC=2
 TEST_RULE_DEL_RC=0
@@ -433,11 +470,11 @@ TEST_ROUTE_DEL_RC=0
 assert_false "policy_route_cleanup should fail when ip rule probe command breaks" policy_route_cleanup
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after rule probe failure"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 TEST_RULE_PRESENT=0
 TEST_RULE_SHOW_RC=0
 TEST_RULE_DEL_RC=0
@@ -448,7 +485,7 @@ assert_false "policy_route_cleanup should fail when ip route probe command break
 [[ -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_cleanup should preserve route state file after route probe failure"
 
 rm -f "$ROUTE_STATE_FILE"
-: > "$net_log"
+: >"$net_log"
 MIHOMO_ROUTE_TABLE_ID="200"
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
 TEST_RULE_PRESENT=0
@@ -465,11 +502,11 @@ assert_false "policy_route_setup should reject explicit table with foreign route
 assert_file_not_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 200" "policy_route_setup should not alter foreign explicit table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_setup should not persist failed explicit table setup"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000
 EOF
-: > "$net_log"
+: >"$net_log"
 MIHOMO_ROUTE_TABLE_ID=""
 MIHOMO_ROUTE_RULE_PRIORITY=""
 TEST_RULE_PRESENT=1
@@ -491,7 +528,7 @@ assert_file_contains "$net_log" "ip route del local 0.0.0.0/0 dev lo table 200" 
 assert_file_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 202" "policy_route_setup should install route in first free table"
 assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_TABLE_ID=202" "policy_route_setup should persist moved table id"
 
-: > "$net_log"
+: >"$net_log"
 rm -f "$ROUTE_STATE_FILE"
 MIHOMO_ROUTE_TABLE_ID=""
 MIHOMO_ROUTE_RULE_PRIORITY=""

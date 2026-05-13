@@ -86,6 +86,16 @@ is_valid_route_rule_priority() {
 	[ "$value" -ge 1 ] && [ "$value" -le 32765 ]
 }
 
+is_valid_iface_name() {
+	case "$1" in
+		''|*[!A-Za-z0-9_.:@-]*)
+			return 1
+			;;
+	esac
+
+	return 0
+}
+
 is_ipv4_octet() {
 	local octet="$1"
 

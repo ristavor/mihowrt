@@ -11,16 +11,6 @@ append_source_interface() {
 	fi
 }
 
-is_valid_iface_name() {
-	case "$1" in
-		''|*[!A-Za-z0-9_.:@-]*)
-			return 1
-			;;
-	esac
-
-	return 0
-}
-
 detect_lan_interface() {
 	local iface=""
 

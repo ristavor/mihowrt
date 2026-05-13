@@ -41,16 +41,61 @@ policy_route_table_id_in_use() {
 	local route_table_id="$1"
 	local table_state=""
 
-	grep -qE "^[[:space:]]*${route_table_id}[[:space:]]+" "${ROUTE_TABLES_FILE:-/etc/iproute2/rt_tables}" 2>/dev/null && return 0
+	if [ "${POLICY_ROUTE_TABLES_FILE_CACHE_SET:-0}" -eq 1 ]; then
+		policy_route_table_id_registered_in_output "$route_table_id" "$POLICY_ROUTE_TABLES_FILE_CACHE" && return 0
+	else
+		grep -qE "^[[:space:]]*${route_table_id}[[:space:]]+" "${ROUTE_TABLES_FILE:-/etc/iproute2/rt_tables}" 2>/dev/null && return 0
+	fi
+
+	if [ "${POLICY_ROUTE_ALL_TABLES_CACHE_SET:-0}" -eq 1 ]; then
+		policy_route_table_id_has_entries_in_all_output "$route_table_id" "$POLICY_ROUTE_ALL_TABLES_CACHE"
+		return $?
+	fi
+
 	table_state="$(policy_route_probe_state policy_route_table_has_entries "$route_table_id")" || return 0
 	[ "$table_state" = "0" ]
+}
+
+policy_route_table_id_registered_in_output() {
+	local route_table_id="$1"
+	local tables_output="$2"
+
+	printf '%s\n' "$tables_output" | awk -v table="$route_table_id" '
+		$1 == table { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+policy_route_table_id_has_entries_in_all_output() {
+	local route_table_id="$1"
+	local routes_output="$2"
+
+	printf '%s\n' "$routes_output" | awk -v table="$route_table_id" '
+		{
+			for (i = 1; i < NF; i++) {
+				if ($i == "table" && $(i + 1) == table) {
+					found=1
+				}
+			}
+		}
+		END { exit(found ? 0 : 1) }
+	'
+}
+
+policy_route_rules_output() {
+	if [ "${POLICY_ROUTE_RULES_CACHE_SET:-0}" -eq 1 ]; then
+		printf '%s\n' "$POLICY_ROUTE_RULES_CACHE"
+		return 0
+	fi
+
+	ip rule show 2>/dev/null
 }
 
 policy_route_priority_in_use() {
 	local route_rule_priority="$1"
 	local rules_output=""
 
-	rules_output="$(ip rule show 2>/dev/null)" || return 0
+	rules_output="$(policy_route_rules_output)" || return 0
 	printf '%s\n' "$rules_output" | awk -F: -v priority="$route_rule_priority" '$1 + 0 == priority { found=1 } END { exit(found ? 0 : 1) }'
 }
 
@@ -66,7 +111,7 @@ policy_route_priority_conflicts() {
 	mark="$NFT_INTERCEPT_MARK"
 	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
 	mark_dec="$(( NFT_INTERCEPT_MARK ))"
-	rules_output="$(ip rule show 2>/dev/null)" || return 2
+	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
 		$1 == priority ":" {
 			table_match = (index($0, " lookup " table) || index($0, " table " table))
@@ -128,14 +173,48 @@ policy_route_drop_saved_state() {
 
 policy_route_find_free_table_id() {
 	local route_table_id="$ROUTE_TABLE_ID_AUTO_MIN"
+	local result=""
+	local prev_tables_cache_set=0 prev_all_tables_cache_set=0
+	local prev_tables_cache="" prev_all_tables_cache=""
+
+	[ "${POLICY_ROUTE_TABLES_FILE_CACHE_SET+x}" = x ] && prev_tables_cache_set=1
+	[ "${POLICY_ROUTE_ALL_TABLES_CACHE_SET+x}" = x ] && prev_all_tables_cache_set=1
+	prev_tables_cache="${POLICY_ROUTE_TABLES_FILE_CACHE:-}"
+	prev_all_tables_cache="${POLICY_ROUTE_ALL_TABLES_CACHE:-}"
+
+	POLICY_ROUTE_TABLES_FILE_CACHE="$(cat "${ROUTE_TABLES_FILE:-/etc/iproute2/rt_tables}" 2>/dev/null || true)"
+	POLICY_ROUTE_TABLES_FILE_CACHE_SET=1
+	if POLICY_ROUTE_ALL_TABLES_CACHE="$(ip route show table all 2>/dev/null)"; then
+		POLICY_ROUTE_ALL_TABLES_CACHE_SET=1
+	else
+		unset POLICY_ROUTE_ALL_TABLES_CACHE POLICY_ROUTE_ALL_TABLES_CACHE_SET
+	fi
 
 	while [ "$route_table_id" -le "$ROUTE_TABLE_ID_AUTO_MAX" ]; do
 		if ! policy_route_table_id_in_use "$route_table_id"; then
-			printf '%s\n' "$route_table_id"
-			return 0
+			result="$route_table_id"
+			break
 		fi
 		route_table_id=$((route_table_id + 1))
 	done
+
+	if [ "$prev_tables_cache_set" -eq 1 ]; then
+		POLICY_ROUTE_TABLES_FILE_CACHE="$prev_tables_cache"
+		POLICY_ROUTE_TABLES_FILE_CACHE_SET=1
+	else
+		unset POLICY_ROUTE_TABLES_FILE_CACHE POLICY_ROUTE_TABLES_FILE_CACHE_SET
+	fi
+	if [ "$prev_all_tables_cache_set" -eq 1 ]; then
+		POLICY_ROUTE_ALL_TABLES_CACHE="$prev_all_tables_cache"
+		POLICY_ROUTE_ALL_TABLES_CACHE_SET=1
+	else
+		unset POLICY_ROUTE_ALL_TABLES_CACHE POLICY_ROUTE_ALL_TABLES_CACHE_SET
+	fi
+
+	if [ -n "$result" ]; then
+		printf '%s\n' "$result"
+		return 0
+	fi
 
 	err "Unable to find free route table id"
 	return 1
@@ -143,14 +222,36 @@ policy_route_find_free_table_id() {
 
 policy_route_find_free_priority() {
 	local route_rule_priority="$ROUTE_RULE_PRIORITY_AUTO_MIN"
+	local result=""
+	local prev_rules_cache_set=0 prev_rules_cache=""
+
+	[ "${POLICY_ROUTE_RULES_CACHE_SET+x}" = x ] && prev_rules_cache_set=1
+	prev_rules_cache="${POLICY_ROUTE_RULES_CACHE:-}"
+	if POLICY_ROUTE_RULES_CACHE="$(ip rule show 2>/dev/null)"; then
+		POLICY_ROUTE_RULES_CACHE_SET=1
+	else
+		unset POLICY_ROUTE_RULES_CACHE POLICY_ROUTE_RULES_CACHE_SET
+	fi
 
 	while [ "$route_rule_priority" -le "$ROUTE_RULE_PRIORITY_AUTO_MAX" ]; do
 		if ! policy_route_priority_in_use "$route_rule_priority"; then
-			printf '%s\n' "$route_rule_priority"
-			return 0
+			result="$route_rule_priority"
+			break
 		fi
 		route_rule_priority=$((route_rule_priority + 1))
 	done
+
+	if [ "$prev_rules_cache_set" -eq 1 ]; then
+		POLICY_ROUTE_RULES_CACHE="$prev_rules_cache"
+		POLICY_ROUTE_RULES_CACHE_SET=1
+	else
+		unset POLICY_ROUTE_RULES_CACHE POLICY_ROUTE_RULES_CACHE_SET
+	fi
+
+	if [ -n "$result" ]; then
+		printf '%s\n' "$result"
+		return 0
+	fi
 
 	err "Unable to find free route rule priority"
 	return 1
@@ -216,7 +317,7 @@ policy_route_rule_exists() {
 	mark="$NFT_INTERCEPT_MARK"
 	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
 	mark_dec="$(( NFT_INTERCEPT_MARK ))"
-	rules_output="$(ip rule show 2>/dev/null)" || return 2
+	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
 		$1 == priority ":" &&
 		(index($0, " lookup " table) || index($0, " table " table)) &&

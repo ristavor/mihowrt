@@ -10,12 +10,12 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 
-cat > "$tmpbin/nft" <<'EOF'
+cat >"$tmpbin/nft" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -25,7 +25,7 @@ fi
 
 if [[ "${1:-}" == "-f" ]]; then
 	cp "$2" "${NFT_CAPTURE_FILE:?}"
-	exit 0
+	exit "${TEST_NFT_APPLY_RC:-0}"
 fi
 
 exit 0
@@ -49,7 +49,7 @@ assert_file_line_before() {
 	before_line="$(grep -nF -- "$before" "$file" | head -n1 | cut -d: -f1 || true)"
 	after_line="$(grep -nF -- "$after" "$file" | head -n1 | cut -d: -f1 || true)"
 	[[ -n "$before_line" && -n "$after_line" ]] || fail "$message: missing expected rule"
-	(( before_line < after_line )) || fail "$message: '$before' should appear before '$after'"
+	((before_line < after_line)) || fail "$message: '$before' should appear before '$after'"
 }
 
 PKG_TMP_DIR="$tmpdir/runtime"
@@ -68,7 +68,7 @@ DISABLE_QUIC=1
 CATCH_FAKEIP=1
 FAKEIP_RANGE="198.18.0.0/15"
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 2.2.2.0/24
 4.4.4.4;443
@@ -78,7 +78,7 @@ cat > "$DST_LIST_FILE" <<'EOF'
 9.9.9.9;0
 EOF
 
-cat > "$SRC_LIST_FILE" <<'EOF'
+cat >"$SRC_LIST_FILE" <<'EOF'
 3.3.3.3
 7.7.7.0/24;53
 ;853
@@ -91,33 +91,36 @@ assert_eq "2" "$NFT_PROXY_DST_SET_COUNT" "nft_apply_policy should keep only unsc
 assert_eq "1" "$NFT_PROXY_SRC_SET_COUNT" "nft_apply_policy should keep only unscoped source entries in set"
 assert_file_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $NFT_PROXY_DST_SET { 1.1.1.1,2.2.2.0/24 }" "nft_apply_policy should emit destination set before deletion"
 assert_file_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $NFT_PROXY_SRC_SET { 3.3.3.3 }" "nft_apply_policy should emit source set before deletion"
+assert_file_contains "$NFT_CAPTURE_FILE" "add set inet $NFT_TABLE_NAME $NFT_IFACE_SET { type ifname; }" "nft_apply_policy should create plain ifname set"
+assert_file_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $NFT_IFACE_SET { \"br-lan\" }" "nft_apply_policy should quote source interface names"
 assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 4.4.4.4 udp dport 443 reject" "nft_apply_policy should reject QUIC for single-port destination entry"
 assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 5.5.5.0/24 udp dport 443 reject" "nft_apply_policy should reject QUIC when range contains 443"
 assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 6.6.6.6 udp dport 443 reject" "nft_apply_policy should reject QUIC when list contains 443"
-assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 4.4.4.4 tcp dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark TCP for single-port destination entry"
-assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 5.5.5.0/24 udp dport 15-2000 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark UDP for destination port range"
-assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 6.6.6.6 tcp dport { 15, 443 } meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark TCP for destination port list"
-assert_file_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 tcp dport 53 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark source policy by destination port"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT ip daddr 4.4.4.4 tcp dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should apply port-scoped destination rules to output chain"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 tcp dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 destination by port"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT meta nfproto ipv4 tcp dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should apply any-port destination rules to output chain"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 udp dport 853 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 client by destination port"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_DNS_HIJACK iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET udp dport 53 redirect to :7874" "nft_apply_policy should keep DNS hijack redirect enabled"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 4.4.4.4 meta l4proto { tcp, udp } th dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark TCP/UDP for single-port destination entry"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 5.5.5.0/24 meta l4proto { tcp, udp } th dport 15-2000 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark TCP/UDP for destination port range"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 6.6.6.6 meta l4proto { tcp, udp } th dport { 15, 443 } meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark TCP/UDP for destination port list"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 meta l4proto { tcp, udp } th dport 53 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark source policy by destination port"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT ip daddr 4.4.4.4 meta l4proto { tcp, udp } th dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should apply port-scoped destination rules to output chain"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 meta l4proto { tcp, udp } th dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 destination by port"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT meta nfproto ipv4 meta l4proto { tcp, udp } th dport 8443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should apply any-port destination rules to output chain"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta nfproto ipv4 meta l4proto { tcp, udp } th dport 853 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 client by destination port"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_DNS_HIJACK iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET meta l4proto { tcp, udp } th dport 53 redirect to :7874" "nft_apply_policy should keep DNS hijack redirect enabled"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PROXY meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT" "nft_apply_policy should install one TCP/UDP tproxy rule"
 assert_file_line_before "$NFT_CAPTURE_FILE" \
-	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY udp dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } th dport 53 return" \
 	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr @$NFT_PROXY_DST_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" \
 	"direct-first should leave hijacked DNS unmarked before destination policy"
 assert_file_line_before "$NFT_CAPTURE_FILE" \
-	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY tcp dport 53 return" \
-	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip saddr 7.7.7.0/24 tcp dport 53 meta mark set $NFT_INTERCEPT_MARK" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } th dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip saddr 7.7.7.0/24 meta l4proto { tcp, udp } th dport 53 meta mark set $NFT_INTERCEPT_MARK" \
 	"direct-first should leave hijacked DNS unmarked before source policy"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr 9.9.9.9" "nft_apply_policy should skip invalid port-scoped entries"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 udp dport 443 reject" "nft_apply_policy should not reject QUIC for source port filters without 443"
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 ;443
 EOF
-: > "$SRC_LIST_FILE"
+: >"$SRC_LIST_FILE"
 NFT_CAPTURE_FILE="$tmpdir/nft-port-only.batch"
 
 nft_apply_policy
@@ -126,8 +129,12 @@ assert_eq "0" "$NFT_PROXY_DST_SET_COUNT" "nft_apply_policy should keep destinati
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr @$NFT_PROXY_DST_SET udp dport 443 reject" "nft_apply_policy should not emit empty destination set QUIC rule"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr @$NFT_PROXY_DST_SET meta l4proto" "nft_apply_policy should not emit empty destination set mark rule"
 assert_file_contains "$NFT_CAPTURE_FILE" "meta nfproto ipv4 udp dport 443 reject" "nft_apply_policy should reject QUIC for any IPv4 destination by port"
-assert_file_contains "$NFT_CAPTURE_FILE" "meta nfproto ipv4 tcp dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 destination by port"
+assert_file_contains "$NFT_CAPTURE_FILE" "meta nfproto ipv4 meta l4proto { tcp, udp } th dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should mark any IPv4 destination by port"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr  tcp" "nft_apply_policy should not emit empty destination address match"
+
+export TEST_NFT_APPLY_RC=1
+assert_false "nft_apply_policy should fail when nft rejects the generated batch" nft_apply_policy
+unset TEST_NFT_APPLY_RC
 
 rm -f "$DST_LIST_FILE" "$SRC_LIST_FILE"
 NFT_CAPTURE_FILE="$tmpdir/nft-deleted.batch"
@@ -142,13 +149,13 @@ assert_file_not_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $
 assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should still keep fake-ip interception after list deletion"
 
 POLICY_MODE="proxy-first"
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 EOF
-cat > "$SRC_LIST_FILE" <<'EOF'
+cat >"$SRC_LIST_FILE" <<'EOF'
 3.3.3.3
 EOF
-cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
+cat >"$DIRECT_DST_LIST_FILE" <<'EOF'
 8.8.8.8
 9.9.9.0/24;443
 EOF
@@ -161,11 +168,11 @@ assert_eq "2" "$NFT_DIRECT_DST_COUNT" "proxy-first should count direct destinati
 assert_eq "1" "$NFT_DIRECT_DST_SET_COUNT" "proxy-first should keep unscoped direct destinations in set"
 assert_file_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $NFT_DIRECT_DST_SET { 8.8.8.8 }" "proxy-first should emit direct destination set"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr @$NFT_DIRECT_DST_SET return" "proxy-first should bypass direct destinations before marking prerouting"
-assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr 9.9.9.0/24 tcp dport 443 return" "proxy-first should bypass port-scoped direct destinations"
+assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY ip daddr 9.9.9.0/24 meta l4proto { tcp, udp } th dport 443 return" "proxy-first should bypass port-scoped direct destinations"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "proxy-first should mark all non-direct prerouting TCP/UDP"
 assert_file_contains "$NFT_CAPTURE_FILE" "add rule inet $NFT_TABLE_NAME $NFT_CHAIN_OUTPUT meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "proxy-first should mark all non-direct output TCP/UDP"
 assert_file_line_before "$NFT_CAPTURE_FILE" \
-	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY udp dport 53 return" \
+	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } th dport 53 return" \
 	"add rule inet $NFT_TABLE_NAME $NFT_CHAIN_PREROUTING_POLICY meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" \
 	"proxy-first should leave hijacked DNS unmarked before mark-all policy"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr @$NFT_PROXY_DST_SET meta l4proto" "proxy-first should not use always-proxy destination set"

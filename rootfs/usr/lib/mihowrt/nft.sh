@@ -92,6 +92,13 @@ nft_emit_elements_chunk() {
 	nft_emit_line "add element inet $NFT_TABLE_NAME $set_name { $chunk }"
 }
 
+nft_quote_ifname() {
+	local iface="$1"
+
+	is_valid_iface_name "$iface" || return 1
+	printf '"%s"' "$iface"
+}
+
 nft_emit_policy_file_to_set() {
 	local file="$1"
 	local set_name="$2"
@@ -168,7 +175,7 @@ nft_emit_base_table() {
 	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_PROXY_SRC_SET { type ipv4_addr; flags interval; auto-merge; }"
 	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_DIRECT_DST_SET { type ipv4_addr; flags interval; auto-merge; }"
 	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_LOCALV4_SET { type ipv4_addr; flags interval; auto-merge; }"
-	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_IFACE_SET { type ifname; flags interval; }"
+	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_IFACE_SET { type ifname; }"
 	nft_emit_line "add element inet $NFT_TABLE_NAME $NFT_LOCALV4_SET {
 		0.0.0.0/8,
 		10.0.0.0/8,
@@ -193,10 +200,11 @@ nft_emit_base_table() {
 }
 
 nft_emit_interface_set() {
-	local iface
+	local iface quoted_iface
 
 	for iface in $SOURCE_INTERFACES; do
-		nft_emit_line "add element inet $NFT_TABLE_NAME $NFT_IFACE_SET { $iface }"
+		quoted_iface="$(nft_quote_ifname "$iface")" || return 1
+		nft_emit_line "add element inet $NFT_TABLE_NAME $NFT_IFACE_SET { $quoted_iface }"
 	done
 }
 
@@ -232,8 +240,7 @@ nft_emit_policy_port_rules() {
 		else
 			addr_expr="meta nfproto ipv4"
 		fi
-		nft_emit_rule "$chain" "$addr_expr tcp dport $ports_expr $action"
-		nft_emit_rule "$chain" "$addr_expr udp dport $ports_expr $action"
+		nft_emit_rule "$chain" "$addr_expr meta l4proto { tcp, udp } th dport $ports_expr $action"
 	done < "$file"
 }
 
@@ -270,27 +277,23 @@ nft_emit_common_policy_start() {
 
 	if [ "$DNS_HIJACK" = "1" ]; then
 		dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
-		nft_emit_rule "$NFT_CHAIN_DNS_HIJACK" "iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET udp dport 53 redirect to :$dns_port"
-		nft_emit_rule "$NFT_CHAIN_DNS_HIJACK" "iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET tcp dport 53 redirect to :$dns_port"
+		nft_emit_rule "$NFT_CHAIN_DNS_HIJACK" "iifname @$NFT_IFACE_SET ip daddr != @$NFT_LOCALV4_SET meta l4proto { tcp, udp } th dport 53 redirect to :$dns_port"
 	fi
 
 	nft_emit_rule "$NFT_CHAIN_PREROUTING" "iifname @$NFT_IFACE_SET jump $NFT_CHAIN_PREROUTING_POLICY"
 	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "ip daddr @$NFT_LOCALV4_SET return"
 	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta mark $NFT_INTERCEPT_MARK return"
 	if [ "$DNS_HIJACK" = "1" ]; then
-		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "udp dport 53 return"
-		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "tcp dport 53 return"
+		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta l4proto { tcp, udp } th dport 53 return"
 	fi
 }
 
 nft_emit_common_proxy_rules() {
-	nft_emit_rule "$NFT_CHAIN_PROXY" "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta l4proto tcp tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
-	nft_emit_rule "$NFT_CHAIN_PROXY" "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta l4proto udp tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
+	nft_emit_rule "$NFT_CHAIN_PROXY" "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
 
 	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta mark $MIHOMO_ROUTING_MARK return"
 	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta mark $NFT_INTERCEPT_MARK return"
-	nft_emit_rule "$NFT_CHAIN_OUTPUT" "tcp dport $MIHOMO_TPROXY_PORT return"
-	nft_emit_rule "$NFT_CHAIN_OUTPUT" "udp dport $MIHOMO_TPROXY_PORT return"
+	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta l4proto { tcp, udp } th dport $MIHOMO_TPROXY_PORT return"
 	nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr @$NFT_LOCALV4_SET return"
 }
 
@@ -379,6 +382,30 @@ nft_emit_policy_rules() {
 	esac
 }
 
+nft_apply_policy_batch() {
+	local dst_list_file="$1"
+	local src_list_file="$2"
+	local direct_list_file="$3"
+
+	nft_emit_delete_existing_tables || return 1
+	nft_emit_base_table || return 1
+	nft_emit_interface_set || return 1
+	case "${POLICY_MODE:-direct-first}" in
+		direct-first)
+			nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || return 1
+			nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || return 1
+			;;
+		proxy-first)
+			nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || return 1
+			;;
+		*)
+			return 1
+			;;
+	esac
+	nft_emit_policy_rules || return 1
+	nft -f "$NFT_BATCH_FILE"
+}
+
 nft_apply_policy() {
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
@@ -393,25 +420,10 @@ nft_apply_policy() {
 	NFT_PROXY_SRC_SET_COUNT=0
 	NFT_DIRECT_DST_SET_COUNT=0
 
-	nft_emit_delete_existing_tables || nft_abort_batch
-
-	nft_emit_base_table || nft_abort_batch
-	nft_emit_interface_set || nft_abort_batch
-	case "${POLICY_MODE:-direct-first}" in
-		direct-first)
-			nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || nft_abort_batch
-			nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || nft_abort_batch
-			;;
-		proxy-first)
-			nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || nft_abort_batch
-			;;
-		*)
-			nft_abort_batch
-			;;
-	esac
-	nft_emit_policy_rules || nft_abort_batch
-
-	nft -f "$NFT_BATCH_FILE" || nft_abort_batch
+	if ! nft_apply_policy_batch "$dst_list_file" "$src_list_file" "$direct_list_file"; then
+		nft_abort_batch
+		return 1
+	fi
 
 	nft_cleanup_batch_file
 	log "Applied nft policy table $NFT_TABLE_NAME"

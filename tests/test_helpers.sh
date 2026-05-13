@@ -10,7 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/cat" <<'EOF'
+cat >"$tmpbin/cat" <<'EOF'
 #!/usr/bin/env bash
 if [[ "${1:-}" == "/etc/openwrt_release" ]]; then
 	printf "%s\n" "${TEST_OPENWRT_RELEASE:-}"
@@ -19,17 +19,17 @@ else
 fi
 EOF
 
-cat > "$tmpdir/clash" <<'EOF'
+cat >"$tmpdir/clash" <<'EOF'
 #!/usr/bin/env bash
 printf 'Mihomo Meta %s\n' 'v1.18.7'
 EOF
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 
-cat > "$tmpbin/pgrep" <<'EOF'
+cat >"$tmpbin/pgrep" <<'EOF'
 #!/usr/bin/env bash
 exit "${TEST_PGREP_RC:-1}"
 EOF
@@ -50,8 +50,13 @@ saved_mihowrt_lib_dir="$MIHOWRT_LIB_DIR"
 MIHOWRT_LIB_DIR="$module_dir"
 loaded_modules=""
 mihowrt_source_module_list "one.sh two.sh"
+missing_module_stderr="$tmpdir/missing-module.stderr"
+if mihowrt_source_module "missing.sh" 2>"$missing_module_stderr"; then
+	fail "mihowrt_source_module should fail for missing modules"
+fi
 MIHOWRT_LIB_DIR="$saved_mihowrt_lib_dir"
 assert_eq "one two" "$loaded_modules" "mihowrt_source_module_list should source modules from shared manifest order"
+assert_file_contains "$missing_module_stderr" "Error: Required MihoWRT module missing: $module_dir/missing.sh" "mihowrt_source_module should report missing modules on stderr"
 
 assert_true "uint_lte should accept equal values" uint_lte "4294967295" "4294967295"
 assert_true "uint_lte should accept leading zero values below max" uint_lte "00065535" "65535"
@@ -77,7 +82,7 @@ export SERVICE_RUN_PATTERN="$tmpdir/mihowrt-service run-service"
 export CLASH_DIR="$tmpdir/clash-dir"
 mkdir -p "$CLASH_DIR"
 
-cat > "$tmpdir/mihowrt-service" <<'EOF'
+cat >"$tmpdir/mihowrt-service" <<'EOF'
 #!/usr/bin/env bash
 sleep 30
 EOF
@@ -85,12 +90,12 @@ chmod +x "$tmpdir/mihowrt-service"
 
 "$tmpdir/mihowrt-service" run-service &
 test_pid="$!"
-printf '%s\n' "$test_pid" > "$SERVICE_PID_FILE"
+printf '%s\n' "$test_pid" >"$SERVICE_PID_FILE"
 assert_true "service_running_state should accept live pid file" service_running_state
 kill "$test_pid" 2>/dev/null || true
 wait "$test_pid" 2>/dev/null || true
 
-cat > "$tmpdir/mihomo-child" <<'EOF'
+cat >"$tmpdir/mihomo-child" <<'EOF'
 #!/usr/bin/env bash
 sleep 30
 EOF
@@ -98,13 +103,13 @@ chmod +x "$tmpdir/mihomo-child"
 export CLASH_BIN="$tmpdir/mihomo-child"
 "$tmpdir/mihomo-child" -d "$CLASH_DIR" &
 test_pid="$!"
-printf '%s\n' "$test_pid" > "$SERVICE_PID_FILE"
+printf '%s\n' "$test_pid" >"$SERVICE_PID_FILE"
 export TEST_PGREP_RC=1
 assert_true "service_running_state should accept live Mihomo child pid file without pgrep" service_running_state
 kill "$test_pid" 2>/dev/null || true
 wait "$test_pid" 2>/dev/null || true
 
-printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 export TEST_PGREP_RC=1
 assert_false "service_running_state should reject stale pid file when cmdline does not match" service_running_state
 

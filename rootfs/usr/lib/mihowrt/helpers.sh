@@ -51,12 +51,14 @@ mihowrt_lib_dir() {
 
 mihowrt_source_module() {
 	local module="$1"
-	local lib_dir="" path=""
+	local lib_dir="" path="" message=""
 
 	lib_dir="$(mihowrt_lib_dir)"
 	path="$lib_dir/$module"
 	[ -r "$path" ] || {
-		err "Required helper module missing: $path"
+		message="Required MihoWRT module missing: $path"
+		err "$message"
+		printf 'Error: %s\n' "$message" >&2
 		return 1
 	}
 

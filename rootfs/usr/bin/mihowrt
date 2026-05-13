@@ -166,7 +166,7 @@ run_service() {
 	return 1
 }
 
-	case "$1" in
+case "$1" in
 	prepare|start)
 		with_runtime_lock prepare_runtime_state
 		;;
@@ -190,6 +190,9 @@ run_service() {
 		;;
 	service-ready)
 		service_ready_runtime_state
+		;;
+	service-state-json)
+		service_state_json
 		;;
 	restart-validated-service)
 		init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
@@ -257,7 +260,7 @@ run_service() {
 		status_runtime_state
 		;;
 	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-policy-lists|service-running|service-ready|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
 		exit 1
 		;;
 esac

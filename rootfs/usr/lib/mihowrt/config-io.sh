@@ -158,6 +158,7 @@ $message"
 
 read_config_json() {
 	local dns_listen_raw="" dns_port="" mihomo_dns_listen="" tproxy_port="" routing_mark=""
+	local routing_mark_normalized="" intercept_mark_normalized=""
 	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
 	local external_controller="" external_controller_tls="" secret="" external_ui="" external_ui_name=""
 	local ERRORS_RAW=""
@@ -212,6 +213,12 @@ EOF
 		append_error "Missing routing-mark in $CLASH_CONFIG"
 	elif ! is_valid_uint32_mark "$routing_mark"; then
 		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
+	else
+		routing_mark_normalized="$(normalize_uint "$routing_mark")"
+		intercept_mark_normalized="$(normalize_uint "$(( ${NFT_INTERCEPT_MARK:-0x00001000} ))")"
+		if [ "$routing_mark_normalized" = "$intercept_mark_normalized" ]; then
+			append_error "Mihomo routing mark conflicts with MihoWRT intercept mark: $routing_mark"
+		fi
 	fi
 
 	catch_fakeip=0

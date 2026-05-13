@@ -53,6 +53,29 @@ service_enabled_state() {
 	"/etc/init.d/$pkg_name" enabled >/dev/null 2>&1
 }
 
+service_state_json() {
+	local service_enabled=0 service_running=0 service_ready=0
+
+	require_command jq || return 1
+
+	service_enabled_state && service_enabled=1 || service_enabled=0
+	service_running_state && service_running=1 || service_running=0
+	if [ "$service_running" -eq 1 ]; then
+		service_ready_runtime_state && service_ready=1 || service_ready=0
+	fi
+
+	jq -nc \
+		--arg service_enabled "$service_enabled" \
+		--arg service_running "$service_running" \
+		--arg service_ready "$service_ready" \
+		'{
+			service_enabled: ($service_enabled == "1"),
+			service_running: ($service_running == "1"),
+			service_ready: ($service_ready == "1"),
+			errors: []
+		}'
+}
+
 status_default_config_json() {
 	local clash_config="${CLASH_CONFIG:-/opt/clash/config.yaml}"
 

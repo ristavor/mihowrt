@@ -116,6 +116,24 @@ cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_fi
 [[ ! -e "$candidate_parse" ]] || fail "apply_config_file should remove temp candidate after policy validation failure"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after policy validation failure"
 
+candidate_mark_conflict="$tmpdir/candidate-mark-conflict.yaml"
+cat > "$candidate_mark_conflict" <<'EOF'
+mode: rule
+tproxy-port: 7894
+routing-mark: 4096
+
+dns:
+  listen: 0.0.0.0:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+EOF
+
+assert_false "apply_config_file should reject routing mark conflicts" apply_config_file "$candidate_mark_conflict"
+cmp -s "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml" || fail "apply_config_file should keep old config on routing mark conflict"
+cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should preserve previous validated marker after routing mark conflict"
+[[ ! -e "$candidate_mark_conflict" ]] || fail "apply_config_file should remove temp candidate after routing mark conflict"
+compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after routing mark conflict"
+
 candidate_syntax="$tmpdir/candidate-syntax.yaml"
 cat > "$candidate_syntax" <<'EOF'
 mode: rule

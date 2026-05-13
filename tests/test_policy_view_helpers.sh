@@ -239,8 +239,8 @@ const context = {
 	await context.handleSaveApply.call({ handleSave: async() => {} }, null, '1');
 	if (context.applyCalls.length !== 1 || context.applyCalls[0] !== false)
 		throw new Error('handleSaveApply should apply mihowrt UCI changes through LuCI');
-	if (!context.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'reload'))
-		throw new Error('handleSaveApply should reload after applying mihowrt UCI when list files also changed');
+	if (context.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'reload'))
+		throw new Error('handleSaveApply should let LuCI reload trigger handle mihowrt UCI changes');
 
 		context.execCalls.length = 0;
 		context.notifications.length = 0;

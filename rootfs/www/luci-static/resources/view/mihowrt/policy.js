@@ -213,7 +213,6 @@ return view.extend({
 			const changes = await uci.changes();
 			if (hasMihowrtUciChanges(changes)) {
 				await ui.changes.apply(mode == '0');
-				await reloadPolicyIfNeeded(listChanged, wasRunning);
 				return;
 			}
 

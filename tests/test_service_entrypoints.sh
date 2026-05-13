@@ -314,6 +314,16 @@ service_ready_output="$(
 )"
 assert_eq "ready" "$service_ready_output" "service-ready command should dispatch to runtime readiness helper"
 
+service_state_output="$(
+	set -- service-state-json
+	service_state_json() {
+		printf 'state\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "state" "$service_state_output" "service-state-json command should dispatch to service state JSON helper"
+
 restart_validated_output="$(
 	set -- restart-validated-service
 	PKG_NAME="mihowrt"

@@ -917,13 +917,22 @@ ensure_dns_state_helpers() {
 }
 
 is_valid_port_value() {
+	local value="${1:-}"
+
 	case "${1:-}" in
 		''|*[!0-9]*)
 			return 1
 			;;
 	esac
 
-	[ "$1" -ge 1 ] && [ "$1" -le 65535 ]
+	while [ "${value#0}" != "$value" ]; do
+		value="${value#0}"
+	done
+	[ -n "$value" ] || value=0
+	[ "$value" != "0" ] || return 1
+	[ "${#value}" -lt 5 ] && return 0
+	[ "${#value}" -gt 5 ] && return 1
+	[ "$value" -le 65535 ]
 }
 
 is_uint_value() {

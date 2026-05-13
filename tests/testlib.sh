@@ -87,7 +87,7 @@ source_mihowrt_cli_lib() {
 	# shellcheck disable=SC1090
 	source <(
 		strip_mihowrt_cli_bootstrap |
-			sed '/^	case "\$1" in$/,$d'
+			sed '/^[[:space:]]*case "\$1" in$/,$d'
 	)
 }
 

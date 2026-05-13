@@ -4,7 +4,6 @@
 'require mihowrt.exec as execHelper';
 
 const BACKEND = '/usr/bin/mihowrt';
-const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 
 function emptyConfigState() {
 	return {
@@ -113,14 +112,6 @@ async function removeTempFile(path) {
 	}
 }
 
-function commandResultState(result) {
-	if (result.code === 0)
-		return true;
-	if (result.code === 1)
-		return false;
-	throw new Error(execHelper.errorDetail(result));
-}
-
 function assignConfigState(state, payload) {
 	state.configPath = String(payload?.config_path || state.configPath);
 	state.dnsPort = String(payload?.dns_port || '');
@@ -135,6 +126,15 @@ function assignConfigState(state, payload) {
 	state.secret = String(payload?.secret || '');
 	state.externalUi = String(payload?.external_ui || '');
 	state.externalUiName = String(payload?.external_ui_name || '');
+	state.errors = Array.isArray(payload?.errors) ? payload.errors.map(String) : [];
+	return state;
+}
+
+function assignServiceState(state, payload) {
+	state.available = true;
+	state.serviceEnabled = !!payload?.service_enabled;
+	state.serviceRunning = !!payload?.service_running;
+	state.serviceReady = !!payload?.service_ready;
 	state.errors = Array.isArray(payload?.errors) ? payload.errors.map(String) : [];
 	return state;
 }
@@ -287,27 +287,13 @@ return baseclass.extend({
 	},
 
 	readServiceState: async function() {
-		const state = {
+		return readBackendJson([ 'service-state-json' ], {
 			available: false,
 			serviceEnabled: false,
 			serviceRunning: false,
 			serviceReady: false,
 			errors: []
-		};
-
-		try {
-			state.serviceEnabled = commandResultState(await fs.exec(SERVICE_SCRIPT, [ 'enabled' ]));
-			state.serviceRunning = commandResultState(await fs.exec(BACKEND, [ 'service-running' ]));
-			state.serviceReady = state.serviceRunning
-				? commandResultState(await fs.exec(BACKEND, [ 'service-ready' ]))
-				: false;
-			state.available = true;
-			return state;
-		}
-		catch (e) {
-			state.errors = [ e.message || String(e) ];
-			return state;
-		}
+		}, assignServiceState);
 	},
 
 	readStatus: async function() {

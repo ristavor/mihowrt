@@ -16,9 +16,9 @@ const emptyStatusMatch = source.match(/function emptyStatusState[\s\S]*?\n}\n\nf
 const emptyLogMatch = source.match(/function emptyLogState[\s\S]*?\n}\n\nfunction emptySubscriptionState/);
 const emptySubscriptionMatch = source.match(/function emptySubscriptionState[\s\S]*?\n}\n\nfunction tempConfigPath/);
 const tempConfigMatch = source.match(/function tempConfigPath[\s\S]*?\n}\n\nasync function removeTempFile/);
-const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction commandResultState/);
-const commandStateMatch = source.match(/function commandResultState[\s\S]*?\n}\n\nfunction assignConfigState/);
-const assignConfigMatch = source.match(/function assignConfigState[\s\S]*?\n}\n\nasync function readBackendJson/);
+const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction assignConfigState/);
+const assignConfigMatch = source.match(/function assignConfigState[\s\S]*?\n}\n\nfunction assignServiceState/);
+const assignServiceMatch = source.match(/function assignServiceState[\s\S]*?\n}\n\nasync function readBackendJson/);
 const readBackendJsonMatch = source.match(/async function readBackendJson[\s\S]*?\n}\n\nfunction assignSubscriptionState/);
 const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignStatusState/);
 const assignStatusMatch = source.match(/function assignStatusState[\s\S]*?\n}\n\nfunction assignLogState/);
@@ -38,10 +38,10 @@ if (!tempConfigMatch)
 	throw new Error('tempConfigPath() not found');
 if (!removeTempMatch)
 	throw new Error('removeTempFile() not found');
-if (!commandStateMatch)
-	throw new Error('commandResultState() not found');
 if (!assignConfigMatch)
 	throw new Error('assignConfigState() not found');
+if (!assignServiceMatch)
+	throw new Error('assignServiceState() not found');
 if (!readBackendJsonMatch)
 	throw new Error('readBackendJson() not found');
 if (!assignSubscriptionMatch)
@@ -60,9 +60,9 @@ const emptyStatusFnSource = emptyStatusMatch[0].replace(/\n\nfunction emptyLogSt
 const emptyLogFnSource = emptyLogMatch[0].replace(/\n\nfunction emptySubscriptionState$/, '');
 const emptySubscriptionFnSource = emptySubscriptionMatch[0].replace(/\n\nfunction tempConfigPath$/, '');
 const tempConfigFnSource = tempConfigMatch[0].replace(/\n\nasync function removeTempFile$/, '');
-const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction commandResultState$/, '');
-const commandStateFnSource = commandStateMatch[0].replace(/\n\nfunction assignConfigState$/, '');
-const assignConfigFnSource = assignConfigMatch[0].replace(/\n\nasync function readBackendJson$/, '');
+const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction assignConfigState$/, '');
+const assignConfigFnSource = assignConfigMatch[0].replace(/\n\nfunction assignServiceState$/, '');
+const assignServiceFnSource = assignServiceMatch[0].replace(/\n\nasync function readBackendJson$/, '');
 const readBackendJsonFnSource = readBackendJsonMatch[0].replace(/\n\nfunction assignSubscriptionState$/, '');
 const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignStatusState$/, '');
 const assignStatusFnSource = assignStatusMatch[0].replace(/\n\nfunction assignLogState$/, '');
@@ -106,7 +106,7 @@ const context = {
 };
 context.Math.random = () => 0.5;
 vm.createContext(context);
-vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${commandStateFnSource}\n${assignConfigFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
+vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
 
 const state = context.emptyStatusState();
 
@@ -303,22 +303,24 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('fetchSubscription should surface backend fetch failures');
 
 	context.execCalls.length = 0;
-	context.execResults['/etc/init.d/mihowrt enabled'] = { code: 0, stdout: '', stderr: '' };
-	context.execResults['/usr/bin/mihowrt service-running'] = { code: 0, stdout: '', stderr: '' };
-	context.execResults['/usr/bin/mihowrt service-ready'] = { code: 1, stdout: '', stderr: '' };
+	context.execResults['/usr/bin/mihowrt service-state-json'] = {
+		code: 0,
+		stdout: '{"service_enabled":true,"service_running":true,"service_ready":false}'
+	};
 	const serviceState = await context.backend.readServiceState();
 	if (!serviceState.available || !serviceState.serviceEnabled || !serviceState.serviceRunning || serviceState.serviceReady)
-		throw new Error('readServiceState should map lightweight command statuses');
-	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'service-ready'))
-		throw new Error('readServiceState should probe service-ready only when service is running');
+		throw new Error('readServiceState should map backend service-state-json payload');
+	if (context.execCalls.length !== 1 || context.execCalls[0].args[0] !== 'service-state-json')
+		throw new Error('readServiceState should use one backend state command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt service-running'] = { code: 1, stdout: '', stderr: '' };
+	context.execResults['/usr/bin/mihowrt service-state-json'] = {
+		code: 0,
+		stdout: '{"service_enabled":false,"service_running":false,"service_ready":false}'
+	};
 	const stoppedState = await context.backend.readServiceState();
 	if (!stoppedState.available || stoppedState.serviceRunning || stoppedState.serviceReady)
-		throw new Error('readServiceState should report stopped service without ready probe');
-	if (context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'service-ready'))
-		throw new Error('readServiceState should skip service-ready probe when service is stopped');
+		throw new Error('readServiceState should report stopped service from one state payload');
 })().catch(err => {
 	throw err;
 });

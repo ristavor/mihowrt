@@ -9,7 +9,7 @@
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 const CLASH_CONFIG = '/opt/clash/config.yaml';
-const SERVICE_STATE_POLL_INTERVAL_MS = 500;
+const SERVICE_STATE_POLL_INTERVAL_MS = 1000;
 const SERVICE_STATE_TIMEOUT_MS = 35000;
 
 let startStopButton = null;

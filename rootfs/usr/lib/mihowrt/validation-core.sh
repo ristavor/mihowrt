@@ -74,7 +74,9 @@ is_valid_route_table_id() {
 		return 1
 	fi
 
-	[ "$value" -ge 1 ] && [ "$value" -le 252 ]
+	value="$(normalize_uint "$value")"
+	[ "$value" != "0" ] || return 1
+	uint_lte "$value" "252"
 }
 
 is_valid_route_rule_priority() {
@@ -83,7 +85,9 @@ is_valid_route_rule_priority() {
 		return 1
 	fi
 
-	[ "$value" -ge 1 ] && [ "$value" -le 32765 ]
+	value="$(normalize_uint "$value")"
+	[ "$value" != "0" ] || return 1
+	uint_lte "$value" "32765"
 }
 
 is_valid_iface_name() {

@@ -88,7 +88,13 @@ SOURCE_INTERFACES="br-lan"
 MIHOMO_ROUTE_TABLE_ID="999"
 assert_false "validate_runtime_config should reject out-of-range route table id" validate_runtime_config
 
+MIHOMO_ROUTE_TABLE_ID="999999999999999999999999"
+assert_false "validate_runtime_config should reject huge route table id without shell overflow" validate_runtime_config
+
 MIHOMO_ROUTE_TABLE_ID="200"
+MIHOMO_ROUTE_RULE_PRIORITY="999999999999999999999999"
+assert_false "validate_runtime_config should reject huge route rule priority without shell overflow" validate_runtime_config
+
 MIHOMO_ROUTE_RULE_PRIORITY="10000"
 POLICY_MODE="invalid"
 assert_false "validate_runtime_config should reject invalid policy mode" validate_runtime_config

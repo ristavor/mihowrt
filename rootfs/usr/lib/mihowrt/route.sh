@@ -23,21 +23,27 @@ policy_route_state_read() {
 	return 0
 }
 
+policy_route_probe_state() {
+	local state=0
+
+	if "$@"; then
+		printf '0\n'
+		return 0
+	else
+		state=$?
+	fi
+
+	[ "$state" -eq 1 ] || return 1
+	printf '1\n'
+}
+
 policy_route_table_id_in_use() {
 	local route_table_id="$1"
-	local table_state=1
+	local table_state=""
 
 	grep -qE "^[[:space:]]*${route_table_id}[[:space:]]+" "${ROUTE_TABLES_FILE:-/etc/iproute2/rt_tables}" 2>/dev/null && return 0
-	if policy_route_table_has_entries "$route_table_id"; then
-		table_state=0
-	else
-		table_state=$?
-	fi
-	case "$table_state" in
-		0) return 0 ;;
-		1) return 1 ;;
-		*) return 0 ;;
-	esac
+	table_state="$(policy_route_probe_state policy_route_table_has_entries "$route_table_id")" || return 0
+	[ "$table_state" = "0" ]
 }
 
 policy_route_priority_in_use() {
@@ -75,17 +81,13 @@ policy_route_priority_conflicts() {
 }
 
 policy_route_state_can_reuse() {
-	local table_state=1 priority_state=1
+	local table_state="" priority_state=""
 
 	if ! policy_route_state_read; then
 		return 1
 	fi
 
-	if policy_route_table_has_foreign_entries "$ROUTE_TABLE_ID_EFFECTIVE"; then
-		table_state=0
-	else
-		table_state=$?
-	fi
+	table_state="$(policy_route_probe_state policy_route_table_has_foreign_entries "$ROUTE_TABLE_ID_EFFECTIVE")" || return 2
 	case "$table_state" in
 		0)
 			warn "Route table $ROUTE_TABLE_ID_EFFECTIVE has foreign entries; selecting new table"
@@ -99,11 +101,7 @@ policy_route_state_can_reuse() {
 			;;
 	esac
 
-	if policy_route_priority_conflicts "$ROUTE_TABLE_ID_EFFECTIVE" "$ROUTE_RULE_PRIORITY_EFFECTIVE"; then
-		priority_state=0
-	else
-		priority_state=$?
-	fi
+	priority_state="$(policy_route_probe_state policy_route_priority_conflicts "$ROUTE_TABLE_ID_EFFECTIVE" "$ROUTE_RULE_PRIORITY_EFFECTIVE")" || return 2
 	case "$priority_state" in
 		0)
 			warn "Route rule priority $ROUTE_RULE_PRIORITY_EFFECTIVE is occupied; selecting new priority"
@@ -364,73 +362,37 @@ policy_route_table_has_foreign_entries() {
 
 policy_route_delete_managed_route() {
 	local route_table_id="$1"
-	local route_state=1
+	local route_state=""
 
 	[ -n "$route_table_id" ] || return 0
 
-	if policy_route_managed_route_exists "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
-	case "$route_state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
+	route_state="$(policy_route_probe_state policy_route_managed_route_exists "$route_table_id")" || return 1
+	[ "$route_state" = "1" ] && return 0
 
 	while ip route del local 0.0.0.0/0 dev lo table "$route_table_id" 2>/dev/null; do :; done
-	if policy_route_managed_route_exists "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
-	[ "$route_state" -eq 1 ]
+	route_state="$(policy_route_probe_state policy_route_managed_route_exists "$route_table_id")" || return 1
+	[ "$route_state" = "1" ]
 }
 
 policy_route_delete_rule() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
-	local rule_state=1
+	local rule_state=""
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
 
-	if policy_route_rule_exists "$route_table_id" "$route_rule_priority"; then
-		rule_state=0
-	else
-		rule_state=$?
-	fi
-	case "$rule_state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
+	rule_state="$(policy_route_probe_state policy_route_rule_exists "$route_table_id" "$route_rule_priority")" || return 1
+	[ "$rule_state" = "1" ] && return 0
 
 	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-	if policy_route_rule_exists "$route_table_id" "$route_rule_priority"; then
-		rule_state=0
-	else
-		rule_state=$?
-	fi
-	[ "$rule_state" -eq 1 ]
+	rule_state="$(policy_route_probe_state policy_route_rule_exists "$route_table_id" "$route_rule_priority")" || return 1
+	[ "$rule_state" = "1" ]
 }
 
 policy_route_setup() {
 	local route_table_id route_rule_priority
-	local table_state=1 priority_state=1
+	local table_state="" priority_state=""
 
 	ROUTE_TABLE_ID_RESOLVED=""
 	ROUTE_RULE_PRIORITY_RESOLVED=""
@@ -438,11 +400,7 @@ policy_route_setup() {
 	route_table_id="$ROUTE_TABLE_ID_RESOLVED"
 	route_rule_priority="$ROUTE_RULE_PRIORITY_RESOLVED"
 
-	if policy_route_table_has_foreign_entries "$route_table_id"; then
-		table_state=0
-	else
-		table_state=$?
-	fi
+	table_state="$(policy_route_probe_state policy_route_table_has_foreign_entries "$route_table_id")" || return 1
 	case "$table_state" in
 		0)
 			err "Route table $route_table_id has foreign entries"
@@ -456,11 +414,7 @@ policy_route_setup() {
 			;;
 	esac
 
-	if policy_route_priority_conflicts "$route_table_id" "$route_rule_priority"; then
-		priority_state=0
-	else
-		priority_state=$?
-	fi
+	priority_state="$(policy_route_probe_state policy_route_priority_conflicts "$route_table_id" "$route_rule_priority")" || return 1
 	case "$priority_state" in
 		0)
 			err "Route rule priority $route_rule_priority is occupied"
@@ -492,7 +446,7 @@ policy_route_setup() {
 
 policy_route_cleanup() {
 	local route_table_id="" route_rule_priority=""
-	local rule_state=1 route_state=1 had_live_state=0
+	local rule_state="" route_state="" had_live_state=0
 
 	if policy_route_state_read; then
 		route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
@@ -508,26 +462,16 @@ policy_route_cleanup() {
 		return 0
 	fi
 
-	if policy_route_rule_exists "$route_table_id" "$route_rule_priority"; then
-		rule_state=0
-	else
-		rule_state=$?
-	fi
+	rule_state="$(policy_route_probe_state policy_route_rule_exists "$route_table_id" "$route_rule_priority")" || return 1
 	case "$rule_state" in
 		0) had_live_state=1 ;;
 		1) ;;
-		*) return 1 ;;
 	esac
 
-	if policy_route_managed_route_exists "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
+	route_state="$(policy_route_probe_state policy_route_managed_route_exists "$route_table_id")" || return 1
 	case "$route_state" in
 		0) had_live_state=1 ;;
 		1) ;;
-		*) return 1 ;;
 	esac
 
 	policy_route_teardown_ids "$route_table_id" "$route_rule_priority" || return 1

@@ -216,11 +216,43 @@ wait_for_service_running() {
 	return 1
 }
 
+stop_service_command() {
+	[ -x "$INIT_SCRIPT" ] || return 1
+	"$INIT_SCRIPT" stop >/dev/null 2>&1
+}
+
+stop_service_cleanly() {
+	stop_service_command && wait_for_service_stop
+}
+
 stop_service_instance() {
 	[ -x "$INIT_SCRIPT" ] || return 0
-
-	"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
+	stop_service_command || true
 	wait_for_service_stop || true
+}
+
+set_service_enabled_state() {
+	local enabled="$1"
+
+	[ -x "$INIT_SCRIPT" ] || return 0
+	if [ "$enabled" = "1" ]; then
+		"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
+	else
+		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	fi
+}
+
+run_service_action_with_liveness() {
+	local action="$1"
+	local async_warning="$2"
+
+	"$INIT_SCRIPT" "$action" >/dev/null 2>&1 || return 1
+	if wait_for_service_running; then
+		return 0
+	fi
+
+	warn "$async_warning"
+	return 0
 }
 
 wget_download_to() {
@@ -1907,7 +1939,7 @@ quiesce_postinstall_service() {
 	if service_running; then
 		if [ -x "$INIT_SCRIPT" ]; then
 			log "Stopping running MihoWRT service before state restore..."
-			if "$INIT_SCRIPT" stop >/dev/null 2>&1 && wait_for_service_stop; then
+			if stop_service_cleanly; then
 				stopped_cleanly=1
 			else
 				warn "failed to stop running MihoWRT service cleanly"
@@ -1923,22 +1955,12 @@ quiesce_postinstall_service() {
 }
 
 restore_runtime_state() {
-	if [ -x "$INIT_SCRIPT" ]; then
-		if [ "$WAS_ENABLED" = "1" ]; then
-			"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
-		else
-			"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-		fi
-	fi
+	set_service_enabled_state "$WAS_ENABLED"
 
 	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
 		if service_running; then
 			log "Restarting MihoWRT service..."
-			if "$INIT_SCRIPT" restart >/dev/null 2>&1; then
-				if wait_for_service_running; then
-					return 0
-				fi
-				warn "MihoWRT restart returned success; service start is asynchronous and was not observed within timeout"
+			if run_service_action_with_liveness restart "MihoWRT restart returned success; service start is asynchronous and was not observed within timeout"; then
 				return 0
 			fi
 			warn "failed to restart MihoWRT service after update"
@@ -1946,11 +1968,7 @@ restore_runtime_state() {
 		fi
 
 		log "Starting MihoWRT service..."
-		if "$INIT_SCRIPT" start >/dev/null 2>&1; then
-			if wait_for_service_running; then
-				return 0
-			fi
-			warn "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"
+		if run_service_action_with_liveness start "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"; then
 			return 0
 		fi
 		warn "failed to start MihoWRT service after update"
@@ -1995,9 +2013,7 @@ handle_install_failure() {
 	clear_skip_start
 	release_reinstall_dependencies
 
-	if [ -x "$INIT_SCRIPT" ]; then
-		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-	fi
+	disable_installed_service
 
 	if ! quiesce_postinstall_service; then
 		preserve_backup_dir
@@ -2059,11 +2075,8 @@ prepare_package_removal() {
 	release_reinstall_dependencies
 	clear_skip_start
 
-	if [ -x "$INIT_SCRIPT" ]; then
-		"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-		"$INIT_SCRIPT" stop >/dev/null 2>&1 || true
-		wait_for_service_stop || true
-	fi
+	disable_installed_service
+	stop_service_instance
 
 	if [ -x "$ORCHESTRATOR" ]; then
 		"$ORCHESTRATOR" cleanup >/dev/null 2>&1 || true
@@ -2093,25 +2106,20 @@ start_fresh_install_service() {
 	[ -x "$INIT_SCRIPT" ] || return 0
 
 	log "Starting MihoWRT service..."
-	"$INIT_SCRIPT" enable >/dev/null 2>&1 || true
-	if "$INIT_SCRIPT" start >/dev/null 2>&1; then
-		if wait_for_service_running; then
-			return 0
-		fi
-		warn "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"
+	set_service_enabled_state 1
+	if run_service_action_with_liveness start "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"; then
 		return 0
 	fi
 
 	warn "failed to start MihoWRT service after install"
 	stop_service_instance
 	restore_system_network_defaults "after failed fresh start" || true
-	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	set_service_enabled_state 0
 	return 1
 }
 
 disable_installed_service() {
-	[ -x "$INIT_SCRIPT" ] || return 0
-	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+	set_service_enabled_state 0
 }
 
 handle_reinstall_state_failure() {

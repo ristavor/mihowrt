@@ -9,7 +9,7 @@ PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 
 LUCI_TITLE:=LuCI Support for MihoWRT
-LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy +@wget-any
+LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy +@wget-any +curl
 LUCI_PKGARCH:=all
 
 PKG_BUILD_DEPENDS:=luci-base/host

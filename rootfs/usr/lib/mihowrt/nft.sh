@@ -716,7 +716,6 @@ policy_route_resolve_priority() {
 policy_route_teardown_ids() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
-	local route_state=1
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
@@ -724,22 +723,6 @@ policy_route_teardown_ids() {
 
 	policy_route_delete_rule "$route_table_id" "$route_rule_priority" || return 1
 	policy_route_delete_managed_route "$route_table_id" || return 1
-	if policy_route_managed_route_exists "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
-	case "$route_state" in
-		0)
-			return 1
-			;;
-		1)
-			:
-			;;
-		*)
-			return 1
-			;;
-	esac
 	return 0
 }
 

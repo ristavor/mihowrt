@@ -242,9 +242,9 @@ dns_current_state_looks_hijacked() {
 	local expected_target="${1:-}" current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 	local current_host="" current_port="" tab=""
 
-	current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
-	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
-	current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+	current_cachesize="$(dnsmasq_option_get cachesize)"
+	current_noresolv="$(dnsmasq_option_get noresolv)"
+	current_resolvfile="$(dnsmasq_option_get resolvfile)"
 	current_servers="$(dns_current_servers_flat)"
 	tab="$(printf '\t')"
 
@@ -364,9 +364,9 @@ dns_backup_state() {
 	{
 		printf 'DNSMASQ_BACKUP=1\n'
 		printf 'MIHOMO_DNS_TARGET=%s\n' "$mihomo_dns_target"
-		printf 'ORIG_CACHESIZE=%s\n' "$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null)"
-		printf 'ORIG_NORESOLV=%s\n' "$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null)"
-		printf 'ORIG_RESOLVFILE=%s\n' "$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null)"
+		printf 'ORIG_CACHESIZE=%s\n' "$(dnsmasq_option_get cachesize)"
+		printf 'ORIG_NORESOLV=%s\n' "$(dnsmasq_option_get noresolv)"
+		printf 'ORIG_RESOLVFILE=%s\n' "$(dnsmasq_option_get resolvfile)"
 		uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | while IFS= read -r server; do
 			printf 'ORIG_SERVER=%s\n' "$server"
 		done
@@ -410,6 +410,83 @@ dns_delete_option_if_present() {
 	uci -q delete "$option" 2>/dev/null
 }
 
+dns_stage_option_value() {
+	local option="$1"
+	local value="$2"
+
+	if [ -n "$value" ]; then
+		uci set "$option=$value" 2>/dev/null
+	else
+		dns_delete_option_if_present "$option"
+	fi
+}
+
+dns_stage_clear_dnsmasq_targets() {
+	dns_delete_option_if_present dhcp.@dnsmasq[0].server || return 1
+	dns_delete_option_if_present dhcp.@dnsmasq[0].resolvfile
+}
+
+dns_stage_dnsmasq_servers_flat() {
+	local servers="$1"
+	local old_ifs="" tab="" server=""
+
+	[ -n "$servers" ] || return 0
+
+	tab="$(printf '\t')"
+	old_ifs="$IFS"
+	IFS="$tab"
+	for server in $servers; do
+		[ -n "$server" ] || continue
+		uci add_list dhcp.@dnsmasq[0].server="$server" || {
+			IFS="$old_ifs"
+			return 1
+		}
+	done
+	IFS="$old_ifs"
+}
+
+dns_stage_hijack_state() {
+	local dns_target="$1"
+
+	dns_stage_clear_dnsmasq_targets || return 1
+	uci add_list dhcp.@dnsmasq[0].server="$dns_target" || return 1
+	uci set dhcp.@dnsmasq[0].cachesize='0' || return 1
+	uci set dhcp.@dnsmasq[0].noresolv='1' || return 1
+}
+
+dns_stage_fallback_state() {
+	local resolvfile="$1"
+
+	dns_stage_clear_dnsmasq_targets || return 1
+	dns_stage_option_value dhcp.@dnsmasq[0].cachesize "" || return 1
+	uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || return 1
+
+	[ -z "$resolvfile" ] || uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" 2>/dev/null
+}
+
+dns_stage_expected_restore_state() {
+	dns_stage_clear_dnsmasq_targets || return 1
+	dns_stage_dnsmasq_servers_flat "$DNS_BACKUP_EXPECTED_SERVERS" || return 1
+	dns_stage_option_value dhcp.@dnsmasq[0].cachesize "$DNS_BACKUP_EXPECTED_CACHESIZE" || return 1
+	dns_stage_option_value dhcp.@dnsmasq[0].noresolv "$DNS_BACKUP_EXPECTED_TARGET_NORESOLV" || return 1
+	[ -z "$DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE" ] ||
+		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE" 2>/dev/null
+}
+
+dns_commit_dhcp_and_restart() {
+	local restart_error="$1"
+
+	uci commit dhcp || {
+		dns_revert_staged_changes
+		return 1
+	}
+
+	if ! dns_restart_service; then
+		err "$restart_error"
+		return 1
+	fi
+}
+
 dns_restore_fallback() {
 	local resolvfile=""
 
@@ -424,38 +501,11 @@ dns_restore_fallback() {
 		return 0
 	fi
 
-	dns_delete_option_if_present dhcp.@dnsmasq[0].server || {
+	if ! dns_stage_fallback_state "$resolvfile"; then
 		dns_revert_staged_changes
-		return 1
-	}
-	dns_delete_option_if_present dhcp.@dnsmasq[0].resolvfile || {
-		dns_revert_staged_changes
-		return 1
-	}
-	dns_delete_option_if_present dhcp.@dnsmasq[0].cachesize || {
-		dns_revert_staged_changes
-		return 1
-	}
-	uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || {
-		dns_revert_staged_changes
-		return 1
-	}
-
-	if [ -n "$resolvfile" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-	fi
-
-	uci commit dhcp || {
-		dns_revert_staged_changes
-		return 1
-	}
-	if ! dns_restart_service; then
-		err "dnsmasq restart failed during fallback restore"
 		return 1
 	fi
+	dns_commit_dhcp_and_restart "dnsmasq restart failed during fallback restore" || return 1
 	dns_cleanup_backup_files
 	return 0
 }
@@ -480,42 +530,18 @@ dns_setup() {
 		fi
 	fi
 
-	dns_delete_option_if_present dhcp.@dnsmasq[0].server || {
+	if ! dns_stage_hijack_state "$dns_target"; then
 		dns_revert_staged_changes
-		return 1
-	}
-	dns_delete_option_if_present dhcp.@dnsmasq[0].resolvfile || {
-		dns_revert_staged_changes
-		return 1
-	}
-	uci add_list dhcp.@dnsmasq[0].server="$dns_target" || {
-		dns_revert_staged_changes
-		return 1
-	}
-	uci set dhcp.@dnsmasq[0].cachesize='0' || {
-		dns_revert_staged_changes
-		return 1
-	}
-	uci set dhcp.@dnsmasq[0].noresolv='1' || {
-		dns_revert_staged_changes
-		return 1
-	}
-	uci commit dhcp || {
-		dns_revert_staged_changes
-		return 1
-	}
-
-	if ! dns_restart_service; then
-		err "dnsmasq restart failed after DNS apply"
 		return 1
 	fi
+	dns_commit_dhcp_and_restart "dnsmasq restart failed after DNS apply" || return 1
 
 	log "dnsmasq configured to use Mihomo DNS $dns_target"
 	return 0
 }
 
 dns_restore() {
-	local backup_path="" server="" line="" mihomo_dns_target=""
+	local backup_path="" mihomo_dns_target=""
 
 	if [ -n "${MIHOMO_DNS_LISTEN:-}" ]; then
 		mihomo_dns_target="$(normalize_dns_server_target "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
@@ -548,76 +574,11 @@ dns_restore() {
 		return 0
 	fi
 
-	dns_delete_option_if_present dhcp.@dnsmasq[0].server || {
+	if ! dns_stage_expected_restore_state; then
 		dns_revert_staged_changes
 		return 1
-	}
-	dns_delete_option_if_present dhcp.@dnsmasq[0].resolvfile || {
-		dns_revert_staged_changes
-		return 1
-	}
-	while IFS= read -r line; do
-		case "$line" in
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				if [ -n "$server" ]; then
-					uci add_list dhcp.@dnsmasq[0].server="$server" || {
-						dns_revert_staged_changes
-						return 1
-					}
-				fi
-				;;
-		esac
-	done < "$backup_path"
-
-	if [ -n "$DNS_BACKUP_EXPECTED_CACHESIZE" ]; then
-		uci set dhcp.@dnsmasq[0].cachesize="$DNS_BACKUP_EXPECTED_CACHESIZE" 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-	else
-		dns_delete_option_if_present dhcp.@dnsmasq[0].cachesize || {
-			dns_revert_staged_changes
-			return 1
-		}
 	fi
-
-	if [ -n "$DNS_BACKUP_EXPECTED_NORESOLV" ]; then
-		uci set dhcp.@dnsmasq[0].noresolv="$DNS_BACKUP_EXPECTED_NORESOLV" 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-	else
-		dns_delete_option_if_present dhcp.@dnsmasq[0].noresolv || {
-			dns_revert_staged_changes
-			return 1
-		}
-	fi
-
-	if [ -n "$DNS_BACKUP_EXPECTED_RESOLVFILE" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_BACKUP_EXPECTED_RESOLVFILE" 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-	elif [ "$DNS_BACKUP_EXPECTED_HAS_SERVERS" -eq 0 ] && [ -f "${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="${DNS_AUTO_RESOLVFILE:-/tmp/resolv.conf.d/resolv.conf.auto}" 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-		[ "$DNS_BACKUP_EXPECTED_NORESOLV" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' 2>/dev/null || {
-			dns_revert_staged_changes
-			return 1
-		}
-	fi
-
-	uci commit dhcp || {
-		dns_revert_staged_changes
-		return 1
-	}
-	if ! dns_restart_service; then
-		err "dnsmasq restart failed during restore"
-		return 1
-	fi
+	dns_commit_dhcp_and_restart "dnsmasq restart failed during restore" || return 1
 
 	dns_cleanup_backup_files
 	log "dnsmasq settings restored"

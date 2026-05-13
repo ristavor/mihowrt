@@ -17,6 +17,10 @@ dns_current_servers_flat() {
 	uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
 }
 
+dnsmasq_option_get() {
+	uci -q get "dhcp.@dnsmasq[0].$1" 2>/dev/null || true
+}
+
 dnsmasq_state_matches() {
 	local expected_cachesize="$1"
 	local expected_noresolv="$2"
@@ -24,9 +28,9 @@ dnsmasq_state_matches() {
 	local expected_servers="$4"
 	local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 
-	current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
-	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
-	current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+	current_cachesize="$(dnsmasq_option_get cachesize)"
+	current_noresolv="$(dnsmasq_option_get noresolv)"
+	current_resolvfile="$(dnsmasq_option_get resolvfile)"
 	current_servers="$(dns_current_servers_flat)"
 
 	[ "$current_cachesize" = "$expected_cachesize" ] || return 1

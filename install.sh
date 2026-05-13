@@ -1425,6 +1425,17 @@ commit_dhcp_or_revert() {
 	}
 }
 
+restore_dhcp_option_value_or_revert() {
+	local option="$1"
+	local value="$2"
+
+	if [ -n "$value" ]; then
+		set_dhcp_option_or_revert "$option" "$value" || return 1
+	else
+		delete_dhcp_option_or_revert "$option" || return 1
+	fi
+}
+
 route_state_read() {
 	local line key value
 
@@ -1728,17 +1739,8 @@ restore_dns_from_backup_file() {
 		esac
 	done < "$backup_path"
 
-	if [ -n "$orig_cachesize" ]; then
-		set_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
-	else
-		delete_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize || return 1
-	fi
-
-	if [ -n "$orig_noresolv" ]; then
-		set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv "$orig_noresolv" || return 1
-	else
-		delete_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv || return 1
-	fi
+	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
+	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].noresolv "$orig_noresolv" || return 1
 
 	if [ -n "$orig_resolvfile" ]; then
 		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$orig_resolvfile" || return 1

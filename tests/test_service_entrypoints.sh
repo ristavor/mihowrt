@@ -94,6 +94,15 @@ cleanup_runtime_state() {
 	return "${TEST_CLEANUP_RUNTIME_RC:-0}"
 }
 
+mihomo_api_live_state_save_current() {
+	printf 'mihomo_api_live_state_save_current\n' >>"$cli_log"
+	return "${TEST_LIVE_API_SAVE_RC:-0}"
+}
+
+mihomo_api_live_state_clear() {
+	printf 'mihomo_api_live_state_clear\n' >>"$cli_log"
+}
+
 service_running_state() {
 	printf 'service_running_state\n' >>"$cli_log"
 	return "${TEST_SERVICE_RUNNING_STATE_RC:-0}"
@@ -148,9 +157,11 @@ assert_file_contains "$cli_log" "validate_runtime_config" "run_service should va
 assert_file_contains "$cli_log" "init_runtime_layout" "run_service should initialize runtime layout"
 assert_file_contains "$cli_log" "wait_for_mihomo_ready:7874:7894:" "run_service should wait for Mihomo ports"
 assert_file_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG" "run_service should start Mihomo with explicit config path"
+assert_file_contains "$cli_log" "mihomo_api_live_state_save_current" "run_service should save live API state after Mihomo is ready"
 assert_file_contains "$cli_log" "apply_runtime_state" "run_service should apply runtime state after Mihomo is ready"
 assert_file_contains "$cli_log" "log:MihoWRT service ready" "run_service should log service readiness only after Mihomo and policy state are ready"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean up runtime state on exit"
+assert_file_contains "$cli_log" "mihomo_api_live_state_clear" "run_service should clear live API state on exit"
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file on clean exit"
 
 : >"$cli_log"

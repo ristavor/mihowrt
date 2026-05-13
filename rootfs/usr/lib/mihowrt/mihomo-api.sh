@@ -3,6 +3,10 @@
 MIHOMO_API_REASON=""
 MIHOMO_API_HTTP_CODE=""
 
+mihomo_api_live_state_file() {
+	printf '%s\n' "${MIHOMO_API_LIVE_STATE_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/mihomo-api.live.json}"
+}
+
 mihomo_api_set_reason() {
 	MIHOMO_API_REASON="$1"
 	MIHOMO_API_HTTP_CODE="${2:-}"
@@ -137,6 +141,82 @@ mihomo_hot_reload_supported() {
 
 	base_url="$(mihomo_api_url_from_controller "$controller")" || return 1
 	[ -n "$base_url" ]
+}
+
+mihomo_api_live_state_save() {
+	local config_json="$1"
+	local state_file="" tmp_file=""
+
+	require_command jq || return 1
+	state_file="$(mihomo_api_live_state_file)"
+	mkdir -p "$(dirname "$state_file")" || return 1
+	tmp_file="${state_file}.tmp.$$"
+
+	printf '%s\n' "$config_json" | jq -c '{
+		external_controller: (.external_controller // ""),
+		external_controller_tls: (.external_controller_tls // ""),
+		external_controller_unix: (.external_controller_unix // ""),
+		external_controller_pipe: (.external_controller_pipe // ""),
+		secret: (.secret // ""),
+		external_controller_cors: (.external_controller_cors // ""),
+		external_doh_server: (.external_doh_server // ""),
+		api_tls: (.api_tls // ""),
+		external_ui: (.external_ui // ""),
+		external_ui_name: (.external_ui_name // "")
+	}' >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+
+	mv -f "$tmp_file" "$state_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+}
+
+mihomo_api_live_state_save_current() {
+	local config_json=""
+
+	command -v read_config_json >/dev/null 2>&1 || return 1
+	config_json="$(read_config_json 2>/dev/null)" || return 1
+	mihomo_api_live_state_save "$config_json"
+}
+
+mihomo_api_live_state_read() {
+	local state_file=""
+
+	require_command jq || return 1
+	state_file="$(mihomo_api_live_state_file)"
+	[ -r "$state_file" ] || return 1
+	jq -c '{
+		external_controller: (.external_controller // ""),
+		external_controller_tls: (.external_controller_tls // ""),
+		external_controller_unix: (.external_controller_unix // ""),
+		external_controller_pipe: (.external_controller_pipe // ""),
+		secret: (.secret // ""),
+		external_controller_cors: (.external_controller_cors // ""),
+		external_doh_server: (.external_doh_server // ""),
+		api_tls: (.api_tls // ""),
+		external_ui: (.external_ui // ""),
+		external_ui_name: (.external_ui_name // "")
+	}' "$state_file"
+}
+
+mihomo_api_live_or_config_json() {
+	local fallback_json="$1"
+	local live_json=""
+
+	live_json="$(mihomo_api_live_state_read 2>/dev/null || true)"
+	if [ -n "$live_json" ] && mihomo_hot_reload_supported "$live_json"; then
+		printf '%s\n' "$live_json"
+		return 0
+	fi
+
+	printf '%s\n' "$fallback_json"
+}
+
+mihomo_api_live_state_clear() {
+	rm -f "$(mihomo_api_live_state_file)"
 }
 
 mihomo_hot_reload_config() {

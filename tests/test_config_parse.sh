@@ -43,9 +43,24 @@ routing-mark: 2
 external-controller: 0.0.0.0:9090
 external-controller-tls: :9443
 external-controller-unix: mihomo.sock
+external-controller-pipe: mihomo.pipe
+external-controller-cors:
+  allow-origins:
+    - '*'
+  allow-private-network: true
+external-doh-server: /dns-query
 secret: "abc123"
 external-ui: ./ui
 external-ui-name: zashboard
+tls:
+  certificate: ./server.crt
+  private-key: ./server.key
+  client-auth-type: require-and-verify
+  client-auth-cert: ./client-ca.crt
+  ech-key: |
+    -----BEGIN ECH KEYS-----
+    abc
+    -----END ECH KEYS-----
 
 dns:
   listen: 0.0.0.0:7874
@@ -66,6 +81,11 @@ assert_eq "2" "$(printf '%s\n' "$config_json" | jq -r '.routing_mark')" "read_co
 assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.catch_fakeip')" "read_config_json enables fake-ip catch"
 assert_eq "198.18.0.0/15" "$(printf '%s\n' "$config_json" | jq -r '.fake_ip_range')" "read_config_json extracts fake-ip range"
 assert_eq "mihomo.sock" "$(printf '%s\n' "$config_json" | jq -r '.external_controller_unix')" "read_config_json extracts Unix controller socket"
+assert_eq "mihomo.pipe" "$(printf '%s\n' "$config_json" | jq -r '.external_controller_pipe')" "read_config_json extracts named pipe controller"
+assert_eq "/dns-query" "$(printf '%s\n' "$config_json" | jq -r '.external_doh_server')" "read_config_json extracts external DoH server path"
+assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.external_controller_cors | contains("allow-private-network: true")')" "read_config_json extracts controller CORS block"
+assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.api_tls | contains("client-auth-type: require-and-verify")')" "read_config_json extracts API TLS block"
+assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.api_tls | contains("ech-key: |")')" "read_config_json extracts API TLS ECH key"
 assert_eq "zashboard" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_name')" "read_config_json extracts external UI name"
 assert_eq "0" "$(printf '%s\n' "$config_json" | jq -r '.errors | length')" "read_config_json should not emit errors for valid config"
 

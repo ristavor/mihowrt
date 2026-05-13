@@ -74,6 +74,7 @@ runtime_snapshot_policy_config_matches_current() {
 
 mihomo_hot_reload_config() {
 	printf 'mihomo_hot_reload_config:%s:force=%s\n' "$2" "${3:-}" >>"$event_log"
+	printf 'mihomo_hot_reload_config_api:%s:%s\n' "$(printf '%s\n' "$1" | jq -r '.external_controller // ""')" "$(printf '%s\n' "$1" | jq -r '.external_controller_unix // ""')" >>"$event_log"
 	MIHOMO_API_REASON="${TEST_API_REASON:-api unavailable}"
 	MIHOMO_API_HTTP_CODE="${TEST_API_HTTP_CODE:-}"
 	return "${TEST_API_RC:-0}"
@@ -100,6 +101,15 @@ install_validated_config_candidate() {
 
 mihomo_hot_reload_supported() {
 	printf '%s\n' "$1" | jq -e '(.external_controller_unix // "") != "" or (.external_controller == "0.0.0.0:9090") or (.external_controller == "127.0.0.1:9090")' >/dev/null
+}
+
+TEST_LIVE_CONFIG_JSON=""
+mihomo_api_live_or_config_json() {
+	if [ -n "$TEST_LIVE_CONFIG_JSON" ]; then
+		printf '%s\n' "$TEST_LIVE_CONFIG_JSON"
+	else
+		printf '%s\n' "$1"
+	fi
 }
 
 subscription_store_auto_update_state() {
@@ -193,10 +203,33 @@ write_configs
 old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
-assert_eq "manual_restart_required" "$(json_bool "$result" '.action')" "auto-update should flag real API field changes"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload through live API when API fields drift"
+assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should still flag manual restart after API field drift"
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config requiring manual restart"
-assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "auto-update should not call API after API field drift"
-assert_file_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo controller/UI settings changed; manual restart is required" "auto-update should disable itself on API field drift"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API after API field drift"
+assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API/UI settings changed; manual restart is required" "auto-update should not disable itself on API field drift"
+
+: >"$event_log"
+write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","external_controller_pipe":"","external_controller_cors":"external-controller-cors:\n  allow-private-network: false","external_doh_server":"/dns-query","api_tls":"tls:\n  certificate: ./old.crt","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","external_controller_pipe":"mihomo.pipe","external_controller_cors":"external-controller-cors:\n  allow-private-network: true","external_doh_server":"/dns-alt","api_tls":"tls:\n  certificate: ./new.crt","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload API server-only field changes through live API"
+assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should flag manual restart after API server-only field drift"
+assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config with API server drift"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API after API server field drift"
+assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API/UI settings changed; manual restart is required" "auto-update should not disable itself on API server drift"
+
+: >"$event_log"
+write_configs
+TEST_LIVE_CONFIG_JSON='{"external_controller":"0.0.0.0:9090","external_controller_unix":"mihomo.sock","secret":"live-secret"}'
+old_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"new.sock","secret":"new-secret","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"new.sock","secret":"new-secret","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "auto-update should keep using persisted live API across pending manual restart"
+assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should keep manual restart flag while live API differs from saved config"
+assert_file_contains "$event_log" "mihomo_hot_reload_config_api:0.0.0.0:9090:mihomo.sock" "auto-update should call old live API, not updated config API"
+TEST_LIVE_CONFIG_JSON=""
 
 : >"$event_log"
 write_configs

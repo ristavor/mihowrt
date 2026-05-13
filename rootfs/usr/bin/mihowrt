@@ -116,6 +116,7 @@ run_service() {
 			with_runtime_lock cleanup_runtime_state || cleanup_rc=$?
 			cleanup_done=1
 		fi
+		mihomo_api_live_state_clear
 		rm -f "$SERVICE_PID_FILE"
 	}
 
@@ -148,6 +149,7 @@ run_service() {
 		return 1
 	fi
 	log "Mihomo listeners ready"
+	mihomo_api_live_state_save_current || warn "Failed to persist live Mihomo API state"
 
 	# Runtime policy is applied after readiness so any failure can stop Mihomo and
 	# return router state to the pre-start baseline.

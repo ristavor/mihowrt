@@ -131,6 +131,9 @@ assert_eq "true" "$(subscription_url_json | jq -r '.subscription_auto_update_ena
 assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "subscription_url_json should read UCI option"
 export TEST_UCI_INTERVAL_OVERRIDE="0"
 assert_eq "24" "$(subscription_url_json | jq -r '.subscription_effective_interval')" "subscription_url_json should use header interval without override"
+assert_eq "" "$(subscription_effective_update_interval 0 "" "")" "subscription_effective_update_interval should disable auto-update without header interval"
+assert_eq "0" "$(subscription_effective_update_interval 0 "" 0)" "subscription_effective_update_interval should preserve zero header interval as disabled"
+assert_eq "" "$(subscription_effective_update_interval 1 "" 24)" "subscription_effective_update_interval should disable auto-update when override is on but empty"
 
 : >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "
@@ -220,6 +223,19 @@ subscription_mark_update_success() {
 	printf 'mark_update_success\n' >>"$TEST_UCI_LOG"
 }
 
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+set +e
+set_subscription_settings "https://example.com/current.yaml" 0 "" 24 0
+settings_rc=$?
+set -e
+assert_eq "0" "$settings_rc" "set_subscription_settings should succeed when loaded hot reload flag is false"
+assert_file_contains "$TEST_UCI_LOG" "store_auto_update_state:1:24:" "set_subscription_settings should not disable auto-update because fetched config API fields look unsafe"
+assert_file_not_contains "$TEST_UCI_LOG" "loaded subscription config has no safe Mihomo API" "loaded config hot reload flag should not block saved auto-update settings"
+
 apply_config_runtime_auto_update() {
 	rm -f "$1"
 	printf '%s\n' '{"action":"auto_update_disabled","reason":"missing hot reload API"}'
@@ -235,5 +251,34 @@ export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
 auto_update_disabled_json="$(update_subscription_config)"
 assert_eq "auto_update_disabled" "$(printf '%s\n' "$auto_update_disabled_json" | jq -r '.action')" "update_subscription_config should return disabled action from apply"
 assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "failed auto-update apply should not re-enable auto-update state"
+
+apply_config_runtime_auto_update() {
+	rm -f "$1"
+	printf '%s\n' '{"action":"hot_reloaded","saved":true,"restart_required":false,"hot_reloaded":true,"policy_reloaded":false}'
+}
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL=""
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL=""
+auto_update_no_header_json="$(update_subscription_config)"
+assert_eq "hot_reloaded" "$(printf '%s\n' "$auto_update_no_header_json" | jq -r '.action')" "update_subscription_config should still apply when subscription has no interval header"
+assert_file_contains "$TEST_UCI_LOG" "store_auto_update_state:0::auto-update interval is disabled" "update_subscription_config should disable scheduling when no header interval exists without override"
+assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "update_subscription_config should not schedule next update without header interval"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="0"
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL="0"
+auto_update_zero_header_json="$(update_subscription_config)"
+assert_eq "hot_reloaded" "$(printf '%s\n' "$auto_update_zero_header_json" | jq -r '.action')" "update_subscription_config should still apply when subscription interval header is zero"
+assert_file_contains "$TEST_UCI_LOG" "store_auto_update_state:0::auto-update interval is disabled" "update_subscription_config should disable scheduling when header interval is zero"
+assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "update_subscription_config should not schedule next update for zero header interval"
 
 pass "subscription helpers"

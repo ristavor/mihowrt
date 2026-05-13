@@ -155,6 +155,16 @@ yaml_get_selected_scalars() {
 				emit("external-controller-unix", line)
 				next
 			}
+			if (line ~ /^external-controller-pipe:[[:space:]]*/) {
+				sub("^external-controller-pipe:[[:space:]]*", "", line)
+				emit("external-controller-pipe", line)
+				next
+			}
+			if (line ~ /^external-doh-server:[[:space:]]*/) {
+				sub("^external-doh-server:[[:space:]]*", "", line)
+				emit("external-doh-server", line)
+				next
+			}
 			if (line ~ /^secret:[[:space:]]*/) {
 				sub("^secret:[[:space:]]*", "", line)
 				emit("secret", line)
@@ -170,6 +180,34 @@ yaml_get_selected_scalars() {
 				emit("external-ui-name", line)
 				next
 			}
+		}
+	' "$file" 2>/dev/null
+}
+
+yaml_get_top_level_block() {
+	local file="$1"
+	local block="$2"
+
+	awk -v block="$block" '
+		function emit(line) {
+			sub(/[[:space:]]+$/, "", line)
+			if (line !~ /^[[:space:]]*($|#)/) {
+				print line
+			}
+		}
+
+		$0 ~ "^" block ":[[:space:]]*" {
+			in_block = 1
+			emit($0)
+			next
+		}
+
+		in_block && $0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/ {
+			exit
+		}
+
+		in_block {
+			emit($0)
 		}
 	' "$file" 2>/dev/null
 }
@@ -195,6 +233,7 @@ read_config_json() {
 	local routing_mark_normalized="" intercept_mark_normalized=""
 	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
 	local external_controller="" external_controller_tls="" external_controller_unix=""
+	local external_controller_pipe="" external_doh_server="" external_controller_cors="" api_tls=""
 	local secret="" external_ui="" external_ui_name=""
 	local ERRORS_RAW=""
 	local key raw value
@@ -222,6 +261,8 @@ read_config_json() {
 		external-controller) external_controller="$value" ;;
 		external-controller-tls) external_controller_tls="$value" ;;
 		external-controller-unix) external_controller_unix="$value" ;;
+		external-controller-pipe) external_controller_pipe="$value" ;;
+		external-doh-server) external_doh_server="$value" ;;
 		secret) secret="$value" ;;
 		external-ui) external_ui="$value" ;;
 		external-ui-name) external_ui_name="$value" ;;
@@ -229,6 +270,9 @@ read_config_json() {
 	done <<EOF
 $(yaml_get_selected_scalars "$CLASH_CONFIG")
 EOF
+
+	external_controller_cors="$(yaml_get_top_level_block "$CLASH_CONFIG" "external-controller-cors")"
+	api_tls="$(yaml_get_top_level_block "$CLASH_CONFIG" "tls")"
 
 	dns_port=""
 	mihomo_dns_listen=""
@@ -292,6 +336,10 @@ EOF
 		--arg external_controller "$external_controller" \
 		--arg external_controller_tls "$external_controller_tls" \
 		--arg external_controller_unix "$external_controller_unix" \
+		--arg external_controller_pipe "$external_controller_pipe" \
+		--arg external_controller_cors "$external_controller_cors" \
+		--arg external_doh_server "$external_doh_server" \
+		--arg api_tls "$api_tls" \
 		--arg secret "$secret" \
 		--arg external_ui "$external_ui" \
 		--arg external_ui_name "$external_ui_name" \
@@ -313,6 +361,10 @@ EOF
 			external_controller: $external_controller,
 			external_controller_tls: $external_controller_tls,
 			external_controller_unix: $external_controller_unix,
+			external_controller_pipe: $external_controller_pipe,
+			external_controller_cors: $external_controller_cors,
+			external_doh_server: $external_doh_server,
+			api_tls: $api_tls,
 			secret: $secret,
 			external_ui: $external_ui,
 			external_ui_name: $external_ui_name,
@@ -586,7 +638,7 @@ config_requires_service_restart() {
 	local new_json="$2"
 	local key=""
 
-	for key in external_controller external_controller_tls external_controller_unix secret external_ui external_ui_name; do
+	for key in external_controller external_controller_tls external_controller_unix external_controller_pipe secret external_controller_cors external_doh_server api_tls external_ui external_ui_name; do
 		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
 	done
 
@@ -705,7 +757,7 @@ apply_config_runtime() {
 	}
 
 	if config_requires_service_restart "$old_config_json" "$new_config_json"; then
-		apply_config_result_json "restart_required" 1 0 0 "Mihomo controller/UI settings changed"
+		apply_config_result_json "restart_required" 1 0 0 "Mihomo API/UI settings changed"
 		return $?
 	fi
 
@@ -748,8 +800,8 @@ apply_config_runtime() {
 apply_config_runtime_auto_update() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
-	local old_config_json="" new_config_json=""
-	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0
+	local old_config_json="" new_config_json="" live_config_json=""
+	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0 service_restart_needed=0
 	local reason="" http_code=""
 
 	if [ -r "$active_config" ]; then
@@ -778,14 +830,6 @@ apply_config_runtime_auto_update() {
 		return $?
 	}
 
-	if ! mihomo_hot_reload_supported "$new_config_json"; then
-		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in subscription config}"
-		rm -f "$candidate"
-		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
-		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
-		return $?
-	fi
-
 	if ! service_running_state; then
 		install_validated_config_candidate "$candidate" || return 1
 		config_refresh_subscription_auto_update_state "$new_config_json"
@@ -801,27 +845,28 @@ apply_config_runtime_auto_update() {
 		return $?
 	}
 
-	if ! mihomo_hot_reload_supported "$old_config_json"; then
-		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in active config}"
+	if command -v mihomo_api_live_or_config_json >/dev/null 2>&1; then
+		live_config_json="$(mihomo_api_live_or_config_json "$old_config_json" 2>/dev/null || true)"
+	fi
+	[ -n "$live_config_json" ] || live_config_json="$old_config_json"
+
+	if ! mihomo_hot_reload_supported "$live_config_json"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in live config}"
 		rm -f "$candidate"
 		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
 		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
 		return $?
 	fi
 
+	if config_requires_service_restart "$live_config_json" "$new_config_json"; then
+		service_restart_needed=1
+		reason="Mihomo API/UI settings changed; manual restart is required"
+	fi
+
 	if [ "$config_changed" -eq 0 ]; then
 		rm -f "$candidate"
 		config_refresh_subscription_auto_update_state "$new_config_json"
-		apply_config_result_json "saved" 0 0 0
-		return $?
-	fi
-
-	if config_requires_service_restart "$old_config_json" "$new_config_json"; then
-		install_validated_config_candidate "$candidate" || return 1
-		config_refresh_subscription_auto_update_state "$new_config_json"
-		reason="Mihomo controller/UI settings changed; manual restart is required"
-		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
-		apply_config_result_json "manual_restart_required" 0 0 0 "$reason"
+		apply_config_result_json "saved" "$service_restart_needed" 0 0 "$reason"
 		return $?
 	fi
 
@@ -834,7 +879,7 @@ apply_config_runtime_auto_update() {
 
 	install_validated_config_candidate "$candidate" || return 1
 
-	if ! mihomo_hot_reload_config "$old_config_json" "$active_config" "$mihomo_force_reload"; then
+	if ! mihomo_hot_reload_config "$live_config_json" "$active_config" "$mihomo_force_reload"; then
 		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
 		http_code="${MIHOMO_API_HTTP_CODE:-}"
 		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
@@ -846,7 +891,7 @@ apply_config_runtime_auto_update() {
 
 	if [ "$policy_reload_needed" -eq 0 ]; then
 		config_refresh_subscription_auto_update_state "$new_config_json"
-		apply_config_result_json "hot_reloaded" 0 1 0
+		apply_config_result_json "hot_reloaded" "$service_restart_needed" 1 0 "$reason"
 		return $?
 	fi
 
@@ -865,7 +910,7 @@ apply_config_runtime_auto_update() {
 	fi
 
 	config_refresh_subscription_auto_update_state "$new_config_json"
-	apply_config_result_json "policy_reloaded" 0 1 1
+	apply_config_result_json "policy_reloaded" "$service_restart_needed" 1 1 "$reason"
 }
 
 validate_config_candidate() {

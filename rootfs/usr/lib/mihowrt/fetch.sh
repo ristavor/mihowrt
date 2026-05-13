@@ -395,9 +395,7 @@ subscription_hot_reload_supported_for_config_json() {
 }
 
 subscription_refresh_auto_update_state() {
-	local config_json="$1"
 	local subscription_url="" interval_override="" update_interval="" header_interval="" interval=""
-	local reason=""
 
 	require_command uci || return 1
 	subscription_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true)"
@@ -413,12 +411,6 @@ subscription_refresh_auto_update_state() {
 
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
 		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
-		return 0
-	fi
-
-	if ! subscription_hot_reload_supported_for_config_json "$config_json"; then
-		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable}"
-		subscription_store_auto_update_state 0 "$interval" "$reason"
 		return 0
 	fi
 
@@ -501,7 +493,6 @@ set_subscription_url() {
 
 set_subscription_settings() {
 	local url="" override="" interval="" header_interval="${4:-}" header_provided=0
-	local loaded_hot_reload_supported="${5:-1}"
 	local current_config_json="" changed=0 rc=0
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 
@@ -561,11 +552,6 @@ set_subscription_settings() {
 	fi
 
 	subscription_commit_if_changed "$changed" || return 1
-
-	if [ "$loaded_hot_reload_supported" = "0" ]; then
-		subscription_store_auto_update_state 0 "" "loaded subscription config has no safe Mihomo API for hot reload"
-		return 0
-	fi
 
 	current_config_json="$(read_config_json 2>/dev/null || true)"
 	if [ -n "$current_config_json" ]; then

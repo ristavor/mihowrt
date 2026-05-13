@@ -108,6 +108,7 @@ cleanup_runtime_state() {
 		case "$live_state_rc" in
 		1)
 			runtime_snapshot_clear
+			command -v mihomo_api_live_state_clear >/dev/null 2>&1 && mihomo_api_live_state_clear
 			log "Policy state already clean"
 			return 0
 			;;
@@ -132,6 +133,7 @@ cleanup_runtime_state() {
 
 	if [ "$rc" -eq 0 ]; then
 		runtime_snapshot_clear
+		command -v mihomo_api_live_state_clear >/dev/null 2>&1 && mihomo_api_live_state_clear
 		log "Cleaned up policy state"
 		return 0
 	fi

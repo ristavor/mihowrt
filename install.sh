@@ -2187,6 +2187,17 @@ complete_reinstall_after_package() {
 	return 0
 }
 
+complete_fresh_install_after_package() {
+	clear_kernel_backup
+	if ! start_fresh_install_service; then
+		end_install_transaction
+		return 1
+	fi
+
+	end_install_transaction
+	return 0
+}
+
 begin_package_transaction() {
 	local reinstall="$1"
 
@@ -2247,13 +2258,7 @@ perform_package_action() {
 		return $?
 	fi
 
-	clear_kernel_backup
-	if ! start_fresh_install_service; then
-		end_install_transaction
-		return 1
-	fi
-	end_install_transaction
-	return 0
+	complete_fresh_install_after_package
 }
 
 perform_kernel_action() {

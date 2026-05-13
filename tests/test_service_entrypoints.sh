@@ -23,7 +23,7 @@ SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
 RUNTIME_LOCK_FILE="$tmpdir/runtime.lock"
 mkdir -p "$CLASH_DIR"
 
-cat > "$CLASH_BIN" <<'EOF'
+cat >"$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_CLASH_LOG"
 sleep "${TEST_CLASH_SLEEP:-0}"
@@ -58,7 +58,7 @@ ensure_dir() {
 	mkdir -p "$1"
 }
 
-: > "$cli_log"
+: >"$cli_log"
 lock_body() {
 	[ -L "$RUNTIME_LOCK_FILE" ] || fail "with_runtime_lock should hold symlink lock while command runs"
 	printf 'lock_body\n' >>"$cli_log"
@@ -137,8 +137,8 @@ runtime_snapshot_readiness_json() {
 
 eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^load_snapshot_readiness_ports()/,/^}/p;/^load_config_readiness_ports()/,/^}/p;/^service_ready_runtime_state()/,/^}/p;/^service_ready_runtime_state_for_running_service()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh")"
 
-: > "$cli_log"
-: > "$clash_log"
+: >"$cli_log"
+: >"$clash_log"
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=0
@@ -153,7 +153,7 @@ assert_file_contains "$cli_log" "log:MihoWRT service ready" "run_service should 
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean up runtime state on exit"
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file on clean exit"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=1
@@ -161,7 +161,7 @@ assert_false "run_service should fail when runtime cleanup fails on exit" run_se
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should still attempt runtime cleanup before failing"
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file even when cleanup fails"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_WAIT_READY_RC=1
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=0
@@ -170,7 +170,7 @@ assert_file_contains "$cli_log" "err:Mihomo failed to become ready on DNS port 7
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after readiness failure"
 assert_file_not_contains "$cli_log" "apply_runtime_state" "run_service should not apply runtime state before readiness succeeds"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=1
 TEST_CLEANUP_RUNTIME_RC=0
@@ -178,7 +178,7 @@ assert_false "run_service should fail when runtime policy apply fails" run_servi
 assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo became ready" "run_service should report runtime apply failure"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
@@ -192,7 +192,7 @@ assert_file_not_contains "$cli_log" "nft_table_exists" "service_ready_runtime_st
 assert_file_not_contains "$cli_log" "dns_backup_valid" "service_ready_runtime_state should not block on dns backup probe after valid snapshot"
 assert_file_not_contains "$cli_log" "load_runtime_config" "service_ready_runtime_state should use runtime snapshot before config reload"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_READINESS_RC=1
@@ -201,7 +201,7 @@ TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 assert_false "service_ready_runtime_state should stay false until runtime snapshot validates" service_ready_runtime_state
 assert_file_contains "$cli_log" "mihomo_ports_ready_state:7874:7894" "service_ready_runtime_state should still probe listeners before failing on invalid snapshot"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
@@ -211,7 +211,7 @@ TEST_LOAD_RUNTIME_CONFIG_RC=0
 assert_false "service_ready_runtime_state should require policy markers without a valid runtime snapshot" service_ready_runtime_state
 assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should require runtime markers for mandatory policy layer"
 
-: > "$cli_log"
+: >"$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
@@ -278,6 +278,16 @@ set_subscription_output="$(
 )"
 assert_eq "https://example.com/sub.yaml" "$set_subscription_output" "set-subscription-url command should forward URL"
 
+set_subscription_settings_output="$(
+	set -- set-subscription-settings "https://example.com/sub.yaml" 1 12 24
+	set_subscription_settings() {
+		printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "https://example.com/sub.yaml|1|12|24" "$set_subscription_settings_output" "set-subscription-settings command should forward auto-update settings"
+
 fetch_subscription_output="$(
 	set -- fetch-subscription "https://example.com/sub.yaml"
 	fetch_subscription_config() {
@@ -307,6 +317,26 @@ update_policy_lists_output="$(
 	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "updated=0" "$update_policy_lists_output" "update-policy-lists command should dispatch to remote list updater"
+
+update_subscription_output="$(
+	set -- update-subscription
+	update_subscription_config() {
+		printf 'subscription-updated\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "subscription-updated" "$update_subscription_output" "update-subscription command should dispatch to subscription updater"
+
+auto_update_subscription_output="$(
+	set -- auto-update-subscription
+	auto_update_subscription_config() {
+		printf 'subscription-auto-updated\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "subscription-auto-updated" "$auto_update_subscription_output" "auto-update-subscription command should dispatch to subscription auto updater"
 
 migrate_policy_lists_output="$(
 	set -- migrate-policy-lists
@@ -355,7 +385,7 @@ restart_validated_output="$(
 		return 0
 	}
 	init_path="$tmpdir/restart-validated-init"
-	cat > "$init_path" <<'EOF'
+	cat >"$init_path" <<'EOF'
 #!/usr/bin/env bash
 printf 'skip=%s args=%s\n' "${MIHOWRT_SKIP_CLASH_TEST:-0}" "$*"
 EOF
@@ -375,7 +405,7 @@ restart_unvalidated_output="$(
 		return 1
 	}
 	init_path="$tmpdir/restart-unvalidated-init"
-	cat > "$init_path" <<'EOF'
+	cat >"$init_path" <<'EOF'
 #!/usr/bin/env bash
 printf 'skip=%s args=%s\n' "${MIHOWRT_SKIP_CLASH_TEST:-0}" "$*"
 EOF
@@ -404,7 +434,7 @@ export TEST_ORCH_RUNNING_RC=0
 export TEST_CLASH_TEST_RC=0
 export TEST_SERVICE_PID_FILE="$SERVICE_PID_FILE"
 
-cat > "$ORCHESTRATOR" <<'EOF'
+cat >"$ORCHESTRATOR" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_ORCH_LOG"
 case "${1:-}" in
@@ -428,7 +458,7 @@ esac
 exit 0
 EOF
 
-cat > "$CLASH_BIN" <<'EOF'
+cat >"$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_CLASH_LOG"
 case " $* " in
@@ -441,7 +471,7 @@ EOF
 
 chmod +x "$ORCHESTRATOR" "$CLASH_BIN"
 mkdir -p "$CLASH_DIR"
-printf 'mode: rule\n' > "$CLASH_CONFIG"
+printf 'mode: rule\n' >"$CLASH_CONFIG"
 
 msg() {
 	printf '%s\n' "$*" >>"$msg_log"
@@ -463,9 +493,9 @@ stop() {
 	printf 'stop\n' >>"$msg_log"
 }
 
-: > "$msg_log"
-: > "$procd_log"
-: > "$orch_log"
+: >"$msg_log"
+: >"$procd_log"
+: >"$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
 export TEST_CLASH_TEST_RC=0
@@ -480,28 +510,28 @@ assert_file_not_contains "$procd_log" "set:file " "start_service should avoid pr
 assert_file_contains "$msg_log" "MihoWRT service registered with procd" "start_service should return after procd registration"
 assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service should avoid premature started log"
 
-: > "$msg_log"
-: > "$orch_log"
-: > "$clash_log"
+: >"$msg_log"
+: >"$orch_log"
+: >"$clash_log"
 MIHOWRT_SKIP_CLASH_TEST=1 validate_service_inputs
 assert_file_not_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG -t" "validate_service_inputs should skip duplicate Mihomo syntax test when backend already validated config"
 assert_file_contains "$orch_log" "validate" "validate_service_inputs should still run MihoWRT policy validation when syntax test is skipped"
 assert_file_contains "$msg_log" "Skipping duplicate Mihomo configuration test" "validate_service_inputs should log skipped duplicate syntax validation"
 unset MIHOWRT_SKIP_CLASH_TEST
 
-: > "$msg_log"
-: > "$procd_log"
-: > "$orch_log"
+: >"$msg_log"
+: >"$procd_log"
+: >"$orch_log"
 export TEST_ORCH_CLEANUP_RC=1
 assert_false "start_service should fail when stale runtime cleanup fails" start_service
 assert_file_contains "$msg_log" "ERROR: Failed to clean stale runtime state" "start_service should report stale runtime cleanup failure"
 [[ ! -s "$procd_log" ]] || fail "start_service should not register procd instance when cleanup fails"
 export TEST_ORCH_CLEANUP_RC=0
 
-: > "$msg_log"
-: > "$procd_log"
-: > "$orch_log"
-: > "$SKIP_START_FILE"
+: >"$msg_log"
+: >"$procd_log"
+: >"$orch_log"
+: >"$SKIP_START_FILE"
 start_service
 assert_file_contains "$msg_log" "Skipping MihoWRT service auto-start during installer transaction" "start_service should honor skip-start marker"
 [[ ! -s "$orch_log" ]] || fail "start_service should not call orchestrator when skip-start marker exists"
@@ -513,43 +543,50 @@ start() {
 	printf 'start\n' >>"$msg_log"
 }
 
-: > "$msg_log"
+: >"$msg_log"
 reload_service
-printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 reload_service
 assert_file_contains "$msg_log" "Reloading MihoWRT policy..." "reload_service should log policy reload"
 assert_file_contains "$msg_log" "MihoWRT policy reloaded" "reload_service should log successful policy reload"
 assert_file_contains "$orch_log" "service-running" "reload_service should check service state through orchestrator"
 assert_file_contains "$orch_log" "reload-policy" "reload_service should invoke policy-only reload through orchestrator"
 
-: > "$msg_log"
-: > "$orch_log"
+: >"$msg_log"
+: >"$orch_log"
 rm -f "$SERVICE_PID_FILE"
 reload_service
 assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy reload" "reload_service should skip policy reload when service is stopped"
 assert_file_contains "$orch_log" "service-running" "reload_service should still ask orchestrator for service state when service is stopped"
 assert_file_not_contains "$orch_log" "reload-policy" "reload_service should not invoke policy reload when service is stopped"
 
-: > "$msg_log"
-: > "$orch_log"
-printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+: >"$msg_log"
+: >"$orch_log"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 update_lists
 assert_file_contains "$msg_log" "Updating MihoWRT remote policy lists..." "update_lists should log remote list update"
 assert_file_contains "$orch_log" "service-running" "update_lists should check service state through orchestrator"
 assert_file_contains "$orch_log" "update-policy-lists" "update_lists should invoke backend remote list update"
 assert_file_contains "$msg_log" "MihoWRT remote policy list update finished" "update_lists should confirm remote list update"
 
-: > "$msg_log"
-: > "$orch_log"
+: >"$msg_log"
+: >"$orch_log"
 rm -f "$SERVICE_PID_FILE"
 update_lists
 assert_file_contains "$msg_log" "MihoWRT service is not running; skipping remote list update" "update_lists should skip when service is stopped"
 assert_file_contains "$orch_log" "service-running" "update_lists should still ask orchestrator for service state"
 assert_file_not_contains "$orch_log" "update-policy-lists" "update_lists should not update remote lists when service is stopped"
 
-: > "$msg_log"
-: > "$orch_log"
-printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+: >"$msg_log"
+: >"$orch_log"
+update_subscription
+assert_file_contains "$msg_log" "Updating MihoWRT subscription..." "update_subscription should log subscription update"
+assert_file_contains "$orch_log" "update-subscription" "update_subscription should invoke backend subscription updater"
+assert_file_contains "$msg_log" "MihoWRT subscription update finished" "update_subscription should confirm subscription update"
+
+: >"$msg_log"
+: >"$orch_log"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 apply
 assert_file_contains "$msg_log" "Applying MihoWRT on-disk config..." "apply should announce on-disk apply flow"
 assert_file_contains "$msg_log" "MihoWRT service is running; restarting to apply on-disk changes" "apply should restart running service after validation"
@@ -559,8 +596,8 @@ assert_file_contains "$msg_log" "MihoWRT on-disk changes applied" "apply should 
 assert_file_contains "$orch_log" "validate" "apply should validate policy before restart"
 assert_file_contains "$orch_log" "service-running" "apply should check service state before restart"
 
-: > "$msg_log"
-: > "$orch_log"
+: >"$msg_log"
+: >"$orch_log"
 rm -f "$SERVICE_PID_FILE"
 apply
 assert_file_contains "$msg_log" "MihoWRT service is not running; validated on-disk config only" "apply should avoid starting stopped service implicitly"
@@ -568,10 +605,10 @@ assert_file_contains "$orch_log" "validate" "apply should still validate config 
 assert_file_contains "$orch_log" "service-running" "apply should still inspect running state when service is stopped"
 assert_file_not_contains "$msg_log" "start" "apply should not start stopped service automatically"
 
-: > "$msg_log"
-: > "$orch_log"
-: > "$SKIP_START_FILE"
-printf '%s\n' "$$" > "$SERVICE_PID_FILE"
+: >"$msg_log"
+: >"$orch_log"
+: >"$SKIP_START_FILE"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 assert_false "apply should fail while installer skip-start marker is active" apply
 assert_file_contains "$msg_log" "ERROR: Cannot apply while installer skip-start marker is active" "apply should explain skip-start conflict"
 assert_file_not_contains "$msg_log" "stop" "apply should not stop service when skip-start marker blocks restart"

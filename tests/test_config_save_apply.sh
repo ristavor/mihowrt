@@ -48,6 +48,8 @@ function createContext(overrides = {}) {
 		dashboardButton: { disabled: false },
 		saveApplyButton: { disabled: false },
 		subscriptionUrlInput: { disabled: false },
+		subscriptionOverrideInput: { disabled: false },
+		subscriptionIntervalInput: { disabled: false },
 		subscriptionSaveButton: { disabled: false },
 		subscriptionFetchButton: { disabled: false },
 		editor: {
@@ -119,6 +121,8 @@ let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
 let saveApplyButton = globalThis.saveApplyButton;
 let subscriptionUrlInput = globalThis.subscriptionUrlInput;
+let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
+let subscriptionIntervalInput = globalThis.subscriptionIntervalInput;
 let subscriptionSaveButton = globalThis.subscriptionSaveButton;
 let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let editor = globalThis.editor;

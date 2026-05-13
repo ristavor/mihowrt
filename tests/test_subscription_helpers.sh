@@ -10,12 +10,12 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 
-cat > "$tmpbin/uci" <<'EOF'
+cat >"$tmpbin/uci" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_UCI_LOG"
 
@@ -25,8 +25,17 @@ fi
 
 case "${1:-}" in
 	get)
-		[[ "${2:-}" == "mihowrt.settings.subscription_url" ]] || exit 1
-		printf '%s\n' "${TEST_UCI_SUBSCRIPTION_URL:-}"
+		case "${2:-}" in
+			mihowrt.settings.subscription_url) printf '%s\n' "${TEST_UCI_SUBSCRIPTION_URL:-}" ;;
+			mihowrt.settings.subscription_interval_override) printf '%s\n' "${TEST_UCI_INTERVAL_OVERRIDE:-0}" ;;
+			mihowrt.settings.subscription_update_interval) printf '%s\n' "${TEST_UCI_UPDATE_INTERVAL:-}" ;;
+			mihowrt.settings.subscription_header_interval) printf '%s\n' "${TEST_UCI_HEADER_INTERVAL:-}" ;;
+			mihowrt.settings.subscription_auto_update_enabled) printf '%s\n' "${TEST_UCI_AUTO_ENABLED:-0}" ;;
+			mihowrt.settings.subscription_last_update) printf '%s\n' "${TEST_UCI_LAST_UPDATE:-}" ;;
+			mihowrt.settings.subscription_next_update) printf '%s\n' "${TEST_UCI_NEXT_UPDATE:-}" ;;
+			mihowrt.settings.subscription_auto_update_reason) printf '%s\n' "${TEST_UCI_AUTO_REASON:-}" ;;
+			*) exit 1 ;;
+		esac
 		;;
 	set|delete|commit)
 		exit 0
@@ -37,7 +46,7 @@ case "${1:-}" in
 esac
 EOF
 
-cat > "$tmpbin/wget" <<'EOF'
+cat >"$tmpbin/wget" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_WGET_LOG"
 
@@ -61,6 +70,7 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 [[ -n "$output" ]] || exit 1
+[ -z "${TEST_WGET_PROFILE_UPDATE_INTERVAL:-}" ] || printf '  profile-update-interval: %s\n' "$TEST_WGET_PROFILE_UPDATE_INTERVAL" >&2
 
 case "${TEST_WGET_MODE:-ok}" in
 	fail)
@@ -108,8 +118,19 @@ assert_false "is_subscription_url should reject missing hosts" is_subscription_u
 
 : >"$TEST_UCI_LOG"
 export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="1"
+export TEST_UCI_UPDATE_INTERVAL="12"
+export TEST_UCI_HEADER_INTERVAL="24"
+export TEST_UCI_AUTO_ENABLED="1"
 assert_eq "https://example.com/current.yaml" "$(subscription_url_json | jq -r '.subscription_url')" "subscription_url_json should expose saved UCI URL"
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_interval_override')" "subscription_url_json should expose interval override flag"
+assert_eq "12" "$(subscription_url_json | jq -r '.subscription_update_interval')" "subscription_url_json should expose override interval"
+assert_eq "24" "$(subscription_url_json | jq -r '.subscription_header_interval')" "subscription_url_json should expose header interval"
+assert_eq "12" "$(subscription_url_json | jq -r '.subscription_effective_interval')" "subscription_url_json should prefer override interval"
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_auto_update_enabled')" "subscription_url_json should expose auto-update state"
 assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "subscription_url_json should read UCI option"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+assert_eq "24" "$(subscription_url_json | jq -r '.subscription_effective_interval')" "subscription_url_json should use header interval without override"
 
 : >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "
@@ -171,10 +192,48 @@ assert_eq "http_error" "$(printf '%s\n' "$subscription_http_json" | jq -r '.erro
 assert_eq "404" "$(printf '%s\n' "$subscription_http_json" | jq -r '.error.http_code')" "fetch_subscription_json should expose HTTP status"
 
 export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
 subscription_ok_json="$(fetch_subscription_json "https://example.com/sub.yaml")"
 assert_eq "true" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.ok')" "fetch_subscription_json should return ok=true on success"
 assert_eq "mode: rule" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.content')" "fetch_subscription_json should include downloaded content"
+assert_eq "24" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.profile_update_interval')" "fetch_subscription_json should include profile update interval header"
 
 assert_false "fetch_subscription_config should reject invalid URLs before wget" fetch_subscription_config "ftp://example.com/sub.yaml" >/dev/null
+
+read_config_json() {
+	printf '%s\n' '{"external_controller_unix":"mihomo.sock"}'
+}
+
+read_config_json_for_path() {
+	printf '%s\n' '{"external_controller_unix":"mihomo.sock"}'
+}
+
+mihomo_hot_reload_supported() {
+	return 0
+}
+
+subscription_store_auto_update_state() {
+	printf 'store_auto_update_state:%s:%s:%s\n' "$1" "$2" "$3" >>"$TEST_UCI_LOG"
+}
+
+subscription_mark_update_success() {
+	printf 'mark_update_success\n' >>"$TEST_UCI_LOG"
+}
+
+apply_config_runtime_auto_update() {
+	rm -f "$1"
+	printf '%s\n' '{"action":"auto_update_disabled","reason":"missing hot reload API"}'
+}
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
+auto_update_disabled_json="$(update_subscription_config)"
+assert_eq "auto_update_disabled" "$(printf '%s\n' "$auto_update_disabled_json" | jq -r '.action')" "update_subscription_config should return disabled action from apply"
+assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "failed auto-update apply should not re-enable auto-update state"
 
 pass "subscription helpers"

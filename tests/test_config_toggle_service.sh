@@ -43,6 +43,8 @@ function assertDisabledState(context, expected, message) {
 		context.dashboardButton.disabled,
 		context.saveApplyButton.disabled,
 		context.subscriptionUrlInput.disabled,
+		context.subscriptionOverrideInput.disabled,
+		context.subscriptionIntervalInput.disabled,
 		context.subscriptionSaveButton.disabled,
 		context.subscriptionFetchButton.disabled
 	];
@@ -73,6 +75,8 @@ function createContext(initialState) {
 		dashboardButton: { disabled: false },
 		saveApplyButton: { disabled: false },
 		subscriptionUrlInput: { disabled: false },
+		subscriptionOverrideInput: { disabled: false },
+		subscriptionIntervalInput: { disabled: false },
 		subscriptionSaveButton: { disabled: false },
 		subscriptionFetchButton: { disabled: false },
 		stopServiceCalls: 0,
@@ -116,6 +120,8 @@ let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
 let saveApplyButton = globalThis.saveApplyButton;
 let subscriptionUrlInput = globalThis.subscriptionUrlInput;
+let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
+let subscriptionIntervalInput = globalThis.subscriptionIntervalInput;
 let subscriptionSaveButton = globalThis.subscriptionSaveButton;
 let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let serviceActionInFlight = false;

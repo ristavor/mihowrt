@@ -17,6 +17,8 @@ let enableDisableButton = null;
 let dashboardButton = null;
 let saveApplyButton = null;
 let subscriptionUrlInput = null;
+let subscriptionOverrideInput = null;
+let subscriptionIntervalInput = null;
 let subscriptionSaveButton = null;
 let subscriptionFetchButton = null;
 let serviceStatusBadge = null;
@@ -52,6 +54,10 @@ function updateControlDisabledState() {
 		saveApplyButton.disabled = disabled;
 	if (subscriptionUrlInput)
 		subscriptionUrlInput.disabled = disabled;
+	if (subscriptionOverrideInput)
+		subscriptionOverrideInput.disabled = disabled;
+	if (subscriptionIntervalInput)
+		subscriptionIntervalInput.disabled = disabled;
 	if (subscriptionSaveButton)
 		subscriptionSaveButton.disabled = disabled;
 	if (subscriptionFetchButton)
@@ -322,6 +328,14 @@ async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
 	return true;
 }
 
+async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null, hotReloadSupported = null) {
+	const overrideInterval = !!subscriptionOverrideInput?.checked;
+	const updateInterval = String(subscriptionIntervalInput?.value || '').trim();
+
+	await backendHelper.saveSubscriptionSettings(subscriptionUrl, overrideInterval, updateInterval, headerInterval, hotReloadSupported);
+	savedSubscriptionUrl = String(subscriptionUrl || '').trim();
+}
+
 function editorHasUnsavedChanges() {
 	// Compare editor content with the last validated/saved content.
 	return !!editor && configHelper.editorContentForSave(editor.getValue()) !== savedConfigContent;
@@ -354,12 +368,16 @@ async function loadSubscriptionIntoEditor(subscriptionUrl, expectedEditorContent
 	if (!editor)
 		throw new Error(_('Editor is still loading. Please try again in a moment.'));
 
-	const contents = await backendHelper.fetchSubscription(subscriptionUrl);
+	const fetched = await backendHelper.fetchSubscription(subscriptionUrl);
+	const result = typeof fetched === 'string'
+		? { content: fetched, profileUpdateInterval: '' }
+		: fetched;
+	const contents = result.content;
 	if (expectedEditorContent != null && configHelper.editorContentForSave(editor.getValue()) !== expectedEditorContent)
 		throw new Error(_('Editor content changed during subscription download. Fetch again after saving or discarding edits.'));
 
 	editor.setValue(configHelper.editorContentForSave(contents), -1);
-	return contents;
+	return result;
 }
 
 return view.extend({
@@ -399,15 +417,11 @@ return view.extend({
 
 			await withSubscriptionLock(async () => {
 				const value = subscriptionUrlInputValue();
-				const changed = await persistSubscriptionUrlIfChanged(value);
-				if (!changed) {
-					mihowrtUi.notify(_('Subscription URL is unchanged.'), 'info');
-					return;
-				}
+				await persistSubscriptionSettings(value);
 
 				mihowrtUi.notify(value ? _('Subscription URL saved.') : _('Subscription disabled.'), 'info');
 			}).catch(e => {
-				mihowrtUi.notify(_('Unable to save subscription URL: %s').format(e.message), 'error');
+				mihowrtUi.notify(_('Unable to save subscription settings: %s').format(e.message), 'error');
 			});
 		};
 
@@ -426,17 +440,18 @@ return view.extend({
 					return;
 
 				const expectedEditorContent = editor ? configHelper.editorContentForSave(editor.getValue()) : null;
-				const contents = await loadSubscriptionIntoEditor(value, expectedEditorContent);
+				const result = await loadSubscriptionIntoEditor(value, expectedEditorContent);
+				const contents = result.content;
 				if (!contents) {
 					mihowrtUi.notify(_('Subscription returned empty config.'), 'error');
 					return;
 				}
 
 				try {
-					await persistSubscriptionUrlIfChanged(value);
+					await persistSubscriptionSettings(value, result.profileUpdateInterval, result.hotReloadSupported);
 				}
 				catch (e) {
-					mihowrtUi.notify(_('Subscription loaded, but URL was not saved: %s').format(e.message), 'warning');
+					mihowrtUi.notify(_('Subscription loaded, but settings were not saved: %s').format(e.message), 'warning');
 				}
 
 				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');
@@ -563,6 +578,23 @@ return view.extend({
 					placeholder: _('Subscription URL'),
 					style: 'flex: 1 1 360px; min-width: 220px; max-width: 100%;'
 				})),
+				E('label', {
+					style: 'display:flex; align-items:center; gap:6px;'
+				}, [
+					(subscriptionOverrideInput = E('input', {
+						type: 'checkbox',
+						checked: !!subscriptionState.subscriptionIntervalOverride
+					})),
+					_('Override interval')
+				]),
+				(subscriptionIntervalInput = E('input', {
+					type: 'number',
+					min: '0',
+					step: '1',
+					value: String(subscriptionState.subscriptionUpdateInterval || ''),
+					placeholder: _('Hours'),
+					style: 'width: 90px;'
+				})),
 				(subscriptionSaveButton = E('button', {
 					class: 'btn',
 					click: saveSubscription
@@ -570,8 +602,15 @@ return view.extend({
 				(subscriptionFetchButton = E('button', {
 					class: 'btn cbi-button-action',
 					click: fetchSubscription
-				}, _('Fetch Subscription')))
+				}, _('Fetch Subscription'))),
+				E('span', {
+					class: 'label',
+					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (subscriptionState.subscriptionAutoUpdateEnabled ? '#5cb85c' : '#d9534f') + ';'
+				}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled'))
 			]),
+			!subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason
+				? E('p', { class: 'cbi-section-descr' }, subscriptionState.subscriptionAutoUpdateReason)
+				: '',
 			editorNode,
 			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 				(saveApplyButton = E('button', {

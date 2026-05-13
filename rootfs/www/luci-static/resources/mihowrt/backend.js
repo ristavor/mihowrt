@@ -100,6 +100,14 @@ function emptyLogState() {
 function emptySubscriptionState() {
 	return {
 		subscriptionUrl: '',
+		subscriptionIntervalOverride: false,
+		subscriptionUpdateInterval: '',
+		subscriptionHeaderInterval: '',
+		subscriptionEffectiveInterval: '',
+		subscriptionAutoUpdateEnabled: false,
+		subscriptionLastUpdate: '',
+		subscriptionNextUpdate: '',
+		subscriptionAutoUpdateReason: '',
 		errors: []
 	};
 }
@@ -176,6 +184,14 @@ async function readBackendJson(args, state, assignPayload) {
 
 function assignSubscriptionState(state, payload) {
 	state.subscriptionUrl = String(payload.subscription_url || '');
+	state.subscriptionIntervalOverride = !!payload.subscription_interval_override;
+	state.subscriptionUpdateInterval = String(payload.subscription_update_interval || '');
+	state.subscriptionHeaderInterval = String(payload.subscription_header_interval || '');
+	state.subscriptionEffectiveInterval = String(payload.subscription_effective_interval || '');
+	state.subscriptionAutoUpdateEnabled = !!payload.subscription_auto_update_enabled;
+	state.subscriptionLastUpdate = String(payload.subscription_last_update || '');
+	state.subscriptionNextUpdate = String(payload.subscription_next_update || '');
+	state.subscriptionAutoUpdateReason = String(payload.subscription_auto_update_reason || '');
 	return state;
 }
 
@@ -319,13 +335,39 @@ return baseclass.extend({
 			throw new Error(execHelper.errorDetail(result));
 	},
 
+	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval, hotReloadSupported) {
+		const args = [
+			'set-subscription-settings',
+			String(subscriptionUrl ?? ''),
+			overrideInterval ? '1' : '0',
+			String(updateInterval ?? '')
+		];
+
+		if (headerInterval != null)
+			args.push(String(headerInterval));
+		if (hotReloadSupported != null) {
+			if (headerInterval == null)
+				args.push('');
+			args.push(hotReloadSupported ? '1' : '0');
+		}
+
+		const result = await fs.exec(WRITE_BACKEND, args);
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+	},
+
 	fetchSubscription: async function(subscriptionUrl) {
 		const payload = await fs.exec_direct(WRITE_BACKEND, [ 'fetch-subscription-json', String(subscriptionUrl ?? '') ], 'json');
 
 		if (!payload?.ok)
 			throw new Error(subscriptionFetchErrorDetail(payload?.error || {}));
 
-		return String(payload.content || '');
+		return {
+			content: String(payload.content || ''),
+			profileUpdateInterval: String(payload.profile_update_interval || ''),
+			hotReloadSupported: payload.hot_reload_supported !== false,
+			hotReloadReason: String(payload.hot_reload_reason || '')
+		};
 	},
 
 	// Backend prints updated=1 only when effective remote list content changed.

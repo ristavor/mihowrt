@@ -102,7 +102,8 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 
 	context.editorValue = 'mode: old\n';
 	const result = await context.loadSubscriptionIntoEditor('https://example.com/sub.yaml', 'mode: old\n');
-	assert(result === 'mode: rule\n', 'loadSubscriptionIntoEditor should return fetched contents');
+	assert(result.content === 'mode: rule\n', 'loadSubscriptionIntoEditor should return fetched contents');
+	assert(result.profileUpdateInterval === '', 'loadSubscriptionIntoEditor should tolerate legacy string fetch results');
 	assert(context.fetchUrl === 'https://example.com/sub.yaml', 'loadSubscriptionIntoEditor should pass URL to backend fetch');
 	assert(context.setValues.length === 1, 'loadSubscriptionIntoEditor should update editor');
 	assert(context.setValues[0].value === 'mode: rule\n', 'loadSubscriptionIntoEditor should preserve fetched contents');

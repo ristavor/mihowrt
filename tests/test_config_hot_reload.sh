@@ -35,7 +35,11 @@ service_running_state() {
 
 read_config_json_for_path() {
 	printf 'read_config_json_for_path:%s\n' "$1" >>"$event_log"
-	printf '%s\n' "$old_json"
+	if [ "$1" = "$CLASH_CONFIG" ]; then
+		printf '%s\n' "$old_json"
+	else
+		printf '%s\n' "$new_json"
+	fi
 }
 
 read_config_json() {
@@ -72,6 +76,23 @@ wait_for_current_mihomo_listeners() {
 reload_runtime_state() {
 	printf 'reload_runtime_state:allow=%s\n' "${MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD:-0}" >>"$event_log"
 	return "${TEST_RELOAD_RUNTIME_RC:-0}"
+}
+
+validate_config_candidate() {
+	printf 'validate_config_candidate:%s\n' "$1" >>"$event_log"
+}
+
+install_validated_config_candidate() {
+	printf 'install_validated_config_candidate:%s\n' "$1" >>"$event_log"
+	rm -f "$1"
+}
+
+mihomo_hot_reload_supported() {
+	printf '%s\n' "$1" | jq -e '(.external_controller_unix // "") != "" or (.external_controller == "0.0.0.0:9090") or (.external_controller == "127.0.0.1:9090")' >/dev/null
+}
+
+subscription_store_auto_update_state() {
+	printf 'subscription_store_auto_update_state:%s:%s:%s\n' "$1" "$2" "$3" >>"$event_log"
 }
 
 write_configs() {
@@ -145,5 +166,34 @@ new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","ex
 result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "restart_required" "$(json_bool "$result" '.action')" "Unix controller changes should require service restart"
 assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "Unix controller changes should not call stale API reload"
+
+: >"$event_log"
+write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload safe config changes"
+assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should install safe hot-reloadable config"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should hot reload without forced restart for non-port changes"
+assert_file_not_contains "$event_log" "restart_required" "auto-update should not request restart for safe changes"
+
+: >"$event_log"
+write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "manual_restart_required" "$(json_bool "$result" '.action')" "auto-update should not apply API field changes"
+assert_file_not_contains "$event_log" "install_validated_config_candidate" "auto-update should not install config requiring manual restart"
+assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "auto-update should not call API after API field drift"
+assert_file_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo controller/UI settings changed; manual restart is required" "auto-update should disable itself on API field drift"
+
+: >"$event_log"
+write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"","external_controller_tls":"","external_controller_unix":"","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update should disable when downloaded config has no hot reload API"
+assert_file_not_contains "$event_log" "install_validated_config_candidate" "auto-update should not install config without hot reload API"
+assert_file_contains "$event_log" "subscription_store_auto_update_state:0:" "auto-update should persist disabled state when hot reload API is missing"
 
 pass "config hot reload apply"

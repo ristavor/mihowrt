@@ -2235,6 +2235,8 @@ remove_user_trees() {
 
 # Remove package-owned files and user state during uninstall after cleanup.
 remove_user_state() {
+	sed -i '/# mihowrt subscription auto-update/d' /etc/crontabs/root 2>/dev/null || true
+	/etc/init.d/cron restart >/dev/null 2>&1 || true
 	remove_user_files \
 		/etc/apk/protected_paths.d/mihowrt.list \
 		/etc/config/mihowrt \

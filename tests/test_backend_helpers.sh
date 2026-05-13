@@ -219,10 +219,10 @@ if (state.directDstRemoteUrlCount !== 0)
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read subscription-json'] = {
 		code: 0,
-		stdout: '{"subscription_url":"https://example.com/sub.yaml"}'
+		stdout: '{"subscription_url":"https://example.com/sub.yaml","subscription_interval_override":true,"subscription_update_interval":"12","subscription_header_interval":"24","subscription_auto_update_enabled":true}'
 	};
 	const subscriptionState = await context.backend.readSubscriptionUrl();
-	if (subscriptionState.subscriptionUrl !== 'https://example.com/sub.yaml' || subscriptionState.errors.length)
+	if (subscriptionState.subscriptionUrl !== 'https://example.com/sub.yaml' || !subscriptionState.subscriptionIntervalOverride || subscriptionState.subscriptionUpdateInterval !== '12' || subscriptionState.subscriptionHeaderInterval !== '24' || !subscriptionState.subscriptionAutoUpdateEnabled || subscriptionState.errors.length)
 		throw new Error('readSubscriptionUrl should parse saved subscription URL');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'subscription-json'))
 		throw new Error('readSubscriptionUrl should dispatch through read-only backend command');
@@ -288,12 +288,19 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('saveSubscriptionUrl should pass URL to backend command');
 
 	context.execCalls.length = 0;
+	await context.backend.saveSubscriptionSettings('https://example.com/sub.yaml', true, '12', '24');
+	const saveSubscriptionSettingsExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-settings');
+	if (!saveSubscriptionSettingsExec || saveSubscriptionSettingsExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|1|12|24')
+		throw new Error('saveSubscriptionSettings should pass URL and interval settings to backend command');
+
+	context.execCalls.length = 0;
 	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/sub.yaml'] = {
 		ok: true,
-		content: 'mode: rule\n'
+		content: 'mode: rule\n',
+		profile_update_interval: '24'
 	};
 	const fetchedSubscription = await context.backend.fetchSubscription('https://example.com/sub.yaml');
-	if (fetchedSubscription !== 'mode: rule\n')
+	if (fetchedSubscription.content !== 'mode: rule\n' || fetchedSubscription.profileUpdateInterval !== '24')
 		throw new Error('fetchSubscription should return backend JSON content');
 	if (!context.execDirectCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'fetch-subscription-json'))
 		throw new Error('fetchSubscription should use direct CGI backend command');

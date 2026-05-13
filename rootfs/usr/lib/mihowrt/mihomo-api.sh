@@ -112,6 +112,33 @@ mihomo_api_socket_path() {
 	esac
 }
 
+mihomo_hot_reload_supported() {
+	local config_json="$1"
+	local controller="" controller_unix="" socket_path="" base_url=""
+
+	MIHOMO_API_REASON=""
+	MIHOMO_API_HTTP_CODE=""
+
+	require_command jq || return 1
+	controller="$(printf '%s\n' "$config_json" | jq -r '.external_controller // ""')" || {
+		mihomo_api_set_reason "Failed to read Mihomo controller from config"
+		return 1
+	}
+	controller_unix="$(printf '%s\n' "$config_json" | jq -r '.external_controller_unix // ""')" || {
+		mihomo_api_set_reason "Failed to read Mihomo Unix controller from config"
+		return 1
+	}
+
+	if [ -n "$controller_unix" ]; then
+		socket_path="$(mihomo_api_socket_path "$controller_unix")" || return 1
+		[ -n "$socket_path" ]
+		return $?
+	fi
+
+	base_url="$(mihomo_api_url_from_controller "$controller")" || return 1
+	[ -n "$base_url" ]
+}
+
 mihomo_hot_reload_config() {
 	local config_json="$1"
 	local config_path="${2:-${CLASH_CONFIG:-/opt/clash/config.yaml}}"

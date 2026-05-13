@@ -443,6 +443,14 @@ config_requires_mihomo_force_reload() {
 	return 1
 }
 
+config_refresh_subscription_auto_update_state() {
+	local config_json="$1"
+
+	if command -v subscription_refresh_auto_update_state >/dev/null 2>&1; then
+		subscription_refresh_auto_update_state "$config_json" || true
+	fi
+}
+
 wait_for_current_mihomo_listeners() {
 	local pid="" dns_port="" tproxy_port=""
 	local timeout="${MIHOMO_HOT_RELOAD_READY_TIMEOUT:-8}"
@@ -518,6 +526,7 @@ apply_config_runtime() {
 	if config_requires_policy_reload "$old_config_json" "$new_config_json"; then
 		policy_reload_needed=1
 	fi
+	config_refresh_subscription_auto_update_state "$new_config_json"
 
 	if config_requires_mihomo_force_reload "$old_config_json" "$new_config_json"; then
 		mihomo_force_reload=1
@@ -550,12 +559,122 @@ apply_config_runtime() {
 	apply_config_result_json "policy_reloaded" 0 1 1
 }
 
-# Validate a temp config with Mihomo and MihoWRT, then atomically replace the
-# live config only after both checks pass.
-apply_config_file() {
+apply_config_runtime_auto_update() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
-	local target_tmp="${active_config}.tmp.$$"
+	local old_config_json="" new_config_json=""
+	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0
+	local reason="" http_code=""
+
+	if [ -r "$active_config" ]; then
+		old_config_json="$(read_config_json_for_path "$active_config" 2>/dev/null || true)"
+		cmp -s "$candidate" "$active_config" 2>/dev/null && config_changed=0 || config_changed=1
+	fi
+
+	validate_config_candidate "$candidate" || {
+		rm -f "$candidate"
+		return 1
+	}
+
+	new_config_json="$(read_config_json_for_path "$candidate" 2>/dev/null || true)"
+	[ -n "$new_config_json" ] || {
+		rm -f "$candidate"
+		subscription_store_auto_update_state 0 "" "subscription config metadata is unavailable" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "subscription config metadata is unavailable"
+		return $?
+	}
+
+	if ! mihomo_hot_reload_supported "$new_config_json"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in subscription config}"
+		rm -f "$candidate"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
+		return $?
+	fi
+
+	if ! service_running_state; then
+		install_validated_config_candidate "$candidate" || return 1
+		config_refresh_subscription_auto_update_state "$new_config_json"
+		apply_config_result_json "saved" 0 0 0
+		return $?
+	fi
+
+	[ -n "$old_config_json" ] || {
+		rm -f "$candidate"
+		reason="active config metadata was unavailable before auto-update"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
+		return $?
+	}
+
+	if ! mihomo_hot_reload_supported "$old_config_json"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in active config}"
+		rm -f "$candidate"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
+		return $?
+	fi
+
+	if [ "$config_changed" -eq 0 ]; then
+		rm -f "$candidate"
+		config_refresh_subscription_auto_update_state "$new_config_json"
+		apply_config_result_json "saved" 0 0 0
+		return $?
+	fi
+
+	if config_requires_service_restart "$old_config_json" "$new_config_json"; then
+		rm -f "$candidate"
+		reason="Mihomo controller/UI settings changed; manual restart is required"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "manual_restart_required" 0 0 0 "$reason"
+		return $?
+	fi
+
+	if config_requires_policy_reload "$old_config_json" "$new_config_json"; then
+		policy_reload_needed=1
+	fi
+	if config_requires_mihomo_force_reload "$old_config_json" "$new_config_json"; then
+		mihomo_force_reload=1
+	fi
+
+	install_validated_config_candidate "$candidate" || return 1
+
+	if ! mihomo_hot_reload_config "$old_config_json" "$active_config" "$mihomo_force_reload"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
+		http_code="${MIHOMO_API_HTTP_CODE:-}"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason" "$http_code"
+		return $?
+	fi
+
+	log "Auto-updated subscription config through Mihomo hot reload"
+
+	if [ "$policy_reload_needed" -eq 0 ]; then
+		config_refresh_subscription_auto_update_state "$new_config_json"
+		apply_config_result_json "hot_reloaded" 0 1 0
+		return $?
+	fi
+
+	if ! wait_for_current_mihomo_listeners; then
+		reason="Mihomo listeners were not ready after auto-update hot reload"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 1 0 "$reason"
+		return $?
+	fi
+
+	if ! MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD=1 reload_runtime_state; then
+		reason="Policy reload failed after auto-update hot reload"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 1 0 "$reason"
+		return $?
+	fi
+
+	config_refresh_subscription_auto_update_state "$new_config_json"
+	apply_config_result_json "policy_reloaded" 0 1 1
+}
+
+validate_config_candidate() {
+	local candidate="$1"
 	local test_output="" config_json="" config_errors=""
 
 	[ -n "$candidate" ] || {
@@ -578,32 +697,33 @@ apply_config_file() {
 
 	[ -x "$CLASH_BIN" ] || {
 		err "Mihomo binary missing at $CLASH_BIN"
-		rm -f "$candidate"
 		return 1
 	}
 
 	test_output="$("$CLASH_BIN" -d "$CLASH_DIR" -f "$candidate" -t 2>&1)" || {
 		err "${test_output:-configuration test failed}"
-		rm -f "$candidate"
 		return 1
 	}
 
 	config_json="$(read_config_json_for_path "$candidate")" || {
-		rm -f "$candidate"
 		return 1
 	}
 
 	config_errors="$(printf '%s\n' "$config_json" | jq -r '.errors | join("; ")')" || {
 		err "Failed to inspect normalized config errors for $candidate"
-		rm -f "$candidate"
 		return 1
 	}
 
 	if [ -n "$config_errors" ]; then
 		err "$config_errors"
-		rm -f "$candidate"
 		return 1
 	fi
+}
+
+install_validated_config_candidate() {
+	local candidate="$1"
+	local active_config="$CLASH_CONFIG"
+	local target_tmp="${active_config}.tmp.$$"
 
 	mkdir -p "$(dirname "$active_config")" || {
 		err "Failed to prepare config directory for $active_config"
@@ -632,6 +752,18 @@ apply_config_file() {
 	rm -f "$candidate"
 	mark_validated_config || err "Failed to record validated config marker"
 	return 0
+}
+
+# Validate a temp config with Mihomo and MihoWRT, then atomically replace the
+# live config only after both checks pass.
+apply_config_file() {
+	local candidate="$1"
+
+	validate_config_candidate "$candidate" || {
+		rm -f "$candidate"
+		return 1
+	}
+	install_validated_config_candidate "$candidate"
 }
 
 # LuCI convenience wrapper for content-based apply. It writes to /tmp first so

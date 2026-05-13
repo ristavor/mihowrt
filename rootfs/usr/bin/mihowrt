@@ -262,6 +262,13 @@ set-subscription-url)
 	}
 	set_subscription_url "$2"
 	;;
+set-subscription-settings)
+	[ "$#" -ge 4 ] || {
+		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours] [loaded-hot-reload-supported:0|1]" >&2
+		exit 1
+	}
+	set_subscription_settings "$2" "$3" "$4" "${5:-}" "${6:-1}"
+	;;
 fetch-subscription)
 	[ -n "${2:-}" ] || {
 		echo "Usage: $0 fetch-subscription <url>" >&2
@@ -276,6 +283,12 @@ fetch-subscription-json)
 	}
 	fetch_subscription_json "$2"
 	;;
+update-subscription)
+	with_runtime_lock update_subscription_config
+	;;
+auto-update-subscription)
+	with_runtime_lock auto_update_subscription_config
+	;;
 status-json)
 	status_json
 	;;
@@ -286,7 +299,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|fetch-subscription-json|status-json|logs-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
 	exit 1
 	;;
 esac

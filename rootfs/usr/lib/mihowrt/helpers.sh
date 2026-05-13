@@ -54,6 +54,32 @@ normalize_uint() {
 	printf '%s' "$value"
 }
 
+uint_lte() {
+	local value="$1"
+	local max="$2"
+	local value_digit="" max_digit=""
+
+	is_uint "$value" && is_uint "$max" || return 1
+	value="$(normalize_uint "$value")"
+	max="$(normalize_uint "$max")"
+
+	[ "${#value}" -lt "${#max}" ] && return 0
+	[ "${#value}" -gt "${#max}" ] && return 1
+
+	while [ -n "$value" ]; do
+		value_digit="${value%"${value#?}"}"
+		max_digit="${max%"${max#?}"}"
+
+		[ "$value_digit" -lt "$max_digit" ] && return 0
+		[ "$value_digit" -gt "$max_digit" ] && return 1
+
+		value="${value#?}"
+		max="${max#?}"
+	done
+
+	return 0
+}
+
 is_valid_uint32_mark() {
 	local value=""
 
@@ -61,17 +87,7 @@ is_valid_uint32_mark() {
 	value="$(normalize_uint "$1")"
 	[ "$value" != "0" ] || return 1
 
-	case "${#value}" in
-		1|2|3|4|5|6|7|8|9)
-			return 0
-			;;
-		10)
-			[ "$value" = "4294967295" ] || [ "$value" \< "4294967295" ]
-			;;
-		*)
-			return 1
-			;;
-	esac
+	uint_lte "$value" "4294967295"
 }
 
 is_valid_port() {
@@ -83,17 +99,7 @@ is_valid_port() {
 	value="$(normalize_uint "$value")"
 	[ "$value" != "0" ] || return 1
 
-	case "${#value}" in
-		1|2|3|4)
-			return 0
-			;;
-		5)
-			[ "$value" = "65535" ] || [ "$value" \< "65535" ]
-			;;
-		*)
-			return 1
-			;;
-	esac
+	uint_lte "$value" "65535"
 }
 
 is_valid_route_table_id() {

@@ -42,6 +42,15 @@ export CLASH_BIN="$tmpdir/clash"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 
+assert_true "uint_lte should accept equal values" uint_lte "4294967295" "4294967295"
+assert_true "uint_lte should accept leading zero values below max" uint_lte "00065535" "65535"
+assert_false "uint_lte should reject values above max" uint_lte "4294967296" "4294967295"
+assert_false "uint_lte should reject non-integers" uint_lte "12x" "65535"
+assert_true "is_valid_port should accept max port" is_valid_port "65535"
+assert_false "is_valid_port should reject port above max" is_valid_port "65536"
+assert_true "is_valid_uint32_mark should accept max mark" is_valid_uint32_mark "4294967295"
+assert_false "is_valid_uint32_mark should reject mark above max" is_valid_uint32_mark "4294967296"
+
 assert_eq "1.2.3" "$(normalize_version 'mihomo v1.2.3 build test')" "normalize_version strips prefix"
 assert_true "version_ge should accept equal versions" version_ge "1.2.3" "1.2.3"
 assert_true "version_ge should accept newer version" version_ge "1.2.4" "1.2.3"

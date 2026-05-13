@@ -88,6 +88,26 @@ status_default_active_json() {
 	}'
 }
 
+load_status_active_snapshot_json() {
+	STATUS_ACTIVE_JSON=""
+	STATUS_RUNTIME_SNAPSHOT_PRESENT=0
+	STATUS_RUNTIME_SNAPSHOT_VALID=0
+	STATUS_RUNTIME_ERRORS_RAW=""
+
+	if STATUS_ACTIVE_JSON="$(runtime_snapshot_status_json 2>&1)"; then
+		STATUS_RUNTIME_SNAPSHOT_PRESENT=1
+		STATUS_RUNTIME_SNAPSHOT_VALID=1
+		return 0
+	fi
+
+	runtime_snapshot_exists && STATUS_RUNTIME_SNAPSHOT_PRESENT=1 || STATUS_RUNTIME_SNAPSHOT_PRESENT=0
+	if [ "$STATUS_RUNTIME_SNAPSHOT_PRESENT" -eq 1 ]; then
+		STATUS_RUNTIME_ERRORS_RAW="$(trim "$STATUS_ACTIVE_JSON")"
+		[ -n "$STATUS_RUNTIME_ERRORS_RAW" ] || STATUS_RUNTIME_ERRORS_RAW="Runtime snapshot is present but invalid"
+	fi
+	STATUS_ACTIVE_JSON="$(status_default_active_json)"
+}
+
 load_status_config_json() {
 	local config_json=""
 
@@ -213,17 +233,11 @@ load_status_runtime_state_json() {
 		route_rule_priority_effective="${ROUTE_RULE_PRIORITY_EFFECTIVE:-}"
 	fi
 
-	if active_json="$(runtime_snapshot_status_json 2>&1)"; then
-		runtime_snapshot_present=1
-		runtime_snapshot_valid=1
-	else
-		runtime_snapshot_exists && runtime_snapshot_present=1 || runtime_snapshot_present=0
-		if [ "$runtime_snapshot_present" -eq 1 ]; then
-			runtime_errors_raw="$(trim "$active_json")"
-			[ -n "$runtime_errors_raw" ] || runtime_errors_raw="Runtime snapshot is present but invalid"
-		fi
-		active_json="$(status_default_active_json)"
-	fi
+	load_status_active_snapshot_json || return 1
+	active_json="$STATUS_ACTIVE_JSON"
+	runtime_snapshot_present="$STATUS_RUNTIME_SNAPSHOT_PRESENT"
+	runtime_snapshot_valid="$STATUS_RUNTIME_SNAPSHOT_VALID"
+	runtime_errors_raw="$STATUS_RUNTIME_ERRORS_RAW"
 
 	status_vars="$(jq -nr \
 		--argjson config "$config_json" \

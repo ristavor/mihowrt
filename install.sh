@@ -2005,6 +2005,57 @@ rollback_reinstall_state() {
 	return 0
 }
 
+preserve_package_recovery_state() {
+	preserve_backup_dir
+	preserve_kernel_backup_dir
+}
+
+restore_kernel_backup_or_warn() {
+	local warning="$1"
+
+	if restore_kernel_backup; then
+		return 0
+	fi
+
+	preserve_kernel_backup_dir
+	warn "$warning"
+	return 1
+}
+
+restore_available_kernel_backup_or_warn() {
+	local warning="$1"
+
+	kernel_backup_available || return 0
+	restore_kernel_backup_or_warn "$warning"
+}
+
+rollback_fresh_kernel_or_warn() {
+	local warning="$1"
+
+	if rollback_kernel_update; then
+		return 0
+	fi
+
+	preserve_kernel_backup_dir
+	warn "$warning"
+	return 1
+}
+
+restore_failed_package_state() {
+	local reinstall="$1"
+
+	if [ "$reinstall" = "1" ]; then
+		restore_kernel_backup_or_warn "failed to restore previous Mihomo kernel after install failure" || true
+		if ! restore_user_state; then
+			preserve_backup_dir
+			err "failed to restore saved config and policy files"
+		fi
+		return 0
+	fi
+
+	rollback_fresh_kernel_or_warn "failed to roll back Mihomo kernel after install failure" || true
+}
+
 handle_install_failure() {
 	local reinstall="$1"
 	local message="$2"
@@ -2016,30 +2067,15 @@ handle_install_failure() {
 	disable_installed_service
 
 	if ! quiesce_postinstall_service; then
-		preserve_backup_dir
-		preserve_kernel_backup_dir
+		preserve_package_recovery_state
 		return 1
 	fi
 	if ! restore_system_network_defaults "after incomplete package install"; then
-		preserve_backup_dir
-		preserve_kernel_backup_dir
+		preserve_package_recovery_state
 		return 1
 	fi
 
-	if [ "$reinstall" = "1" ]; then
-		if ! restore_kernel_backup; then
-			preserve_kernel_backup_dir
-			warn "failed to restore previous Mihomo kernel after install failure"
-		fi
-		if ! restore_user_state; then
-			preserve_backup_dir
-			err "failed to restore saved config and policy files"
-		fi
-	elif ! rollback_kernel_update; then
-		preserve_kernel_backup_dir
-		warn "failed to roll back Mihomo kernel after install failure"
-	fi
-
+	restore_failed_package_state "$reinstall"
 	clear_kernel_backup
 	warn "MihoWRT service was disabled because package install is incomplete"
 	return 1
@@ -2127,15 +2163,55 @@ handle_reinstall_state_failure() {
 	local message="$2"
 
 	disable_installed_service
-	if kernel_backup_available; then
-		if ! restore_kernel_backup; then
-			preserve_kernel_backup_dir
-			warn "$kernel_warning"
-		fi
-	fi
+	restore_available_kernel_backup_or_warn "$kernel_warning" || true
 	preserve_backup_dir
 	end_install_transaction
 	err "$message"
+}
+
+restore_reinstalled_user_state() {
+	log "Restoring saved config and policy state..."
+	if ! restore_user_state; then
+		handle_reinstall_state_failure \
+			"failed to restore previous Mihomo kernel after user-state restore failure" \
+			"failed to restore saved config and policy state"
+		return 1
+	fi
+
+	log "Migrating restored policy lists..."
+	if ! migrate_restored_policy_lists; then
+		handle_reinstall_state_failure \
+			"failed to restore previous Mihomo kernel after policy-list migration failure" \
+			"failed to migrate restored policy list syntax"
+		return 1
+	fi
+}
+
+restore_runtime_state_after_reinstall() {
+	if restore_runtime_state; then
+		return 0
+	fi
+
+	kernel_backup_available || return 1
+	warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
+	if ! restore_kernel_backup; then
+		preserve_kernel_backup_dir
+		err "failed to restore previous Mihomo kernel after runtime restore failure"
+		return 1
+	fi
+
+	restore_runtime_state
+}
+
+finish_reinstall_transaction() {
+	clear_kernel_backup
+	release_reinstall_dependencies
+	end_install_transaction
+}
+
+abort_transaction() {
+	end_install_transaction
+	return 1
 }
 
 prepare_package_payload() {
@@ -2170,58 +2246,26 @@ prepare_package_payload() {
 
 complete_reinstall_after_package() {
 	if ! quiesce_postinstall_service; then
-		preserve_backup_dir
-		preserve_kernel_backup_dir
-		end_install_transaction
+		preserve_package_recovery_state
 		err "failed to quiesce auto-started service after package install"
+		abort_transaction
 		return 1
 	fi
 
-	log "Restoring saved config and policy state..."
-	if ! restore_user_state; then
-		handle_reinstall_state_failure \
-			"failed to restore previous Mihomo kernel after user-state restore failure" \
-			"failed to restore saved config and policy state"
+	restore_reinstalled_user_state || return 1
+	if ! restore_runtime_state_after_reinstall; then
+		abort_transaction
 		return 1
 	fi
 
-	log "Migrating restored policy lists..."
-	if ! migrate_restored_policy_lists; then
-		handle_reinstall_state_failure \
-			"failed to restore previous Mihomo kernel after policy-list migration failure" \
-			"failed to migrate restored policy list syntax"
-		return 1
-	fi
-
-	if ! restore_runtime_state; then
-		if kernel_backup_available; then
-			warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
-			restore_kernel_backup || {
-				preserve_kernel_backup_dir
-				end_install_transaction
-				err "failed to restore previous Mihomo kernel after runtime restore failure"
-				return 1
-			}
-			if ! restore_runtime_state; then
-				end_install_transaction
-				return 1
-			fi
-		else
-			end_install_transaction
-			return 1
-		fi
-	fi
-
-	clear_kernel_backup
-	release_reinstall_dependencies
-	end_install_transaction
+	finish_reinstall_transaction
 	return 0
 }
 
 complete_fresh_install_after_package() {
 	clear_kernel_backup
 	if ! start_fresh_install_service; then
-		end_install_transaction
+		abort_transaction
 		return 1
 	fi
 
@@ -2238,7 +2282,7 @@ begin_package_transaction() {
 	log "Saving current config and policy state..."
 	if ! prepare_update; then
 		rollback_reinstall_state "$reinstall"
-		end_install_transaction
+		abort_transaction
 		return 1
 	fi
 }
@@ -2249,8 +2293,8 @@ prepare_package_install_mutation() {
 	log "Installing/updating Mihomo kernel..."
 	if ! kernel_apply_staged_update; then
 		rollback_reinstall_state "$reinstall"
-		end_install_transaction
 		err "kernel install/update failed"
+		abort_transaction
 		return 1
 	fi
 
@@ -2260,8 +2304,8 @@ prepare_package_install_mutation() {
 		elif ! rollback_kernel_update; then
 			preserve_kernel_backup_dir
 		fi
-		end_install_transaction
 		err "failed to set skip-start marker"
+		abort_transaction
 		return 1
 	fi
 }
@@ -2272,14 +2316,14 @@ install_prepared_package() {
 	INSTALL_TRANSACTION_PACKAGE_STARTED=1
 	if ! install_package "$reinstall" "$TMP_APK"; then
 		handle_install_failure "$reinstall" "package install failed; some packages may be missing"
-		end_install_transaction
+		abort_transaction
 		return 1
 	fi
 	clear_skip_start
 
 	if ! verify_required_packages; then
 		handle_install_failure "$reinstall" "package install incomplete; missing packages: $MISSING_PACKAGES"
-		end_install_transaction
+		abort_transaction
 		return 1
 	fi
 }

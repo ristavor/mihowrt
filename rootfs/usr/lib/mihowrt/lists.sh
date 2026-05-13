@@ -46,6 +46,7 @@ policy_list_file_needs_migration() {
 migrate_policy_list_file() {
 	local file="$1"
 	local tmp="" file_dir="" file_base="" line="" trimmed="" migrated=""
+	local rc=0
 
 	[ -f "$file" ] || return 0
 	policy_list_file_needs_migration "$file" || return 0
@@ -58,18 +59,38 @@ migrate_policy_list_file() {
 		return 1
 	}
 
-	while IFS= read -r line || [ -n "$line" ]; do
+	exec 3< "$file" || {
+		rm -f "$tmp"
+		return 1
+	}
+	exec 4> "$tmp" || {
+		exec 3<&-
+		rm -f "$tmp"
+		return 1
+	}
+
+	while IFS= read -r line <&3 || [ -n "$line" ]; do
 		trimmed="$(trim "$line")"
 		if policy_entry_has_legacy_colon_ports "$trimmed"; then
 			migrated="$(policy_entry_legacy_colon_to_semicolon "$trimmed")" || {
-				rm -f "$tmp"
-				return 1
+				rc=1
+				break
 			}
-			printf '%s\n' "$migrated"
+			printf '%s\n' "$migrated" >&4 || {
+				rc=1
+				break
+			}
 		else
-			printf '%s\n' "$line"
+			printf '%s\n' "$line" >&4 || {
+				rc=1
+				break
+			}
 		fi
-	done < "$file" > "$tmp" || {
+	done
+
+	exec 3<&-
+	exec 4>&-
+	[ "$rc" -eq 0 ] || {
 		rm -f "$tmp"
 		return 1
 	}
@@ -266,10 +287,10 @@ count_remote_list_urls() {
 policy_list_fingerprint() {
 	local file="$1"
 
-	have_command cksum && have_command awk || {
+	if ! have_command cksum || ! have_command awk; then
 		printf '%s' ''
 		return 0
-	}
+	fi
 
 	if [ -f "$file" ]; then
 		cksum "$file" | awk '{ printf "%s:%s", $1, $2 }'

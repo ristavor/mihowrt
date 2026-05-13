@@ -3,7 +3,8 @@
 'require fs';
 'require mihowrt.exec as execHelper';
 
-const BACKEND = '/usr/bin/mihowrt';
+const READ_BACKEND = '/usr/bin/mihowrt-read';
+const WRITE_BACKEND = '/usr/bin/mihowrt';
 
 function emptyConfigState() {
 	return {
@@ -141,7 +142,7 @@ function assignServiceState(state, payload) {
 
 async function readBackendJson(args, state, assignPayload) {
 	try {
-		const result = await fs.exec(BACKEND, args);
+		const result = await fs.exec(READ_BACKEND, args);
 
 		if (result.code !== 0) {
 			state.errors = [ execHelper.errorDetail(result) ];
@@ -240,7 +241,7 @@ return baseclass.extend({
 
 		await fs.write(tempPath, String(configContents ?? ''));
 		try {
-			const result = await fs.exec(BACKEND, [ 'apply-config', tempPath ]);
+			const result = await fs.exec(WRITE_BACKEND, [ 'apply-config', tempPath ]);
 
 			if (result.code !== 0)
 				throw new Error(execHelper.errorDetail(result));
@@ -251,7 +252,7 @@ return baseclass.extend({
 	},
 
 	restartValidatedService: async function() {
-		const result = await fs.exec(BACKEND, [ 'restart-validated-service' ]);
+		const result = await fs.exec(WRITE_BACKEND, [ 'restart-validated-service' ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
@@ -262,14 +263,14 @@ return baseclass.extend({
 	},
 
 	saveSubscriptionUrl: async function(subscriptionUrl) {
-		const result = await fs.exec(BACKEND, [ 'set-subscription-url', String(subscriptionUrl ?? '') ]);
+		const result = await fs.exec(WRITE_BACKEND, [ 'set-subscription-url', String(subscriptionUrl ?? '') ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
 	},
 
 	fetchSubscription: async function(subscriptionUrl) {
-		const result = await fs.exec(BACKEND, [ 'fetch-subscription', String(subscriptionUrl ?? '') ]);
+		const result = await fs.exec(WRITE_BACKEND, [ 'fetch-subscription', String(subscriptionUrl ?? '') ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
@@ -278,7 +279,7 @@ return baseclass.extend({
 	},
 
 	updatePolicyLists: async function() {
-		const result = await fs.exec(BACKEND, [ 'update-policy-lists' ]);
+		const result = await fs.exec(WRITE_BACKEND, [ 'update-policy-lists' ]);
 
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));

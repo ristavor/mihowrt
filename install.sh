@@ -2163,6 +2163,7 @@ remove_user_state() {
 		/opt/clash/lst/direct_dst.txt \
 		/opt/clash/cache.db \
 		/usr/bin/mihowrt \
+		/usr/bin/mihowrt-read \
 		/usr/share/luci/menu.d/luci-app-mihowrt.json \
 		/usr/share/rpcd/acl.d/luci-app-mihowrt.json
 	remove_user_trees \

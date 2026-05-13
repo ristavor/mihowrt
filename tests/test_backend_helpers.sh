@@ -72,7 +72,8 @@ const exportObjectSource = exportMatch[0].replace(/^return baseclass\.extend\(/,
 const context = {
 	Date: { now: () => 1700000000000 },
 	Math: Object.create(Math),
-	BACKEND: '/usr/bin/mihowrt',
+	READ_BACKEND: '/usr/bin/mihowrt-read',
+	WRITE_BACKEND: '/usr/bin/mihowrt',
 	SERVICE_SCRIPT: '/etc/init.d/mihowrt',
 	writeCalls: [],
 	removeCalls: [],
@@ -168,20 +169,20 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('restartValidatedService should dispatch through backend command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt read-config /tmp/config.yaml'] = {
+	context.execResults['/usr/bin/mihowrt-read read-config /tmp/mihowrt-config.test'] = {
 		code: 0,
-		stdout: '{"config_path":"/tmp/config.yaml","dns_port":5353,"catch_fakeip":true,"errors":["parse warning"]}'
+		stdout: '{"config_path":"/tmp/mihowrt-config.test","dns_port":5353,"catch_fakeip":true,"errors":["parse warning"]}'
 	};
-	const configState = await context.backend.readConfig('/tmp/config.yaml');
-	if (configState.configPath !== '/tmp/config.yaml' || configState.dnsPort !== '5353' || !configState.catchFakeip)
+	const configState = await context.backend.readConfig('/tmp/mihowrt-config.test');
+	if (configState.configPath !== '/tmp/mihowrt-config.test' || configState.dnsPort !== '5353' || !configState.catchFakeip)
 		throw new Error('readConfig should map backend JSON payload into config state');
 	if (configState.errors[0] !== 'parse warning')
 		throw new Error('readConfig should preserve backend config parse errors');
-	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args.join(' ') === 'read-config /tmp/config.yaml'))
-		throw new Error('readConfig should pass optional config path to backend command');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args.join(' ') === 'read-config /tmp/mihowrt-config.test'))
+		throw new Error('readConfig should pass optional config path through read-only backend command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt read-config'] = {
+	context.execResults['/usr/bin/mihowrt-read read-config'] = {
 		code: 1,
 		stderr: 'read failed'
 	};
@@ -190,18 +191,18 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readConfig should surface backend command failures');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt subscription-json'] = {
+	context.execResults['/usr/bin/mihowrt-read subscription-json'] = {
 		code: 0,
 		stdout: '{"subscription_url":"https://example.com/sub.yaml"}'
 	};
 	const subscriptionState = await context.backend.readSubscriptionUrl();
 	if (subscriptionState.subscriptionUrl !== 'https://example.com/sub.yaml' || subscriptionState.errors.length)
 		throw new Error('readSubscriptionUrl should parse saved subscription URL');
-	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'subscription-json'))
-		throw new Error('readSubscriptionUrl should dispatch through backend command');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'subscription-json'))
+		throw new Error('readSubscriptionUrl should dispatch through read-only backend command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt status-json'] = {
+	context.execResults['/usr/bin/mihowrt-read status-json'] = {
 		code: 0,
 		stdout: JSON.stringify({
 			service_enabled: true,
@@ -223,6 +224,8 @@ if (state.directDstRemoteUrlCount !== 0)
 		})
 	};
 	const statusState = await context.backend.readStatus();
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'status-json'))
+		throw new Error('readStatus should dispatch through read-only backend command');
 	if (!statusState.available || !statusState.serviceEnabled || !statusState.serviceRunning || !statusState.serviceReady)
 		throw new Error('readStatus should map service flags from backend JSON');
 	if (statusState.routeTableId !== '302' || statusState.routeRulePriority !== '120')
@@ -235,7 +238,7 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readStatus should map nested parsed config state');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt logs-json 10'] = {
+	context.execResults['/usr/bin/mihowrt-read logs-json 10'] = {
 		code: 0,
 		stdout: '{"available":true,"limit":10,"lines":["one",2]}'
 	};
@@ -244,7 +247,7 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readLogs should map backend log payload');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt logs-json 3'] = {
+	context.execResults['/usr/bin/mihowrt-read logs-json 3'] = {
 		code: 1,
 		stderr: 'logs failed'
 	};
@@ -303,18 +306,18 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('fetchSubscription should surface backend fetch failures');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt service-state-json'] = {
+	context.execResults['/usr/bin/mihowrt-read service-state-json'] = {
 		code: 0,
 		stdout: '{"service_enabled":true,"service_running":true,"service_ready":false}'
 	};
 	const serviceState = await context.backend.readServiceState();
 	if (!serviceState.available || !serviceState.serviceEnabled || !serviceState.serviceRunning || serviceState.serviceReady)
 		throw new Error('readServiceState should map backend service-state-json payload');
-	if (context.execCalls.length !== 1 || context.execCalls[0].args[0] !== 'service-state-json')
-		throw new Error('readServiceState should use one backend state command');
+	if (context.execCalls.length !== 1 || context.execCalls[0].cmd !== '/usr/bin/mihowrt-read' || context.execCalls[0].args[0] !== 'service-state-json')
+		throw new Error('readServiceState should use one read-only backend state command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt service-state-json'] = {
+	context.execResults['/usr/bin/mihowrt-read service-state-json'] = {
 		code: 0,
 		stdout: '{"service_enabled":false,"service_running":false,"service_ready":false}'
 	};

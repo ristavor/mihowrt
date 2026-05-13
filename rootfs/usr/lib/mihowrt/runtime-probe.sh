@@ -63,15 +63,19 @@ service_running_state() {
 	return 1
 }
 
-mihomo_ready_state() {
+mihomo_ports_ready_state() {
 	local dns_port="$1"
 	local tproxy_port="$2"
 
-	service_running_state || return 1
 	is_valid_port "$dns_port" || return 1
 	is_valid_port "$tproxy_port" || return 1
 
 	port_listening_udp "$dns_port" && { port_listening_tcp "$tproxy_port" || port_listening_udp "$tproxy_port"; }
+}
+
+mihomo_ready_state() {
+	service_running_state || return 1
+	mihomo_ports_ready_state "$1" "$2"
 }
 
 hex_port() {

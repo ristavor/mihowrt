@@ -55,6 +55,7 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./rootfs/usr/bin/mihowrt $(1)/usr/bin/
+	$(INSTALL_BIN) ./rootfs/usr/bin/mihowrt-read $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/usr/lib/mihowrt
 	$(CP) ./rootfs/usr/lib/mihowrt/* $(1)/usr/lib/mihowrt/

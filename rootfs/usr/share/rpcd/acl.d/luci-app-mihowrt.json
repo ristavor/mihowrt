@@ -4,11 +4,10 @@
 		"read": {
 			"file": {
 				"/opt/clash/config.yaml": [ "read" ],
-				"/usr/bin/mihowrt": [ "read", "exec" ],
+				"/usr/bin/mihowrt-read": [ "exec" ],
 				"/opt/clash/lst/always_proxy_dst.txt": [ "read" ],
 				"/opt/clash/lst/always_proxy_src.txt": [ "read" ],
-				"/opt/clash/lst/direct_dst.txt": [ "read" ],
-				"/etc/init.d/mihowrt": [ "exec" ]
+				"/opt/clash/lst/direct_dst.txt": [ "read" ]
 			},
 			"ubus": {
 				"file": [ "read", "stat", "exec" ],

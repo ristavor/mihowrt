@@ -35,7 +35,12 @@ fetch_http_body_limited() {
 		return 1
 	fi
 
-	if ! is_uint "$max_bytes" || [ "$max_bytes" -le 0 ]; then
+	if ! is_uint "$max_bytes"; then
+		err "Invalid $label size limit: $max_bytes"
+		return 1
+	fi
+	max_bytes="$(normalize_uint "$max_bytes")"
+	if [ "$max_bytes" = "0" ] || ! uint_lte "$max_bytes" 2147483646; then
 		err "Invalid $label size limit: $max_bytes"
 		return 1
 	fi
@@ -79,7 +84,7 @@ fetch_http_body_limited() {
 		return 1
 	fi
 
-	if [ "$size" -gt "$max_bytes" ]; then
+	if ! uint_lte "$size" "$max_bytes"; then
 		err "$label is too large: $size bytes, limit $max_bytes"
 		rm -f "$output"
 		return 1
@@ -161,13 +166,7 @@ set_subscription_url() {
 }
 
 subscription_max_bytes() {
-	local max_bytes="${SUBSCRIPTION_MAX_BYTES:-1048576}"
-
-	if ! is_uint "$max_bytes" || [ "$max_bytes" -le 0 ]; then
-		max_bytes=1048576
-	fi
-
-	printf '%s' "$max_bytes"
+	bounded_positive_uint_or_default "${SUBSCRIPTION_MAX_BYTES:-}" 1048576 2147483646
 }
 
 fetch_subscription_config() {

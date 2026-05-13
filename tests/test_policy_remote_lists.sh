@@ -143,6 +143,18 @@ policy_clear_runtime_list_overrides
 assert_unset POLICY_DST_LIST_FILE "policy_clear_runtime_list_overrides should unset destination override"
 assert_unset POLICY_SRC_LIST_FILE "policy_clear_runtime_list_overrides should unset source override"
 
+POLICY_REMOTE_LIST_MAX_BYTES=999999999999999999999
+POLICY_EFFECTIVE_LIST_MAX_BYTES=999999999999999999999
+POLICY_REMOTE_LIST_FETCH_TIMEOUT=999999999999999999999
+POLICY_REMOTE_LIST_FETCH_BUDGET=999999999999999999999
+POLICY_REMOTE_LIST_MAX_URLS=999999999999999999999
+assert_eq "2147483646" "$(policy_remote_list_max_bytes)" "remote list max bytes should cap huge overrides without shell arithmetic"
+assert_eq "2147483646" "$(policy_effective_list_max_bytes)" "effective list max bytes should cap huge overrides without shell arithmetic"
+assert_eq "3600" "$(policy_remote_list_fetch_timeout)" "remote list fetch timeout should cap huge overrides"
+assert_eq "3600" "$(policy_remote_list_fetch_budget)" "remote list fetch budget should cap huge overrides"
+assert_eq "1024" "$(policy_remote_list_max_urls)" "remote list URL limit should cap huge overrides"
+unset POLICY_REMOTE_LIST_MAX_BYTES POLICY_EFFECTIVE_LIST_MAX_BYTES POLICY_REMOTE_LIST_FETCH_TIMEOUT POLICY_REMOTE_LIST_FETCH_BUDGET POLICY_REMOTE_LIST_MAX_URLS
+
 cat > "$DST_LIST_FILE" <<'EOF'
 https://example.com/scoped-url.txt;0443,0053
 11.11.11.11;00080

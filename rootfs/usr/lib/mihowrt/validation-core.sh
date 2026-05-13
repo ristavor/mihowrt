@@ -20,6 +20,34 @@ normalize_uint() {
 	printf '%s' "$value"
 }
 
+positive_uint_or_default() {
+	local value="${1:-}"
+	local default="$2"
+
+	if ! is_uint "$value"; then
+		printf '%s' "$default"
+		return 0
+	fi
+
+	value="$(normalize_uint "$value")"
+	if [ "$value" = "0" ]; then
+		printf '%s' "$default"
+	else
+		printf '%s' "$value"
+	fi
+}
+
+bounded_positive_uint_or_default() {
+	local value="" max="$3"
+
+	value="$(positive_uint_or_default "${1:-}" "$2")"
+	if [ -n "$max" ] && ! uint_lte "$value" "$max"; then
+		value="$max"
+	fi
+
+	printf '%s' "$value"
+}
+
 uint_lte() {
 	local value="$1"
 	local max="$2"

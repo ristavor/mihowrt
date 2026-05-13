@@ -7,6 +7,7 @@ ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ash_shell_files=(
 	"$ROOT_DIR/install.sh"
 	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	"$ROOT_DIR/rootfs/usr/bin/mihowrt-read"
 	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"

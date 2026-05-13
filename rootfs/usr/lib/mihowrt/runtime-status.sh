@@ -34,15 +34,17 @@ load_config_readiness_ports() {
 
 service_ready_runtime_state() {
 	service_running_state || return 1
+	service_ready_runtime_state_for_running_service
+}
 
+service_ready_runtime_state_for_running_service() {
 	if load_snapshot_readiness_ports; then
-		mihomo_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT" || return 1
-		runtime_policy_ready_state
+		mihomo_ports_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT"
 		return $?
 	fi
 
 	load_config_readiness_ports || return 1
-	mihomo_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT" || return 1
+	mihomo_ports_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT" || return 1
 	runtime_policy_ready_state
 }
 
@@ -61,7 +63,7 @@ service_state_json() {
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
 	if [ "$service_running" -eq 1 ]; then
-		service_ready_runtime_state && service_ready=1 || service_ready=0
+		service_ready_runtime_state_for_running_service && service_ready=1 || service_ready=0
 	fi
 
 	jq -nc \
@@ -289,11 +291,11 @@ load_status_runtime_state_json() {
 		[ -n "$readiness_dns_port" ] || readiness_dns_port="$dns_port"
 		[ -n "$readiness_tproxy_port" ] || readiness_tproxy_port="$tproxy_port"
 
-		if mihomo_ready_state "$readiness_dns_port" "$readiness_tproxy_port"; then
+		if mihomo_ports_ready_state "$readiness_dns_port" "$readiness_tproxy_port"; then
 			if [ "$desired_settings_loaded" = "true" ] && [ "$desired_enabled" = "true" ]; then
-				runtime_policy_ready_state && service_ready=1 || service_ready=0
+				[ "$runtime_snapshot_valid" = "1" ] && service_ready=1 || service_ready=0
 			elif [ "$active_enabled" = "true" ]; then
-				runtime_policy_ready_state && service_ready=1 || service_ready=0
+				[ "$runtime_snapshot_valid" = "1" ] && service_ready=1 || service_ready=0
 			else
 				service_ready=1
 			fi

@@ -1,0 +1,61 @@
+#!/bin/ash
+
+BACKEND="${MIHOWRT_BACKEND:-/usr/bin/mihowrt}"
+
+usage() {
+	echo "Usage: $0 {read-config|subscription-json|service-state-json|status-json|logs-json}" >&2
+	exit 1
+}
+
+backend_exec() {
+	[ -x "$BACKEND" ] || {
+		echo "Error: backend '$BACKEND' is missing or not executable" >&2
+		exit 1
+	}
+
+	exec "$BACKEND" "$@"
+}
+
+case "${1:-}" in
+	read-config)
+		case "$#" in
+			1)
+				backend_exec read-config
+				;;
+			2)
+				case "$2" in
+					/tmp/mihowrt-config.*)
+						backend_exec read-config "$2"
+						;;
+					*)
+						echo "Error: read-config path must be a MihoWRT temp config" >&2
+						exit 1
+						;;
+				esac
+				;;
+			*)
+				usage
+				;;
+		esac
+		;;
+	subscription-json|service-state-json|status-json)
+		[ "$#" -eq 1 ] || usage
+		backend_exec "$1"
+		;;
+	logs-json)
+		case "$#" in
+			1)
+				backend_exec logs-json
+				;;
+			2)
+				backend_exec logs-json "$2"
+				;;
+			*)
+				usage
+				;;
+		esac
+		;;
+	*)
+		usage
+		;;
+esac

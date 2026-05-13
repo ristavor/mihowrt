@@ -62,6 +62,10 @@ assert_true "uint_lte should accept equal values" uint_lte "4294967295" "4294967
 assert_true "uint_lte should accept leading zero values below max" uint_lte "00065535" "65535"
 assert_false "uint_lte should reject values above max" uint_lte "4294967296" "4294967295"
 assert_false "uint_lte should reject non-integers" uint_lte "12x" "65535"
+assert_eq "12" "$(positive_uint_or_default "0012" "5")" "positive_uint_or_default should normalize valid values"
+assert_eq "5" "$(positive_uint_or_default "0" "5")" "positive_uint_or_default should default zero values"
+assert_eq "5" "$(positive_uint_or_default "999x" "5")" "positive_uint_or_default should default invalid values"
+assert_eq "100" "$(bounded_positive_uint_or_default "999999999999999999999" "5" "100")" "bounded_positive_uint_or_default should cap huge values without shell arithmetic"
 assert_true "is_valid_port should accept max port" is_valid_port "65535"
 assert_false "is_valid_port should reject port above max" is_valid_port "65536"
 assert_true "is_valid_uint32_mark should accept max mark" is_valid_uint32_mark "4294967295"
@@ -133,6 +137,7 @@ port_listening_tcp() {
 
 TEST_DNS_PORT_READY="7874"
 TEST_TPROXY_PORT_TCP_READY="7894"
+assert_true "mihomo_ports_ready_state should accept ready UDP+TCP listeners" mihomo_ports_ready_state "7874" "7894"
 assert_true "mihomo_ready_state should accept ready UDP+TCP listeners" mihomo_ready_state "7874" "7894"
 TEST_TPROXY_PORT_TCP_READY=""
 port_listening_udp() {

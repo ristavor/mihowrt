@@ -99,8 +99,8 @@ service_running_state() {
 	return "${TEST_SERVICE_RUNNING_STATE_RC:-0}"
 }
 
-mihomo_ready_state() {
-	printf 'mihomo_ready_state:%s:%s\n' "$1" "$2" >>"$cli_log"
+mihomo_ports_ready_state() {
+	printf 'mihomo_ports_ready_state:%s:%s\n' "$1" "$2" >>"$cli_log"
 	return "${TEST_SERVICE_READY_STATE_RC:-0}"
 }
 
@@ -130,11 +130,12 @@ runtime_snapshot_status_json() {
 }
 
 runtime_snapshot_readiness_json() {
+	[ "${TEST_RUNTIME_SNAPSHOT_READINESS_RC:-0}" -eq 0 ] || return "${TEST_RUNTIME_SNAPSHOT_READINESS_RC:-1}"
 	[ -n "${TEST_RUNTIME_SNAPSHOT_JSON:-}" ] || return 1
 	printf '%s\n' "$TEST_RUNTIME_SNAPSHOT_JSON"
 }
 
-eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^load_snapshot_readiness_ports()/,/^}/p;/^load_config_readiness_ports()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh")"
+eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^load_snapshot_readiness_ports()/,/^}/p;/^load_config_readiness_ports()/,/^}/p;/^service_ready_runtime_state()/,/^}/p;/^service_ready_runtime_state_for_running_service()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh")"
 
 : > "$cli_log"
 : > "$clash_log"
@@ -181,10 +182,11 @@ assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clea
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_READINESS_RC=0
 TEST_RUNTIME_SNAPSHOT_JSON='{"present":true,"enabled":true,"mihomo_dns_port":"7874","mihomo_tproxy_port":"7894"}'
 assert_true "service_ready_runtime_state should report ready when runtime snapshot is valid" service_ready_runtime_state
-assert_file_contains "$cli_log" "mihomo_ready_state:7874:7894" "service_ready_runtime_state should verify listeners before success"
-assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should require runtime snapshot marker for enabled policy"
+assert_file_contains "$cli_log" "mihomo_ports_ready_state:7874:7894" "service_ready_runtime_state should verify listeners before success"
+assert_file_not_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should avoid full snapshot status checks on active readiness snapshot"
 assert_file_not_contains "$cli_log" "policy_route_state_read" "service_ready_runtime_state should not block on route probe after valid snapshot"
 assert_file_not_contains "$cli_log" "nft_table_exists" "service_ready_runtime_state should not block on nft probe after valid snapshot"
 assert_file_not_contains "$cli_log" "dns_backup_valid" "service_ready_runtime_state should not block on dns backup probe after valid snapshot"
@@ -193,16 +195,17 @@ assert_file_not_contains "$cli_log" "load_runtime_config" "service_ready_runtime
 : > "$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
-TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_READINESS_RC=1
 TEST_RUNTIME_SNAPSHOT_JSON='{"present":true,"enabled":true,"mihomo_dns_port":"7874","mihomo_tproxy_port":"7894"}'
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 assert_false "service_ready_runtime_state should stay false until runtime snapshot validates" service_ready_runtime_state
-assert_file_contains "$cli_log" "mihomo_ready_state:7874:7894" "service_ready_runtime_state should still probe listeners before failing on invalid snapshot"
+assert_file_contains "$cli_log" "mihomo_ports_ready_state:7874:7894" "service_ready_runtime_state should still probe listeners before failing on invalid snapshot"
 
 : > "$cli_log"
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
+TEST_RUNTIME_SNAPSHOT_READINESS_RC=0
 TEST_RUNTIME_SNAPSHOT_JSON=''
 TEST_LOAD_RUNTIME_CONFIG_RC=0
 assert_false "service_ready_runtime_state should require policy markers without a valid runtime snapshot" service_ready_runtime_state
@@ -212,6 +215,7 @@ assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_READINESS_RC=0
 TEST_RUNTIME_SNAPSHOT_JSON='{"present":true,"enabled":true,"mihomo_dns_port":"7874","mihomo_tproxy_port":"7894"}'
 TEST_LOAD_RUNTIME_CONFIG_RC=1
 assert_true "service_ready_runtime_state should use active runtime snapshot even when config reload fails" service_ready_runtime_state

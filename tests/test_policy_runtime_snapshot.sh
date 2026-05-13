@@ -191,4 +191,11 @@ assert_eq "0" "$(jq -r '.always_proxy_dst_count' <(runtime_snapshot_status_json)
 assert_eq "0" "$(jq -r '.always_proxy_src_count' <(runtime_snapshot_status_json))" "runtime snapshot status should report zero source entries after list deletion"
 assert_eq "0" "$(jq -r '.direct_dst_count' <(runtime_snapshot_status_json))" "direct-first runtime snapshot status should report inactive direct destination count"
 
+count_valid_list_entries() {
+	fail "runtime_snapshot_readiness_json should not count policy list entries"
+}
+readiness_json="$(runtime_snapshot_readiness_json)"
+assert_eq "7874" "$(printf '%s\n' "$readiness_json" | jq -r '.mihomo_dns_port')" "runtime snapshot readiness should expose DNS port"
+assert_eq "7894" "$(printf '%s\n' "$readiness_json" | jq -r '.mihomo_tproxy_port')" "runtime snapshot readiness should expose TPROXY port"
+
 pass "policy runtime snapshot"

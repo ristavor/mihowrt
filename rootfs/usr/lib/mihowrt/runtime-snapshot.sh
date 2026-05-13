@@ -439,15 +439,28 @@ runtime_snapshot_status_json() {
 }
 
 runtime_snapshot_readiness_json() {
-	local active_json=""
+	local snapshot_file=""
 
 	require_command jq || return 1
-	active_json="$(runtime_snapshot_status_json)" || return 1
-	printf '%s\n' "$active_json" | jq -c '{
-		mihomo_dns_port: (.mihomo_dns_port // ""),
-		mihomo_dns_listen: (.mihomo_dns_listen // ""),
-		mihomo_tproxy_port: (.mihomo_tproxy_port // "")
-	}'
+	runtime_snapshot_exists || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	jq -ec \
+		'if ((.enabled // false) != true) then
+			error("runtime snapshot has disabled policy")
+		elif ((((.policy_mode // "direct-first") == "direct-first") or ((.policy_mode // "direct-first") == "proxy-first")) | not) then
+			error("runtime snapshot has invalid policy mode")
+		elif ((.dns_enhanced_mode // "") != "fake-ip") then
+			error("runtime snapshot is not fake-ip policy")
+		elif ((.catch_fakeip // false) != true) then
+			error("runtime snapshot does not catch fake-ip")
+		elif ((.fakeip_range // "") == "") then
+			error("runtime snapshot has empty fake-ip range")
+		else {
+			mihomo_dns_port: (.mihomo_dns_port // ""),
+			mihomo_dns_listen: (.mihomo_dns_listen // ""),
+			mihomo_tproxy_port: (.mihomo_tproxy_port // "")
+		} end' "$snapshot_file"
 }
 
 runtime_snapshot_mihomo_config_matches_current() {

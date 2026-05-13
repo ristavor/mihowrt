@@ -115,34 +115,27 @@ migrate_policy_list_files() {
 }
 
 policy_positive_uint_or_default() {
-	local value="${1:-}"
-	local default="$2"
-
-	if ! is_uint "$value" || [ "$value" -le 0 ]; then
-		value="$default"
-	fi
-
-	printf '%s' "$value"
+	positive_uint_or_default "${1:-}" "$2"
 }
 
 policy_remote_list_max_bytes() {
-	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_BYTES:-}" 262144
+	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_BYTES:-}" 262144 2147483646
 }
 
 policy_effective_list_max_bytes() {
-	policy_positive_uint_or_default "${POLICY_EFFECTIVE_LIST_MAX_BYTES:-}" 1048576
+	bounded_positive_uint_or_default "${POLICY_EFFECTIVE_LIST_MAX_BYTES:-}" 1048576 2147483646
 }
 
 policy_remote_list_fetch_timeout() {
-	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_TIMEOUT:-}" 15
+	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_TIMEOUT:-}" 15 3600
 }
 
 policy_remote_list_fetch_budget() {
-	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_BUDGET:-}" 60
+	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_BUDGET:-}" 60 3600
 }
 
 policy_remote_list_max_urls() {
-	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32
+	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32 1024
 }
 
 policy_remote_list_fetch_limits_begin() {
@@ -167,7 +160,7 @@ policy_remote_list_register_url() {
 
 	max_urls="$(policy_remote_list_max_urls)"
 	POLICY_REMOTE_LIST_URL_COUNT=$((${POLICY_REMOTE_LIST_URL_COUNT:-0} + 1))
-	if [ "$POLICY_REMOTE_LIST_URL_COUNT" -gt "$max_urls" ]; then
+	if ! uint_lte "$POLICY_REMOTE_LIST_URL_COUNT" "$max_urls"; then
 		err "Too many remote policy list URLs in $label: $POLICY_REMOTE_LIST_URL_COUNT, limit $max_urls"
 		return 1
 	fi
@@ -196,10 +189,10 @@ policy_remote_list_effective_timeout() {
 		return 1
 	fi
 
-	if [ "$timeout" -gt "$remaining" ]; then
-		printf '%s' "$remaining"
-	else
+	if uint_lte "$timeout" "$remaining"; then
 		printf '%s' "$timeout"
+	else
+		printf '%s' "$remaining"
 	fi
 }
 

@@ -6,9 +6,8 @@ logs_json() {
 
 	require_command jq || return 1
 
-	if ! is_uint "$limit" || [ "$limit" -le 0 ]; then
-		limit=200
-	elif [ "$limit" -gt 1000 ]; then
+	limit="$(positive_uint_or_default "$limit" 200)"
+	if ! uint_lte "$limit" 1000; then
 		limit=1000
 	fi
 

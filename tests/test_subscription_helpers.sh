@@ -142,6 +142,10 @@ assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subs
 
 SUBSCRIPTION_MAX_BYTES=bad
 assert_eq "1048576" "$(subscription_max_bytes)" "subscription_max_bytes should default to 1 MiB on invalid override"
+SUBSCRIPTION_MAX_BYTES=0
+assert_eq "1048576" "$(subscription_max_bytes)" "subscription_max_bytes should default to 1 MiB on zero override"
+SUBSCRIPTION_MAX_BYTES=999999999999999999999
+assert_eq "2147483646" "$(subscription_max_bytes)" "subscription_max_bytes should cap huge overrides before shell arithmetic"
 
 export TEST_WGET_MODE=empty
 assert_false "fetch_subscription_config should reject empty downloads" fetch_subscription_config "https://example.com/empty.yaml" >/dev/null

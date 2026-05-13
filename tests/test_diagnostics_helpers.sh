@@ -83,7 +83,7 @@ service_running_state() {
 	return 0
 }
 
-mihomo_ready_state() {
+mihomo_ports_ready_state() {
 	[ -n "${1:-}" ] || return 1
 	[ -n "${2:-}" ] || return 1
 	return "${TEST_SERVICE_READY_RC:-0}"
@@ -182,6 +182,8 @@ assert_eq "2" "$(printf '%s\n' "$logs_output" | jq -r '.limit')" "logs_json shou
 assert_eq "2" "$(printf '%s\n' "$logs_output" | jq -r '.lines | length')" "logs_json should keep only requested number of lines"
 assert_eq "Mon Jan  1 00:00:02 2026 daemon.warn mihowrt[321]: warning line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[0]')" "logs_json should keep earlier matching line within limit window"
 assert_eq "Mon Jan  1 00:00:04 2026 daemon.info mihowrt: last line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[1]')" "logs_json should keep latest matching line"
+assert_eq "1000" "$(logs_json 999999999999999999999 | jq -r '.limit')" "logs_json should cap huge limits without shell arithmetic overflow"
+assert_eq "200" "$(logs_json 0 | jq -r '.limit')" "logs_json should default zero limits"
 
 runtime_live_state_present() {
 	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"

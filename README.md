@@ -1,43 +1,40 @@
 # MihoWRT
 
-MihoWRT is a LuCI package and runtime policy layer for running
-Mihomo on OpenWrt APK-based systems.
+MihoWRT is a LuCI package and OpenWrt runtime layer for running
+Mihomo on APK-based OpenWrt systems.
 
-The package does not try to replace Mihomo routing logic. Mihomo still
-uses its own `config.yaml`, proxy groups, rule providers, DNS settings,
-and TPROXY listener. MihoWRT wraps that with OpenWrt-specific glue:
+Mihomo remains the proxy engine. MihoWRT does not replace Mihomo
+rules, proxy groups, providers, DNS engine, or dashboard. MihoWRT owns
+router integration:
 
-- LuCI pages for service control, Mihomo config editing, traffic policy,
-  and diagnostics.
-- Direct-first and proxy-first nftables policy modes that send selected
-  IPv4 traffic to Mihomo through TPROXY.
-- Policy routing for marked packets.
-- Optional DNS/53 redirect from selected client interfaces.
-- `dnsmasq` upstream redirection to Mihomo DNS while the policy layer is
-  active.
-- Runtime cache placement in tmpfs to reduce flash writes.
-- Snapshot and recovery logic for safe reloads and crash cleanup.
-- Installer logic for package update, Mihomo core update, rollback, and
-  user config preservation.
+- LuCI pages for config editing, service control, traffic policy, and diagnostics.
+- Mihomo config validation before writes become active.
+- nftables TPROXY policy for selected IPv4 traffic.
+- policy routing for marked packets.
+- optional client DNS/53 redirect to Mihomo DNS.
+- dnsmasq upstream switch while policy is active.
+- tmpfs placement for write-heavy Mihomo cache paths.
+- runtime snapshots, rollback, boot recovery, and cleanup.
+- installer flow for package update, Mihomo core update, rollback, and user-state preservation.
 
-The current design is intentionally IPv4-focused. The default bundled
-Mihomo config has `ipv6: false` and `dns.ipv6: false`; nft policy rules
-only match IPv4. This keeps router-side rules simple and predictable on
-networks where IPv6 is not used.
+Current scope is intentionally IPv4 and fake-ip focused. The bundled
+Mihomo config has IPv6 disabled, and MihoWRT nftables policy matches
+IPv4 only. `dns.enhanced-mode: fake-ip` is required because MihoWRT
+uses fake-ip destinations as part of the interception model.
 
 ## Requirements
 
-Runtime package dependencies:
+Package dependencies:
 
 ```text
 luci-base
 jq
 nftables
 kmod-nft-tproxy
-wget-any (wget provider)
+wget-any
 ```
 
-The runtime also expects normal OpenWrt base tools and services:
+Runtime also expects normal OpenWrt tools and services:
 
 ```text
 uci
@@ -47,10 +44,13 @@ procd
 logread
 ```
 
-`pgrep` is optional. MihoWRT can use it as a fallback when pid files are
-missing.
+`pgrep` is optional. MihoWRT uses it only as a fallback when the Mihomo
+pid file is missing.
 
-## Quick Install
+The installer downloads the Mihomo core binary separately. The APK does
+not bundle `/opt/clash/bin/clash`.
+
+## Install And Update
 
 Run on the router:
 
@@ -64,7 +64,7 @@ or:
 curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
 ```
 
-Interactive menu:
+Interactive actions:
 
 ```text
 1. Install/update package + kernel
@@ -73,38 +73,57 @@ Interactive menu:
 4. Stop
 ```
 
-Non-interactive mode:
-
-```sh
-MIHOWRT_ACTION=package wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
-MIHOWRT_ACTION=kernel  wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
-MIHOWRT_ACTION=remove  wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
-MIHOWRT_ACTION=stop    wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
-```
-
-Accepted aliases:
-
-- `package`, `pkg`, `install`, `update`, `1`
-- `kernel`, `core`, `2`
-- `remove`, `delete`, `uninstall`, `3`
-- `stop`, `cancel`, `4`
-
 In installer text, "kernel" means the Mihomo core binary at
 `/opt/clash/bin/clash`, not the Linux/OpenWrt kernel.
 
-The installer downloads the latest `luci-app-mihowrt-*.apk` from this
-project release and the latest Mihomo binary from the MetaCubeX/mihomo
-release. The APK does not bundle the Mihomo core binary.
+Non-interactive mode:
 
-## What Is Installed
+```sh
+wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=package sh
+wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=kernel sh
+wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=remove sh
+wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=stop sh
+```
 
-Main runtime files:
+Accepted action aliases:
+
+```text
+package: package, pkg, install, update, 1
+kernel:  kernel, core, 2
+remove:  remove, delete, uninstall, 3
+stop:    stop, cancel, 4
+```
+
+Useful installer variables:
+
+```text
+MIHOWRT_FORCE_REINSTALL=1
+FETCH_RETRIES=3
+FETCH_CONNECT_TIMEOUT=10
+FETCH_MAX_TIME=60
+SERVICE_START_TIMEOUT=5
+```
+
+The installer is transaction-oriented. It backs up user config, stops
+and cleans runtime state before package changes, stages the Mihomo
+binary, prevents package postinst from starting the service in the
+middle of the transaction, restores user files, then restores previous
+enabled/running state.
+
+Package mode downloads the latest `luci-app-mihowrt-*.apk` from this
+project release and the latest Mihomo binary from `MetaCubeX/mihomo`.
+Kernel-only mode updates only `/opt/clash/bin/clash`.
+
+## Installed Files
+
+Main files:
 
 ```text
 /etc/config/mihowrt
 /etc/init.d/mihowrt
 /etc/init.d/mihowrt-recover
 /usr/bin/mihowrt
+/usr/bin/mihowrt-read
 /usr/lib/mihowrt/
 /usr/share/luci/menu.d/luci-app-mihowrt.json
 /usr/share/rpcd/acl.d/luci-app-mihowrt.json
@@ -116,15 +135,15 @@ Main runtime files:
 /opt/clash/lst/direct_dst.txt
 ```
 
-Mihomo dashboard UI is not stored in this repository. The default
-Mihomo config uses `external-ui-url`, so Mihomo downloads UI files into
-the configured `external-ui` path.
-
 Mihomo core:
 
 ```text
 /opt/clash/bin/clash
 ```
+
+Mihomo dashboard UI is not stored in this repository. The default
+Mihomo config uses Mihomo's `external-ui-url` support, so Mihomo
+downloads dashboard files into the configured `external-ui` path.
 
 Runtime state:
 
@@ -141,176 +160,222 @@ Persistent recovery state:
 ```text
 /etc/mihowrt/dns.backup
 /etc/apk/protected_paths.d/mihowrt.list
+/lib/upgrade/keep.d/mihowrt
 ```
 
-`/opt/clash/config.yaml` and policy list files are package
-conffiles. APK protected paths also mark them as user-owned state.
-Updates should preserve user edits and explicit user deletion of default
-list files.
+The APK declares these conffiles:
 
-The package also installs `/lib/upgrade/keep.d/mihowrt`, so OpenWrt
-`sysupgrade` with config preservation keeps MihoWRT's UCI config,
-Mihomo config, policy list directory, and persistent DNS recovery state.
+```text
+/etc/config/mihowrt
+/opt/clash/config.yaml
+/opt/clash/lst/always_proxy_dst.txt
+/opt/clash/lst/always_proxy_src.txt
+/opt/clash/lst/direct_dst.txt
+```
+
+APK protected paths and sysupgrade keep rules preserve MihoWRT user
+state across package updates and OpenWrt upgrades with config
+preservation.
 
 ## Source Of Truth
 
-MihoWRT has four user-controlled inputs.
-
-1. `/opt/clash/config.yaml`
-
-   This is the real Mihomo YAML config. MihoWRT reads only selected
-   scalar fields from it for OpenWrt runtime integration:
-
-   - `dns.listen`
-   - `dns.enhanced-mode`
-   - `dns.fake-ip-range`
-   - `tproxy-port`
-   - `routing-mark`
-   - `external-controller`
-   - `external-controller-tls`
-   - `secret`
-   - `external-ui`
-   - `external-ui-name`
-
-   Full Mihomo syntax is still checked by Mihomo itself with:
-
-   ```sh
-   /opt/clash/bin/clash -d /opt/clash -f /opt/clash/config.yaml -t
-   ```
-
-2. `/etc/config/mihowrt`
-
-   UCI settings control the OpenWrt-side policy layer:
-
-   ```text
-   option policy_mode 'direct-first'
-   list source_network_interfaces 'br-lan'
-   option dns_hijack '1'
-   option disable_quic '1'
-   option route_table_id ''
-   option route_rule_priority ''
-   option subscription_url ''
-   ```
-
-   Empty `route_table_id` and `route_rule_priority` mean auto-select.
-   Empty `subscription_url` means no subscription is configured.
-
-3. `/opt/clash/lst/always_proxy_dst.txt` and
-   `/opt/clash/lst/always_proxy_src.txt`
-
-   These lists define traffic that must be sent to Mihomo before Mihomo
-   rule matching. They can contain manual entries and remote http(s)
-   list URLs. See "Traffic Policy Lists" below.
-
-4. `/opt/clash/lst/direct_dst.txt`
-
-   In proxy-first mode, this list defines destination IPs or destination
-   IP + port rules that bypass Mihomo. It can contain manual entries and
-   remote http(s) list URLs.
-
-Runtime snapshots in `/var/run/mihowrt` are not a source of truth. They
-describe what is currently applied so reload, diagnostics, and cleanup
-can distinguish active state from desired on-disk config.
-
-## LuCI Pages
-
-MihoWRT adds three pages under Services -> MihoWRT.
+MihoWRT has three persistent user inputs.
 
 ### Mihomo Config
 
-This page edits raw `/opt/clash/config.yaml` in an Ace editor.
+Path:
 
-Buttons:
+```text
+/opt/clash/config.yaml
+```
 
-- `Start MihoWRT`: starts the service.
-- `Stop MihoWRT`: stops the service and cleanup runs from service exit.
-- `Enable Autostart`: enables `/etc/init.d/mihowrt`.
-- `Disable Autostart`: disables `/etc/init.d/mihowrt`.
-- `Open Mihomo Dashboard`: opens the configured Mihomo external UI.
-- `Save Subscription URL`: stores the subscription URL in UCI without
-  changing the active Mihomo config.
-- `Fetch Subscription`: downloads the subscription with `wget`, using
-  `mihowrt/<package-version>` as User-Agent, and loads the result into
-  the editor. The config is not saved until `Validate & Apply Config`.
-  Downloads are limited to 1 MiB by default to keep LuCI responsive on
-  routers.
-- `Validate & Apply Config`: validates YAML through Mihomo, validates
-  required MihoWRT runtime fields, writes the config only after
-  validation succeeds, and restarts MihoWRT if it was running.
+This is the real Mihomo YAML config. MihoWRT reads only fields needed
+for router integration:
 
-Config apply uses a temporary file under `/tmp`. It does not overwrite
-the live config until both checks pass:
+```text
+dns.listen
+dns.enhanced-mode
+dns.fake-ip-range
+tproxy-port
+routing-mark
+external-controller
+external-controller-tls
+secret
+external-ui
+external-ui-name
+```
 
-1. Mihomo accepts the YAML with `-t`.
-2. MihoWRT can read valid DNS listen, TPROXY port, routing mark, and
-   fake-ip settings.
+Full Mihomo syntax remains Mihomo responsibility:
+
+```sh
+/opt/clash/bin/clash -d /opt/clash -f /opt/clash/config.yaml -t
+```
+
+### UCI Policy Config
+
+Path:
+
+```text
+/etc/config/mihowrt
+```
+
+Default settings:
+
+```text
+config settings 'settings'
+	option policy_mode 'direct-first'
+	list source_network_interfaces 'br-lan'
+	option dns_hijack '1'
+	option disable_quic '1'
+	option subscription_url ''
+```
+
+Optional route settings can be added:
+
+```text
+option route_table_id ''
+option route_rule_priority ''
+```
+
+Empty route table/priority means auto-select. Explicit values are
+validated and never overwrite unrelated router state.
+
+### Policy Lists
+
+Paths:
+
+```text
+/opt/clash/lst/always_proxy_dst.txt
+/opt/clash/lst/always_proxy_src.txt
+/opt/clash/lst/direct_dst.txt
+```
+
+`direct-first` mode uses `always_proxy_dst.txt` and
+`always_proxy_src.txt`. Only matching traffic goes to Mihomo, plus
+fake-ip traffic.
+
+`proxy-first` mode uses `direct_dst.txt`. Non-local TCP/UDP traffic goes
+to Mihomo unless the destination list returns it to direct routing.
+
+Runtime snapshots in `/var/run/mihowrt` are not source of truth. They
+describe active state for diagnostics, safe reload, rollback, and
+cleanup.
+
+## LuCI Model
+
+MihoWRT adds pages under `Services -> MihoWRT`.
+
+### Mihomo Config
+
+Edits raw `/opt/clash/config.yaml`.
+
+Important actions:
+
+- `Validate & Apply Config` validates through Mihomo, validates MihoWRT
+  runtime fields, writes the config only after both checks pass, then
+  restarts MihoWRT if it was running.
+- `Fetch Subscription` downloads subscription text into the editor but
+  does not save it until validation/apply.
+- `Save Subscription URL` writes only the URL setting.
+- service start/stop/autostart buttons call the init script.
+- dashboard button opens the configured Mihomo external UI.
+
+Config apply uses a temp file under `/tmp`. The live config is not
+overwritten until validation passes.
 
 ### Traffic Policy
 
-This page edits `/etc/config/mihowrt` and policy list files.
+Edits `/etc/config/mihowrt` and policy list files.
 
-Standard LuCI save buttons keep their normal meaning:
+`Save` writes values to disk. `Save & Apply` follows normal LuCI apply
+flow. If only policy list files changed and service is running, MihoWRT
+reloads policy after saving. If service is stopped, changes apply on
+next start.
 
-- Save writes values to disk.
-- Save & Apply writes values and applies UCI changes.
-
-If only policy list files changed and the service is running, the page
-reloads MihoWRT policy after saving. If the service is stopped, changes
-stay on disk and apply on next start.
+`Update Remote Lists` fetches remote list URLs and compares the resolved
+effective lists with the active snapshot. nftables is reloaded only when
+effective content changed.
 
 ### Diagnostics
 
-This page reads:
+Reads service state, active snapshot, desired config, parse errors, DNS
+backup state, route state, and MihoWRT logs. There is no background
+diagnostic polling; refresh is explicit.
 
-- `/usr/bin/mihowrt status-json`
-- `/usr/bin/mihowrt logs-json 200`
+## Backend Security Model
 
-It shows service state, active runtime snapshot, desired config, config
-parse errors, DNS backup state, route state, and MihoWRT-related system
-logs. `Refresh Diagnostics` reloads only this page data.
+LuCI uses two backend executables:
+
+```text
+/usr/bin/mihowrt-read
+/usr/bin/mihowrt
+```
+
+`mihowrt-read` exposes read-only commands:
+
+```text
+read-config
+subscription-json
+service-state-json
+status-json
+logs-json
+```
+
+It also restricts temporary config reads to `/tmp/mihowrt-config.*`.
+
+Mutating operations use `/usr/bin/mihowrt` and require LuCI write ACL:
+
+```text
+apply-config
+set-subscription-url
+fetch-subscription
+update-policy-lists
+restart-validated-service
+init script actions
+```
+
+This split keeps ordinary read refreshes away from the write-capable
+orchestrator surface.
 
 ## Service Lifecycle
 
-OpenWrt starts MihoWRT through `/etc/init.d/mihowrt`, which is a procd
-service wrapper around:
+OpenWrt starts MihoWRT through:
+
+```sh
+/etc/init.d/mihowrt start
+```
+
+Main procd command:
 
 ```sh
 /usr/bin/mihowrt run-service
 ```
 
-Start sequence:
+Start flow:
 
-1. `/etc/init.d/mihowrt start` refuses to start if the installer
-   skip-start marker exists.
-2. It runs `/usr/bin/mihowrt recover` to clean stale state from an
-   unclean shutdown.
-3. It validates the Mihomo config with `clash -d /opt/clash -f ... -t`.
-4. It validates MihoWRT runtime config.
-5. It runs `/usr/bin/mihowrt cleanup` to remove stale nft, route, DNS,
-   and snapshot state before a clean start.
-6. procd starts `/usr/bin/mihowrt run-service`.
-7. `run-service` loads config, validates again, prepares tmpfs runtime
-   layout, and starts Mihomo as:
+1. refuse installer mid-transaction auto-start when skip marker exists.
+2. recover stale state from previous crash or power loss.
+3. validate Mihomo config with `clash -d /opt/clash -f ... -t`.
+4. validate MihoWRT runtime config.
+5. cleanup stale nft, route, DNS, and snapshot state.
+6. start Mihomo with `-d /opt/clash -f /opt/clash/config.yaml`.
+7. wait until Mihomo DNS and TPROXY listeners are ready.
+8. apply policy route, nftables rules, DNS state, and runtime snapshot.
+9. wait for Mihomo exit.
+10. cleanup runtime state on stop or process exit.
 
-   ```sh
-   /opt/clash/bin/clash -d /opt/clash -f /opt/clash/config.yaml
-   ```
+Runtime mutations are guarded by a symlink lock:
 
-8. MihoWRT waits until Mihomo DNS and TPROXY listeners are ready.
-9. It applies policy routing, nftables rules, DNS state, and saves a
-   runtime snapshot.
-10. When the Mihomo process exits or the service is stopped, cleanup
-    restores DNS, removes nftables table, removes policy route state,
-    and clears runtime snapshots.
+```text
+/var/run/mihowrt/runtime.lock
+```
 
-The `-d /opt/clash` argument makes Mihomo resolve relative paths from
-`/opt/clash`. The `-f` argument pins the exact config file path. Without
-`-f`, Mihomo would use its default config discovery and MihoWRT could
-start a different config than the one LuCI validates and edits.
+Default lock timeout is 120 seconds and can be changed with
+`RUNTIME_LOCK_TIMEOUT`.
 
-## Runtime Layout And Flash Writes
+## Runtime State And Flash Writes
 
-MihoWRT moves write-heavy Mihomo runtime paths to tmpfs:
+Write-heavy Mihomo runtime paths are moved to tmpfs:
 
 ```text
 /opt/clash/ruleset          -> /tmp/clash/ruleset
@@ -318,29 +383,33 @@ MihoWRT moves write-heavy Mihomo runtime paths to tmpfs:
 /opt/clash/cache.db         -> /tmp/clash/cache.db
 ```
 
-If a real directory or file already exists at the `/opt/clash` path,
-MihoWRT copies it to `/tmp` before replacing the original path with a
-symlink. This keeps existing data for the current boot but avoids future
-cache writes to flash.
+If real files or directories already exist at the `/opt/clash` paths,
+MihoWRT copies them to `/tmp` before replacing them with symlinks.
 
-One persistent file is intentionally written when DNS runtime state is
-first applied:
+Normal runtime snapshots stay in tmpfs:
+
+```text
+/var/run/mihowrt/runtime.snapshot.json
+/var/run/mihowrt/always_proxy_dst.snapshot
+/var/run/mihowrt/always_proxy_src.snapshot
+/var/run/mihowrt/direct_dst.snapshot
+/var/run/mihowrt/route.state
+```
+
+One persistent DNS backup is intentional:
 
 ```text
 /etc/mihowrt/dns.backup
 ```
 
-That file exists so boot recovery can restore `dnsmasq` even after power
-loss, where `/var/run` and `/tmp` are gone. Routine runtime snapshots are
-kept in `/var/run/mihowrt`, not flash.
+It exists so boot recovery can restore dnsmasq after power loss, where
+`/tmp` and `/var/run` are gone. The file is written only when needed and
+only when content changed.
 
 ## Traffic Policy Lists
 
-Policy list files support comments, blank lines, manual entries, and
-remote `http://` or `https://` list URLs. Remote lists are fetched when
-policy is applied, the service starts, or the policy page `Update Remote
-Lists` action is used. Their contents are merged with manual entries in
-`/tmp`; the persistent list files are not rewritten.
+List files support comments, blank lines, manual entries, and remote
+HTTP(S) URLs.
 
 Valid entries:
 
@@ -364,90 +433,51 @@ Port formats:
 
 Rules:
 
-- Ports must be `1..65535`.
-- Ranges must have `start <= end`.
-- Comma lists contain concrete ports only.
-- Mixed range/list syntax like `15-20,443` is intentionally invalid.
+- ports must be `1..65535`.
+- ranges require `start <= end`.
+- comma lists contain concrete ports only.
+- mixed `15-20,443` syntax is invalid.
 - IPv6 entries are not supported.
-- Invalid entries are skipped and logged as warnings.
-- `;` is the preferred port separator because `:` is part of URLs.
-  Legacy `ip:port`, `ip/mask:port`, and `:port` entries are still
-  accepted for compatibility.
-- For `http(s)://url;ports`, MihoWRT fetches `http(s)://url`; the port
-  suffix is applied to unscoped IP/CIDR entries from that remote list.
-  Port-scoped entries inside the remote list keep their own ports.
-- Remote URLs inside a remote list are ignored, so lists do not recurse.
-- A remote list fetch failure fails policy apply/reload. Existing runtime
-  state is kept through rollback when a snapshot exists.
-- Each remote list is limited to 256 KiB by default. Each effective list
-  is limited to 1 MiB by default.
-- Remote list fetches use a 15 second per-URL timeout, a 60 second total
-  apply budget, and a 32 URL safety cap by default.
-- Manual remote-list update compares the freshly resolved active list with
-  the runtime snapshot. If it is unchanged, nftables is left untouched; if
-  it changed, MihoWRT reloads the policy and updates the snapshot.
+- invalid entries are skipped and logged.
+- `;` is preferred before ports because `:` belongs to URLs.
+- legacy `ip:port`, `ip/mask:port`, and `:port` are accepted and migrated.
+- URLs inside remote lists are ignored; remote lists do not recurse.
+- remote content is merged into temp effective lists; persistent list files are not rewritten.
+- remote fetch failure fails apply/reload. Existing runtime state is restored when snapshot rollback is possible.
 
-Examples:
+Remote list limits:
 
 ```text
-# Any TCP/UDP traffic to this destination IP
-1.1.1.1
-
-# Any TCP/UDP traffic to this destination subnet
-8.8.8.0/24
-
-# Only destination port 443 for this IP
-1.1.1.1;443
-
-# Destination port range for this subnet
-100.100.100.100/20;15-2000
-
-# Concrete destination ports for this IP
-1.1.1.1;15,443,8443
-
-# Any IPv4 destination/client on these ports
-;443
-;80,443
-
-# Merge remote entries with manual entries
-https://example.com/mihowrt-list.txt
-
-# Merge remote entries and apply ports to unscoped remote entries
-https://example.com/mihowrt-list.txt;443,8443
+POLICY_REMOTE_LIST_MAX_BYTES=262144
+POLICY_EFFECTIVE_LIST_MAX_BYTES=1048576
+POLICY_REMOTE_LIST_FETCH_TIMEOUT=15
+POLICY_REMOTE_LIST_FETCH_BUDGET=60
+POLICY_REMOTE_LIST_MAX_URLS=32
 ```
 
 Destination list semantics:
 
 - `always_proxy_dst.txt` matches destination address.
-- Port-qualified entries match destination port.
+- port-qualified entries match destination port.
 - `;port` matches any IPv4 destination on that destination port.
-- Destination policy applies to client traffic in prerouting and to
-  router-originated traffic in output.
+- destination policy applies to client traffic and router-originated output traffic.
 
 Source list semantics:
 
-- `always_proxy_src.txt` matches source/client address.
-- Port-qualified entries still filter by destination port.
-- `;port` means any IPv4 client traffic from selected source interfaces
-  to that destination port.
-- Source policy applies only to prerouting traffic from configured
-  source interfaces. It does not apply to router-originated output
-  traffic because router-originated packets have no client source
-  interface in the same sense.
+- `always_proxy_src.txt` matches client/source address.
+- port-qualified entries still filter by destination port.
+- source policy applies only to prerouting traffic from configured source interfaces.
+- source policy does not apply to router-originated output traffic.
 
 Performance model:
 
-- IP-only entries are loaded into nftables interval sets:
-  `proxy_dst`, `proxy_src`, and `direct_dst`.
-- Port-qualified entries are emitted as direct nftables rules, because
-  the existing `ipv4_addr` interval sets cannot also carry port
-  metadata without changing set type and old behavior.
-- This keeps the common IP/CIDR-only path fast while allowing port
-  filters where needed.
+- IP/CIDR entries go into nftables interval sets.
+- port-qualified entries become direct nftables rules.
+- common IP-only lists stay compact; port rules remain explicit and readable.
 
-## nftables Runtime
+## nftables And Routing
 
-MihoWRT owns one table:
+MihoWRT owns one nftables table:
 
 ```text
 table inet mihowrt
@@ -456,88 +486,61 @@ table inet mihowrt
 Main sets:
 
 ```text
-proxy_dst      ipv4_addr interval set for destination policies
-proxy_src      ipv4_addr interval set for source policies
-localv4        reserved/local IPv4 ranges
-source_ifaces  configured ingress interfaces
+proxy_dst
+proxy_src
+direct_dst
+localv4
+source_ifaces
 ```
 
 Main chains:
 
 ```text
-dns_hijack          nat prerouting, priority dstnat
-mangle_prerouting   filter prerouting, priority -150
-prerouting_policy   regular chain jumped from mangle_prerouting
-mangle_output       route output, priority -150
-proxy_redirect      filter prerouting, priority -100
+dns_hijack
+mangle_prerouting
+prerouting_policy
+mangle_output
+proxy_redirect
 ```
 
-Important rule order:
+Important order:
 
-1. DNS/53 redirect happens in `dns_hijack` before normal routing
-   decisions.
-2. Client traffic enters policy only if input interface is in
-   `source_ifaces`.
-3. `localv4` destinations return early. Private, loopback, multicast,
-   reserved, and other local IPv4 ranges are not proxied, even with
-   `;port` entries.
-4. Already marked packets return to avoid re-marking loops.
-5. If QUIC blocking is enabled, UDP/443 selected by policy is rejected
-   before marking.
-6. Selected TCP/UDP traffic gets mark `0x00001000`.
-7. `proxy_redirect` TPROXYs marked TCP/UDP packets to
-   `127.0.0.1:<tproxy-port>`.
-8. Router-originated output traffic has a separate route hook. It uses
-   destination policies and fake-ip catch, but not source/client policy.
+1. optional DNS/53 redirect happens first for selected source interfaces.
+2. local/reserved IPv4 destinations return before policy matching.
+3. already marked packets return to avoid loops.
+4. selected TCP/UDP traffic gets intercept mark `0x00001000`.
+5. optional QUIC blocking rejects selected UDP/443 before marking.
+6. marked packets are TPROXYed to `127.0.0.1:<tproxy-port>`.
+7. router-originated output traffic uses destination/fake-ip policy, not source/client policy.
 
-If Mihomo DNS enhanced mode is `fake-ip`, MihoWRT also marks traffic to
-`dns.fake-ip-range`. That lets Mihomo receive fake-ip connections even
-when the destination is not present in the manual policy lists.
-
-## Policy Routing
-
-Mihomo TPROXY needs marked packets routed to local loopback. MihoWRT
-sets:
+Policy routing:
 
 ```sh
 ip rule add fwmark 0x00001000/0x00001000 table <table> priority <priority>
 ip route replace local 0.0.0.0/0 dev lo table <table>
 ```
 
-Defaults:
+Auto ranges:
 
 ```text
-table id range: 200..252
-priority range: 10000..10999
+table id: 200..252
+priority: 10000..10999
 ```
 
-If `route_table_id` or `route_rule_priority` are empty, MihoWRT
-auto-selects free values. The effective values are saved to:
+Effective values are stored in `/var/run/mihowrt/route.state`. Reload
+reuses safe managed values and refuses explicit conflicts with foreign
+router state.
 
-```text
-/var/run/mihowrt/route.state
-```
-
-On reload, MihoWRT reuses saved values if they are still safe. If a
-saved auto table or priority becomes occupied by foreign state, MihoWRT
-moves to a free value and tears down the old managed route/rule after a
-successful apply.
-
-MihoWRT refuses invalid explicit values and refuses explicit table or
-priority conflicts instead of overwriting unrelated router state.
-
-The Mihomo `routing-mark` from `config.yaml` must not equal MihoWRT's
-intercept mark `0x00001000`; otherwise Mihomo-originated packets and
-MihoWRT-intercepted packets would be indistinguishable.
+Mihomo `routing-mark` must not equal MihoWRT intercept mark
+`0x00001000`.
 
 ## DNS Behavior
 
-There are two separate DNS mechanisms.
+MihoWRT has two DNS mechanisms.
 
-### dnsmasq upstream redirection
+### dnsmasq Upstream
 
-When the policy layer is active, MihoWRT configures `dnsmasq` to send
-router DNS resolution through Mihomo DNS:
+While policy is active, MihoWRT points dnsmasq upstream to Mihomo DNS:
 
 ```text
 dhcp.@dnsmasq[0].server    = <mihomo dns listen as host#port>
@@ -546,76 +549,45 @@ dhcp.@dnsmasq[0].noresolv  = 1
 dhcp.@dnsmasq[0].resolvfile cleared
 ```
 
-Before changing `dnsmasq`, MihoWRT stores original state in runtime and
-persistent backup files. Cleanup restores the original state. If backup
-is missing but current DNS state clearly still points to Mihomo, fallback
-restore returns `dnsmasq` to OpenWrt defaults.
+Cleanup restores previous dnsmasq state from runtime backup, persistent
+backup, or safe fallback defaults when current state still clearly
+points to Mihomo.
 
-### Client DNS/53 redirect
+### Client DNS/53 Redirect
 
-If `option dns_hijack '1'`, MihoWRT also redirects client TCP/UDP port
-53 traffic from `source_network_interfaces` to Mihomo DNS. This catches
-clients that ignore router DHCP DNS settings.
+If `option dns_hijack '1'`, client TCP/UDP port 53 from configured
+source interfaces is redirected to Mihomo DNS.
 
-If `dns_hijack` is disabled, MihoWRT still configures `dnsmasq` upstream
-while policy is active, but it does not NAT-redirect client DNS/53.
+If disabled, dnsmasq upstream still goes through Mihomo while policy is
+active, but client DNS/53 packets are not NAT-redirected.
 
-## Safe Reload, Snapshot, And Rollback
-
-Applying policy creates:
-
-```text
-/var/run/mihowrt/runtime.snapshot.json
-/var/run/mihowrt/always_proxy_dst.snapshot
-/var/run/mihowrt/always_proxy_src.snapshot
-/var/run/mihowrt/direct_dst.snapshot
-```
-
-The snapshot records applied UCI settings, parsed Mihomo runtime fields,
-effective route table/priority, source interfaces, fake-ip state, source
-list fingerprints, and copies of the effective policy list files after
-remote lists are merged.
+## Safe Reload And Recovery
 
 Reload behavior:
 
-- If policy is disabled in UCI, reload cleans runtime state and leaves
-  the system clean.
-- If no valid snapshot exists and live runtime state exists, reload
-  refuses in-place changes. This avoids losing track of nft, route, and
-  DNS state.
-- If no snapshot exists and no live runtime state exists, reload applies
-  from a clean state.
-- If a valid snapshot exists, reload applies new state. If apply fails,
-  MihoWRT restores the previous snapshot.
-- If route table/priority changes during reload, old managed route/rule
-  are removed only after new state is applied.
+- disabled policy cleans runtime state.
+- no snapshot plus live runtime state refuses unsafe in-place reload.
+- no snapshot plus no live runtime state applies from clean state.
+- valid snapshot applies new state and restores old snapshot on failure.
+- old route/rule state is removed only after new state applies.
+- remote list update leaves nftables untouched when effective lists did not change.
 
-This is a safety-oriented reload, not a single kernel-atomic transaction
-across nftables, policy routing, and dnsmasq. The code favors rollback
-and refusing unsafe reloads over guessing.
+This is rollback-capable orchestration across nftables, policy routing,
+and dnsmasq. It is not a single kernel-atomic transaction.
 
-## Crash Recovery
-
-`/etc/init.d/mihowrt-recover` runs before the main service on boot. It
-calls:
+Boot recovery:
 
 ```sh
+/etc/init.d/mihowrt-recover
 /usr/bin/mihowrt recover
 ```
 
-Recovery checks whether live runtime state exists:
-
-- nft table `mihowrt`
-- route state file and managed policy route/rule
-- DNS backup or hijacked `dnsmasq` state
-
-If state exists, recovery runs cleanup. This handles router reboot or
-power loss after MihoWRT changed DNS/routing state but before normal
-service stop cleanup could run.
+Recovery detects managed nftables, route, DNS, and snapshot state. If
+stale state exists, cleanup runs before normal service start.
 
 ## Commands
 
-Main helper:
+Main backend:
 
 ```sh
 /usr/bin/mihowrt prepare
@@ -623,20 +595,38 @@ Main helper:
 /usr/bin/mihowrt recover
 /usr/bin/mihowrt reload
 /usr/bin/mihowrt reload-policy
+/usr/bin/mihowrt update-policy-lists
+/usr/bin/mihowrt migrate-policy-lists
 /usr/bin/mihowrt service-running
 /usr/bin/mihowrt service-ready
+/usr/bin/mihowrt service-state-json
+/usr/bin/mihowrt restart-validated-service
 /usr/bin/mihowrt validate
 /usr/bin/mihowrt run-service
 /usr/bin/mihowrt init-layout
 /usr/bin/mihowrt read-config
 /usr/bin/mihowrt apply-config /tmp/candidate.yaml
 /usr/bin/mihowrt apply-config-contents '<yaml>'
+/usr/bin/mihowrt subscription-json
+/usr/bin/mihowrt set-subscription-url '<url>'
+/usr/bin/mihowrt fetch-subscription '<url>'
 /usr/bin/mihowrt status-json
 /usr/bin/mihowrt logs-json 200
 /usr/bin/mihowrt status
 ```
 
-Service wrapper:
+Read-only backend:
+
+```sh
+/usr/bin/mihowrt-read read-config
+/usr/bin/mihowrt-read read-config /tmp/mihowrt-config.test
+/usr/bin/mihowrt-read subscription-json
+/usr/bin/mihowrt-read service-state-json
+/usr/bin/mihowrt-read status-json
+/usr/bin/mihowrt-read logs-json 200
+```
+
+Init script:
 
 ```sh
 /etc/init.d/mihowrt start
@@ -644,76 +634,37 @@ Service wrapper:
 /etc/init.d/mihowrt restart
 /etc/init.d/mihowrt reload
 /etc/init.d/mihowrt apply
+/etc/init.d/mihowrt update_lists
 ```
 
-Common usage:
+Common diagnostics:
 
 ```sh
-# Validate current config and policy
 /usr/bin/mihowrt validate
-
-# Apply direct file edits safely if service is running
-/etc/init.d/mihowrt apply
-
-# Reload only policy/list/UCI changes
-/etc/init.d/mihowrt reload
-
-# Read machine-friendly diagnostics
 /usr/bin/mihowrt status-json | jq .
+/usr/bin/mihowrt logs-json 200 | jq .
 ```
 
-## Installer Mechanics
+## Development
 
-The installer is transaction-oriented. It tries to leave networking
-usable even if package install, Mihomo update, service restart, or state
-restore fails.
-
-For package install/update:
-
-1. Detect whether MihoWRT was enabled and running.
-2. Seed metadata into an old DNS backup if needed.
-3. Back up:
-   - `/opt/clash/config.yaml`
-   - `/etc/config/mihowrt`
-   - policy list files
-   - `/etc/mihowrt/dns.backup`
-4. Hold required dependencies with an APK virtual package when supported.
-5. Restore system DNS/routing defaults before update.
-6. Download latest `luci-app-mihowrt-*.apk`.
-7. Download and stage latest Mihomo core for detected architecture.
-8. Install Mihomo core.
-9. Create skip-start marker so package postinst cannot auto-start the
-   service mid-transaction.
-10. Install or reinstall APK.
-11. Verify required packages are present.
-12. Stop any service instance that auto-started anyway.
-13. Restore user config and policy files.
-14. Restore enabled/running state from before update.
-
-If reinstall fails, the installer tries to restore previous Mihomo core,
-user files, DNS, route state, and service state. If a backup directory
-or kernel backup cannot be safely removed after a failure, it is
-preserved under `/tmp` and the path is printed.
-
-For kernel-only mode, the installer updates `/opt/clash/bin/clash`
-without reinstalling the APK.
-
-For remove mode, it stops service, runs cleanup, restores DNS/routing,
-removes Mihomo core, removes package, and removes MihoWRT user/runtime
-state.
-
-Network fetch behavior can be tuned:
+Run local checks:
 
 ```sh
-FETCH_RETRIES=3
-FETCH_CONNECT_TIMEOUT=10
-FETCH_MAX_TIME=60
-SERVICE_START_TIMEOUT=5
+bash tests/run.sh
 ```
+
+The test suite covers shell syntax, shell lint, JavaScript syntax, and
+runtime helper tests for installer, backend, config apply, policy,
+remote lists, DNS, nft/route helpers, snapshots, LuCI helpers, and
+service entrypoints.
+
+No new runtime dependency should be added without a clear router-side
+reason. Prefer POSIX/ash-compatible shell, `jq` for JSON, `uci` for UCI,
+and nft/ip commands only at orchestration boundaries.
 
 ## Build From OpenWrt SDK
 
-This repository is a package directory. With the SDK next to the repo:
+With the OpenWrt SDK next to this repository:
 
 ```sh
 cd ~/openwrt/openwrt-sdk-25.12.3-x86-64_gcc-14.3.0_musl.Linux-x86_64
@@ -726,15 +677,15 @@ make package/luci-app-mihowrt/clean
 make package/luci-app-mihowrt/compile V=s -j"$(nproc)"
 ```
 
-Result path for the x86/64 SDK:
+Example APK path for x86/64 SDK:
 
 ```text
 bin/packages/x86_64/base/luci-app-mihowrt-<version>-r1.apk
 ```
 
-The package declares `PKGARCH:=all`, so the APK payload is noarch inside
-the same OpenWrt release line. Kernel modules and dependencies still
-come from the target SDK/repository.
+The package payload is noarch (`PKGARCH:=all`) inside the same OpenWrt
+release line. Kernel modules and dependencies still come from the
+target SDK/repository.
 
 ## Repository Layout
 
@@ -743,63 +694,96 @@ Makefile
   OpenWrt package definition.
 
 install.sh
-  Router-side installer/updater/remover.
-
-rootfs/etc/config/mihowrt
-  Default UCI settings.
+  router-side installer, updater, remover, rollback flow.
 
 rootfs/etc/init.d/mihowrt
-  Main procd service wrapper.
+  procd service wrapper and apply/reload entrypoints.
 
 rootfs/etc/init.d/mihowrt-recover
-  Boot-time cleanup/recovery hook.
+  boot-time stale runtime cleanup.
 
 rootfs/usr/bin/mihowrt
-  Runtime orchestration entrypoint.
+  write-capable runtime orchestrator and command dispatcher.
+
+rootfs/usr/bin/mihowrt-read
+  read-only LuCI backend wrapper.
 
 rootfs/usr/lib/mihowrt/constants.sh
-  Shared paths and nft/routing constants.
+  shared paths, nft constants, route ranges.
 
 rootfs/usr/lib/mihowrt/helpers.sh
-  Validation, config parsing, process checks, and common helpers.
+  common shell helpers and module loader.
+
+rootfs/usr/lib/mihowrt/validation-core.sh
+  primitive validators and numeric helpers.
+
+rootfs/usr/lib/mihowrt/validation-dns.sh
+  DNS listen and DNS-related validation.
+
+rootfs/usr/lib/mihowrt/validation-policy.sh
+  policy list, port, route, mark, IPv4 validation.
+
+rootfs/usr/lib/mihowrt/validation.sh
+  validation module composition.
+
+rootfs/usr/lib/mihowrt/config-io.sh
+  Mihomo config read/parse/apply helpers.
+
+rootfs/usr/lib/mihowrt/fetch.sh
+  bounded HTTP fetch and subscription helpers.
+
+rootfs/usr/lib/mihowrt/diagnostics.sh
+  bounded log JSON helpers.
+
+rootfs/usr/lib/mihowrt/runtime-config.sh
+  UCI/YAML runtime config load and validation.
+
+rootfs/usr/lib/mihowrt/runtime-probe.sh
+  service, pid, port, and readiness probes.
 
 rootfs/usr/lib/mihowrt/runtime.sh
-  tmpfs layout for Mihomo cache paths.
+  tmpfs runtime layout for Mihomo cache paths.
+
+rootfs/usr/lib/mihowrt/dns-state.sh
+  DNS state serialization helpers.
 
 rootfs/usr/lib/mihowrt/dns.sh
-  dnsmasq backup, apply, restore, and fallback recovery.
-
-rootfs/usr/lib/mihowrt/nft.sh
-  nftables generation and policy routing helpers.
-
-rootfs/usr/lib/mihowrt/policy.sh
-  Runtime apply/cleanup/reload/snapshot/status logic.
+  dnsmasq backup, apply, restore, recovery.
 
 rootfs/usr/lib/mihowrt/lists.sh
-  Policy list counting and validation integration.
+  policy list migration, remote merge, validation, fingerprints.
 
-rootfs/www/luci-static/resources/view/mihowrt/
-  LuCI pages: Mihomo config, traffic policy, diagnostics.
+rootfs/usr/lib/mihowrt/nft.sh
+  nftables batch generation and cleanup.
+
+rootfs/usr/lib/mihowrt/route.sh
+  policy route/rule selection, apply, cleanup.
+
+rootfs/usr/lib/mihowrt/runtime-snapshot.sh
+  active runtime snapshot, readiness, desired-state comparison.
+
+rootfs/usr/lib/mihowrt/policy.sh
+  prepare/apply/reload/update/rollback orchestration.
+
+rootfs/usr/lib/mihowrt/runtime-status.sh
+  status JSON and human-readable runtime status.
 
 rootfs/www/luci-static/resources/mihowrt/
-  Shared LuCI backend, exec, UI, and Ace helpers.
+  shared LuCI backend, exec, config, UI, and Ace helpers.
+
+rootfs/www/luci-static/resources/view/mihowrt/
+  LuCI pages: config, policy, diagnostics.
 
 tests/
-  Shell and Node tests for installer, runtime, policy, DNS, and LuCI
-  helpers.
+  shell and Node tests.
 ```
 
-## Known Limits And Design Choices
+## Known Limits
 
-- IPv6 traffic is not intercepted by MihoWRT policy rules.
-- `localv4` destinations are excluded before manual policy matching.
-  `;port` entries do not override that safety exclusion.
-- Port-qualified policy entries are direct nft rules, not interval set
-  elements. Very large port-qualified lists will create more nft rules
-  than IP-only lists.
-- `dnsmasq` backup is persisted in `/etc/mihowrt/dns.backup` by design
-  so DNS can be restored after power loss.
-- Reload is rollback-capable but not a single atomic transaction across
-  nftables, policy routing, and dnsmasq.
-- The installer uses latest GitHub releases for package and Mihomo core.
-  It does not pin release checksums in this repository.
+- IPv6 traffic is not intercepted.
+- local/reserved IPv4 destinations return before manual policy matching.
+- `;port` entries do not override local/reserved destination exclusion.
+- port-qualified policy entries create direct nftables rules, not set elements.
+- reload has rollback, but is not one atomic transaction across nftables, route, and dnsmasq.
+- latest GitHub releases are used by installer; release checksums are not pinned in this repository.
+- hardware behavior still depends on target OpenWrt, nftables, procd, dnsmasq, and Mihomo versions.

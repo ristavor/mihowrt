@@ -88,6 +88,95 @@ runtime_snapshot_restore_backups() {
 	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 }
 
+runtime_snapshot_cleanup_transaction_files() {
+	local snapshot_tmp="$1"
+	local dst_tmp="$2"
+	local src_tmp="$3"
+	local direct_tmp="$4"
+	local snapshot_backup="$5"
+	local dst_backup="$6"
+	local src_backup="$7"
+	local direct_backup="$8"
+
+	runtime_snapshot_cleanup_files \
+		"$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" \
+		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+}
+
+runtime_snapshot_backup_files() {
+	local snapshot_file="$1"
+	local dst_snapshot="$2"
+	local src_snapshot="$3"
+	local direct_snapshot="$4"
+	local snapshot_backup="$5"
+	local dst_backup="$6"
+	local src_backup="$7"
+	local direct_backup="$8"
+
+	runtime_snapshot_backup_file "$snapshot_file" "$snapshot_backup" || return 1
+	runtime_snapshot_backup_file "$dst_snapshot" "$dst_backup" || return 1
+	runtime_snapshot_backup_file "$src_snapshot" "$src_backup" || return 1
+	runtime_snapshot_backup_file "$direct_snapshot" "$direct_backup"
+}
+
+runtime_snapshot_restore_transaction() {
+	local snapshot_file="$1"
+	local dst_snapshot="$2"
+	local src_snapshot="$3"
+	local direct_snapshot="$4"
+	local snapshot_backup="$5"
+	local dst_backup="$6"
+	local src_backup="$7"
+	local direct_backup="$8"
+	local snapshot_tmp="" dst_tmp="" src_tmp="" direct_tmp=""
+
+	shift 8
+	snapshot_tmp="$1"
+	dst_tmp="$2"
+	src_tmp="$3"
+	direct_tmp="$4"
+
+	runtime_snapshot_restore_backups \
+		"$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" \
+		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+	runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+}
+
+runtime_snapshot_commit_files() {
+	local snapshot_file="$1"
+	local dst_snapshot="$2"
+	local src_snapshot="$3"
+	local direct_snapshot="$4"
+	local snapshot_backup="$5"
+	local dst_backup="$6"
+	local src_backup="$7"
+	local direct_backup="$8"
+	local snapshot_tmp="" dst_tmp="" src_tmp="" direct_tmp=""
+
+	shift 8
+	snapshot_tmp="$1"
+	dst_tmp="$2"
+	src_tmp="$3"
+	direct_tmp="$4"
+
+	mv -f "$dst_tmp" "$dst_snapshot" || {
+		runtime_snapshot_restore_transaction "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	mv -f "$src_tmp" "$src_snapshot" || {
+		runtime_snapshot_restore_transaction "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	mv -f "$direct_tmp" "$direct_snapshot" || {
+		runtime_snapshot_restore_transaction "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	mv -f "$snapshot_tmp" "$snapshot_file" || {
+		runtime_snapshot_restore_transaction "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+}
+
 runtime_snapshot_save() {
 	local snapshot_file dst_snapshot src_snapshot direct_snapshot
 	local snapshot_tmp dst_tmp src_tmp direct_tmp
@@ -177,43 +266,16 @@ runtime_snapshot_save() {
 		return 1
 	}
 
-	runtime_snapshot_backup_file "$snapshot_file" "$snapshot_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+	runtime_snapshot_backup_files \
+		"$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" \
+		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" || {
+		runtime_snapshot_cleanup_transaction_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 		return 1
 	}
-	runtime_snapshot_backup_file "$dst_snapshot" "$dst_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		return 1
-	}
-	runtime_snapshot_backup_file "$src_snapshot" "$src_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		return 1
-	}
-	runtime_snapshot_backup_file "$direct_snapshot" "$direct_backup" || {
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		return 1
-	}
-
-	mv -f "$dst_tmp" "$dst_snapshot" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
-		return 1
-	}
-	mv -f "$src_tmp" "$src_snapshot" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
-		return 1
-	}
-	mv -f "$direct_tmp" "$direct_snapshot" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
-		return 1
-	}
-	mv -f "$snapshot_tmp" "$snapshot_file" || {
-		runtime_snapshot_restore_backups "$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
-		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
-		return 1
-	}
+	runtime_snapshot_commit_files \
+		"$snapshot_file" "$dst_snapshot" "$src_snapshot" "$direct_snapshot" \
+		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" \
+		"$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" || return 1
 
 	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 	log "Saved runtime snapshot"

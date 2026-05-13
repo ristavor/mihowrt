@@ -4,30 +4,45 @@ runtime_policy_ready_state() {
 	runtime_snapshot_valid
 }
 
-service_ready_runtime_state() {
-	local dns_port="" active_json="" snapshot_dns_listen=""
-	local tproxy_port=""
+load_snapshot_readiness_ports() {
+	local active_json="" snapshot_dns_listen=""
 	local snapshot_vars=""
 
-	service_running_state || return 1
+	STATUS_READY_DNS_PORT=""
+	STATUS_READY_TPROXY_PORT=""
 
 	active_json="$(runtime_snapshot_readiness_json 2>/dev/null || true)"
-	if [ -n "$active_json" ]; then
-		snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
-			@sh "dns_port=\(.mihomo_dns_port // "") tproxy_port=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
-		' 2>/dev/null)" || return 1
-		eval "$snapshot_vars" || return 1
-		if [ -z "$dns_port" ]; then
-			[ -n "$snapshot_dns_listen" ] && dns_port="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
-		fi
-		mihomo_ready_state "$dns_port" "$tproxy_port" || return 1
+	[ -n "$active_json" ] || return 1
+
+	snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
+		@sh "STATUS_READY_DNS_PORT=\(.mihomo_dns_port // "") STATUS_READY_TPROXY_PORT=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
+	' 2>/dev/null)" || return 1
+	eval "$snapshot_vars" || return 1
+	if [ -z "$STATUS_READY_DNS_PORT" ]; then
+		[ -n "$snapshot_dns_listen" ] && STATUS_READY_DNS_PORT="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
+	fi
+}
+
+load_config_readiness_ports() {
+	STATUS_READY_DNS_PORT=""
+	STATUS_READY_TPROXY_PORT=""
+
+	load_runtime_config || return 1
+	STATUS_READY_DNS_PORT="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
+	STATUS_READY_TPROXY_PORT="$MIHOMO_TPROXY_PORT"
+}
+
+service_ready_runtime_state() {
+	service_running_state || return 1
+
+	if load_snapshot_readiness_ports; then
+		mihomo_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT" || return 1
 		runtime_policy_ready_state
 		return $?
 	fi
 
-	load_runtime_config || return 1
-	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
-	mihomo_ready_state "$dns_port" "$MIHOMO_TPROXY_PORT" || return 1
+	load_config_readiness_ports || return 1
+	mihomo_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT" || return 1
 	runtime_policy_ready_state
 }
 

@@ -134,7 +134,7 @@ runtime_snapshot_readiness_json() {
 	printf '%s\n' "$TEST_RUNTIME_SNAPSHOT_JSON"
 }
 
-eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh")"
+eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^load_snapshot_readiness_ports()/,/^}/p;/^load_config_readiness_ports()/,/^}/p;/^service_ready_runtime_state()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh")"
 
 : > "$cli_log"
 : > "$clash_log"

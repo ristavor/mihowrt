@@ -35,6 +35,7 @@ net_log="$tmpdir/net.log"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/route.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
 
 log() {
@@ -116,6 +117,7 @@ policy_route_priority_in_use() {
 assert_false "policy_route_resolve_table_id should fail when no ids are free" policy_route_resolve_table_id
 assert_false "policy_route_resolve_priority should fail when no priorities are free" policy_route_resolve_priority
 
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/route.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
 
 nft() {

@@ -60,6 +60,9 @@ while [[ "$#" -gt 0 ]]; do
 		-U|-T)
 			shift 2
 			;;
+		--header)
+			shift 2
+			;;
 		-q)
 			shift
 			;;
@@ -108,7 +111,33 @@ export TEST_WGET_LOG="$tmpdir/wget.log"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 
+mkdir -p "$tmpdir/net/eth0" "$tmpdir/net/eth1"
+printf 'router-serial-001\n' >"$tmpdir/serial"
+printf 'aa:bb:cc:00:00:01\n' >"$tmpdir/net/eth0/address"
+printf 'aa:bb:cc:00:00:02\n' >"$tmpdir/net/eth1/address"
+printf "DISTRIB_RELEASE='25.12.3'\n" >"$tmpdir/openwrt_release"
+printf 'Test Router AX\n' >"$tmpdir/model"
+export MIHOWRT_DEVICE_SERIAL_FILES="$tmpdir/serial"
+export MIHOWRT_NET_CLASS_DIR="$tmpdir/net"
+export MIHOWRT_OPENWRT_RELEASE_FILE="$tmpdir/openwrt_release"
+export MIHOWRT_DEVICE_MODEL_FILES="$tmpdir/model"
+export MIHOWRT_HWID_FILE="$tmpdir/hwid"
+expected_hwid="$(printf 'mihowrt-hwid-v1\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }')"
+
 assert_eq "mihowrt/0.6" "$(subscription_user_agent)" "subscription_user_agent should include package version"
+assert_eq "$expected_hwid" "$(device_hwid)" "device_hwid should hash stable hardware material"
+assert_eq "$expected_hwid" "$(cat "$MIHOWRT_HWID_FILE")" "device_hwid should cache deterministic hardware ID"
+printf '1111111111111111111111111111111111111111111111111111111111111111\n' >"$MIHOWRT_HWID_FILE"
+assert_eq "1111111111111111111111111111111111111111111111111111111111111111" "$(device_hwid)" "device_hwid should reuse stored hardware ID"
+rm -f "$MIHOWRT_HWID_FILE"
+MIHOWRT_DEVICE_SERIAL_FILES="$tmpdir/missing-serial"
+expected_mac_hwid="$(printf 'mihowrt-hwid-v1\nmacs:aa:bb:cc:00:00:01,aa:bb:cc:00:00:02\n' | sha256sum | awk '{ print $1; exit }')"
+assert_eq "$expected_mac_hwid" "$(device_hwid)" "device_hwid should fall back to sorted MAC material"
+rm -f "$MIHOWRT_HWID_FILE"
+MIHOWRT_DEVICE_SERIAL_FILES="$tmpdir/serial"
+assert_eq "OpenWrt" "$(device_os_name)" "device_os_name should report OpenWrt"
+assert_eq "25.12.3" "$(device_os_version)" "device_os_version should read OpenWrt release"
+assert_eq "Test Router AX" "$(device_model)" "device_model should read sysinfo model"
 assert_true "is_subscription_url should accept https URLs" is_subscription_url "https://example.com/sub.yaml"
 assert_true "is_subscription_url should accept http URLs" is_subscription_url "http://example.com/sub.yaml"
 assert_false "is_subscription_url should reject local paths" is_subscription_url "/tmp/sub.yaml"
@@ -165,6 +194,10 @@ assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
 assert_file_contains "$TEST_WGET_LOG" "-T 7" "fetch_subscription_config should bound wget timeout"
 assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.6" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "x-hwid: $expected_hwid" "fetch_subscription_config should send deterministic hardware ID header"
+assert_file_contains "$TEST_WGET_LOG" "x-device-os: OpenWrt" "fetch_subscription_config should send device OS header"
+assert_file_contains "$TEST_WGET_LOG" "x-ver-os: 25.12.3" "fetch_subscription_config should send OS version header"
+assert_file_contains "$TEST_WGET_LOG" "x-device-model: Test Router AX" "fetch_subscription_config should send device model header"
 assert_file_contains "$TEST_WGET_LOG" "-O -" "fetch_subscription_config should stream wget output through size cap"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to wget"
 

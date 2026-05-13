@@ -5,6 +5,219 @@ http_fetch_user_agent() {
 	printf 'mihowrt/%s' "${PKG_VERSION:-unknown}"
 }
 
+http_fetch_header_value() {
+	local value="$1"
+
+	printf '%s' "$value" | tr '\r\n\t' '   ' | tr -d '[:cntrl:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+device_read_file_value() {
+	local file="$1"
+
+	[ -r "$file" ] || return 1
+	tr -d '\000\r\n' <"$file" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+}
+
+device_material_value_valid() {
+	local value=""
+
+	value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+	case "$value" in
+	'' | 0 | unknown | none | unset | '00000000-0000-0000-0000-000000000000')
+		return 1
+		;;
+	esac
+
+	return 0
+}
+
+device_serial_material() {
+	local paths="${MIHOWRT_DEVICE_SERIAL_FILES:-/sys/firmware/devicetree/base/serial-number /proc/device-tree/serial-number /sys/class/dmi/id/product_uuid /sys/class/dmi/id/board_serial /sys/class/dmi/id/product_serial}"
+	local path="" value=""
+
+	for path in $paths; do
+		value="$(device_read_file_value "$path" 2>/dev/null || true)"
+		device_material_value_valid "$value" || continue
+		printf 'serial:%s\n' "$value"
+		return 0
+	done
+
+	return 1
+}
+
+device_mac_valid() {
+	local mac="$1"
+
+	case "$mac" in
+	00:00:00:00:00:00 | ff:ff:ff:ff:ff:ff)
+		return 1
+		;;
+	??:??:??:??:??:??) ;;
+	*)
+		return 1
+		;;
+	esac
+	case "$mac" in
+	*[!0123456789abcdef:]*)
+		return 1
+		;;
+	esac
+
+	return 0
+}
+
+device_mac_material() {
+	local net_dir="${MIHOWRT_NET_CLASS_DIR:-/sys/class/net}"
+	local address_file="" iface="" mac="" macs=""
+
+	[ -d "$net_dir" ] || return 1
+	macs="$(
+		for address_file in "$net_dir"/*/address; do
+			[ -e "$address_file" ] || continue
+			iface="${address_file%/address}"
+			iface="${iface##*/}"
+			[ "$iface" = "lo" ] && continue
+			mac="$(device_read_file_value "$address_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+			device_mac_valid "$mac" || continue
+			printf '%s\n' "$mac"
+		done | sort -u | awk 'NF { printf "%s%s", sep, $0; sep = "," }'
+	)"
+	[ -n "$macs" ] || return 1
+	printf 'macs:%s\n' "$macs"
+}
+
+device_hwid_material() {
+	device_serial_material && return 0
+	device_mac_material && return 0
+	return 1
+}
+
+device_sha256() {
+	if have_command sha256sum; then
+		sha256sum | awk '{ print $1; exit }'
+		return $?
+	fi
+	if have_command openssl; then
+		openssl dgst -sha256 | awk '{ print $NF; exit }'
+		return $?
+	fi
+
+	return 1
+}
+
+device_hwid_file() {
+	printf '%s\n' "${MIHOWRT_HWID_FILE:-${PKG_PERSIST_DIR:-/etc/mihowrt}/hwid}"
+}
+
+device_hwid_valid() {
+	case "$1" in
+	????????????????????????????????????????????????????????????????)
+		case "$1" in
+		*[!0123456789abcdef]*)
+			return 1
+			;;
+		esac
+		return 0
+		;;
+	esac
+
+	return 1
+}
+
+device_stored_hwid() {
+	local hwid_file="" hwid=""
+
+	hwid_file="$(device_hwid_file)"
+	[ -r "$hwid_file" ] || return 1
+	hwid="$(head -n 1 "$hwid_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+	device_hwid_valid "$hwid" || return 1
+	printf '%s\n' "$hwid"
+}
+
+device_random_hwid() {
+	local hwid_file="" hwid="" hwid_dir=""
+
+	if ! have_command dd || ! have_command hexdump; then
+		return 1
+	fi
+
+	hwid="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null)"
+	device_hwid_valid "$hwid" || return 1
+
+	hwid_file="$(device_hwid_file)"
+	hwid_dir="$(dirname "$hwid_file")"
+	if ensure_dir "$hwid_dir" && printf '%s\n' "$hwid" >"$hwid_file" 2>/dev/null; then
+		:
+	fi
+	printf '%s\n' "$hwid"
+}
+
+device_store_hwid() {
+	local hwid="$1"
+	local hwid_file="" hwid_dir=""
+
+	device_hwid_valid "$hwid" || return 1
+	hwid_file="$(device_hwid_file)"
+	hwid_dir="$(dirname "$hwid_file")"
+	ensure_dir "$hwid_dir" || return 1
+	printf '%s\n' "$hwid" >"$hwid_file"
+}
+
+device_hwid() {
+	local material="" hwid=""
+
+	device_stored_hwid && return 0
+
+	material="$(device_hwid_material 2>/dev/null || true)"
+	if [ -n "$material" ]; then
+		hwid="$(printf 'mihowrt-hwid-v1\n%s\n' "$material" | device_sha256 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+		if device_hwid_valid "$hwid"; then
+			device_store_hwid "$hwid" 2>/dev/null || true
+			printf '%s\n' "$hwid"
+			return 0
+		fi
+	fi
+
+	device_random_hwid
+}
+
+device_os_name() {
+	printf 'OpenWrt'
+}
+
+device_os_version() {
+	local release_file="${MIHOWRT_OPENWRT_RELEASE_FILE:-/etc/openwrt_release}"
+	local release=""
+
+	if [ -r "$release_file" ]; then
+		release="$(awk -F"'" '/^DISTRIB_RELEASE=/ { print $2; exit }' "$release_file" 2>/dev/null)"
+	fi
+	[ -n "$release" ] || release="unknown"
+	http_fetch_header_value "$release"
+}
+
+device_model() {
+	local paths="${MIHOWRT_DEVICE_MODEL_FILES:-/tmp/sysinfo/model /sys/firmware/devicetree/base/model /proc/device-tree/model /tmp/sysinfo/board_name}"
+	local path="" model=""
+
+	for path in $paths; do
+		model="$(device_read_file_value "$path" 2>/dev/null || true)"
+		[ -n "$model" ] || continue
+		http_fetch_header_value "$model"
+		return 0
+	done
+
+	printf 'unknown'
+}
+
+device_hwid_header_value() {
+	local hwid=""
+
+	hwid="$(device_hwid 2>/dev/null || true)"
+	device_hwid_valid "$hwid" || hwid="unknown"
+	http_fetch_header_value "$hwid"
+}
+
 # Accept only simple http(s) URLs without whitespace. This is intentionally
 # narrow because URLs come from LuCI/user config and are passed to wget.
 is_http_fetch_url() {
@@ -76,6 +289,8 @@ fetch_http_body_limited_to_file() {
 	local reader_pid="" wget_pid="" reader_rc=0 wget_rc=0
 	local timeout="${3:-30}"
 	local label="${4:-download}"
+	local include_device_headers="${6:-0}"
+	local header_hwid="" header_device_os="" header_ver_os="" header_device_model=""
 
 	fetch_http_reset_error
 	url="$(trim "${1:-}")"
@@ -147,7 +362,20 @@ fetch_http_body_limited_to_file() {
 	read_limit=$((max_bytes + 1))
 	head -c "$read_limit" <"$fifo" >"$output" &
 	reader_pid=$!
-	wget -S -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
+	if [ "$include_device_headers" = "1" ]; then
+		header_hwid="$(device_hwid_header_value)"
+		header_device_os="$(device_os_name)"
+		header_ver_os="$(device_os_version)"
+		header_device_model="$(device_model)"
+		wget -S -T "$timeout" -U "$(http_fetch_user_agent)" \
+			--header "x-hwid: $header_hwid" \
+			--header "x-device-os: $header_device_os" \
+			--header "x-ver-os: $header_ver_os" \
+			--header "x-device-model: $header_device_model" \
+			-O - "$url" >"$fifo" 2>"$stderr_file" &
+	else
+		wget -S -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
+	fi
 	wget_pid=$!
 
 	wait "$wget_pid" || wget_rc=$?
@@ -206,6 +434,7 @@ fetch_http_body_limited() {
 	local url="" output="" rc=0 max_bytes=""
 	local timeout="${3:-30}"
 	local label="${4:-download}"
+	local include_device_headers="${5:-0}"
 
 	url="$(trim "${1:-}")"
 	max_bytes="${2:-}"
@@ -215,7 +444,7 @@ fetch_http_body_limited() {
 		return 1
 	}
 
-	fetch_http_body_limited_to_file "$url" "$max_bytes" "$timeout" "$label" "$output" || {
+	fetch_http_body_limited_to_file "$url" "$max_bytes" "$timeout" "$label" "$output" "$include_device_headers" || {
 		rc=$?
 		rm -f "$output"
 		return "$rc"
@@ -578,7 +807,7 @@ fetch_subscription_config() {
 	fi
 
 	max_bytes="$(subscription_max_bytes)"
-	fetch_http_body_limited "$url" "$max_bytes" "$timeout" "Subscription config"
+	fetch_http_body_limited "$url" "$max_bytes" "$timeout" "Subscription config" 1
 }
 
 fetch_subscription_config_to_file() {
@@ -593,7 +822,7 @@ fetch_subscription_config_to_file() {
 	fi
 
 	max_bytes="$(subscription_max_bytes)"
-	fetch_http_body_limited_to_file "$url" "$max_bytes" "$timeout" "Subscription config" "$output"
+	fetch_http_body_limited_to_file "$url" "$max_bytes" "$timeout" "Subscription config" "$output" 1
 }
 
 fetch_subscription_json() {

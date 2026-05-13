@@ -1391,6 +1391,40 @@ delete_dhcp_option_if_present() {
 	uci -q delete "$option" >/dev/null 2>&1
 }
 
+delete_dhcp_option_or_revert() {
+	delete_dhcp_option_if_present "$1" || {
+		revert_dhcp_changes
+		return 1
+	}
+}
+
+set_dhcp_option_or_revert() {
+	local option="$1"
+	local value="$2"
+
+	uci set "$option=$value" >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
+}
+
+add_dhcp_list_value_or_revert() {
+	local option="$1"
+	local value="$2"
+
+	uci add_list "$option=$value" >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
+}
+
+commit_dhcp_or_revert() {
+	uci commit dhcp >/dev/null 2>&1 || {
+		revert_dhcp_changes
+		return 1
+	}
+}
+
 route_state_read() {
 	local line key value
 
@@ -1681,72 +1715,41 @@ restore_dns_from_backup_file() {
 		return 0
 	fi
 
-	delete_dhcp_option_if_present dhcp.@dnsmasq[0].server || {
-		revert_dhcp_changes
-		return 1
-	}
-	delete_dhcp_option_if_present dhcp.@dnsmasq[0].resolvfile || {
-		revert_dhcp_changes
-		return 1
-	}
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile || return 1
 	while IFS= read -r line; do
 		case "$line" in
 			ORIG_SERVER=*)
 				server="${line#ORIG_SERVER=}"
 				if [ -n "$server" ]; then
-					uci add_list dhcp.@dnsmasq[0].server="$server" >/dev/null 2>&1 || {
-						revert_dhcp_changes
-						return 1
-					}
+					add_dhcp_list_value_or_revert dhcp.@dnsmasq[0].server "$server" || return 1
 				fi
 				;;
 		esac
 	done < "$backup_path"
 
 	if [ -n "$orig_cachesize" ]; then
-		uci set dhcp.@dnsmasq[0].cachesize="$orig_cachesize" >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
+		set_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
 	else
-		delete_dhcp_option_if_present dhcp.@dnsmasq[0].cachesize || {
-			revert_dhcp_changes
-			return 1
-		}
+		delete_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize || return 1
 	fi
 
 	if [ -n "$orig_noresolv" ]; then
-		uci set dhcp.@dnsmasq[0].noresolv="$orig_noresolv" >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
+		set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv "$orig_noresolv" || return 1
 	else
-		delete_dhcp_option_if_present dhcp.@dnsmasq[0].noresolv || {
-			revert_dhcp_changes
-			return 1
-		}
+		delete_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv || return 1
 	fi
 
 	if [ -n "$orig_resolvfile" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$orig_resolvfile" >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
+		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$orig_resolvfile" || return 1
 	elif [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$DNS_AUTO_RESOLVFILE" >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
-		[ "$orig_noresolv" = "1" ] || uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
+		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$DNS_AUTO_RESOLVFILE" || return 1
+		if [ "$orig_noresolv" != "1" ]; then
+			set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv '0' || return 1
+		fi
 	fi
 
-	uci commit dhcp >/dev/null 2>&1 || {
-		revert_dhcp_changes
-		return 1
-	}
+	commit_dhcp_or_revert || return 1
 	restart_dnsmasq
 }
 
@@ -1764,34 +1767,16 @@ restore_dns_defaults_fallback() {
 		return 0
 	fi
 
-	delete_dhcp_option_if_present dhcp.@dnsmasq[0].server || {
-		revert_dhcp_changes
-		return 1
-	}
-	delete_dhcp_option_if_present dhcp.@dnsmasq[0].resolvfile || {
-		revert_dhcp_changes
-		return 1
-	}
-	delete_dhcp_option_if_present dhcp.@dnsmasq[0].cachesize || {
-		revert_dhcp_changes
-		return 1
-	}
-	uci set dhcp.@dnsmasq[0].noresolv='0' >/dev/null 2>&1 || {
-		revert_dhcp_changes
-		return 1
-	}
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile || return 1
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize || return 1
+	set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv '0' || return 1
 
 	if [ -n "$resolvfile" ]; then
-		uci set dhcp.@dnsmasq[0].resolvfile="$resolvfile" >/dev/null 2>&1 || {
-			revert_dhcp_changes
-			return 1
-		}
+		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$resolvfile" || return 1
 	fi
 
-	uci commit dhcp >/dev/null 2>&1 || {
-		revert_dhcp_changes
-		return 1
-	}
+	commit_dhcp_or_revert || return 1
 	restart_dnsmasq
 }
 

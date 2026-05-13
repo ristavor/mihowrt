@@ -271,6 +271,14 @@ wget_download_to() {
 	return 1
 }
 
+clear_net_tmp_path() {
+	local tmp_path="$1"
+
+	rm -f "$tmp_path"
+	[ "$NET_TMP" = "$tmp_path" ] && NET_TMP=""
+	return 0
+}
+
 fetch_to_tmp() {
 	local url="$1" tmp_path="$2" have_fetcher=0
 
@@ -292,8 +300,7 @@ fetch_to_tmp() {
 		rm -f "$tmp_path"
 	fi
 
-	rm -f "$tmp_path"
-	NET_TMP=""
+	clear_net_tmp_path "$tmp_path"
 
 	[ "$have_fetcher" = "1" ] && return 2
 	return 127
@@ -317,12 +324,10 @@ fetch_url() {
 
 	if fetch_to_tmp "$1" "$tmp_path"; then
 		cat "$tmp_path" || {
-			rm -f "$tmp_path"
-			NET_TMP=""
+			clear_net_tmp_path "$tmp_path"
 			return 1
 		}
-		rm -f "$tmp_path"
-		NET_TMP=""
+		clear_net_tmp_path "$tmp_path"
 		return 0
 	else
 		fetch_rc=$?
@@ -336,8 +341,7 @@ download_file() {
 
 	if fetch_to_tmp "$1" "$tmp_path"; then
 		mv -f "$tmp_path" "$2" || {
-			rm -f "$tmp_path"
-			NET_TMP=""
+			clear_net_tmp_path "$tmp_path"
 			return 1
 		}
 		NET_TMP=""
@@ -2122,28 +2126,46 @@ handle_install_failure() {
 	return 1
 }
 
+remove_user_files() {
+	local path=""
+
+	for path in "$@"; do
+		rm -f "$path"
+	done
+}
+
+remove_user_trees() {
+	local path=""
+
+	for path in "$@"; do
+		rm -rf "$path"
+	done
+}
+
 remove_user_state() {
-	rm -f /etc/apk/protected_paths.d/mihowrt.list
-	rm -f /etc/config/mihowrt
-	rm -f /etc/init.d/mihowrt
-	rm -f /etc/init.d/mihowrt-recover
-	rm -f /opt/clash/config.yaml
-	rm -f /opt/clash/lst/always_proxy_dst.txt
-	rm -f /opt/clash/lst/always_proxy_src.txt
-	rm -f /opt/clash/lst/direct_dst.txt
-	rm -rf /opt/clash/ruleset
-	rm -rf /opt/clash/proxy_providers
-	rm -f /opt/clash/cache.db
-	rm -f /usr/bin/mihowrt
-	rm -rf /usr/lib/mihowrt
-	rm -f /usr/share/luci/menu.d/luci-app-mihowrt.json
-	rm -f /usr/share/rpcd/acl.d/luci-app-mihowrt.json
-	rm -rf /www/luci-static/resources/view/mihowrt
-	rm -rf /www/luci-static/resources/mihowrt
-	rm -rf /tmp/clash
-	rm -rf /tmp/mihowrt
-	rm -rf /var/run/mihowrt
-	rm -rf /etc/mihowrt
+	remove_user_files \
+		/etc/apk/protected_paths.d/mihowrt.list \
+		/etc/config/mihowrt \
+		/etc/init.d/mihowrt \
+		/etc/init.d/mihowrt-recover \
+		/opt/clash/config.yaml \
+		/opt/clash/lst/always_proxy_dst.txt \
+		/opt/clash/lst/always_proxy_src.txt \
+		/opt/clash/lst/direct_dst.txt \
+		/opt/clash/cache.db \
+		/usr/bin/mihowrt \
+		/usr/share/luci/menu.d/luci-app-mihowrt.json \
+		/usr/share/rpcd/acl.d/luci-app-mihowrt.json
+	remove_user_trees \
+		/opt/clash/ruleset \
+		/opt/clash/proxy_providers \
+		/usr/lib/mihowrt \
+		/www/luci-static/resources/view/mihowrt \
+		/www/luci-static/resources/mihowrt \
+		/tmp/clash \
+		/tmp/mihowrt \
+		/var/run/mihowrt \
+		/etc/mihowrt
 	rmdir /opt/clash/lst 2>/dev/null || true
 	rmdir /opt/clash 2>/dev/null || true
 }

@@ -18,6 +18,13 @@ nft_delete_table_named_if_exists() {
 			;;
 	esac
 
+	nft_delete_present_table_named "$table"
+}
+
+nft_delete_present_table_named() {
+	local table="$1"
+	local table_state=1
+
 	nft delete table inet "$table" >/dev/null 2>&1 || return 1
 	nft_table_exists_named "$table"
 	table_state=$?
@@ -419,7 +426,7 @@ nft_remove_policy() {
 		table_state=$?
 		case "$table_state" in
 			0)
-				nft_delete_table_named_if_exists "$table" || return 1
+				nft_delete_present_table_named "$table" || return 1
 				log "Removed nft policy table $table"
 				removed=1
 				;;

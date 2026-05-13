@@ -64,6 +64,20 @@ apply_runtime_nft_policy_only() {
 
 # Full apply transaction: resolve remote lists, apply runtime state, then save
 # snapshot that represents exactly what was applied.
+apply_runtime_state_resolved() {
+	if ! apply_runtime_state_internal; then
+		return 1
+	fi
+
+	runtime_snapshot_save || {
+		err "Failed to persist runtime snapshot"
+		rollback_applied_runtime_state
+		return 1
+	}
+
+	return 0
+}
+
 apply_runtime_state() {
 	local lists_resolved=0
 
@@ -72,17 +86,10 @@ apply_runtime_state() {
 		lists_resolved=1
 	fi
 
-	if ! apply_runtime_state_internal; then
+	if ! apply_runtime_state_resolved; then
 		clear_resolved_runtime_lists "$lists_resolved"
 		return 1
 	fi
-
-	runtime_snapshot_save || {
-		err "Failed to persist runtime snapshot"
-		rollback_applied_runtime_state
-		clear_resolved_runtime_lists "$lists_resolved"
-		return 1
-	}
 
 	clear_resolved_runtime_lists "$lists_resolved"
 	return 0
@@ -140,13 +147,63 @@ recover_runtime_state() {
 	cleanup_runtime_state
 }
 
+runtime_changed_policy_components() {
+	local components=""
+
+	case "${POLICY_MODE:-direct-first}" in
+	direct-first)
+		cmp -s "$(runtime_snapshot_dst_file)" "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" || components="${components}${components:+ }proxy_dst"
+		cmp -s "$(runtime_snapshot_src_file)" "${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}" || components="${components}${components:+ }proxy_src"
+		;;
+	proxy-first)
+		cmp -s "$(runtime_snapshot_direct_file)" "${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}" || components="${components}${components:+ }direct_dst"
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	printf '%s\n' "$components"
+}
+
+runtime_fast_update_resolved_policy_lists() {
+	local components="" component=""
+
+	FAST_NFT_UPDATE_COMPONENTS=""
+	components="$(runtime_changed_policy_components)" || return 1
+	[ -n "$components" ] || return 0
+
+	command -v nft_table_exists >/dev/null 2>&1 || return 2
+	command -v nft_policy_component_fast_update_supported >/dev/null 2>&1 || return 2
+	command -v nft_update_policy_components_fast >/dev/null 2>&1 || return 2
+
+	nft_table_exists || return 2
+	for component in $components; do
+		nft_policy_component_fast_update_supported "$component" || return 2
+	done
+
+	nft_update_policy_components_fast "$components" || return 1
+	FAST_NFT_UPDATE_COMPONENTS="$components"
+	return 0
+}
+
+runtime_save_snapshot_after_fast_update() {
+	if ! runtime_snapshot_save; then
+		err "Failed to persist runtime snapshot"
+		runtime_snapshot_restore || err "Failed to restore previous runtime state"
+		return 1
+	fi
+
+	return 0
+}
+
 # Policy reload with snapshot safety. It refuses in-place reload when the old
 # live state cannot be identified well enough for rollback.
 reload_runtime_state() {
 	local old_route_table_id="" old_route_rule_priority=""
 	local new_route_table_id="" new_route_rule_priority=""
 	local had_snapshot=0 snapshot_files_present=0 live_runtime_present=0
-	local apply_rc=0
+	local apply_rc=0 lists_resolved=0 fast_rc=0
 
 	if policy_route_state_read; then
 		old_route_table_id="${ROUTE_TABLE_ID_EFFECTIVE:-}"
@@ -188,8 +245,47 @@ reload_runtime_state() {
 		return 1
 	fi
 
-	apply_runtime_state
+	if runtime_snapshot_policy_config_matches_current && runtime_snapshot_route_state_matches_live &&
+		command -v policy_resolve_runtime_lists >/dev/null 2>&1; then
+		policy_resolve_runtime_lists || {
+			err "Failed to prepare updated policy lists"
+			return 1
+		}
+		lists_resolved=1
+		runtime_fast_update_resolved_policy_lists
+		fast_rc=$?
+		case "$fast_rc" in
+		0)
+			if ! runtime_save_snapshot_after_fast_update; then
+				policy_clear_runtime_list_overrides
+				return 1
+			fi
+			policy_clear_runtime_list_overrides
+			log "Reloaded ${POLICY_MODE:-direct-first} policy state"
+			return 0
+			;;
+		2)
+			:
+			;;
+		*)
+			err "Failed to update nft policy components; restoring previous runtime state"
+			policy_clear_runtime_list_overrides
+			runtime_snapshot_restore || {
+				err "Failed to restore previous runtime state"
+				return 1
+			}
+			return 1
+			;;
+		esac
+	fi
+
+	if [ "$lists_resolved" -eq 1 ]; then
+		apply_runtime_state_resolved
+	else
+		apply_runtime_state
+	fi
 	apply_rc=$?
+	clear_resolved_runtime_lists "$lists_resolved"
 	if [ "$apply_rc" -ne 0 ]; then
 		if [ "$apply_rc" -eq 2 ]; then
 			err "Failed to prepare updated policy lists"
@@ -224,7 +320,7 @@ reload_runtime_state() {
 # Refresh remote policy lists while service is running. nft is skipped when
 # effective list content matches the snapshot.
 update_runtime_policy_lists() {
-	local apply_rc=0 snapshot_rc=0 lists_changed=1
+	local apply_rc=0 snapshot_rc=0 lists_changed=1 fast_rc=0
 
 	runtime_snapshot_valid || {
 		err "Runtime snapshot unavailable; cannot update remote policy lists safely"
@@ -274,6 +370,39 @@ update_runtime_policy_lists() {
 		printf '%s\n' 'updated=0'
 		return 0
 	fi
+
+	runtime_fast_update_resolved_policy_lists
+	fast_rc=$?
+	case "$fast_rc" in
+	0)
+		if ! runtime_snapshot_save; then
+			err "Failed to persist runtime snapshot"
+			policy_clear_runtime_list_overrides
+			runtime_snapshot_restore || {
+				err "Failed to restore previous runtime state"
+				return 1
+			}
+			return 1
+		fi
+
+		policy_clear_runtime_list_overrides
+		log "Updated remote policy lists and refreshed ${POLICY_MODE:-direct-first} nft policy"
+		printf '%s\n' 'updated=1'
+		return 0
+		;;
+	2)
+		:
+		;;
+	*)
+		policy_clear_runtime_list_overrides
+		err "Failed to apply updated policy lists; restoring previous runtime state"
+		runtime_snapshot_restore || {
+			err "Failed to restore previous runtime state"
+			return 1
+		}
+		return 1
+		;;
+	esac
 
 	apply_runtime_nft_policy_only
 	apply_rc=$?

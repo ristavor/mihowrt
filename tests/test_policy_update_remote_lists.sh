@@ -124,6 +124,21 @@ nft_apply_policy() {
 	return "${TEST_NFT_APPLY_RC:-0}"
 }
 
+nft_table_exists() {
+	printf 'nft_table_exists\n' >>"$event_log"
+	return "${TEST_NFT_TABLE_EXISTS_RC:-0}"
+}
+
+nft_policy_component_fast_update_supported() {
+	printf 'nft_policy_component_fast_update_supported:%s\n' "$1" >>"$event_log"
+	return "${TEST_FAST_SUPPORT_RC:-0}"
+}
+
+nft_update_policy_components_fast() {
+	printf 'nft_update_policy_components_fast:%s\n' "$1" >>"$event_log"
+	return "${TEST_FAST_UPDATE_RC:-0}"
+}
+
 runtime_snapshot_save() {
 	printf 'runtime_snapshot_save\n' >>"$event_log"
 	return "${TEST_SNAPSHOT_SAVE_RC:-0}"
@@ -183,7 +198,8 @@ TEST_EFFECTIVE_SRC=":53"
 TEST_ROUTE_STATE_READ_COUNT=0
 update_output="$(update_runtime_policy_lists)"
 assert_eq "updated=1" "$update_output" "update_runtime_policy_lists should report changed lists"
-assert_file_contains "$event_log" "nft_apply_policy" "changed update should apply nft policy"
+assert_file_contains "$event_log" "nft_update_policy_components_fast:proxy_dst" "changed proxy destination list should use nft component fast update"
+assert_file_not_contains "$event_log" "nft_apply_policy" "fast changed update should not rebuild nft table"
 assert_file_not_contains "$event_log" "policy_route_setup" "changed update should not reinstall policy routes"
 assert_file_not_contains "$event_log" "dns_setup" "changed update should not reconfigure DNS"
 assert_file_contains "$event_log" "runtime_snapshot_save" "changed update should persist new snapshot"
@@ -198,7 +214,7 @@ write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_ROUTE_STATE_READ_COUNT=0
 update_output="$(update_runtime_policy_lists)"
 assert_eq "updated=1" "$update_output" "proxy-first update should compare direct destination list"
-assert_file_contains "$event_log" "nft_apply_policy" "proxy-first direct list change should apply nft policy"
+assert_file_contains "$event_log" "nft_update_policy_components_fast:direct_dst" "proxy-first direct list change should fast update direct component"
 TEST_POLICY_MODE="direct-first"
 
 : > "$event_log"
@@ -225,12 +241,26 @@ TEST_RESOLVE_RUNTIME_LISTS_RC=0
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_EFFECTIVE_DST="2.2.2.2"
 TEST_EFFECTIVE_SRC=":53"
+TEST_FAST_SUPPORT_RC=1
 TEST_NFT_APPLY_RC=1
 TEST_ROUTE_STATE_READ_COUNT=0
 assert_false "update_runtime_policy_lists should restore snapshot when changed apply fails" update_runtime_policy_lists >/dev/null
 assert_file_contains "$event_log" "nft_apply_policy" "changed apply failure should happen after diff detection"
 assert_file_contains "$event_log" "runtime_snapshot_restore" "changed apply failure should rollback previous runtime"
 TEST_NFT_APPLY_RC=0
+TEST_FAST_SUPPORT_RC=0
+
+: > "$event_log"
+write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
+TEST_EFFECTIVE_DST="2.2.2.2"
+TEST_EFFECTIVE_SRC=":53"
+TEST_FAST_UPDATE_RC=1
+TEST_ROUTE_STATE_READ_COUNT=0
+assert_false "update_runtime_policy_lists should restore snapshot when fast update fails" update_runtime_policy_lists >/dev/null
+assert_file_contains "$event_log" "nft_update_policy_components_fast:proxy_dst" "fast update failure should happen after diff detection"
+assert_file_contains "$event_log" "runtime_snapshot_restore" "fast update failure should rollback previous runtime"
+assert_file_not_contains "$event_log" "nft_apply_policy" "fast update failure should not fall through to full rebuild"
+TEST_FAST_UPDATE_RC=0
 
 : > "$event_log"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"

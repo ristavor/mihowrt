@@ -30,6 +30,10 @@ err() {
 	printf 'err:%s\n' "$*" >>"$event_log"
 }
 
+require_command() {
+	return 0
+}
+
 ensure_dir() {
 	printf 'ensure_dir:%s\n' "$1" >>"$event_log"
 	mkdir -p "$1"
@@ -436,10 +440,6 @@ count_remote_list_urls() {
 
 policy_list_fingerprint() {
 	printf 'hash:%s' "$1"
-}
-
-require_command() {
-	return 0
 }
 
 config_load() {

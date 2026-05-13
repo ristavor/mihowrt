@@ -8,15 +8,16 @@ mihomo_api_set_reason() {
 	MIHOMO_API_HTTP_CODE="${2:-}"
 }
 
-mihomo_api_loopback_host() {
+mihomo_api_reload_host() {
 	local host="$1"
 
 	case "$host" in
-	'' | 0.0.0.0 | :: | localhost)
+	0.0.0.0 | 127.0.0.1)
 		printf '%s' '127.0.0.1'
 		;;
 	*)
-		printf '%s' "$host"
+		mihomo_api_set_reason "Mihomo external-controller host is not safe for hot reload"
+		return 1
 		;;
 	esac
 }
@@ -74,7 +75,7 @@ mihomo_api_url_from_controller() {
 		return 1
 	}
 
-	host="$(mihomo_api_loopback_host "$(trim "$host")")"
+	host="$(mihomo_api_reload_host "$(trim "$host")")" || return 1
 	case "$host" in
 	*:*)
 		safe_host="[$host]"

@@ -13,16 +13,25 @@ const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/mihowrt/backend.js'), 'utf8');
 const emptyConfigMatch = source.match(/function emptyConfigState[\s\S]*?\n}\n\nfunction emptyStatusState/);
 const emptyStatusMatch = source.match(/function emptyStatusState[\s\S]*?\n}\n\nfunction emptyLogState/);
+const emptyLogMatch = source.match(/function emptyLogState[\s\S]*?\n}\n\nfunction emptySubscriptionState/);
 const emptySubscriptionMatch = source.match(/function emptySubscriptionState[\s\S]*?\n}\n\nfunction tempConfigPath/);
 const tempConfigMatch = source.match(/function tempConfigPath[\s\S]*?\n}\n\nasync function removeTempFile/);
 const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction commandResultState/);
 const commandStateMatch = source.match(/function commandResultState[\s\S]*?\n}\n\nfunction assignConfigState/);
+const assignConfigMatch = source.match(/function assignConfigState[\s\S]*?\n}\n\nasync function readBackendJson/);
+const readBackendJsonMatch = source.match(/async function readBackendJson[\s\S]*?\n}\n\nfunction assignSubscriptionState/);
+const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignStatusState/);
+const assignStatusMatch = source.match(/function assignStatusState[\s\S]*?\n}\n\nfunction assignLogState/);
+const assignLogMatch = source.match(/function assignLogState[\s\S]*?\n}\n\nasync function readConfig/);
+const readConfigMatch = source.match(/async function readConfig[\s\S]*?\n}\n\nreturn baseclass\.extend/);
 const exportMatch = source.match(/return baseclass\.extend\(\{[\s\S]*?\n\}\);/);
 
 if (!emptyConfigMatch)
 	throw new Error('emptyConfigState() not found');
 if (!emptyStatusMatch)
 	throw new Error('emptyStatusState() not found');
+if (!emptyLogMatch)
+	throw new Error('emptyLogState() not found');
 if (!emptySubscriptionMatch)
 	throw new Error('emptySubscriptionState() not found');
 if (!tempConfigMatch)
@@ -31,15 +40,34 @@ if (!removeTempMatch)
 	throw new Error('removeTempFile() not found');
 if (!commandStateMatch)
 	throw new Error('commandResultState() not found');
+if (!assignConfigMatch)
+	throw new Error('assignConfigState() not found');
+if (!readBackendJsonMatch)
+	throw new Error('readBackendJson() not found');
+if (!assignSubscriptionMatch)
+	throw new Error('assignSubscriptionState() not found');
+if (!assignStatusMatch)
+	throw new Error('assignStatusState() not found');
+if (!assignLogMatch)
+	throw new Error('assignLogState() not found');
+if (!readConfigMatch)
+	throw new Error('readConfig() not found');
 if (!exportMatch)
 	throw new Error('backend export object not found');
 
 const emptyConfigFnSource = emptyConfigMatch[0].replace(/\n\nfunction emptyStatusState$/, '');
 const emptyStatusFnSource = emptyStatusMatch[0].replace(/\n\nfunction emptyLogState$/, '');
+const emptyLogFnSource = emptyLogMatch[0].replace(/\n\nfunction emptySubscriptionState$/, '');
 const emptySubscriptionFnSource = emptySubscriptionMatch[0].replace(/\n\nfunction tempConfigPath$/, '');
 const tempConfigFnSource = tempConfigMatch[0].replace(/\n\nasync function removeTempFile$/, '');
 const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction commandResultState$/, '');
 const commandStateFnSource = commandStateMatch[0].replace(/\n\nfunction assignConfigState$/, '');
+const assignConfigFnSource = assignConfigMatch[0].replace(/\n\nasync function readBackendJson$/, '');
+const readBackendJsonFnSource = readBackendJsonMatch[0].replace(/\n\nfunction assignSubscriptionState$/, '');
+const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignStatusState$/, '');
+const assignStatusFnSource = assignStatusMatch[0].replace(/\n\nfunction assignLogState$/, '');
+const assignLogFnSource = assignLogMatch[0].replace(/\n\nasync function readConfig$/, '');
+const readConfigFnSource = readConfigMatch[0].replace(/\n\nreturn baseclass\.extend$/, '');
 const exportObjectSource = exportMatch[0].replace(/^return baseclass\.extend\(/, '').replace(/\);$/, '');
 const context = {
 	Date: { now: () => 1700000000000 },
@@ -78,7 +106,7 @@ const context = {
 };
 context.Math.random = () => 0.5;
 vm.createContext(context);
-vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\nfunction emptyLogState() { return { available: false, limit: 200, lines: [], errors: [] }; }\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${commandStateFnSource}\nfunction assignConfigState(state) { return state; }\nasync function readConfig() { return emptyConfigState(); }\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
+vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${commandStateFnSource}\n${assignConfigFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
 
 const state = context.emptyStatusState();
 
@@ -140,6 +168,28 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('restartValidatedService should dispatch through backend command');
 
 	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt read-config /tmp/config.yaml'] = {
+		code: 0,
+		stdout: '{"config_path":"/tmp/config.yaml","dns_port":5353,"catch_fakeip":true,"errors":["parse warning"]}'
+	};
+	const configState = await context.backend.readConfig('/tmp/config.yaml');
+	if (configState.configPath !== '/tmp/config.yaml' || configState.dnsPort !== '5353' || !configState.catchFakeip)
+		throw new Error('readConfig should map backend JSON payload into config state');
+	if (configState.errors[0] !== 'parse warning')
+		throw new Error('readConfig should preserve backend config parse errors');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args.join(' ') === 'read-config /tmp/config.yaml'))
+		throw new Error('readConfig should pass optional config path to backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt read-config'] = {
+		code: 1,
+		stderr: 'read failed'
+	};
+	const failedConfigState = await context.backend.readConfig();
+	if (failedConfigState.errors[0] !== 'read failed')
+		throw new Error('readConfig should surface backend command failures');
+
+	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt subscription-json'] = {
 		code: 0,
 		stdout: '{"subscription_url":"https://example.com/sub.yaml"}'
@@ -149,6 +199,58 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readSubscriptionUrl should parse saved subscription URL');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'subscription-json'))
 		throw new Error('readSubscriptionUrl should dispatch through backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt status-json'] = {
+		code: 0,
+		stdout: JSON.stringify({
+			service_enabled: true,
+			service_running: true,
+			service_ready: true,
+			route_table_id: 302,
+			route_rule_priority: 120,
+			source_network_interfaces: ['lan', 7],
+			always_proxy_dst_count: 2,
+			active: {
+				present: true,
+				enabled: true,
+				policy_mode: 'proxy-first',
+				source_network_interfaces: ['wan']
+			},
+			config: {
+				dns_port: 1053
+			}
+		})
+	};
+	const statusState = await context.backend.readStatus();
+	if (!statusState.available || !statusState.serviceEnabled || !statusState.serviceRunning || !statusState.serviceReady)
+		throw new Error('readStatus should map service flags from backend JSON');
+	if (statusState.routeTableId !== '302' || statusState.routeRulePriority !== '120')
+		throw new Error('readStatus should stringify route settings');
+	if (statusState.sourceNetworkInterfaces.join(',') !== 'lan,7')
+		throw new Error('readStatus should stringify configured source interfaces');
+	if (!statusState.active.present || statusState.active.policyMode !== 'proxy-first')
+		throw new Error('readStatus should map active runtime state');
+	if (statusState.config.dnsPort !== '1053')
+		throw new Error('readStatus should map nested parsed config state');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt logs-json 10'] = {
+		code: 0,
+		stdout: '{"available":true,"limit":10,"lines":["one",2]}'
+	};
+	const logState = await context.backend.readLogs(10);
+	if (!logState.available || logState.limit !== 10 || logState.lines.join('|') !== 'one|2')
+		throw new Error('readLogs should map backend log payload');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt logs-json 3'] = {
+		code: 1,
+		stderr: 'logs failed'
+	};
+	const failedLogState = await context.backend.readLogs(3);
+	if (failedLogState.errors[0] !== 'logs failed')
+		throw new Error('readLogs should surface backend command failures');
 
 	context.execCalls.length = 0;
 	await context.backend.saveSubscriptionUrl('https://example.com/sub.yaml');

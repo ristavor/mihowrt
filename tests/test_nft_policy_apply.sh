@@ -52,6 +52,26 @@ assert_file_line_before() {
 	((before_line < after_line)) || fail "$message: '$before' should appear before '$after'"
 }
 
+check_real_nft_batch_if_enabled() {
+	local batch_file="$1"
+	local real_nft="${MIHOWRT_REAL_NFT_BIN:-/usr/sbin/nft}"
+	local error_file="$tmpdir/real-nft.err"
+
+	[[ "${MIHOWRT_RUN_NFT_CHECK:-0}" == "1" ]] || return 0
+	[[ -x "$real_nft" ]] || return 0
+
+	if "$real_nft" -c -f "$batch_file" >/dev/null 2>"$error_file"; then
+		return 0
+	fi
+
+	if grep -qF "Operation not permitted" "$error_file"; then
+		return 0
+	fi
+
+	cat "$error_file" >&2
+	return 1
+}
+
 PKG_TMP_DIR="$tmpdir/runtime"
 NFT_CAPTURE_FILE="$tmpdir/nft.batch"
 export NFT_CAPTURE_FILE
@@ -85,6 +105,7 @@ cat >"$SRC_LIST_FILE" <<'EOF'
 EOF
 
 nft_apply_policy
+check_real_nft_batch_if_enabled "$NFT_CAPTURE_FILE"
 assert_eq "6" "$NFT_PROXY_DST_COUNT" "nft_apply_policy should count destination entries before deletion"
 assert_eq "3" "$NFT_PROXY_SRC_COUNT" "nft_apply_policy should count source entries before deletion"
 assert_eq "2" "$NFT_PROXY_DST_SET_COUNT" "nft_apply_policy should keep only unscoped destination entries in set"
@@ -162,6 +183,7 @@ EOF
 NFT_CAPTURE_FILE="$tmpdir/nft-proxy-first.batch"
 
 nft_apply_policy
+check_real_nft_batch_if_enabled "$NFT_CAPTURE_FILE"
 assert_eq "0" "$NFT_PROXY_DST_COUNT" "proxy-first should ignore always-proxy destination entries"
 assert_eq "0" "$NFT_PROXY_SRC_COUNT" "proxy-first should ignore always-proxy source entries"
 assert_eq "2" "$NFT_DIRECT_DST_COUNT" "proxy-first should count direct destination entries"

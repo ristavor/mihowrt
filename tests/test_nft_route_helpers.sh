@@ -340,11 +340,23 @@ ip() {
 }
 
 : >"$net_log"
+: >"$NFT_BATCH_FILE"
+TEST_NFT_TABLE_PRESENT=1
+TEST_NFT_LEGACY_TABLE_PRESENT=1
+TEST_NFT_LIST_RC=0
+nft_emit_delete_existing_tables
+assert_eq "1" "$(grep -c '^nft list tables inet$' "$net_log")" "nft_emit_delete_existing_tables should read nft table list once"
+assert_file_contains "$NFT_BATCH_FILE" "delete table inet $NFT_TABLE_NAME" "nft_emit_delete_existing_tables should emit current table delete"
+assert_file_contains "$NFT_BATCH_FILE" "delete table inet ${NFT_LEGACY_TABLE_NAMES%% *}" "nft_emit_delete_existing_tables should emit legacy table delete"
+
+: >"$net_log"
 TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
 TEST_NFT_LIST_RC=0
 TEST_NFT_DELETE_RC=0
 assert_true "nft_remove_policy should treat missing nft table as already clean" nft_remove_policy
 assert_file_contains "$net_log" "nft list tables inet" "nft_remove_policy should probe nft table presence before cleanup"
+assert_eq "1" "$(grep -c '^nft list tables inet$' "$net_log")" "nft_remove_policy should read nft table list once when all tables are absent"
 assert_file_not_contains "$net_log" "nft delete table inet $NFT_TABLE_NAME" "nft_remove_policy should not delete absent nft table"
 assert_file_contains "$net_log" "log:nft policy table $NFT_TABLE_NAME already clean" "nft_remove_policy should log already-clean nft state"
 
@@ -501,6 +513,60 @@ TEST_FOREIGN_RULE_PRESENT=0
 assert_false "policy_route_setup should reject explicit table with foreign routes" policy_route_setup
 assert_file_not_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 200" "policy_route_setup should not alter foreign explicit table"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "policy_route_setup should not persist failed explicit table setup"
+
+cat >"$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=200
+ROUTE_RULE_PRIORITY=10000
+EOF
+: >"$net_log"
+MIHOMO_ROUTE_TABLE_ID="202"
+MIHOMO_ROUTE_RULE_PRIORITY=""
+TEST_RULE_PRESENT=1
+TEST_ROUTE_TABLE_ID=200
+TEST_ROUTE_RULE_PRIORITY=10000
+TEST_RULE_SHOW_RC=0
+TEST_RULE_DEL_RC=0
+TEST_RULE_ADD_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
+TEST_ROUTE_DEL_RC=0
+TEST_ROUTE_REPLACE_RC=0
+TEST_MANAGED_ROUTE_TABLES="200"
+TEST_FOREIGN_ROUTE_TABLES=""
+TEST_FOREIGN_RULE_PRESENT=0
+assert_true "policy_route_setup should drop saved state before partial explicit setup" policy_route_setup
+assert_file_contains "$net_log" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 200 priority 10000" "partial explicit setup should remove old saved rule"
+assert_file_contains "$net_log" "ip route del local 0.0.0.0/0 dev lo table 200" "partial explicit setup should remove old saved route"
+assert_file_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 202" "partial explicit setup should honor explicit route table"
+assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_TABLE_ID=202" "partial explicit setup should persist explicit route table"
+assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_RULE_PRIORITY=10000" "partial explicit setup should resolve missing route priority"
+
+cat >"$ROUTE_STATE_FILE" <<'EOF'
+ROUTE_TABLE_ID=200
+ROUTE_RULE_PRIORITY=10000
+EOF
+: >"$net_log"
+MIHOMO_ROUTE_TABLE_ID="201"
+MIHOMO_ROUTE_RULE_PRIORITY="10001"
+TEST_RULE_PRESENT=1
+TEST_ROUTE_TABLE_ID=200
+TEST_ROUTE_RULE_PRIORITY=10000
+TEST_RULE_SHOW_RC=0
+TEST_RULE_DEL_RC=0
+TEST_RULE_ADD_RC=0
+TEST_ROUTE_PRESENT=1
+TEST_ROUTE_SHOW_RC=0
+TEST_ROUTE_DEL_RC=0
+TEST_ROUTE_REPLACE_RC=0
+TEST_MANAGED_ROUTE_TABLES="200"
+TEST_FOREIGN_ROUTE_TABLES=""
+TEST_FOREIGN_RULE_PRESENT=0
+assert_true "policy_route_setup should drop saved state before explicit override setup" policy_route_setup
+assert_file_contains "$net_log" "ip rule del fwmark $NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK table 200 priority 10000" "explicit override setup should remove old saved rule"
+assert_file_contains "$net_log" "ip route del local 0.0.0.0/0 dev lo table 200" "explicit override setup should remove old saved route"
+assert_file_contains "$net_log" "ip route replace local 0.0.0.0/0 dev lo table 201" "explicit override setup should install explicit route table"
+assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_TABLE_ID=201" "explicit override setup should persist explicit route table"
+assert_file_contains "$ROUTE_STATE_FILE" "ROUTE_RULE_PRIORITY=10001" "explicit override setup should persist explicit route priority"
 
 cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200

@@ -262,7 +262,7 @@ policy_route_resolve_ids() {
 	local route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
 	local state_rc=1
 
-	if [ -z "$route_table_id" ] || [ -z "$route_rule_priority" ]; then
+	if [ -z "$route_table_id" ] && [ -z "$route_rule_priority" ]; then
 		if policy_route_state_can_reuse; then
 			state_rc=0
 		else
@@ -277,6 +277,10 @@ policy_route_resolve_ids() {
 				return 1
 				;;
 		esac
+	else
+		if policy_route_state_read; then
+			policy_route_drop_saved_state || return 1
+		fi
 	fi
 
 	if [ -z "$route_table_id" ] || [ -z "$route_rule_priority" ]; then

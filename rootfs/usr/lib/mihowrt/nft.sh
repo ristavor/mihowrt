@@ -31,6 +31,21 @@ nft_delete_present_table_named() {
 	[ "$table_state" -eq 1 ]
 }
 
+nft_list_tables_output() {
+	have_command nft || return 2
+	nft list tables inet 2>/dev/null
+}
+
+nft_table_list_has_named() {
+	local table="$1"
+	local tables_output="$2"
+
+	printf '%s\n' "$tables_output" | awk -v table="$table" '
+		$1 == "table" && $2 == "inet" && $3 == table { found=1 }
+		END { exit(found ? 0 : 1) }
+	'
+}
+
 nft_delete_table_if_exists() {
 	nft_delete_table_named_if_exists "$NFT_TABLE_NAME"
 }
@@ -39,12 +54,8 @@ nft_table_exists_named() {
 	local table="$1"
 	local tables_output=""
 
-	have_command nft || return 2
-	tables_output="$(nft list tables inet 2>/dev/null)" || return 2
-	printf '%s\n' "$tables_output" | awk -v table="$table" '
-		$1 == "table" && $2 == "inet" && $3 == table { found=1 }
-		END { exit(found ? 0 : 1) }
-	'
+	tables_output="$(nft_list_tables_output)" || return 2
+	nft_table_list_has_named "$table" "$tables_output"
 }
 
 nft_table_exists() {
@@ -52,22 +63,12 @@ nft_table_exists() {
 }
 
 nft_emit_delete_existing_tables() {
-	local table table_state
+	local table tables_output
 
+	tables_output="$(nft_list_tables_output)" || return 1
 	for table in "$NFT_TABLE_NAME" ${NFT_LEGACY_TABLE_NAMES:-}; do
-		nft_table_exists_named "$table"
-		table_state=$?
-		case "$table_state" in
-			0)
-				nft_emit_line "delete table inet $table"
-				;;
-			1)
-				:
-				;;
-			*)
-				return 1
-				;;
-		esac
+		nft_table_list_has_named "$table" "$tables_output" || continue
+		nft_emit_line "delete table inet $table"
 	done
 }
 
@@ -431,24 +432,14 @@ nft_apply_policy() {
 }
 
 nft_remove_policy() {
-	local table table_state=1 removed=0
+	local table tables_output="" removed=0
 
+	tables_output="$(nft_list_tables_output)" || return 1
 	for table in "$NFT_TABLE_NAME" ${NFT_LEGACY_TABLE_NAMES:-}; do
-		nft_table_exists_named "$table"
-		table_state=$?
-		case "$table_state" in
-			0)
-				nft_delete_present_table_named "$table" || return 1
-				log "Removed nft policy table $table"
-				removed=1
-				;;
-			1)
-				:
-				;;
-			*)
-				return 1
-				;;
-		esac
+		nft_table_list_has_named "$table" "$tables_output" || continue
+		nft_delete_present_table_named "$table" || return 1
+		log "Removed nft policy table $table"
+		removed=1
 	done
 
 	[ "$removed" -eq 1 ] || log "nft policy table $NFT_TABLE_NAME already clean"

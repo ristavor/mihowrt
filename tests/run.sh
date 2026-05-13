@@ -14,6 +14,13 @@ js_syntax_files=(
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ui.js"
 )
 
+shell_lint_files=(
+	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
+	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
+	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
+)
+
 check_js_syntax() {
 	node - "$@" <<'NODE'
 const fs = require('fs');
@@ -38,6 +45,14 @@ run_all_tests() {
 		"$ROOT_DIR/rootfs/etc/init.d/mihowrt" \
 		"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
 	printf 'ok - shell syntax\n'
+
+	printf '==> shell lint\n'
+	if command -v shellcheck >/dev/null 2>&1; then
+		shellcheck -s ash -e SC1091,SC2034 "${shell_lint_files[@]}"
+		printf 'ok - shell lint\n'
+	else
+		printf 'skip - shell lint (shellcheck missing)\n'
+	fi
 
 	printf '==> js syntax\n'
 	if command -v node >/dev/null 2>&1; then

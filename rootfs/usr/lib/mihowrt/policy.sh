@@ -30,14 +30,22 @@ apply_runtime_state_internal() {
 	fi
 
 	if ! dns_setup; then
-		dns_restore || true
-		nft_remove_policy
-		policy_route_cleanup
+		rollback_applied_runtime_state
 		return 1
 	fi
 
 	log "Prepared ${POLICY_MODE:-direct-first} policy state"
 	return 0
+}
+
+rollback_applied_runtime_state() {
+	dns_restore || true
+	nft_remove_policy || true
+	policy_route_cleanup || true
+}
+
+clear_resolved_runtime_lists() {
+	[ "${1:-0}" -eq 0 ] || policy_clear_runtime_list_overrides
 }
 
 apply_runtime_nft_policy_only() {
@@ -56,20 +64,18 @@ apply_runtime_state() {
 	fi
 
 	if ! apply_runtime_state_internal; then
-		[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
+		clear_resolved_runtime_lists "$lists_resolved"
 		return 1
 	fi
 
 	runtime_snapshot_save || {
 		err "Failed to persist runtime snapshot"
-		dns_restore || true
-		nft_remove_policy || true
-		policy_route_cleanup || true
-		[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
+		rollback_applied_runtime_state
+		clear_resolved_runtime_lists "$lists_resolved"
 		return 1
 	}
 
-	[ "$lists_resolved" -eq 0 ] || policy_clear_runtime_list_overrides
+	clear_resolved_runtime_lists "$lists_resolved"
 	return 0
 }
 

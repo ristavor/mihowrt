@@ -43,7 +43,6 @@ err() {
 load_runtime_config() {
 	printf 'load_runtime_config\n' >>"$cli_log"
 	[ "${TEST_LOAD_RUNTIME_CONFIG_RC:-0}" -eq 0 ] || return "${TEST_LOAD_RUNTIME_CONFIG_RC:-1}"
-	ENABLED="${TEST_ENABLED:-1}"
 	MIHOMO_DNS_LISTEN="127.0.0.1#7874"
 	MIHOMO_TPROXY_PORT="7894"
 	return 0
@@ -139,7 +138,6 @@ eval "$(sed -n '/^runtime_policy_ready_state()/,/^}/p;/^service_ready_runtime_st
 
 : > "$cli_log"
 : > "$clash_log"
-TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=0
@@ -155,7 +153,6 @@ assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clea
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file on clean exit"
 
 : > "$cli_log"
-TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=1
@@ -164,7 +161,6 @@ assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should stil
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file even when cleanup fails"
 
 : > "$cli_log"
-TEST_ENABLED=1
 TEST_WAIT_READY_RC=1
 TEST_APPLY_RUNTIME_RC=0
 TEST_CLEANUP_RUNTIME_RC=0
@@ -174,7 +170,6 @@ assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clea
 assert_file_not_contains "$cli_log" "apply_runtime_state" "run_service should not apply runtime state before readiness succeeds"
 
 : > "$cli_log"
-TEST_ENABLED=1
 TEST_WAIT_READY_RC=0
 TEST_APPLY_RUNTIME_RC=1
 TEST_CLEANUP_RUNTIME_RC=0
@@ -183,16 +178,6 @@ assert_file_contains "$cli_log" "err:Failed to apply runtime policy after Mihomo
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean runtime state after policy apply failure"
 
 : > "$cli_log"
-TEST_ENABLED=0
-TEST_WAIT_READY_RC=0
-TEST_APPLY_RUNTIME_RC=0
-TEST_CLEANUP_RUNTIME_RC=0
-run_service
-assert_file_contains "$cli_log" "apply_runtime_state" "run_service should apply runtime state even when legacy enabled flag is disabled"
-assert_file_contains "$cli_log" "log:Runtime policy applied" "run_service should report mandatory policy apply"
-
-: > "$cli_log"
-TEST_ENABLED=1
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
@@ -206,7 +191,6 @@ assert_file_not_contains "$cli_log" "dns_backup_valid" "service_ready_runtime_st
 assert_file_not_contains "$cli_log" "load_runtime_config" "service_ready_runtime_state should use runtime snapshot before config reload"
 
 : > "$cli_log"
-TEST_ENABLED=1
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
@@ -216,17 +200,15 @@ assert_false "service_ready_runtime_state should stay false until runtime snapsh
 assert_file_contains "$cli_log" "mihomo_ready_state:7874:7894" "service_ready_runtime_state should still probe listeners before failing on invalid snapshot"
 
 : > "$cli_log"
-TEST_ENABLED=0
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_SNAPSHOT_JSON=''
 TEST_LOAD_RUNTIME_CONFIG_RC=0
-assert_false "service_ready_runtime_state should require policy markers even when legacy enabled flag is disabled" service_ready_runtime_state
+assert_false "service_ready_runtime_state should require policy markers without a valid runtime snapshot" service_ready_runtime_state
 assert_file_contains "$cli_log" "runtime_snapshot_valid" "service_ready_runtime_state should require runtime markers for mandatory policy layer"
 
 : > "$cli_log"
-TEST_ENABLED=1
 TEST_SERVICE_RUNNING_STATE_RC=0
 TEST_SERVICE_READY_STATE_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0

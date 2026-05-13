@@ -183,7 +183,7 @@ MihoWRT has four user-controlled inputs.
    UCI settings control the OpenWrt-side policy layer:
 
    ```text
-   option enabled '1'
+   option policy_mode 'direct-first'
    list source_network_interfaces 'br-lan'
    option dns_hijack '1'
    option disable_quic '1'
@@ -297,8 +297,8 @@ Start sequence:
    ```
 
 8. MihoWRT waits until Mihomo DNS and TPROXY listeners are ready.
-9. If `option enabled '1'`, it applies policy routing, nftables rules,
-   DNS state, and saves a runtime snapshot.
+9. It applies policy routing, nftables rules, DNS state, and saves a
+   runtime snapshot.
 10. When the Mihomo process exits or the service is stopped, cleanup
     restores DNS, removes nftables table, removes policy route state,
     and clears runtime snapshots.

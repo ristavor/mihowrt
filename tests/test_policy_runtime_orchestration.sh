@@ -176,7 +176,6 @@ cleanup_runtime_state() {
 
 load_runtime_config() {
 	printf 'load_runtime_config\n' >>"$event_log"
-	ENABLED="${TEST_ENABLED:-1}"
 	return "${TEST_LOAD_RUNTIME_RC:-0}"
 }
 
@@ -241,7 +240,6 @@ policy_route_state_read() {
 }
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_LOAD_RUNTIME_RC=0
 TEST_VALIDATE_RUNTIME_RC=0
 TEST_APPLY_RUNTIME_RC=0
@@ -255,14 +253,13 @@ reload_runtime_state
 assert_file_contains "$event_log" "load_runtime_config" "reload_runtime_state should load runtime config before changes"
 assert_file_contains "$event_log" "validate_runtime_config" "reload_runtime_state should validate runtime config before teardown"
 assert_file_contains "$event_log" "runtime_snapshot_mihomo_config_matches_current" "reload_runtime_state should block reload if Mihomo config needs restart"
-assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply new runtime state when enabled"
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply new runtime state"
 assert_file_contains "$event_log" "policy_route_teardown_ids:200:10000" "reload_runtime_state should remove previous route ids after successful apply"
 assert_file_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should log successful safer reload"
 assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state should not tear down live state before apply when snapshot exists"
 TEST_POLICY_ROUTE_TEARDOWN_RC=0
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_LOAD_RUNTIME_RC=0
 TEST_VALIDATE_RUNTIME_RC=0
 TEST_APPLY_RUNTIME_RC=0
@@ -280,7 +277,6 @@ assert_file_not_contains "$event_log" "log:Reloaded direct-first policy state" "
 TEST_POLICY_ROUTE_TEARDOWN_RC=0
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_LOAD_RUNTIME_RC=0
 TEST_VALIDATE_RUNTIME_RC=0
 TEST_APPLY_RUNTIME_RC=0
@@ -298,16 +294,6 @@ assert_file_not_contains "$event_log" "runtime_snapshot_restore" "reload_runtime
 TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=0
 
 : > "$event_log"
-TEST_ENABLED=0
-TEST_ROUTE_STATE_SEQUENCE="single"
-TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
-TEST_RUNTIME_SNAPSHOT_VALID_RC=0
-reload_runtime_state
-assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply runtime state even when legacy enabled flag is disabled"
-assert_file_not_contains "$event_log" "log:Policy layer disabled; runtime state left clean" "reload_runtime_state should not support disabled policy path"
-
-: > "$event_log"
-TEST_ENABLED=1
 TEST_VALIDATE_RUNTIME_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
 assert_false "reload_runtime_state should fail validation before teardown" reload_runtime_state
@@ -316,7 +302,6 @@ assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_st
 TEST_VALIDATE_RUNTIME_RC=0
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
 TEST_APPLY_RUNTIME_RC=1
@@ -329,7 +314,6 @@ assert_file_not_contains "$event_log" "cleanup_runtime_state" "reload_runtime_st
 TEST_APPLY_RUNTIME_RC=0
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
 TEST_APPLY_RUNTIME_RC=2
@@ -342,7 +326,6 @@ assert_file_not_contains "$event_log" "err:Failed to apply updated policy; resto
 TEST_APPLY_RUNTIME_RC=0
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
@@ -352,7 +335,6 @@ assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state 
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should still apply runtime state after legacy cleanup"
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
@@ -362,7 +344,6 @@ assert_file_not_contains "$event_log" "cleanup_runtime_state" "blocked reload sh
 assert_file_not_contains "$event_log" "apply_runtime_state" "blocked reload should not apply new state"
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
@@ -372,7 +353,6 @@ assert_file_contains "$event_log" "cleanup_runtime_state" "reload_runtime_state 
 assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply runtime after invalid snapshot cleanup"
 
 : > "$event_log"
-TEST_ENABLED=1
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_RUNTIME_SNAPSHOT_VALID_RC=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
@@ -404,7 +384,6 @@ assert_file_contains "$event_log" "log:Recovering runtime state after unclean sh
 assert_file_contains "$event_log" "cleanup_runtime_state" "recover_runtime_state should clean runtime state after crash"
 
 load_runtime_config() {
-	ENABLED=1
 	MIHOMO_DNS_PORT="7874"
 	MIHOMO_DNS_LISTEN="127.0.0.1#7874"
 	DNS_HIJACK=1

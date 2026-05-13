@@ -1,6 +1,5 @@
 config settings 'settings'
 	option policy_mode 'direct-first'
-	option enabled '1'
 	list source_network_interfaces 'br-lan'
 	option dns_hijack '1'
 	option disable_quic '1'

@@ -49,7 +49,6 @@ cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
 8.8.8.8
 EOF
 
-ENABLED=1
 POLICY_MODE="proxy-first"
 DNS_HIJACK=1
 MIHOMO_DNS_PORT="7874"
@@ -127,7 +126,6 @@ assert_eq "201" "$(jq -r '.route_table_id_effective' "$snapshot_file")" "runtime
 assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save should preserve previous destination snapshot on failure"
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should preserve previous source snapshot on failure"
 
-ENABLED=0
 DNS_HIJACK=0
 MIHOMO_DNS_PORT=""
 MIHOMO_DNS_LISTEN=""
@@ -144,7 +142,6 @@ POLICY_MODE=""
 unset POLICY_DST_LIST_FILE POLICY_SRC_LIST_FILE POLICY_DIRECT_DST_LIST_FILE
 
 runtime_snapshot_load
-assert_eq "1" "$ENABLED" "runtime_snapshot_load should restore enabled flag"
 assert_eq "proxy-first" "$POLICY_MODE" "runtime_snapshot_load should restore policy mode"
 assert_eq "127.0.0.1#7874" "$MIHOMO_DNS_LISTEN" "runtime_snapshot_load should restore DNS listen"
 assert_eq "201" "$MIHOMO_ROUTE_TABLE_ID" "runtime_snapshot_load should restore effective route table id as active override"

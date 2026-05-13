@@ -185,7 +185,6 @@ runtime_snapshot_save() {
 	}
 
 	jq -nc \
-		--arg enabled "$ENABLED" \
 		--arg policy_mode "${POLICY_MODE:-direct-first}" \
 		--arg dns_hijack "$DNS_HIJACK" \
 		--arg mihomo_dns_port "$MIHOMO_DNS_PORT" \
@@ -203,7 +202,7 @@ runtime_snapshot_save() {
 		--arg src_source_hash "$src_source_hash" \
 		--arg direct_source_hash "$direct_source_hash" \
 		'{
-			enabled: ($enabled == "1"),
+			enabled: true,
 			policy_mode: $policy_mode,
 			dns_hijack: ($dns_hijack == "1"),
 			mihomo_dns_port: $mihomo_dns_port,
@@ -288,7 +287,7 @@ runtime_snapshot_load() {
 
 	eval "$(
 		printf '%s\n' "$snapshot_json" | jq -r '
-			@sh "ENABLED=\(if .enabled then 1 else 0 end) POLICY_MODE=\(.policy_mode // "direct-first") DNS_HIJACK=\(if .dns_hijack then 1 else 0 end) MIHOMO_DNS_PORT=\(.mihomo_dns_port // "") MIHOMO_DNS_LISTEN=\(.mihomo_dns_listen // "") MIHOMO_TPROXY_PORT=\(.mihomo_tproxy_port // "") MIHOMO_ROUTING_MARK=\(.mihomo_routing_mark // "") MIHOMO_ROUTE_TABLE_ID=\(.route_table_id_effective // "") MIHOMO_ROUTE_RULE_PRIORITY=\(.route_rule_priority_effective // "") DISABLE_QUIC=\(if .disable_quic then 1 else 0 end) DNS_ENHANCED_MODE=\(.dns_enhanced_mode // "") CATCH_FAKEIP=\(if .catch_fakeip then 1 else 0 end) FAKEIP_RANGE=\(.fakeip_range // "") SOURCE_INTERFACES=\((.source_network_interfaces // []) | join(" "))"
+			@sh "POLICY_MODE=\(.policy_mode // "direct-first") DNS_HIJACK=\(if .dns_hijack then 1 else 0 end) MIHOMO_DNS_PORT=\(.mihomo_dns_port // "") MIHOMO_DNS_LISTEN=\(.mihomo_dns_listen // "") MIHOMO_TPROXY_PORT=\(.mihomo_tproxy_port // "") MIHOMO_ROUTING_MARK=\(.mihomo_routing_mark // "") MIHOMO_ROUTE_TABLE_ID=\(.route_table_id_effective // "") MIHOMO_ROUTE_RULE_PRIORITY=\(.route_rule_priority_effective // "") DISABLE_QUIC=\(if .disable_quic then 1 else 0 end) DNS_ENHANCED_MODE=\(.dns_enhanced_mode // "") CATCH_FAKEIP=\(if .catch_fakeip then 1 else 0 end) FAKEIP_RANGE=\(.fakeip_range // "") SOURCE_INTERFACES=\((.source_network_interfaces // []) | join(" "))"
 		'
 	)" || return 1
 
@@ -540,7 +539,6 @@ load_runtime_config() {
 
 	config_load "$PKG_CONFIG" || return 1
 
-	ENABLED=1
 	config_get POLICY_MODE "settings" "policy_mode" "direct-first"
 	config_get_bool DNS_HIJACK "settings" "dns_hijack" 1
 	config_get MIHOMO_ROUTE_TABLE_ID "settings" "route_table_id" ""
@@ -1002,7 +1000,7 @@ load_status_config_json() {
 }
 
 load_status_desired_state_json() {
-	local enabled=1 dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
+	local dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 direct_dst_count=0 settings_loaded=0
 	local proxy_dst_url_count=0 proxy_src_url_count=0 direct_dst_url_count=0
 	local proxy_dst_source_hash="" proxy_src_source_hash="" direct_dst_source_hash=""
@@ -1053,7 +1051,6 @@ load_status_desired_state_json() {
 	esac
 
 	jq -nc \
-		--arg enabled "$enabled" \
 		--arg policy_mode "$policy_mode" \
 		--arg dns_hijack "$dns_hijack" \
 		--arg route_table_id "$route_table_id" \
@@ -1072,7 +1069,7 @@ load_status_desired_state_json() {
 		--arg settings_loaded "$settings_loaded" \
 		--arg status_errors_raw "$status_errors_raw" \
 		'{
-			enabled: ($enabled == "1"),
+			enabled: true,
 			policy_mode: $policy_mode,
 			dns_hijack: ($dns_hijack == "1"),
 			route_table_id_raw: $route_table_id,

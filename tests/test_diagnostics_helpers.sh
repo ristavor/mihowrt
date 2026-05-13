@@ -41,7 +41,6 @@ config_load() {
 
 config_get_bool() {
 	case "$3" in
-		enabled) printf -v "$1" '%s' "${TEST_ENABLED_SETTING:-1}" ;;
 		dns_hijack) printf -v "$1" '%s' "1" ;;
 		disable_quic) printf -v "$1" '%s' "0" ;;
 	esac
@@ -132,7 +131,6 @@ read_config_json() {
 EOF
 }
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
@@ -189,7 +187,6 @@ runtime_snapshot_status_json() {
 	return 1
 }
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
@@ -202,7 +199,6 @@ assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtim
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.runtime_matches_desired')" "status_json should not claim runtime/config parity without snapshot"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_snapshot" | jq -r '.active.present')" "status_json should not invent applied runtime state without snapshot"
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
@@ -211,22 +207,12 @@ status_output_no_runtime="$(status_json)"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.service_ready')" "status_json should keep service not ready when enabled policy markers are missing"
 assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.runtime_matches_desired')" "status_json should not claim parity when policy should be enabled but runtime is clean"
 
-TEST_ENABLED_SETTING=0
-TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
-TEST_SERVICE_READY_RC=0
-TEST_RUNTIME_SNAPSHOT_EXISTS_RC=1
-TEST_NFT_TABLE_EXISTS_RC=0
-status_output_disabled_clean="$(status_json)"
-assert_eq "false" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.service_ready')" "status_json should require runtime policy even when legacy enabled setting is disabled"
-assert_eq "false" "$(printf '%s\n' "$status_output_disabled_clean" | jq -r '.runtime_matches_desired')" "status_json should not treat clean runtime as matching mandatory policy"
-
 runtime_snapshot_status_json() {
 	cat <<'EOF'
 {"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":true,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 
-TEST_ENABLED_SETTING=1
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
 TEST_NFT_TABLE_EXISTS_RC=0
@@ -241,18 +227,11 @@ runtime_snapshot_status_json() {
 EOF
 }
 
-TEST_ENABLED_SETTING=0
-TEST_SERVICE_READY_RC=0
-TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
-status_output_disabled_with_active="$(status_json)"
-assert_eq "true" "$(printf '%s\n' "$status_output_disabled_with_active" | jq -r '.runtime_matches_desired')" "status_json should ignore legacy disabled setting when active runtime matches mandatory policy"
-
 runtime_snapshot_status_json() {
 	printf '%s\n' 'runtime snapshot parse failed' >&2
 	return 1
 }
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
@@ -276,7 +255,6 @@ read_config_json() {
 EOF
 }
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
@@ -325,7 +303,6 @@ read_config_json() {
 EOF
 }
 
-TEST_ENABLED_SETTING=1
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
 TEST_SERVICE_READY_RC=0
 TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0

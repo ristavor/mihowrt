@@ -54,7 +54,6 @@ runtime_live_state_present() {
 load_runtime_config() {
 	printf 'load_runtime_config\n' >>"$event_log"
 	POLICY_MODE="${TEST_POLICY_MODE:-direct-first}"
-	ENABLED=1
 	DNS_HIJACK=1
 	MIHOMO_DNS_PORT="7874"
 	MIHOMO_DNS_LISTEN="127.0.0.1#7874"

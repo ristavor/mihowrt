@@ -18,6 +18,7 @@ mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR"
 : > "$SRC_LIST_FILE"
 : > "$DIRECT_DST_LIST_FILE"
 
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
 
 log() {

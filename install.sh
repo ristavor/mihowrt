@@ -2086,11 +2086,8 @@ start_fresh_install_service() {
 	return 1
 }
 
-perform_package_action() {
-	local reinstall=0
+prepare_package_payload() {
 	local asset_url=""
-
-	package_installed && reinstall=1 || reinstall=0
 
 	asset_url="$(latest_asset_url)" || {
 		err "failed to query latest ${PKG_NAME} release"
@@ -2113,10 +2110,17 @@ perform_package_action() {
 	fi
 
 	log "Preparing Mihomo kernel..."
-	if ! kernel_stage_update; then
+	kernel_stage_update || {
 		err "kernel prepare failed"
 		return 1
-	fi
+	}
+}
+
+perform_package_action() {
+	local reinstall=0
+
+	package_installed && reinstall=1 || reinstall=0
+	prepare_package_payload || return 1
 
 	if [ "$reinstall" = "1" ]; then
 		begin_install_transaction "$reinstall"

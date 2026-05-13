@@ -826,6 +826,10 @@ ensure_dns_state_helpers() {
 		uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
 	}
 
+	dnsmasq_option_get() {
+		uci -q get "dhcp.@dnsmasq[0].$1" 2>/dev/null || true
+	}
+
 	dnsmasq_state_matches() {
 		local expected_cachesize="$1"
 		local expected_noresolv="$2"
@@ -833,9 +837,9 @@ ensure_dns_state_helpers() {
 		local expected_servers="$4"
 		local current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 
-		current_cachesize="$(uci -q get dhcp.@dnsmasq[0].cachesize 2>/dev/null || true)"
-		current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
-		current_resolvfile="$(uci -q get dhcp.@dnsmasq[0].resolvfile 2>/dev/null || true)"
+		current_cachesize="$(dnsmasq_option_get cachesize)"
+		current_noresolv="$(dnsmasq_option_get noresolv)"
+		current_resolvfile="$(dnsmasq_option_get resolvfile)"
 		current_servers="$(dns_current_servers_flat)"
 
 		[ "$current_cachesize" = "$expected_cachesize" ] || return 1
@@ -1352,6 +1356,53 @@ dns_backup_file_valid_for_restore() {
 	return 0
 }
 
+dns_restore_backup_state_read() {
+	local backup_path="$1"
+	local line="" server="" server_sep="" tab="" has_servers=0
+
+	INSTALL_DNS_RESTORE_ORIG_CACHESIZE=""
+	INSTALL_DNS_RESTORE_ORIG_NORESOLV=""
+	INSTALL_DNS_RESTORE_ORIG_RESOLVFILE=""
+	INSTALL_DNS_RESTORE_TARGET_NORESOLV=""
+	INSTALL_DNS_RESTORE_TARGET_RESOLVFILE=""
+	INSTALL_DNS_RESTORE_EXPECTED_SERVERS=""
+	INSTALL_DNS_RESTORE_HAS_SERVERS=0
+
+	dns_backup_file_valid_for_restore "$backup_path" || return 1
+
+	tab="$(printf '\t')"
+	while IFS= read -r line; do
+		case "$line" in
+			ORIG_CACHESIZE=*)
+				INSTALL_DNS_RESTORE_ORIG_CACHESIZE="${line#ORIG_CACHESIZE=}"
+				;;
+			ORIG_NORESOLV=*)
+				INSTALL_DNS_RESTORE_ORIG_NORESOLV="${line#ORIG_NORESOLV=}"
+				;;
+			ORIG_RESOLVFILE=*)
+				INSTALL_DNS_RESTORE_ORIG_RESOLVFILE="${line#ORIG_RESOLVFILE=}"
+				;;
+			ORIG_SERVER=*)
+				server="${line#ORIG_SERVER=}"
+				if [ -n "$server" ]; then
+					INSTALL_DNS_RESTORE_EXPECTED_SERVERS="${INSTALL_DNS_RESTORE_EXPECTED_SERVERS}${server_sep}${server}"
+					server_sep="$tab"
+					has_servers=1
+				fi
+				;;
+		esac
+	done < "$backup_path"
+
+	INSTALL_DNS_RESTORE_HAS_SERVERS="$has_servers"
+	INSTALL_DNS_RESTORE_TARGET_NORESOLV="$INSTALL_DNS_RESTORE_ORIG_NORESOLV"
+	INSTALL_DNS_RESTORE_TARGET_RESOLVFILE="$INSTALL_DNS_RESTORE_ORIG_RESOLVFILE"
+
+	if [ -z "$INSTALL_DNS_RESTORE_TARGET_RESOLVFILE" ] && [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
+		INSTALL_DNS_RESTORE_TARGET_RESOLVFILE="$DNS_AUTO_RESOLVFILE"
+		[ "$INSTALL_DNS_RESTORE_ORIG_NORESOLV" = "1" ] || INSTALL_DNS_RESTORE_TARGET_NORESOLV='0'
+	fi
+}
+
 seed_dns_backup_target_metadata() {
 	local backup_path="$1"
 	local config_path="$2"
@@ -1425,6 +1476,11 @@ commit_dhcp_or_revert() {
 	}
 }
 
+commit_dhcp_and_restart_or_revert() {
+	commit_dhcp_or_revert || return 1
+	restart_dnsmasq
+}
+
 restore_dhcp_option_value_or_revert() {
 	local option="$1"
 	local value="$2"
@@ -1456,6 +1512,37 @@ restore_dhcp_server_list_or_revert() {
 		[ -n "$server" ] || continue
 		add_dhcp_list_value_or_revert dhcp.@dnsmasq[0].server "$server" || return 1
 	done
+}
+
+stage_dhcp_clear_dnsmasq_targets_or_revert() {
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile
+}
+
+stage_dhcp_backup_restore_or_revert() {
+	local orig_cachesize="$1"
+	local target_noresolv="$2"
+	local target_resolvfile="$3"
+	local expected_servers="$4"
+
+	stage_dhcp_clear_dnsmasq_targets_or_revert || return 1
+	restore_dhcp_server_list_or_revert "$expected_servers" || return 1
+	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
+	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].noresolv "$target_noresolv" || return 1
+
+	[ -n "$target_resolvfile" ] || return 0
+	set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$target_resolvfile"
+}
+
+stage_dhcp_default_dns_or_revert() {
+	local resolvfile="$1"
+
+	stage_dhcp_clear_dnsmasq_targets_or_revert || return 1
+	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize || return 1
+	set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv '0' || return 1
+
+	[ -n "$resolvfile" ] || return 0
+	set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$resolvfile"
 }
 
 route_state_read() {
@@ -1688,67 +1775,26 @@ cleanup_runtime_fallback() {
 
 restore_dns_from_backup_file() {
 	local backup_path="$1"
-	local line orig_cachesize="" orig_noresolv="" orig_resolvfile="" target_noresolv="" target_resolvfile=""
-	local server has_servers=0 expected_servers="" server_sep="" tab=""
 
 	[ -f "$backup_path" ] || return 1
 	have_command uci || return 1
 	ensure_dns_state_helpers || return 1
-	dns_backup_file_valid_for_restore "$backup_path" || return 1
+	dns_restore_backup_state_read "$backup_path" || return 1
 
-	tab="$(printf '\t')"
-
-	while IFS= read -r line; do
-		case "$line" in
-			ORIG_CACHESIZE=*)
-				orig_cachesize="${line#ORIG_CACHESIZE=}"
-				;;
-			ORIG_NORESOLV=*)
-				orig_noresolv="${line#ORIG_NORESOLV=}"
-				;;
-			ORIG_RESOLVFILE=*)
-				orig_resolvfile="${line#ORIG_RESOLVFILE=}"
-				;;
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				if [ -n "$server" ]; then
-					expected_servers="${expected_servers}${server_sep}${server}"
-					server_sep="$tab"
-					has_servers=1
-				fi
-				;;
-		esac
-	done < "$backup_path"
-
-	target_noresolv="$orig_noresolv"
-	target_resolvfile="$orig_resolvfile"
-	if [ -z "$target_resolvfile" ] && [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
-		target_resolvfile="$DNS_AUTO_RESOLVFILE"
-		[ "$orig_noresolv" = "1" ] || target_noresolv='0'
-	fi
-
-	if dnsmasq_state_matches "$orig_cachesize" "$target_noresolv" "$target_resolvfile" "$expected_servers"; then
+	if dnsmasq_state_matches \
+		"$INSTALL_DNS_RESTORE_ORIG_CACHESIZE" \
+		"$INSTALL_DNS_RESTORE_TARGET_NORESOLV" \
+		"$INSTALL_DNS_RESTORE_TARGET_RESOLVFILE" \
+		"$INSTALL_DNS_RESTORE_EXPECTED_SERVERS"; then
 		return 0
 	fi
 
-	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
-	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile || return 1
-	restore_dhcp_server_list_or_revert "$expected_servers" || return 1
-
-	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].cachesize "$orig_cachesize" || return 1
-	restore_dhcp_option_value_or_revert dhcp.@dnsmasq[0].noresolv "$orig_noresolv" || return 1
-
-	if [ -n "$orig_resolvfile" ]; then
-		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$orig_resolvfile" || return 1
-	elif [ "$has_servers" -eq 0 ] && [ -f "$DNS_AUTO_RESOLVFILE" ]; then
-		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$DNS_AUTO_RESOLVFILE" || return 1
-		if [ "$orig_noresolv" != "1" ]; then
-			set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv '0' || return 1
-		fi
-	fi
-
-	commit_dhcp_or_revert || return 1
-	restart_dnsmasq
+	stage_dhcp_backup_restore_or_revert \
+		"$INSTALL_DNS_RESTORE_ORIG_CACHESIZE" \
+		"$INSTALL_DNS_RESTORE_TARGET_NORESOLV" \
+		"$INSTALL_DNS_RESTORE_TARGET_RESOLVFILE" \
+		"$INSTALL_DNS_RESTORE_EXPECTED_SERVERS" || return 1
+	commit_dhcp_and_restart_or_revert
 }
 
 restore_dns_defaults_fallback() {
@@ -1765,17 +1811,8 @@ restore_dns_defaults_fallback() {
 		return 0
 	fi
 
-	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].server || return 1
-	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile || return 1
-	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].cachesize || return 1
-	set_dhcp_option_or_revert dhcp.@dnsmasq[0].noresolv '0' || return 1
-
-	if [ -n "$resolvfile" ]; then
-		set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$resolvfile" || return 1
-	fi
-
-	commit_dhcp_or_revert || return 1
-	restart_dnsmasq
+	stage_dhcp_default_dns_or_revert "$resolvfile" || return 1
+	commit_dhcp_and_restart_or_revert
 }
 
 restore_system_dns_defaults() {

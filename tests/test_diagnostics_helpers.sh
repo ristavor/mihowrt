@@ -35,6 +35,7 @@ source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh"
 
 config_load() {
 	return 0

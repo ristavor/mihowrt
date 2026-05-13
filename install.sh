@@ -2035,7 +2035,7 @@ remove_user_state() {
 	rmdir /opt/clash 2>/dev/null || true
 }
 
-remove_package_and_kernel() {
+prepare_package_removal() {
 	release_reinstall_dependencies
 	clear_skip_start
 
@@ -2050,7 +2050,10 @@ remove_package_and_kernel() {
 	fi
 
 	restore_system_network_defaults "before removal" || return 1
+}
 
+remove_package_and_kernel() {
+	prepare_package_removal || return 1
 	kernel_remove
 
 	if package_installed; then

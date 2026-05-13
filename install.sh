@@ -2235,14 +2235,8 @@ prepare_package_install_mutation() {
 	fi
 }
 
-perform_package_action() {
-	local reinstall=0
-
-	package_installed && reinstall=1 || reinstall=0
-	prepare_package_payload || return 1
-
-	begin_package_transaction "$reinstall" || return 1
-	prepare_package_install_mutation "$reinstall" || return 1
+install_prepared_package() {
+	local reinstall="$1"
 
 	INSTALL_TRANSACTION_PACKAGE_STARTED=1
 	if ! install_package "$reinstall" "$TMP_APK"; then
@@ -2257,6 +2251,17 @@ perform_package_action() {
 		end_install_transaction
 		return 1
 	fi
+}
+
+perform_package_action() {
+	local reinstall=0
+
+	package_installed && reinstall=1 || reinstall=0
+	prepare_package_payload || return 1
+
+	begin_package_transaction "$reinstall" || return 1
+	prepare_package_install_mutation "$reinstall" || return 1
+	install_prepared_package "$reinstall" || return 1
 
 	if [ "$reinstall" = "1" ]; then
 		complete_reinstall_after_package

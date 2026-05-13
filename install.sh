@@ -2137,6 +2137,56 @@ prepare_package_payload() {
 	}
 }
 
+complete_reinstall_after_package() {
+	if ! quiesce_postinstall_service; then
+		preserve_backup_dir
+		preserve_kernel_backup_dir
+		end_install_transaction
+		err "failed to quiesce auto-started service after package install"
+		return 1
+	fi
+
+	log "Restoring saved config and policy state..."
+	if ! restore_user_state; then
+		handle_reinstall_state_failure \
+			"failed to restore previous Mihomo kernel after user-state restore failure" \
+			"failed to restore saved config and policy state"
+		return 1
+	fi
+
+	log "Migrating restored policy lists..."
+	if ! migrate_restored_policy_lists; then
+		handle_reinstall_state_failure \
+			"failed to restore previous Mihomo kernel after policy-list migration failure" \
+			"failed to migrate restored policy list syntax"
+		return 1
+	fi
+
+	if ! restore_runtime_state; then
+		if kernel_backup_available; then
+			warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
+			restore_kernel_backup || {
+				preserve_kernel_backup_dir
+				end_install_transaction
+				err "failed to restore previous Mihomo kernel after runtime restore failure"
+				return 1
+			}
+			if ! restore_runtime_state; then
+				end_install_transaction
+				return 1
+			fi
+		else
+			end_install_transaction
+			return 1
+		fi
+	fi
+
+	clear_kernel_backup
+	release_reinstall_dependencies
+	end_install_transaction
+	return 0
+}
+
 perform_package_action() {
 	local reinstall=0
 
@@ -2189,49 +2239,8 @@ perform_package_action() {
 	fi
 
 	if [ "$reinstall" = "1" ]; then
-		if ! quiesce_postinstall_service; then
-			preserve_backup_dir
-			preserve_kernel_backup_dir
-			end_install_transaction
-			err "failed to quiesce auto-started service after package install"
-			return 1
-		fi
-		log "Restoring saved config and policy state..."
-		if ! restore_user_state; then
-			handle_reinstall_state_failure \
-				"failed to restore previous Mihomo kernel after user-state restore failure" \
-				"failed to restore saved config and policy state"
-			return 1
-		fi
-		log "Migrating restored policy lists..."
-		if ! migrate_restored_policy_lists; then
-			handle_reinstall_state_failure \
-				"failed to restore previous Mihomo kernel after policy-list migration failure" \
-				"failed to migrate restored policy list syntax"
-			return 1
-		fi
-		if ! restore_runtime_state; then
-			if kernel_backup_available; then
-				warn "runtime restore failed after kernel update; retrying with previous Mihomo kernel"
-				restore_kernel_backup || {
-					preserve_kernel_backup_dir
-					end_install_transaction
-					err "failed to restore previous Mihomo kernel after runtime restore failure"
-					return 1
-				}
-				if ! restore_runtime_state; then
-					end_install_transaction
-					return 1
-				fi
-			else
-				end_install_transaction
-				return 1
-			fi
-		fi
-		clear_kernel_backup
-		release_reinstall_dependencies
-		end_install_transaction
-		return 0
+		complete_reinstall_after_package
+		return $?
 	fi
 
 	clear_kernel_backup

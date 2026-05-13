@@ -483,7 +483,7 @@ policy_ports_include_port() {
 
 shell_name_chars_valid() {
 	case "$1" in
-		''|*[!A-Za-z0-9._:%@:-]*)
+		''|*[!-A-Za-z0-9._:%@]*)
 			return 1
 			;;
 	esac

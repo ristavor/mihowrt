@@ -50,6 +50,8 @@ assert_true "is_valid_port should accept max port" is_valid_port "65535"
 assert_false "is_valid_port should reject port above max" is_valid_port "65536"
 assert_true "is_valid_uint32_mark should accept max mark" is_valid_uint32_mark "4294967295"
 assert_false "is_valid_uint32_mark should reject mark above max" is_valid_uint32_mark "4294967296"
+assert_true "shell_name_chars_valid should accept DNS host punctuation" shell_name_chars_valid "mihomo.local:9090-test"
+assert_false "shell_name_chars_valid should reject shell metacharacters" shell_name_chars_valid "bad^server"
 
 assert_eq "1.2.3" "$(normalize_version 'mihomo v1.2.3 build test')" "normalize_version strips prefix"
 assert_true "version_ge should accept equal versions" version_ge "1.2.3" "1.2.3"

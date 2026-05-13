@@ -50,6 +50,18 @@ err() {
 	printf 'err:%s\n' "$*" >>"$net_log"
 }
 
+assert_resolved_route_ids() {
+	local expected_table="$1"
+	local expected_priority="$2"
+	local message="$3"
+
+	ROUTE_TABLE_ID_RESOLVED=""
+	ROUTE_RULE_PRIORITY_RESOLVED=""
+	policy_route_resolve_ids || fail "$message: resolver failed"
+	assert_eq "$expected_table" "$ROUTE_TABLE_ID_RESOLVED" "$message table"
+	assert_eq "$expected_priority" "$ROUTE_RULE_PRIORITY_RESOLVED" "$message priority"
+}
+
 ip() {
 	return 0
 }
@@ -85,8 +97,7 @@ EOF
 assert_true "policy_route_state_read should parse valid route state" policy_route_state_read
 assert_eq "200" "$ROUTE_TABLE_ID_EFFECTIVE" "policy_route_state_read should load table id"
 assert_eq "10000" "$ROUTE_RULE_PRIORITY_EFFECTIVE" "policy_route_state_read should load rule priority"
-assert_eq "200" "$(policy_route_resolve_table_id)" "policy_route_resolve_table_id should reuse existing auto table id"
-assert_eq "10000" "$(policy_route_resolve_priority)" "policy_route_resolve_priority should reuse existing auto priority"
+assert_resolved_route_ids "200" "10000" "policy_route_resolve_ids should reuse existing auto ids"
 
 cat > "$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=999
@@ -103,8 +114,7 @@ policy_route_priority_in_use() {
 	[[ "$1" == "10000" || "$1" == "10001" ]]
 }
 
-assert_eq "202" "$(policy_route_resolve_table_id)" "policy_route_resolve_table_id should pick first free table id"
-assert_eq "10002" "$(policy_route_resolve_priority)" "policy_route_resolve_priority should pick first free priority"
+assert_resolved_route_ids "202" "10002" "policy_route_resolve_ids should pick first free ids"
 
 policy_route_table_id_in_use() {
 	return 0
@@ -114,8 +124,17 @@ policy_route_priority_in_use() {
 	return 0
 }
 
-assert_false "policy_route_resolve_table_id should fail when no ids are free" policy_route_resolve_table_id
-assert_false "policy_route_resolve_priority should fail when no priorities are free" policy_route_resolve_priority
+assert_false "policy_route_resolve_ids should fail when no route table ids are free" policy_route_resolve_ids
+
+policy_route_table_id_in_use() {
+	return 1
+}
+
+policy_route_priority_in_use() {
+	return 0
+}
+
+assert_false "policy_route_resolve_ids should fail when no route priorities are free" policy_route_resolve_ids
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/route.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"

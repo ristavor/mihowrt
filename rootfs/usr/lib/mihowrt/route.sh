@@ -191,68 +191,6 @@ policy_route_resolve_ids() {
 	ROUTE_RULE_PRIORITY_RESOLVED="$route_rule_priority"
 }
 
-policy_route_resolve_table_id() {
-	local route_table_id
-	local state_rc=1
-
-	if [ -n "$MIHOMO_ROUTE_TABLE_ID" ]; then
-		printf '%s\n' "$MIHOMO_ROUTE_TABLE_ID"
-		return 0
-	fi
-
-	if policy_route_state_can_reuse; then
-		state_rc=0
-	else
-		state_rc=$?
-	fi
-	case "$state_rc" in
-		0)
-			printf '%s\n' "$ROUTE_TABLE_ID_EFFECTIVE"
-			return 0
-			;;
-		2)
-			return 1
-			;;
-	esac
-
-	if policy_route_state_read; then
-		policy_route_drop_saved_state || return 1
-	fi
-
-	policy_route_find_free_table_id
-}
-
-policy_route_resolve_priority() {
-	local route_rule_priority
-	local state_rc=1
-
-	if [ -n "$MIHOMO_ROUTE_RULE_PRIORITY" ]; then
-		printf '%s\n' "$MIHOMO_ROUTE_RULE_PRIORITY"
-		return 0
-	fi
-
-	if policy_route_state_can_reuse; then
-		state_rc=0
-	else
-		state_rc=$?
-	fi
-	case "$state_rc" in
-		0)
-			printf '%s\n' "$ROUTE_RULE_PRIORITY_EFFECTIVE"
-			return 0
-			;;
-		2)
-			return 1
-			;;
-	esac
-
-	if policy_route_state_read; then
-		policy_route_drop_saved_state || return 1
-	fi
-
-	policy_route_find_free_priority
-}
-
 policy_route_teardown_ids() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"

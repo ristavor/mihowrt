@@ -473,9 +473,18 @@ return view.extend({
 					return;
 				}
 
-				await backendHelper.applyConfig(value);
+				const applyResult = await backendHelper.applyConfig(value) || { restartRequired: wasRunning };
 				savedConfigContent = value;
 				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
+
+				if (!applyResult.restartRequired) {
+					await refreshServiceState();
+					if (applyResult.policyReloaded)
+						mihowrtUi.notify(_('Configuration hot-reloaded; policy updated.'), 'info');
+					else if (applyResult.hotReloaded)
+						mihowrtUi.notify(_('Configuration hot-reloaded.'), 'info');
+					return;
+				}
 
 				const restartState = await restartRunningService(wasRunning);
 				if (restartState.error) {

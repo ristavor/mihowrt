@@ -235,13 +235,13 @@ assert_eq "$tmpdir/alt-config.yaml" "$config_override_output" "read-config comma
 
 apply_config_output="$(
 	set -- apply-config "$tmpdir/candidate.yaml"
-	apply_config_file() {
-		printf '%s\n' "$1"
+	apply_config_runtime() {
+		printf 'runtime:%s\n' "$1"
 	}
 	# shellcheck disable=SC1090
 	source <(strip_mihowrt_cli_bootstrap)
 )"
-assert_eq "$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path"
+assert_eq "runtime:$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path to runtime apply helper"
 
 apply_config_contents_output="$(
 	set -- apply-config-contents 'mode: direct
@@ -287,6 +287,16 @@ fetch_subscription_output="$(
 	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "https://example.com/sub.yaml" "$fetch_subscription_output" "fetch-subscription command should forward URL"
+
+fetch_subscription_json_output="$(
+	set -- fetch-subscription-json "https://example.com/sub.yaml"
+	fetch_subscription_json() {
+		printf 'json:%s\n' "$1"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "json:https://example.com/sub.yaml" "$fetch_subscription_json_output" "fetch-subscription-json command should forward URL"
 
 update_policy_lists_output="$(
 	set -- update-policy-lists

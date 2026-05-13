@@ -22,7 +22,9 @@ const assignServiceMatch = source.match(/function assignServiceState[\s\S]*?\n}\
 const readBackendJsonMatch = source.match(/async function readBackendJson[\s\S]*?\n}\n\nfunction assignSubscriptionState/);
 const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignStatusState/);
 const assignStatusMatch = source.match(/function assignStatusState[\s\S]*?\n}\n\nfunction assignLogState/);
-const assignLogMatch = source.match(/function assignLogState[\s\S]*?\n}\n\nasync function readConfig/);
+const assignLogMatch = source.match(/function assignLogState[\s\S]*?\n}\n\nfunction assignApplyResult/);
+const assignApplyResultMatch = source.match(/function assignApplyResult[\s\S]*?\n}\n\nfunction subscriptionFetchErrorDetail/);
+const subscriptionFetchErrorMatch = source.match(/function subscriptionFetchErrorDetail[\s\S]*?\n}\n\nasync function readConfig/);
 const readConfigMatch = source.match(/async function readConfig[\s\S]*?\n}\n\nreturn baseclass\.extend/);
 const exportMatch = source.match(/return baseclass\.extend\(\{[\s\S]*?\n\}\);/);
 
@@ -50,6 +52,10 @@ if (!assignStatusMatch)
 	throw new Error('assignStatusState() not found');
 if (!assignLogMatch)
 	throw new Error('assignLogState() not found');
+if (!assignApplyResultMatch)
+	throw new Error('assignApplyResult() not found');
+if (!subscriptionFetchErrorMatch)
+	throw new Error('subscriptionFetchErrorDetail() not found');
 if (!readConfigMatch)
 	throw new Error('readConfig() not found');
 if (!exportMatch)
@@ -66,7 +72,9 @@ const assignServiceFnSource = assignServiceMatch[0].replace(/\n\nasync function 
 const readBackendJsonFnSource = readBackendJsonMatch[0].replace(/\n\nfunction assignSubscriptionState$/, '');
 const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignStatusState$/, '');
 const assignStatusFnSource = assignStatusMatch[0].replace(/\n\nfunction assignLogState$/, '');
-const assignLogFnSource = assignLogMatch[0].replace(/\n\nasync function readConfig$/, '');
+const assignLogFnSource = assignLogMatch[0].replace(/\n\nfunction assignApplyResult$/, '');
+const assignApplyResultFnSource = assignApplyResultMatch[0].replace(/\n\nfunction subscriptionFetchErrorDetail$/, '');
+const subscriptionFetchErrorFnSource = subscriptionFetchErrorMatch[0].replace(/\n\nasync function readConfig$/, '');
 const readConfigFnSource = readConfigMatch[0].replace(/\n\nreturn baseclass\.extend$/, '');
 const exportObjectSource = exportMatch[0].replace(/^return baseclass\.extend\(/, '').replace(/\);$/, '');
 const context = {
@@ -90,6 +98,14 @@ const context = {
 				throw error;
 			}
 		},
+		exec_direct: async(cmd, args, type) => {
+			context.execDirectCalls.push({ cmd, args, type });
+			const key = `${cmd} ${args.join(' ')}`;
+			const result = context.execDirectResults[key];
+			if (result instanceof Error)
+				throw result;
+			return result || {};
+		},
 		exec: async(cmd, args) => {
 			context.execCalls.push({ cmd, args });
 			const key = `${cmd} ${args.join(' ')}`;
@@ -103,11 +119,13 @@ const context = {
 		extend: value => value
 	},
 	execResults: {},
+	execDirectCalls: [],
+	execDirectResults: {},
 	removeNotFound: false
 };
 context.Math.random = () => 0.5;
 vm.createContext(context);
-vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
+vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${assignApplyResultFnSource}\n${subscriptionFetchErrorFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
 
 const state = context.emptyStatusState();
 
@@ -129,7 +147,11 @@ if (state.directDstRemoteUrlCount !== 0)
 	throw new Error('emptyStatusState should default directDstRemoteUrlCount to zero');
 
 (async() => {
-	await context.backend.applyConfig('mode: rule\n');
+	context.execResults['/usr/bin/mihowrt apply-config /tmp/mihowrt-config.1700000000000-80000000'] = {
+		code: 0,
+		stdout: '{"action":"hot_reloaded","saved":true,"restart_required":false,"hot_reloaded":true,"policy_reloaded":false}'
+	};
+	const applyResult = await context.backend.applyConfig('mode: rule\n');
 	if (context.writeCalls.length !== 1)
 		throw new Error('applyConfig should stage config contents in a temp file');
 	if (!context.writeCalls[0].path.startsWith('/tmp/mihowrt-config.'))
@@ -143,6 +165,8 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('applyConfig should pass staged temp path to backend');
 	if (!context.removeCalls.includes(context.writeCalls[0].path))
 		throw new Error('applyConfig should remove temp file after backend call');
+	if (!applyResult.hotReloaded || applyResult.restartRequired)
+		throw new Error('applyConfig should parse backend action JSON');
 
 	context.writeCalls.length = 0;
 	context.removeCalls.length = 0;
@@ -262,13 +286,15 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('saveSubscriptionUrl should pass URL to backend command');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt fetch-subscription https://example.com/sub.yaml'] = {
-		code: 0,
-		stdout: 'mode: rule\n'
+	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/sub.yaml'] = {
+		ok: true,
+		content: 'mode: rule\n'
 	};
 	const fetchedSubscription = await context.backend.fetchSubscription('https://example.com/sub.yaml');
 	if (fetchedSubscription !== 'mode: rule\n')
-		throw new Error('fetchSubscription should return backend stdout');
+		throw new Error('fetchSubscription should return backend JSON content');
+	if (!context.execDirectCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'fetch-subscription-json'))
+		throw new Error('fetchSubscription should use direct CGI backend command');
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt update-policy-lists'] = {
@@ -291,19 +317,23 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('updatePolicyLists should report unchanged lists from backend stdout');
 
 	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt fetch-subscription https://example.com/bad.yaml'] = {
-		code: 1,
-		stderr: 'download failed'
+	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/bad.yaml'] = {
+		ok: false,
+		error: {
+			kind: 'http_error',
+			message: 'download failed',
+			http_code: 404
+		}
 	};
 	let fetchFailed = false;
 	try {
 		await context.backend.fetchSubscription('https://example.com/bad.yaml');
 	}
 	catch (e) {
-		fetchFailed = e.message === 'download failed';
+		fetchFailed = e.message === 'HTTP 404';
 	}
 	if (!fetchFailed)
-		throw new Error('fetchSubscription should surface backend fetch failures');
+		throw new Error('fetchSubscription should surface backend HTTP error codes');
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read service-state-json'] = {

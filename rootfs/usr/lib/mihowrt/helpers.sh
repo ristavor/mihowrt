@@ -70,7 +70,7 @@ mihowrt_source_module() {
 	. "$path"
 }
 
-MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh migration.sh fetch.sh diagnostics.sh version.sh}"
+MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh mihomo-api.sh migration.sh fetch.sh diagnostics.sh version.sh}"
 MIHOWRT_RUNTIME_MODULES="${MIHOWRT_RUNTIME_MODULES:-dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh runtime.sh}"
 
 # Load modules in caller-provided order; later modules may depend on functions

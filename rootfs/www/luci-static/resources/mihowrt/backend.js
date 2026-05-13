@@ -232,6 +232,32 @@ function assignLogState(state, payload) {
 	return state;
 }
 
+function assignApplyResult(payload) {
+	const restartRequired = payload?.restart_required;
+
+	return {
+		action: String(payload?.action || 'restart_required'),
+		saved: payload?.saved !== false,
+		restartRequired: restartRequired == null ? true : !!restartRequired,
+		hotReloaded: !!payload?.hot_reloaded,
+		policyReloaded: !!payload?.policy_reloaded,
+		reason: String(payload?.reason || ''),
+		httpCode: String(payload?.http_code || '')
+	};
+}
+
+function subscriptionFetchErrorDetail(error) {
+	const kind = String(error?.kind || '');
+	const message = String(error?.message || '').trim();
+	const httpCode = error?.http_code == null ? '' : String(error.http_code);
+
+	if (httpCode)
+		return _('HTTP %s').format(httpCode);
+	if (kind === 'timeout')
+		return _('timeout');
+	return message || kind || _('unknown error');
+}
+
 async function readConfig(configPath) {
 	// Read current or candidate config through the read-only backend.
 	const args = [ 'read-config' ];
@@ -255,6 +281,8 @@ return baseclass.extend({
 
 			if (result.code !== 0)
 				throw new Error(execHelper.errorDetail(result));
+
+			return assignApplyResult(JSON.parse(result.stdout || '{}'));
 		}
 		finally {
 			await removeTempFile(tempPath);
@@ -282,12 +310,12 @@ return baseclass.extend({
 	},
 
 	fetchSubscription: async function(subscriptionUrl) {
-		const result = await fs.exec(WRITE_BACKEND, [ 'fetch-subscription', String(subscriptionUrl ?? '') ]);
+		const payload = await fs.exec_direct(WRITE_BACKEND, [ 'fetch-subscription-json', String(subscriptionUrl ?? '') ], 'json');
 
-		if (result.code !== 0)
-			throw new Error(execHelper.errorDetail(result));
+		if (!payload?.ok)
+			throw new Error(subscriptionFetchErrorDetail(payload?.error || {}));
 
-		return String(result.stdout || '');
+		return String(payload.content || '');
 	},
 
 	// Backend prints updated=1 only when effective remote list content changed.

@@ -316,6 +316,182 @@ current_config_has_validated_stamp() {
 	[ -r "$CLASH_CONFIG" ] && [ -r "$stamp_file" ] && cmp -s "$CLASH_CONFIG" "$stamp_file"
 }
 
+apply_config_result_json() {
+	local action="$1"
+	local restart_required="$2"
+	local hot_reloaded="${3:-0}"
+	local policy_reloaded="${4:-0}"
+	local reason="${5:-}"
+	local http_code="${6:-}"
+
+	require_command jq || return 1
+	jq -nc \
+		--arg action "$action" \
+		--arg restart_required "$restart_required" \
+		--arg hot_reloaded "$hot_reloaded" \
+		--arg policy_reloaded "$policy_reloaded" \
+		--arg reason "$reason" \
+		--arg http_code "$http_code" \
+		'{
+			action: $action,
+			saved: true,
+			restart_required: ($restart_required == "1"),
+			hot_reloaded: ($hot_reloaded == "1"),
+			policy_reloaded: ($policy_reloaded == "1"),
+			reason: $reason,
+			http_code: $http_code
+		}'
+}
+
+config_json_value() {
+	local json="$1"
+	local key="$2"
+
+	printf '%s\n' "$json" | jq -r --arg key "$key" '.[$key] // ""'
+}
+
+config_json_field_changed() {
+	local old_json="$1"
+	local new_json="$2"
+	local key="$3"
+	local old_value="" new_value=""
+
+	old_value="$(config_json_value "$old_json" "$key")" || return 0
+	new_value="$(config_json_value "$new_json" "$key")" || return 0
+	[ "$old_value" != "$new_value" ]
+}
+
+config_requires_service_restart() {
+	local old_json="$1"
+	local new_json="$2"
+	local key=""
+
+	for key in external_controller external_controller_tls secret external_ui external_ui_name; do
+		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
+	done
+
+	return 1
+}
+
+config_requires_policy_reload() {
+	local old_json="$1"
+	local new_json="$2"
+	local key=""
+
+	for key in dns_port mihomo_dns_listen tproxy_port routing_mark enhanced_mode catch_fakeip fake_ip_range; do
+		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
+	done
+
+	if runtime_snapshot_valid 2>/dev/null && ! runtime_snapshot_policy_config_matches_current 2>/dev/null; then
+		return 0
+	fi
+
+	return 1
+}
+
+wait_for_current_mihomo_listeners() {
+	local pid="" dns_port="" tproxy_port=""
+	local timeout="${MIHOMO_HOT_RELOAD_READY_TIMEOUT:-8}"
+	local waited=0
+
+	case "$timeout" in
+	'' | *[!0-9]*)
+		timeout=8
+		;;
+	esac
+
+	load_runtime_config || return 1
+	dns_port="$(dns_listen_port "${MIHOMO_DNS_LISTEN:-}")"
+	tproxy_port="${MIHOMO_TPROXY_PORT:-}"
+
+	if [ -r "${SERVICE_PID_FILE:-}" ]; then
+		IFS= read -r pid <"$SERVICE_PID_FILE" 2>/dev/null || pid=""
+	fi
+
+	while [ "$waited" -lt "$timeout" ]; do
+		if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+			return 1
+		fi
+
+		mihomo_ports_ready_state "$dns_port" "$tproxy_port" && return 0
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	return 1
+}
+
+apply_config_runtime() {
+	local candidate="$1"
+	local active_config="$CLASH_CONFIG"
+	local old_config_json="" new_config_json=""
+	local config_changed=1 policy_reload_needed=0
+	local reason="" http_code=""
+
+	if [ -r "$active_config" ]; then
+		old_config_json="$(read_config_json_for_path "$active_config" 2>/dev/null || true)"
+		cmp -s "$candidate" "$active_config" 2>/dev/null && config_changed=0 || config_changed=1
+	fi
+
+	apply_config_file "$candidate" || return 1
+
+	if ! service_running_state; then
+		apply_config_result_json "saved" 0 0 0
+		return $?
+	fi
+
+	if [ "$config_changed" -eq 0 ]; then
+		apply_config_result_json "saved" 0 0 0
+		return $?
+	fi
+
+	[ -n "$old_config_json" ] || {
+		apply_config_result_json "restart_required" 1 0 0 "active config metadata was unavailable before apply"
+		return $?
+	}
+
+	new_config_json="$(read_config_json 2>/dev/null || true)"
+	[ -n "$new_config_json" ] || {
+		apply_config_result_json "restart_required" 1 0 0 "active config metadata is unavailable after apply"
+		return $?
+	}
+
+	if config_requires_service_restart "$old_config_json" "$new_config_json"; then
+		apply_config_result_json "restart_required" 1 0 0 "Mihomo controller/UI settings changed"
+		return $?
+	fi
+
+	if config_requires_policy_reload "$old_config_json" "$new_config_json"; then
+		policy_reload_needed=1
+	fi
+
+	if ! mihomo_hot_reload_config "$old_config_json" "$active_config"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
+		http_code="${MIHOMO_API_HTTP_CODE:-}"
+		apply_config_result_json "restart_required" 1 0 0 "$reason" "$http_code"
+		return $?
+	fi
+
+	log "Hot reloaded Mihomo config through external controller"
+
+	if [ "$policy_reload_needed" -eq 0 ]; then
+		apply_config_result_json "hot_reloaded" 0 1 0
+		return $?
+	fi
+
+	if ! wait_for_current_mihomo_listeners; then
+		apply_config_result_json "restart_required" 1 1 0 "Mihomo listeners were not ready after hot reload"
+		return $?
+	fi
+
+	if ! MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD=1 reload_runtime_state; then
+		apply_config_result_json "restart_required" 1 1 0 "Policy reload failed after Mihomo hot reload"
+		return $?
+	fi
+
+	apply_config_result_json "policy_reloaded" 0 1 1
+}
+
 # Validate a temp config with Mihomo and MihoWRT, then atomically replace the
 # live config only after both checks pass.
 apply_config_file() {

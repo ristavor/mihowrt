@@ -66,6 +66,10 @@ case "${TEST_WGET_MODE:-ok}" in
 	fail)
 		exit 1
 		;;
+	http404)
+		printf '%s\n' '  HTTP/1.1 404 Not Found' >&2
+		exit 1
+		;;
 	empty)
 		[ "$output" = "-" ] || : >"$output"
 		;;
@@ -157,6 +161,19 @@ assert_false "fetch_subscription_config should reject oversized downloads" fetch
 export TEST_WGET_MODE=fail
 SUBSCRIPTION_MAX_BYTES=128
 assert_false "fetch_subscription_config should fail when wget fails" fetch_subscription_config "https://example.com/fail.yaml" >/dev/null
+subscription_error_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
+assert_eq "false" "$(printf '%s\n' "$subscription_error_json" | jq -r '.ok')" "fetch_subscription_json should return ok=false on fetch failure"
+assert_eq "wget_failed" "$(printf '%s\n' "$subscription_error_json" | jq -r '.error.kind')" "fetch_subscription_json should expose wget failure kind"
+
+export TEST_WGET_MODE=http404
+subscription_http_json="$(fetch_subscription_json "https://example.com/missing.yaml")"
+assert_eq "http_error" "$(printf '%s\n' "$subscription_http_json" | jq -r '.error.kind')" "fetch_subscription_json should classify HTTP failures"
+assert_eq "404" "$(printf '%s\n' "$subscription_http_json" | jq -r '.error.http_code')" "fetch_subscription_json should expose HTTP status"
+
+export TEST_WGET_MODE=ok
+subscription_ok_json="$(fetch_subscription_json "https://example.com/sub.yaml")"
+assert_eq "true" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.ok')" "fetch_subscription_json should return ok=true on success"
+assert_eq "mode: rule" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.content')" "fetch_subscription_json should include downloaded content"
 
 assert_false "fetch_subscription_config should reject invalid URLs before wget" fetch_subscription_config "ftp://example.com/sub.yaml" >/dev/null
 

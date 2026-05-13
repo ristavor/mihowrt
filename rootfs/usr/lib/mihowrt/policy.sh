@@ -183,7 +183,7 @@ reload_runtime_state() {
 		return $?
 	fi
 
-	if ! runtime_snapshot_mihomo_config_matches_current; then
+	if [ "${MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD:-0}" != "1" ] && ! runtime_snapshot_mihomo_config_matches_current; then
 		err "Mihomo config changed since runtime snapshot; restart MihoWRT service to apply DNS/TPROXY/fake-ip settings"
 		return 1
 	fi

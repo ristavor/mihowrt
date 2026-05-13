@@ -243,7 +243,7 @@ apply-config)
 		echo "Usage: $0 apply-config <temp-config-path>" >&2
 		exit 1
 	}
-	with_runtime_lock apply_config_file "$2"
+	with_runtime_lock apply_config_runtime "$2"
 	;;
 apply-config-contents)
 	[ "${2+x}" = x ] || {
@@ -269,6 +269,13 @@ fetch-subscription)
 	}
 	fetch_subscription_config "$2"
 	;;
+fetch-subscription-json)
+	[ -n "${2:-}" ] || {
+		echo "Usage: $0 fetch-subscription-json <url>" >&2
+		exit 1
+	}
+	fetch_subscription_json "$2"
+	;;
 status-json)
 	status_json
 	;;
@@ -279,7 +286,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|fetch-subscription-json|status-json|logs-json|status}" >&2
 	exit 1
 	;;
 esac

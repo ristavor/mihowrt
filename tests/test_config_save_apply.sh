@@ -74,6 +74,7 @@ function createContext(overrides = {}) {
 			applyConfig: async(path) => {
 				context.disabledDuringApply = context.saveApplyButton.disabled;
 				context.applyConfigPath = path;
+				return context.applyResult || { restartRequired: false, hotReloaded: true, policyReloaded: false };
 			},
 			restartValidatedService: async() => {
 				context.restartValidatedCalls += 1;
@@ -144,18 +145,28 @@ globalThis.getSaveInFlight = () => saveInFlight;
 	assert(success.serviceStatusCalls === 1, 'saveAndApply should read service state before apply');
 	assert(success.writeCalls.length === 0, 'saveAndApply should not write temp config from frontend');
 	assert(success.applyConfigPath === 'mode: direct\n', 'saveAndApply should pass raw editor contents to backend apply');
-	assert(success.restartValidatedCalls === 1, 'saveAndApply should restart running service through validated backend restart');
+	assert(success.restartValidatedCalls === 0, 'saveAndApply should not restart after backend hot reload');
 	assert(!success.execCalls.some(call => call.cmd === '/etc/init.d/mihowrt' && call.args[0] === 'restart'), 'saveAndApply should avoid duplicate init restart validation after backend apply');
 	assert(!success.execCalls.some(call => call.cmd === '/bin/sh'), 'saveAndApply should not shell out for temp config cleanup');
-	assert(success.pollPredicateResult === true, 'saveAndApply should wait for ready service state after restart');
-	assert(success.appliedStates.length === 1 && success.appliedStates[0].running === true && success.appliedStates[0].enabled === true, 'saveAndApply should apply settled running state after restart');
-	assert(success.refreshCalls === 0, 'saveAndApply should not force refresh on successful restart');
+	assert(success.pollPredicateResult === undefined, 'saveAndApply should skip restart polling after hot reload');
+	assert(success.appliedStates.length === 0, 'saveAndApply should not apply restart-settled state after hot reload');
+	assert(success.refreshCalls === 1, 'saveAndApply should refresh state after hot reload');
 	assert(success.disabledDuringApply === true, 'saveAndApply should lock controls while save is in flight');
 	assert(success.getSavedConfigContent() === 'mode: direct\n', 'saveAndApply should update saved content after success');
 	assert(success.getSaveInFlight() === false, 'saveAndApply should clear save lock after success');
 	assert(success.saveApplyButton.disabled === false, 'saveAndApply should re-enable controls after success');
 	assert(success.notifications.some(item => item.level === 'info' && String(item.message).includes('Configuration saved successfully.')), 'saveAndApply should report config save success');
-	assert(success.notifications.some(item => item.level === 'info' && String(item.message).includes('Service restarted successfully.')), 'saveAndApply should report service restart success');
+	assert(success.notifications.some(item => item.level === 'info' && String(item.message).includes('Configuration hot-reloaded.')), 'saveAndApply should report hot reload success');
+
+	const restartFallback = createContext({
+		applyResult: { restartRequired: true }
+	});
+	await restartFallback.saveAndApply();
+	assert(restartFallback.restartValidatedCalls === 1, 'saveAndApply should restart running service when backend requires restart');
+	assert(restartFallback.pollPredicateResult === true, 'saveAndApply should wait for ready service state after restart fallback');
+	assert(restartFallback.appliedStates.length === 1 && restartFallback.appliedStates[0].running === true && restartFallback.appliedStates[0].enabled === true, 'saveAndApply should apply settled running state after restart fallback');
+	assert(restartFallback.refreshCalls === 0, 'saveAndApply should not force refresh on successful restart fallback');
+	assert(restartFallback.notifications.some(item => item.level === 'info' && String(item.message).includes('Service restarted successfully.')), 'saveAndApply should report service restart fallback success');
 
 	const failure = createContext();
 	failure.backendHelper.applyConfig = async() => {

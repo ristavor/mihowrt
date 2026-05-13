@@ -297,6 +297,22 @@ assert_file_not_contains "$event_log" "runtime_snapshot_restore" "reload_runtime
 TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=0
 
 : > "$event_log"
+TEST_LOAD_RUNTIME_RC=0
+TEST_VALIDATE_RUNTIME_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_RUNTIME_SNAPSHOT_EXISTS_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_RUNTIME_SNAPSHOT_RESTORE_RC=0
+TEST_RUNTIME_LIVE_STATE_PRESENT_RC=0
+TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=1
+TEST_ROUTE_STATE_SEQUENCE="single"
+MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD=1 reload_runtime_state
+assert_file_not_contains "$event_log" "runtime_snapshot_mihomo_config_matches_current" "reload_runtime_state should skip Mihomo config drift check after API hot reload"
+assert_file_contains "$event_log" "apply_runtime_state" "reload_runtime_state should apply policy after allowed API hot reload"
+assert_file_contains "$event_log" "log:Reloaded direct-first policy state" "reload_runtime_state should finish allowed API hot reload policy apply"
+TEST_RUNTIME_SNAPSHOT_MIHOMO_MATCH_RC=0
+
+: > "$event_log"
 TEST_VALIDATE_RUNTIME_RC=1
 TEST_RUNTIME_SNAPSHOT_VALID_RC=0
 assert_false "reload_runtime_state should fail validation before teardown" reload_runtime_state

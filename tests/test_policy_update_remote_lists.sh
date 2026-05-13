@@ -100,16 +100,22 @@ policy_resolve_runtime_lists() {
 	POLICY_DST_LIST_FILE="$tmpdir/effective-dst.txt"
 	POLICY_SRC_LIST_FILE="$tmpdir/effective-src.txt"
 	POLICY_DIRECT_DST_LIST_FILE="$tmpdir/effective-direct.txt"
-	POLICY_EFFECTIVE_LIST_FILES="$POLICY_DST_LIST_FILE $POLICY_SRC_LIST_FILE $POLICY_DIRECT_DST_LIST_FILE"
+	POLICY_EFFECTIVE_LIST_FILES="$(printf '%s\n%s\n%s' "$POLICY_DST_LIST_FILE" "$POLICY_SRC_LIST_FILE" "$POLICY_DIRECT_DST_LIST_FILE")"
 	printf '%s\n' "${TEST_EFFECTIVE_DST:-1.1.1.1}" > "$POLICY_DST_LIST_FILE"
 	printf '%s\n' "${TEST_EFFECTIVE_SRC:-:53}" > "$POLICY_SRC_LIST_FILE"
 	printf '%s\n' "${TEST_EFFECTIVE_DIRECT:-8.8.8.8}" > "$POLICY_DIRECT_DST_LIST_FILE"
 }
 
 policy_clear_runtime_list_overrides() {
+	local path
+
 	printf 'policy_clear_runtime_list_overrides\n' >>"$event_log"
-	# shellcheck disable=SC2086
-	rm -f ${POLICY_EFFECTIVE_LIST_FILES:-}
+	while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		rm -f "$path"
+	done <<EOF
+${POLICY_EFFECTIVE_LIST_FILES:-}
+EOF
 	unset POLICY_DST_LIST_FILE POLICY_SRC_LIST_FILE POLICY_DIRECT_DST_LIST_FILE POLICY_EFFECTIVE_LIST_FILES
 }
 

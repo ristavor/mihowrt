@@ -307,6 +307,17 @@ policy_effective_list_cleanup() {
 	done
 }
 
+policy_effective_list_cleanup_paths() {
+	local path
+
+	while IFS= read -r path; do
+		[ -n "$path" ] || continue
+		policy_effective_list_cleanup "$path"
+	done <<EOF
+${1:-}
+EOF
+}
+
 policy_effective_list_append_entry() {
 	local output="$1"
 	local entry="$2"
@@ -438,8 +449,7 @@ policy_prepare_effective_list_path() {
 
 policy_clear_runtime_list_overrides() {
 	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
-		# shellcheck disable=SC2086
-		policy_effective_list_cleanup $POLICY_EFFECTIVE_LIST_FILES
+		policy_effective_list_cleanup_paths "$POLICY_EFFECTIVE_LIST_FILES"
 	fi
 
 	if [ "${POLICY_PREV_DST_LIST_FILE_SET:-0}" -eq 1 ]; then
@@ -505,7 +515,7 @@ policy_resolve_runtime_lists() {
 				policy_clear_runtime_list_overrides
 				return 1
 			}
-			POLICY_EFFECTIVE_LIST_FILES="$dst_effective $src_effective"
+			POLICY_EFFECTIVE_LIST_FILES="$(printf '%s\n%s' "$dst_effective" "$src_effective")"
 			policy_resolve_list_file "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" "$dst_effective" "proxy destination list" || {
 				policy_clear_runtime_list_overrides
 				return 1

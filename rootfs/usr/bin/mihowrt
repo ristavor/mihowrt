@@ -14,6 +14,7 @@ check_required_file /usr/lib/mihowrt/dns-state.sh
 check_required_file /usr/lib/mihowrt/lists.sh
 check_required_file /usr/lib/mihowrt/dns.sh
 check_required_file /usr/lib/mihowrt/nft.sh
+check_required_file /usr/lib/mihowrt/runtime-config.sh
 check_required_file /usr/lib/mihowrt/runtime-snapshot.sh
 check_required_file /usr/lib/mihowrt/policy.sh
 check_required_file /usr/lib/mihowrt/runtime-status.sh
@@ -26,6 +27,7 @@ check_required_file /usr/lib/mihowrt/runtime.sh
 . /usr/lib/mihowrt/lists.sh
 . /usr/lib/mihowrt/dns.sh
 . /usr/lib/mihowrt/nft.sh
+. /usr/lib/mihowrt/runtime-config.sh
 . /usr/lib/mihowrt/runtime-snapshot.sh
 . /usr/lib/mihowrt/policy.sh
 . /usr/lib/mihowrt/runtime-status.sh

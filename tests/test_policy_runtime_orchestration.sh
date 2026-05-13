@@ -9,6 +9,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 event_log="$tmpdir/events.log"
 
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-config.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-status.sh"

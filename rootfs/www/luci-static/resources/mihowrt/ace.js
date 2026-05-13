@@ -6,6 +6,7 @@ const ACE_BASE = '/luci-static/resources/view/mihowrt/ace/';
 let aceScriptPromise = null;
 
 function loadScript(src) {
+	// Load bundled Ace once; repeated page actions reuse the same promise.
 	return new Promise((resolve, reject) => {
 		const script = document.createElement('script');
 		script.src = src;
@@ -16,6 +17,7 @@ function loadScript(src) {
 }
 
 function loadAce() {
+	// Lazy-load Ace because LuCI loads this helper before the editor is mounted.
 	if (!aceScriptPromise)
 		aceScriptPromise = loadScript(ACE_BASE + 'ace.js');
 
@@ -23,6 +25,7 @@ function loadAce() {
 }
 
 async function createEditor(node, mode, options) {
+	// Create a configured editor instance for raw Mihomo YAML.
 	await loadAce();
 	ace.config.set('basePath', ACE_BASE);
 

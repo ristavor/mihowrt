@@ -34,10 +34,12 @@ let lastServiceState = {
 };
 
 function controlsBusy() {
+	// Any active backend operation disables controls to prevent overlap.
 	return serviceActionInFlight || saveInFlight || subscriptionInFlight;
 }
 
 function updateControlDisabledState() {
+	// Keep every control in the same disabled state while action is in flight.
 	const disabled = controlsBusy();
 
 	if (startStopButton)
@@ -57,6 +59,7 @@ function updateControlDisabledState() {
 }
 
 async function withServiceActionLock(fn) {
+	// Serialize start/stop/enable/disable actions from this page.
 	serviceActionInFlight = true;
 	updateControlDisabledState();
 
@@ -70,12 +73,14 @@ async function withServiceActionLock(fn) {
 }
 
 async function runServiceAction(action) {
+	// Surface stderr/stdout on failure.
 	const result = await fs.exec(SERVICE_SCRIPT, [action]);
 	if (result.code !== 0)
 		throw new Error(mihowrtUi.execErrorDetail(result));
 }
 
 async function handleServiceAction(steps, errorMsg) {
+	// Undo completed steps when possible if a multi-step action fails.
 	const completed = [];
 	try {
 		for (const step of steps) {
@@ -129,6 +134,7 @@ async function setServiceEnabled(enabled) {
 }
 
 async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
+	// Poll only after explicit service actions; normal page display does not poll.
 	const startTime = Date.now();
 	let lastError = null;
 
@@ -153,6 +159,7 @@ async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 }
 
 function applyServiceState(running, enabled) {
+	// Reflect latest service state in button labels and badges.
 	if (startStopButton)
 		startStopButton.textContent = configHelper.serviceToggleLabel(running);
 	if (enableDisableButton)
@@ -170,6 +177,7 @@ function applyServiceState(running, enabled) {
 }
 
 async function readServiceState() {
+	// Read compact service-state JSON through read-only backend.
 	const status = await backendHelper.readServiceState();
 
 	if (!status.available)
@@ -189,6 +197,7 @@ async function readServiceState() {
 }
 
 async function refreshServiceState(notifyOnError = true) {
+	// Keep last known values if backend is temporarily unavailable.
 	try {
 		const state = await readServiceState();
 		applyServiceState(state.running, state.enabled);
@@ -203,6 +212,7 @@ async function refreshServiceState(notifyOnError = true) {
 }
 
 async function toggleService() {
+	// Wait until start reaches ready or stop reaches not-running.
 	if (controlsBusy())
 		return;
 
@@ -252,6 +262,7 @@ async function toggleService() {
 }
 
 async function toggleServiceEnabled() {
+	// Toggle autostart and refresh state.
 	if (controlsBusy())
 		return;
 
@@ -300,6 +311,7 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 }
 
 async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
+	// Avoid UCI commit when subscription URL did not change.
 	const value = String(subscriptionUrl || '').trim();
 
 	if (savedSubscriptionUrl !== null && value === savedSubscriptionUrl)
@@ -311,10 +323,12 @@ async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
 }
 
 function editorHasUnsavedChanges() {
+	// Compare editor content with the last validated/saved content.
 	return !!editor && configHelper.editorContentForSave(editor.getValue()) !== savedConfigContent;
 }
 
 function confirmSubscriptionOverwrite() {
+	// Protect unsaved manual edits from being overwritten by subscription fetch.
 	if (!editorHasUnsavedChanges())
 		return true;
 
@@ -322,6 +336,7 @@ function confirmSubscriptionOverwrite() {
 }
 
 async function withSubscriptionLock(fn) {
+	// Serialize subscription save/fetch operations.
 	subscriptionInFlight = true;
 	updateControlDisabledState();
 
@@ -335,6 +350,7 @@ async function withSubscriptionLock(fn) {
 }
 
 async function loadSubscriptionIntoEditor(subscriptionUrl, expectedEditorContent) {
+	// Abort if editor content changed during download.
 	if (!editor)
 		throw new Error(_('Editor is still loading. Please try again in a moment.'));
 
@@ -358,18 +374,20 @@ return view.extend({
 		const config = data?.[0] ?? '';
 		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
 		let serviceState = lastServiceState;
-	try {
-		serviceState = await readServiceState();
-	}
-	catch (e) {
-		mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-	}
-	if (subscriptionState.errors && subscriptionState.errors.length)
-		mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
-	savedConfigContent = configHelper.editorContentForSave(config);
-	savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
-		? null
-		: subscriptionUrlInputValue({ value: subscriptionState.subscriptionUrl || '' });
+
+		// Cache loaded values as the baseline for dirty checks and no-op saves.
+		try {
+			serviceState = await readServiceState();
+		}
+		catch (e) {
+			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		}
+		if (subscriptionState.errors && subscriptionState.errors.length)
+			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
+		savedConfigContent = configHelper.editorContentForSave(config);
+		savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
+			? null
+			: subscriptionUrlInputValue({ value: subscriptionState.subscriptionUrl || '' });
 		const editorNode = E('div', {
 			id: 'editor',
 			style: 'width: 100%; height: 640px; margin-bottom: 15px;'

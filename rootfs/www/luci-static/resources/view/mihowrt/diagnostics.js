@@ -61,6 +61,7 @@ const DIAGNOSTICS_THEME_CSS = `
 `;
 
 function badge(text, ok) {
+	// Compact colored status marker.
 	return E('span', {
 		class: 'label',
 		style: 'display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;color:white;background-color:' + (ok ? '#5cb85c' : '#d9534f') + ';'
@@ -68,6 +69,7 @@ function badge(text, ok) {
 }
 
 function renderField(label, value) {
+	// Render one key/value diagnostics card.
 	return E('div', {
 		class: 'mihowrt-diag-card'
 	}, [
@@ -81,6 +83,7 @@ function renderField(label, value) {
 }
 
 function setChildren(node, children) {
+	// Replace children without rebuilding outer section nodes.
 	while (node.firstChild)
 		node.removeChild(node.firstChild);
 
@@ -88,6 +91,7 @@ function setChildren(node, children) {
 }
 
 function renderErrorList(errors) {
+	// Render backend error array in a stable block.
 	if (!errors || !errors.length)
 		return E('div', { class: 'mihowrt-diag-muted' }, _('No errors reported.'));
 
@@ -97,6 +101,7 @@ function renderErrorList(errors) {
 }
 
 function renderLogLines(logs) {
+	// Render bounded log output from logs-json.
 	if (logs.errors && logs.errors.length)
 		return E('div', { class: 'mihowrt-diag-error' }, logs.errors.join('; '));
 
@@ -112,6 +117,7 @@ function renderLogLines(logs) {
 }
 
 function renderAppliedPolicyBadge(status, active) {
+	// Derive the applied-policy badge from snapshot/live state.
 	if (status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
 		return badge(_('Applied Runtime Snapshot Invalid'), false);
 
@@ -143,6 +149,7 @@ function renderAppliedCount(value) {
 }
 
 function deriveAppliedState(status) {
+	// Provide null/default active values when snapshot is absent.
 	if (status.active && status.active.present)
 		return status.active;
 

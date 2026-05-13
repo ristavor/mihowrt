@@ -1,5 +1,7 @@
 #!/bin/ash
 
+# Resolve validation module path separately from helpers.sh so tests can source
+# validation.sh alone.
 validation_lib_dir() {
 	if [ -n "${MIHOWRT_LIB_DIR:-}" ]; then
 		printf '%s\n' "$MIHOWRT_LIB_DIR"
@@ -8,6 +10,8 @@ validation_lib_dir() {
 	printf '%s\n' "/usr/lib/mihowrt"
 }
 
+# Keep primitive validators split by domain while exposing one import point to
+# callers that only need validation helpers.
 validation_source_module() {
 	local module="$1"
 	local path=""

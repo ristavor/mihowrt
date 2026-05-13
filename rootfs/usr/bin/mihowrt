@@ -14,33 +14,40 @@ check_required_file /usr/lib/mihowrt/helpers.sh
 . /lib/functions.sh
 . /usr/lib/mihowrt/constants.sh
 . /usr/lib/mihowrt/helpers.sh
+# Load only runtime modules in the write-capable dispatcher. The read-only
+# wrapper still reaches this binary, but ACL decides which commands can run.
 mihowrt_load_runtime_modules || exit 1
 
+# Return the lock path used to serialize nft, route, DNS, and snapshot changes.
 runtime_lock_file() {
 	printf '%s\n' "${RUNTIME_LOCK_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.lock}"
 }
 
+# Treat non-numeric or dead lock owners as stale so interrupted operations do
+# not leave the runtime permanently blocked.
 runtime_lock_owner_stale() {
 	local owner="$1"
 
 	case "$owner" in
-		''|*[!0-9]*)
-			return 0
-			;;
+	'' | *[!0-9]*)
+		return 0
+		;;
 	esac
 
 	kill -0 "$owner" 2>/dev/null && return 1
 	return 0
 }
 
+# Acquire a symlink lock. ash/openwrt does not guarantee flock everywhere, while
+# ln -s is atomic enough for this single-host runtime state lock.
 runtime_lock_acquire() {
 	local lock_file="" lock_dir="" owner="" waited=0
 	local timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
 
 	case "$timeout" in
-		''|*[!0-9]*)
-			timeout=120
-			;;
+	'' | *[!0-9]*)
+		timeout=120
+		;;
 	esac
 
 	lock_file="$(runtime_lock_file)"
@@ -68,6 +75,8 @@ runtime_lock_acquire() {
 	done
 }
 
+# Release only the lock owned by this process; never remove another active
+# operation's lock after a nested command or delayed cleanup.
 runtime_lock_release() {
 	local lock_file="" owner=""
 
@@ -76,6 +85,7 @@ runtime_lock_release() {
 	[ "$owner" = "$$" ] && rm -f "$lock_file"
 }
 
+# Run a mutating command under the runtime lock.
 with_runtime_lock() {
 	local rc=0
 
@@ -86,6 +96,8 @@ with_runtime_lock() {
 	return "$rc"
 }
 
+# Long-running procd payload. It starts Mihomo, waits for DNS/TPROXY readiness,
+# applies router policy, then cleans up when Mihomo exits or service stops.
 run_service() {
 	local pid dns_port cleanup_done=0 stop_requested=0 rc=1 cleanup_rc=0
 	local clash_config="${CLASH_CONFIG:-$CLASH_DIR/config.yaml}"
@@ -120,10 +132,12 @@ run_service() {
 
 	"$CLASH_BIN" -d "$CLASH_DIR" -f "$clash_config" &
 	pid=$!
-	echo "$pid" > "$SERVICE_PID_FILE"
+	echo "$pid" >"$SERVICE_PID_FILE"
 	log "Mihomo process spawned"
 
 	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
+	# Do not apply nft/route/DNS before Mihomo listens. Otherwise traffic could be
+	# redirected into a socket that does not exist yet.
 	if ! wait_for_mihomo_ready "$dns_port" "$MIHOMO_TPROXY_PORT" "$pid"; then
 		err "Mihomo failed to become ready on DNS port $dns_port and TPROXY port $MIHOMO_TPROXY_PORT"
 		kill "$pid" 2>/dev/null || true
@@ -135,6 +149,8 @@ run_service() {
 	fi
 	log "Mihomo listeners ready"
 
+	# Runtime policy is applied after readiness so any failure can stop Mihomo and
+	# return router state to the pre-start baseline.
 	if ! with_runtime_lock apply_runtime_state; then
 		err "Failed to apply runtime policy after Mihomo became ready"
 		kill "$pid" 2>/dev/null || true
@@ -159,108 +175,108 @@ run_service() {
 	fi
 
 	case "$rc" in
-		0) return 0 ;;
-		''|*[!0-9]*) return 1 ;;
+	0) return 0 ;;
+	'' | *[!0-9]*) return 1 ;;
 	esac
 
 	return 1
 }
 
 case "$1" in
-	prepare|start)
-		with_runtime_lock prepare_runtime_state
-		;;
-	cleanup|stop)
-		with_runtime_lock cleanup_runtime_state
-		;;
-	recover)
-		with_runtime_lock recover_runtime_state
-		;;
-	reload|reload-policy)
-		with_runtime_lock reload_runtime_state
-		;;
-	update-policy-lists)
-		with_runtime_lock update_runtime_policy_lists
-		;;
-	migrate-policy-lists)
-		migrate_policy_list_files
-		;;
-	service-running)
-		service_running_state
-		;;
-	service-ready)
-		service_ready_runtime_state
-		;;
-	service-state-json)
-		service_state_json
-		;;
-	restart-validated-service)
-		init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
-		[ -x "$init_script" ] || {
-			echo "Error: init script '$init_script' is missing or not executable" >&2
-			exit 1
-		}
-		if current_config_has_validated_stamp; then
-			MIHOWRT_SKIP_CLASH_TEST=1 "$init_script" restart
-		else
-			"$init_script" restart
-		fi
-		;;
-	validate)
-		load_runtime_config && validate_runtime_config
-		;;
-	run-service)
-		run_service
-		;;
-	init-layout)
-		init_runtime_layout
-		;;
-	read-config)
-		[ -n "${2:-}" ] && CLASH_CONFIG="$2"
-		read_config_json
-		;;
-	apply-config)
-		[ -n "${2:-}" ] || {
-			echo "Usage: $0 apply-config <temp-config-path>" >&2
-			exit 1
-		}
-		with_runtime_lock apply_config_file "$2"
-		;;
-	apply-config-contents)
-		[ "${2+x}" = x ] || {
-			echo "Usage: $0 apply-config-contents <config-contents>" >&2
-			exit 1
-		}
-		with_runtime_lock apply_config_contents "$2"
-		;;
-	subscription-json)
-		subscription_url_json
-		;;
-	set-subscription-url)
-		[ "${2+x}" = x ] || {
-			echo "Usage: $0 set-subscription-url <url>" >&2
-			exit 1
-		}
-		set_subscription_url "$2"
-		;;
-	fetch-subscription)
-		[ -n "${2:-}" ] || {
-			echo "Usage: $0 fetch-subscription <url>" >&2
-			exit 1
-		}
-		fetch_subscription_config "$2"
-		;;
-	status-json)
-		status_json
-		;;
-	logs-json)
-		logs_json "${2:-200}"
-		;;
-	status)
-		status_runtime_state
-		;;
-	*)
-		echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+prepare | start)
+	with_runtime_lock prepare_runtime_state
+	;;
+cleanup | stop)
+	with_runtime_lock cleanup_runtime_state
+	;;
+recover)
+	with_runtime_lock recover_runtime_state
+	;;
+reload | reload-policy)
+	with_runtime_lock reload_runtime_state
+	;;
+update-policy-lists)
+	with_runtime_lock update_runtime_policy_lists
+	;;
+migrate-policy-lists)
+	migrate_policy_list_files
+	;;
+service-running)
+	service_running_state
+	;;
+service-ready)
+	service_ready_runtime_state
+	;;
+service-state-json)
+	service_state_json
+	;;
+restart-validated-service)
+	init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
+	[ -x "$init_script" ] || {
+		echo "Error: init script '$init_script' is missing or not executable" >&2
 		exit 1
-		;;
+	}
+	if current_config_has_validated_stamp; then
+		MIHOWRT_SKIP_CLASH_TEST=1 "$init_script" restart
+	else
+		"$init_script" restart
+	fi
+	;;
+validate)
+	load_runtime_config && validate_runtime_config
+	;;
+run-service)
+	run_service
+	;;
+init-layout)
+	init_runtime_layout
+	;;
+read-config)
+	[ -n "${2:-}" ] && CLASH_CONFIG="$2"
+	read_config_json
+	;;
+apply-config)
+	[ -n "${2:-}" ] || {
+		echo "Usage: $0 apply-config <temp-config-path>" >&2
+		exit 1
+	}
+	with_runtime_lock apply_config_file "$2"
+	;;
+apply-config-contents)
+	[ "${2+x}" = x ] || {
+		echo "Usage: $0 apply-config-contents <config-contents>" >&2
+		exit 1
+	}
+	with_runtime_lock apply_config_contents "$2"
+	;;
+subscription-json)
+	subscription_url_json
+	;;
+set-subscription-url)
+	[ "${2+x}" = x ] || {
+		echo "Usage: $0 set-subscription-url <url>" >&2
+		exit 1
+	}
+	set_subscription_url "$2"
+	;;
+fetch-subscription)
+	[ -n "${2:-}" ] || {
+		echo "Usage: $0 fetch-subscription <url>" >&2
+		exit 1
+	}
+	fetch_subscription_config "$2"
+	;;
+status-json)
+	status_json
+	;;
+logs-json)
+	logs_json "${2:-200}"
+	;;
+status)
+	status_runtime_state
+	;;
+*)
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|fetch-subscription|status-json|logs-json|status}" >&2
+	exit 1
+	;;
 esac

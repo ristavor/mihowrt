@@ -5,6 +5,8 @@ STOP=01
 
 ORCHESTRATOR="/usr/bin/mihowrt"
 
+# Boot hook for stale runtime state. Main service also calls recover before
+# start, but this catches dns/route/nft leftovers even when autostart is off.
 start() {
 	[ -x "$ORCHESTRATOR" ] || return 0
 	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true

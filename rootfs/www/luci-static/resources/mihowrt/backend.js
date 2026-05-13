@@ -7,6 +7,7 @@ const READ_BACKEND = '/usr/bin/mihowrt-read';
 const WRITE_BACKEND = '/usr/bin/mihowrt';
 
 function emptyConfigState() {
+	// Keep LuCI rendering stable when backend JSON is partial.
 	return {
 		configPath: '/opt/clash/config.yaml',
 		dnsPort: '',
@@ -26,6 +27,7 @@ function emptyConfigState() {
 }
 
 function emptyStatusState() {
+	// Mirror status-json while keeping a UI-safe shape.
 	return {
 		available: false,
 		serviceEnabled: false,
@@ -98,11 +100,13 @@ function emptySubscriptionState() {
 }
 
 function tempConfigPath() {
+	// Candidate configs live under /tmp until backend validation moves them.
 	const suffix = '%s-%s'.format(Date.now(), Math.floor(Math.random() * 0x100000000).toString(16));
 	return `/tmp/mihowrt-config.${suffix}`;
 }
 
 async function removeTempFile(path) {
+	// Missing temp files are not errors; backend may already have removed them.
 	try {
 		await fs.remove(path);
 	}
@@ -114,6 +118,7 @@ async function removeTempFile(path) {
 }
 
 function assignConfigState(state, payload) {
+	// Convert backend snake_case fields into LuCI camelCase state.
 	state.configPath = String(payload?.config_path || state.configPath);
 	state.dnsPort = String(payload?.dns_port || '');
 	state.mihomoDnsListen = String(payload?.mihomo_dns_listen || '');
@@ -132,6 +137,7 @@ function assignConfigState(state, payload) {
 }
 
 function assignServiceState(state, payload) {
+	// Keep polling state small and predictable.
 	state.available = true;
 	state.serviceEnabled = !!payload?.service_enabled;
 	state.serviceRunning = !!payload?.service_running;
@@ -141,6 +147,7 @@ function assignServiceState(state, payload) {
 }
 
 async function readBackendJson(args, state, assignPayload) {
+	// Read calls use mihowrt-read so read ACL cannot execute mutating commands.
 	try {
 		const result = await fs.exec(READ_BACKEND, args);
 
@@ -163,6 +170,7 @@ function assignSubscriptionState(state, payload) {
 }
 
 function assignStatusState(state, payload) {
+	// Missing fields stay harmless defaults for diagnostics UI.
 	state.available = true;
 	state.serviceEnabled = !!payload.service_enabled;
 	state.serviceRunning = !!payload.service_running;
@@ -225,6 +233,7 @@ function assignLogState(state, payload) {
 }
 
 async function readConfig(configPath) {
+	// Read current or candidate config through the read-only backend.
 	const args = [ 'read-config' ];
 
 	if (configPath)
@@ -236,6 +245,7 @@ async function readConfig(configPath) {
 return baseclass.extend({
 	readConfig: readConfig,
 
+	// Write candidate config to /tmp and let the write backend validate/apply it.
 	applyConfig: async function(configContents) {
 		const tempPath = tempConfigPath();
 
@@ -251,6 +261,8 @@ return baseclass.extend({
 		}
 	},
 
+	// Restart via backend helper that can skip duplicate Mihomo validation only
+	// for the exact config already validated by applyConfig.
 	restartValidatedService: async function() {
 		const result = await fs.exec(WRITE_BACKEND, [ 'restart-validated-service' ]);
 
@@ -278,6 +290,7 @@ return baseclass.extend({
 		return String(result.stdout || '');
 	},
 
+	// Backend prints updated=1 only when effective remote list content changed.
 	updatePolicyLists: async function() {
 		const result = await fs.exec(WRITE_BACKEND, [ 'update-policy-lists' ]);
 

@@ -1,27 +1,32 @@
 #!/bin/ash
 
+# User-Agent for all project HTTP fetches.
 http_fetch_user_agent() {
 	printf 'mihowrt/%s' "${PKG_VERSION:-unknown}"
 }
 
+# Accept only simple http(s) URLs without whitespace. This is intentionally
+# narrow because URLs come from LuCI/user config and are passed to wget.
 is_http_fetch_url() {
 	local url="$1"
 
 	case "$url" in
-		''|*[[:space:]]*)
-			return 1
-			;;
-		http:///*|https:///*)
-			return 1
-			;;
-		http://?*|https://?*)
-			return 0
-			;;
+	'' | *[[:space:]]*)
+		return 1
+		;;
+	http:///* | https:///*)
+		return 1
+		;;
+	http://?* | https://?*)
+		return 0
+		;;
 	esac
 
 	return 1
 }
 
+# Fetch a body through a FIFO and head -c so oversized responses stop at
+# max_bytes + 1 instead of filling router RAM or flash.
 fetch_http_body_limited() {
 	local url="" output="" fifo="" size="" rc=0 max_bytes="" read_limit=0
 	local reader_pid="" wget_pid="" reader_rc=0 wget_rc=0
@@ -68,16 +73,16 @@ fetch_http_body_limited() {
 	}
 
 	read_limit=$((max_bytes + 1))
-	head -c "$read_limit" < "$fifo" > "$output" &
+	head -c "$read_limit" <"$fifo" >"$output" &
 	reader_pid=$!
-	wget -q -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" > "$fifo" &
+	wget -q -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" &
 	wget_pid=$!
 
 	wait "$wget_pid" || wget_rc=$?
 	wait "$reader_pid" || reader_rc=$?
 	rm -f "$fifo"
 
-	size="$(wc -c < "$output" 2>/dev/null | tr -d '[:space:]')"
+	size="$(wc -c <"$output" 2>/dev/null | tr -d '[:space:]')"
 	if ! is_uint "$size"; then
 		err "Failed to measure $label size"
 		rm -f "$output"
@@ -114,14 +119,17 @@ fetch_http_body_limited() {
 	return "$rc"
 }
 
+# Backward-compatible name used by older tests/helpers.
 subscription_user_agent() {
 	http_fetch_user_agent
 }
 
+# Subscription URLs use the same conservative URL validator as policy lists.
 is_subscription_url() {
 	is_http_fetch_url "$1"
 }
 
+# Emit stored subscription URL for LuCI.
 subscription_url_json() {
 	local subscription_url=""
 
@@ -132,6 +140,7 @@ subscription_url_json() {
 	jq -nc --arg subscription_url "$subscription_url" '{ subscription_url: $subscription_url }'
 }
 
+# Persist subscription URL only when changed to avoid unnecessary UCI commits.
 set_subscription_url() {
 	local url="" current_url=""
 
@@ -165,10 +174,12 @@ set_subscription_url() {
 	}
 }
 
+# Size limit for subscription config downloads.
 subscription_max_bytes() {
 	bounded_positive_uint_or_default "${SUBSCRIPTION_MAX_BYTES:-}" 1048576 2147483646
 }
 
+# Fetch subscription YAML into stdout; caller decides whether to save/apply it.
 fetch_subscription_config() {
 	local url="" max_bytes=""
 	local timeout="${SUBSCRIPTION_FETCH_TIMEOUT:-30}"

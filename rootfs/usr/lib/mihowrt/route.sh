@@ -1,5 +1,6 @@
 #!/bin/ash
 
+# Read the managed route table/priority persisted by the last successful setup.
 policy_route_state_read() {
 	local line=""
 
@@ -9,20 +10,21 @@ policy_route_state_read() {
 	ROUTE_RULE_PRIORITY_EFFECTIVE=""
 	while IFS= read -r line; do
 		case "$line" in
-			ROUTE_TABLE_ID=*)
-				[ -z "$ROUTE_TABLE_ID_EFFECTIVE" ] && ROUTE_TABLE_ID_EFFECTIVE="${line#ROUTE_TABLE_ID=}"
-				;;
-			ROUTE_RULE_PRIORITY=*)
-				[ -z "$ROUTE_RULE_PRIORITY_EFFECTIVE" ] && ROUTE_RULE_PRIORITY_EFFECTIVE="${line#ROUTE_RULE_PRIORITY=}"
-				;;
+		ROUTE_TABLE_ID=*)
+			[ -z "$ROUTE_TABLE_ID_EFFECTIVE" ] && ROUTE_TABLE_ID_EFFECTIVE="${line#ROUTE_TABLE_ID=}"
+			;;
+		ROUTE_RULE_PRIORITY=*)
+			[ -z "$ROUTE_RULE_PRIORITY_EFFECTIVE" ] && ROUTE_RULE_PRIORITY_EFFECTIVE="${line#ROUTE_RULE_PRIORITY=}"
+			;;
 		esac
-	done < "$ROUTE_STATE_FILE"
+	done <"$ROUTE_STATE_FILE"
 
 	is_valid_route_table_id "$ROUTE_TABLE_ID_EFFECTIVE" || return 1
 	is_valid_route_rule_priority "$ROUTE_RULE_PRIORITY_EFFECTIVE" || return 1
 	return 0
 }
 
+# Convert predicate return to a stable tri-state string: 0 present, 1 absent.
 policy_route_probe_state() {
 	local state=0
 
@@ -37,6 +39,7 @@ policy_route_probe_state() {
 	printf '1\n'
 }
 
+# True when route table id is registered or already has routes.
 policy_route_table_id_in_use() {
 	local route_table_id="$1"
 	local table_state=""
@@ -56,6 +59,7 @@ policy_route_table_id_in_use() {
 	[ "$table_state" = "0" ]
 }
 
+# Check /etc/iproute2/rt_tables output for a registered table id.
 policy_route_table_id_registered_in_output() {
 	local route_table_id="$1"
 	local tables_output="$2"
@@ -66,6 +70,7 @@ policy_route_table_id_registered_in_output() {
 	'
 }
 
+# Check `ip route show table all` output for routes using table id.
 policy_route_table_id_has_entries_in_all_output() {
 	local route_table_id="$1"
 	local routes_output="$2"
@@ -82,6 +87,7 @@ policy_route_table_id_has_entries_in_all_output() {
 	'
 }
 
+# Return cached ip rule output when auto-selection is probing many priorities.
 policy_route_rules_output() {
 	if [ "${POLICY_ROUTE_RULES_CACHE_SET:-0}" -eq 1 ]; then
 		printf '%s\n' "$POLICY_ROUTE_RULES_CACHE"
@@ -91,6 +97,7 @@ policy_route_rules_output() {
 	ip rule show 2>/dev/null
 }
 
+# True when any rule already uses the priority.
 policy_route_priority_in_use() {
 	local route_rule_priority="$1"
 	local rules_output=""
@@ -99,6 +106,8 @@ policy_route_priority_in_use() {
 	printf '%s\n' "$rules_output" | awk -F: -v priority="$route_rule_priority" '$1 + 0 == priority { found=1 } END { exit(found ? 0 : 1) }'
 }
 
+# True when priority is used by a foreign rule. MihoWRT's own mark/table rule is
+# allowed so idempotent setup/reload can proceed.
 policy_route_priority_conflicts() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
@@ -109,8 +118,8 @@ policy_route_priority_conflicts() {
 	have_command ip || return 2
 
 	mark="$NFT_INTERCEPT_MARK"
-	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
-	mark_dec="$(( NFT_INTERCEPT_MARK ))"
+	mark_hex="$(printf '0x%x' "$((NFT_INTERCEPT_MARK))")"
+	mark_dec="$((NFT_INTERCEPT_MARK))"
 	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
 		$1 == priority ":" {
@@ -125,6 +134,7 @@ policy_route_priority_conflicts() {
 	'
 }
 
+# Decide whether saved auto-selected route ids are still safe to reuse.
 policy_route_state_can_reuse() {
 	local table_state="" priority_state=""
 
@@ -134,33 +144,34 @@ policy_route_state_can_reuse() {
 
 	table_state="$(policy_route_probe_state policy_route_table_has_foreign_entries "$ROUTE_TABLE_ID_EFFECTIVE")" || return 2
 	case "$table_state" in
-		0)
-			warn "Route table $ROUTE_TABLE_ID_EFFECTIVE has foreign entries; selecting new table"
-			return 1
-			;;
-		1)
-			:
-			;;
-		*)
-			return 2
-			;;
+	0)
+		warn "Route table $ROUTE_TABLE_ID_EFFECTIVE has foreign entries; selecting new table"
+		return 1
+		;;
+	1)
+		:
+		;;
+	*)
+		return 2
+		;;
 	esac
 
 	priority_state="$(policy_route_probe_state policy_route_priority_conflicts "$ROUTE_TABLE_ID_EFFECTIVE" "$ROUTE_RULE_PRIORITY_EFFECTIVE")" || return 2
 	case "$priority_state" in
-		0)
-			warn "Route rule priority $ROUTE_RULE_PRIORITY_EFFECTIVE is occupied; selecting new priority"
-			return 1
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 2
-			;;
+	0)
+		warn "Route rule priority $ROUTE_RULE_PRIORITY_EFFECTIVE is occupied; selecting new priority"
+		return 1
+		;;
+	1)
+		return 0
+		;;
+	*)
+		return 2
+		;;
 	esac
 }
 
+# Remove old saved route ids when explicit config or conflicts force reselection.
 policy_route_drop_saved_state() {
 	local route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
 	local route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
@@ -171,6 +182,8 @@ policy_route_drop_saved_state() {
 	rm -f "$ROUTE_STATE_FILE"
 }
 
+# Find a free route table id with cached route/table output to avoid repeated ip
+# calls in the loop.
 policy_route_find_free_table_id() {
 	local route_table_id="$ROUTE_TABLE_ID_AUTO_MIN"
 	local result=""
@@ -220,6 +233,7 @@ policy_route_find_free_table_id() {
 	return 1
 }
 
+# Find a free rule priority with cached ip rule output.
 policy_route_find_free_priority() {
 	local route_rule_priority="$ROUTE_RULE_PRIORITY_AUTO_MIN"
 	local result=""
@@ -257,6 +271,7 @@ policy_route_find_free_priority() {
 	return 1
 }
 
+# Resolve explicit or auto route ids for this apply.
 policy_route_resolve_ids() {
 	local route_table_id="$MIHOMO_ROUTE_TABLE_ID"
 	local route_rule_priority="$MIHOMO_ROUTE_RULE_PRIORITY"
@@ -269,13 +284,13 @@ policy_route_resolve_ids() {
 			state_rc=$?
 		fi
 		case "$state_rc" in
-			0)
-				[ -n "$route_table_id" ] || route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
-				[ -n "$route_rule_priority" ] || route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
-				;;
-			2)
-				return 1
-				;;
+		0)
+			[ -n "$route_table_id" ] || route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
+			[ -n "$route_rule_priority" ] || route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+			;;
+		2)
+			return 1
+			;;
 		esac
 	else
 		if policy_route_state_read; then
@@ -296,6 +311,7 @@ policy_route_resolve_ids() {
 	ROUTE_RULE_PRIORITY_RESOLVED="$route_rule_priority"
 }
 
+# Remove the managed rule and managed local route for a specific id pair.
 policy_route_teardown_ids() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
@@ -309,6 +325,7 @@ policy_route_teardown_ids() {
 	return 0
 }
 
+# True when MihoWRT's exact fwmark/table/priority rule exists.
 policy_route_rule_exists() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
@@ -319,8 +336,8 @@ policy_route_rule_exists() {
 	have_command ip || return 2
 
 	mark="$NFT_INTERCEPT_MARK"
-	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
-	mark_dec="$(( NFT_INTERCEPT_MARK ))"
+	mark_hex="$(printf '0x%x' "$((NFT_INTERCEPT_MARK))")"
+	mark_dec="$((NFT_INTERCEPT_MARK))"
 	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
 		$1 == priority ":" &&
@@ -330,6 +347,7 @@ policy_route_rule_exists() {
 	'
 }
 
+# Show a table while treating "table does not exist" as empty success.
 policy_route_show_table() {
 	local route_table_id="$1"
 	local route_output="" route_rc=0
@@ -342,13 +360,14 @@ policy_route_show_table() {
 	fi
 
 	case "$route_output" in
-		*"FIB table does not exist"*|*"No such file"*|*"does not exist"*)
-			return 0
-			;;
+	*"FIB table does not exist"* | *"No such file"* | *"does not exist"*)
+		return 0
+		;;
 	esac
 	return "$route_rc"
 }
 
+# True when a route table has any entry.
 policy_route_table_has_entries() {
 	local route_table_id="$1"
 	local route_output=""
@@ -359,6 +378,7 @@ policy_route_table_has_entries() {
 	printf '%s\n' "$route_output" | grep -q .
 }
 
+# True when the managed local default route exists in a table.
 policy_route_managed_route_exists() {
 	local route_table_id="$1"
 	local route_output=""
@@ -378,6 +398,7 @@ policy_route_managed_route_exists() {
 	'
 }
 
+# True when a route table has entries other than MihoWRT's managed local route.
 policy_route_table_has_foreign_entries() {
 	local route_table_id="$1"
 	local route_output=""
@@ -403,6 +424,7 @@ policy_route_table_has_foreign_entries() {
 	'
 }
 
+# Delete all copies of MihoWRT's managed local route from one table.
 policy_route_delete_managed_route() {
 	local route_table_id="$1"
 	local route_state=""
@@ -417,6 +439,7 @@ policy_route_delete_managed_route() {
 	[ "$route_state" = "1" ]
 }
 
+# Delete all copies of MihoWRT's managed fwmark rule.
 policy_route_delete_rule() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
@@ -433,6 +456,7 @@ policy_route_delete_rule() {
 	[ "$rule_state" = "1" ]
 }
 
+# Install policy routing for the intercept mark and persist effective ids.
 policy_route_setup() {
 	local route_table_id route_rule_priority
 	local table_state="" priority_state=""
@@ -445,30 +469,30 @@ policy_route_setup() {
 
 	table_state="$(policy_route_probe_state policy_route_table_has_foreign_entries "$route_table_id")" || return 1
 	case "$table_state" in
-		0)
-			err "Route table $route_table_id has foreign entries"
-			return 1
-			;;
-		1)
-			:
-			;;
-		*)
-			return 1
-			;;
+	0)
+		err "Route table $route_table_id has foreign entries"
+		return 1
+		;;
+	1)
+		:
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	priority_state="$(policy_route_probe_state policy_route_priority_conflicts "$route_table_id" "$route_rule_priority")" || return 1
 	case "$priority_state" in
-		0)
-			err "Route rule priority $route_rule_priority is occupied"
-			return 1
-			;;
-		1)
-			:
-			;;
-		*)
-			return 1
-			;;
+	0)
+		err "Route rule priority $route_rule_priority is occupied"
+		return 1
+		;;
+	1)
+		:
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	policy_route_delete_rule "$route_table_id" "$route_rule_priority" || return 1
@@ -479,7 +503,7 @@ policy_route_setup() {
 	}
 
 	ensure_dir "$PKG_STATE_DIR"
-	if ! printf 'ROUTE_TABLE_ID=%s\nROUTE_RULE_PRIORITY=%s\n' "$route_table_id" "$route_rule_priority" > "$ROUTE_STATE_FILE"; then
+	if ! printf 'ROUTE_TABLE_ID=%s\nROUTE_RULE_PRIORITY=%s\n' "$route_table_id" "$route_rule_priority" >"$ROUTE_STATE_FILE"; then
 		policy_route_teardown_ids "$route_table_id" "$route_rule_priority"
 		return 1
 	fi
@@ -487,6 +511,8 @@ policy_route_setup() {
 	return 0
 }
 
+# Remove managed policy routing, using saved ids when available and explicit ids
+# as fallback.
 policy_route_cleanup() {
 	local route_table_id="" route_rule_priority=""
 	local rule_state="" route_state="" had_live_state=0
@@ -507,14 +533,14 @@ policy_route_cleanup() {
 
 	rule_state="$(policy_route_probe_state policy_route_rule_exists "$route_table_id" "$route_rule_priority")" || return 1
 	case "$rule_state" in
-		0) had_live_state=1 ;;
-		1) ;;
+	0) had_live_state=1 ;;
+	1) ;;
 	esac
 
 	route_state="$(policy_route_probe_state policy_route_managed_route_exists "$route_table_id")" || return 1
 	case "$route_state" in
-		0) had_live_state=1 ;;
-		1) ;;
+	0) had_live_state=1 ;;
+	1) ;;
 	esac
 
 	policy_route_teardown_ids "$route_table_id" "$route_rule_priority" || return 1

@@ -1,9 +1,11 @@
 #!/bin/ash
 
+# Main JSON snapshot of the runtime state that is currently applied.
 runtime_snapshot_file() {
 	printf '%s\n' "${RUNTIME_SNAPSHOT_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.snapshot.json}"
 }
 
+# Effective always_proxy_dst list captured at apply time.
 runtime_snapshot_dst_file() {
 	printf '%s\n' "${RUNTIME_SNAPSHOT_DST_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/always_proxy_dst.snapshot}"
 }
@@ -16,6 +18,7 @@ runtime_snapshot_direct_file() {
 	printf '%s\n' "${RUNTIME_SNAPSHOT_DIRECT_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/direct_dst.snapshot}"
 }
 
+# Snapshot is complete only when metadata and all list copies are present.
 runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_file)" ] || return 1
 	[ -f "$(runtime_snapshot_dst_file)" ] || return 1
@@ -23,11 +26,13 @@ runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_direct_file)" ] || return 1
 }
 
+# Validate snapshot by parsing its status JSON.
 runtime_snapshot_valid() {
 	runtime_snapshot_exists || return 1
 	runtime_snapshot_status_json >/dev/null 2>&1
 }
 
+# Remove all snapshot files after successful cleanup.
 runtime_snapshot_clear() {
 	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)" "$(runtime_snapshot_direct_file)"
 }
@@ -43,12 +48,13 @@ runtime_snapshot_copy_file() {
 	if [ -f "$src" ]; then
 		cp -f "$src" "$dst" || return 1
 	else
-		: > "$dst" || return 1
+		: >"$dst" || return 1
 	fi
 
 	return 0
 }
 
+# Back up one existing snapshot component before replacing it.
 runtime_snapshot_backup_file() {
 	local src="$1"
 	local backup="$2"
@@ -58,6 +64,7 @@ runtime_snapshot_backup_file() {
 	return 0
 }
 
+# Restore one snapshot component from its transaction backup.
 runtime_snapshot_restore_file() {
 	local dst="$1"
 	local backup="$2"
@@ -71,6 +78,7 @@ runtime_snapshot_restore_file() {
 	return 0
 }
 
+# Restore all previous snapshot files after failed commit.
 runtime_snapshot_restore_backups() {
 	local snapshot_file="$1"
 	local dst_snapshot="$2"
@@ -88,6 +96,7 @@ runtime_snapshot_restore_backups() {
 	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 }
 
+# Remove temp and backup files from a snapshot transaction.
 runtime_snapshot_cleanup_transaction_files() {
 	local snapshot_tmp="$1"
 	local dst_tmp="$2"
@@ -103,6 +112,7 @@ runtime_snapshot_cleanup_transaction_files() {
 		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 }
 
+# Back up existing snapshot files before writing a new snapshot.
 runtime_snapshot_backup_files() {
 	local snapshot_file="$1"
 	local dst_snapshot="$2"
@@ -119,6 +129,7 @@ runtime_snapshot_backup_files() {
 	runtime_snapshot_backup_file "$direct_snapshot" "$direct_backup"
 }
 
+# Roll back snapshot file replacement transaction.
 runtime_snapshot_restore_transaction() {
 	local snapshot_file="$1"
 	local dst_snapshot="$2"
@@ -142,6 +153,8 @@ runtime_snapshot_restore_transaction() {
 	runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 }
 
+# Commit temp snapshot files in a fixed order. Any failure restores previous
+# files so snapshot never becomes a mixed old/new set.
 runtime_snapshot_commit_files() {
 	local snapshot_file="$1"
 	local dst_snapshot="$2"
@@ -177,6 +190,7 @@ runtime_snapshot_commit_files() {
 	}
 }
 
+# Save metadata and effective policy lists describing applied runtime state.
 runtime_snapshot_save() {
 	local snapshot_file dst_snapshot src_snapshot direct_snapshot
 	local snapshot_tmp dst_tmp src_tmp direct_tmp
@@ -261,7 +275,7 @@ runtime_snapshot_save() {
 			always_proxy_src_source_hash: $src_source_hash,
 			direct_dst_source_hash: $direct_source_hash,
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
-		}' > "$snapshot_tmp" || {
+		}' >"$snapshot_tmp" || {
 		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}
@@ -282,6 +296,8 @@ runtime_snapshot_save() {
 	return 0
 }
 
+# Load snapshot data into runtime variables and point policy list paths at
+# snapshot copies for rollback apply.
 runtime_snapshot_load() {
 	local snapshot_file
 	local dst_snapshot src_snapshot direct_snapshot
@@ -323,12 +339,14 @@ runtime_snapshot_load() {
 	return 0
 }
 
+# Emit shell assignments from snapshot JSON.
 runtime_snapshot_vars_from_json() {
 	jq -r '
 		@sh "snapshot_policy_mode=\(.policy_mode // "direct-first") snapshot_dns_hijack=\(if (.dns_hijack // false) then 1 else 0 end) snapshot_mihomo_dns_port=\(.mihomo_dns_port // "") snapshot_mihomo_dns_listen=\(.mihomo_dns_listen // "") snapshot_mihomo_tproxy_port=\(.mihomo_tproxy_port // "") snapshot_mihomo_routing_mark=\(.mihomo_routing_mark // "") snapshot_route_table_id=\(.route_table_id_effective // "") snapshot_route_rule_priority=\(.route_rule_priority_effective // "") snapshot_disable_quic=\(if (.disable_quic // false) then 1 else 0 end) snapshot_dns_enhanced_mode=\(.dns_enhanced_mode // "") snapshot_catch_fakeip=\(if (.catch_fakeip // false) then 1 else 0 end) snapshot_fakeip_range=\(.fakeip_range // "") snapshot_source_interfaces=\((.source_network_interfaces // []) | join(" "))"
 	'
 }
 
+# Read shell assignments from the selected snapshot file.
 runtime_snapshot_vars() {
 	local snapshot_file="${1:-}"
 
@@ -336,9 +354,10 @@ runtime_snapshot_vars() {
 	[ -n "$snapshot_file" ] || snapshot_file="$(runtime_snapshot_file)"
 	[ -f "$snapshot_file" ] || return 1
 
-	runtime_snapshot_vars_from_json < "$snapshot_file"
+	runtime_snapshot_vars_from_json <"$snapshot_file"
 }
 
+# Reapply the previous snapshot while preserving caller list path overrides.
 runtime_snapshot_restore() {
 	local prev_dst_list_file="" prev_src_list_file="" prev_direct_list_file=""
 	local prev_dst_list_set=0 prev_src_list_set=0 prev_direct_list_set=0
@@ -384,6 +403,7 @@ runtime_snapshot_restore() {
 	return 0
 }
 
+# Full diagnostic snapshot JSON, including list entry counts.
 runtime_snapshot_status_json() {
 	local snapshot_file dst_snapshot src_snapshot direct_snapshot
 	local dst_count=0 src_count=0 direct_count=0
@@ -435,9 +455,10 @@ runtime_snapshot_status_json() {
 			always_proxy_dst_count: (if (.policy_mode // "direct-first") == "direct-first" then ($dst_count | tonumber? // 0) else 0 end),
 			always_proxy_src_count: (if (.policy_mode // "direct-first") == "direct-first" then ($src_count | tonumber? // 0) else 0 end),
 			direct_dst_count: (if (.policy_mode // "direct-first") == "proxy-first" then ($direct_count | tonumber? // 0) else 0 end)
-		} end' "$snapshot_file"
+	} end' "$snapshot_file"
 }
 
+# Small readiness JSON used by service-ready fast path without counting lists.
 runtime_snapshot_readiness_json() {
 	local snapshot_file=""
 
@@ -460,9 +481,10 @@ runtime_snapshot_readiness_json() {
 			mihomo_dns_port: (.mihomo_dns_port // ""),
 			mihomo_dns_listen: (.mihomo_dns_listen // ""),
 			mihomo_tproxy_port: (.mihomo_tproxy_port // "")
-		} end' "$snapshot_file"
+	} end' "$snapshot_file"
 }
 
+# True when current Mihomo-derived runtime fields match the active snapshot.
 runtime_snapshot_mihomo_config_matches_current() {
 	local snapshot_vars=""
 	local snapshot_mihomo_dns_port="" snapshot_mihomo_dns_listen=""
@@ -481,6 +503,7 @@ runtime_snapshot_mihomo_config_matches_current() {
 	[ "$snapshot_fakeip_range" = "$FAKEIP_RANGE" ] || return 1
 }
 
+# True when current UCI policy fields match the active snapshot.
 runtime_snapshot_policy_config_matches_current() {
 	local snapshot_vars=""
 	local snapshot_policy_mode="" snapshot_dns_hijack="" snapshot_disable_quic=""
@@ -501,6 +524,7 @@ runtime_snapshot_policy_config_matches_current() {
 	fi
 }
 
+# True when route.state still matches snapshot metadata.
 runtime_snapshot_route_state_matches_live() {
 	local snapshot_vars=""
 	local snapshot_route_table_id="" snapshot_route_rule_priority=""
@@ -512,17 +536,18 @@ runtime_snapshot_route_state_matches_live() {
 	[ "$snapshot_route_rule_priority" = "$ROUTE_RULE_PRIORITY_EFFECTIVE" ] || return 1
 }
 
+# Compare currently resolved effective lists with snapshot copies.
 runtime_resolved_policy_lists_match_snapshot() {
 	case "${POLICY_MODE:-direct-first}" in
-		direct-first)
-			cmp -s "$(runtime_snapshot_dst_file)" "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" || return 1
-			cmp -s "$(runtime_snapshot_src_file)" "${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}" || return 1
-			;;
-		proxy-first)
-			cmp -s "$(runtime_snapshot_direct_file)" "${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}" || return 1
-			;;
-		*)
-			return 1
-			;;
+	direct-first)
+		cmp -s "$(runtime_snapshot_dst_file)" "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" || return 1
+		cmp -s "$(runtime_snapshot_src_file)" "${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}" || return 1
+		;;
+	proxy-first)
+		cmp -s "$(runtime_snapshot_direct_file)" "${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}" || return 1
+		;;
+	*)
+		return 1
+		;;
 	esac
 }

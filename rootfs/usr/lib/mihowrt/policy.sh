@@ -1,5 +1,6 @@
 #!/bin/ash
 
+# Detect any live managed state that would need cleanup/recovery.
 runtime_live_state_present() {
 	local nft_state=1
 
@@ -8,18 +9,21 @@ runtime_live_state_present() {
 	nft_table_exists
 	nft_state=$?
 	case "$nft_state" in
-		0) return 0 ;;
-		1) return 1 ;;
-		*) return 0 ;;
+	0) return 0 ;;
+	1) return 1 ;;
+	*) return 0 ;;
 	esac
 }
 
+# Validate config and apply full runtime state from clean start path.
 prepare_runtime_state() {
 	load_runtime_config || return 1
 	validate_runtime_config || return 1
 	apply_runtime_state
 }
 
+# Apply route -> nft -> DNS in dependency order. Later failures roll back earlier
+# mutations so traffic is not left half-routed.
 apply_runtime_state_internal() {
 	ensure_dir "$PKG_TMP_DIR"
 
@@ -38,16 +42,19 @@ apply_runtime_state_internal() {
 	return 0
 }
 
+# Best-effort rollback for partial runtime apply.
 rollback_applied_runtime_state() {
 	dns_restore || true
 	nft_remove_policy || true
 	policy_route_cleanup || true
 }
 
+# Remove temp effective policy lists only when this transaction created them.
 clear_resolved_runtime_lists() {
 	[ "${1:-0}" -eq 0 ] || policy_clear_runtime_list_overrides
 }
 
+# Reapply nft only, used by remote list update when route/DNS/config are stable.
 apply_runtime_nft_policy_only() {
 	ensure_dir "$PKG_TMP_DIR"
 	nft_apply_policy || return 1
@@ -55,6 +62,8 @@ apply_runtime_nft_policy_only() {
 	return 0
 }
 
+# Full apply transaction: resolve remote lists, apply runtime state, then save
+# snapshot that represents exactly what was applied.
 apply_runtime_state() {
 	local lists_resolved=0
 
@@ -79,6 +88,8 @@ apply_runtime_state() {
 	return 0
 }
 
+# Cleanup runtime state. Unknown nft errors are treated as live state so cleanup
+# errs on the side of trying to remove stale state.
 cleanup_runtime_state() {
 	local rc=0
 	local live_state_rc=1
@@ -88,14 +99,14 @@ cleanup_runtime_state() {
 	else
 		live_state_rc=$?
 		case "$live_state_rc" in
-			1)
-				runtime_snapshot_clear
-				log "Policy state already clean"
-				return 0
-				;;
-			*)
-				:
-				;;
+		1)
+			runtime_snapshot_clear
+			log "Policy state already clean"
+			return 0
+			;;
+		*)
+			:
+			;;
 		esac
 	fi
 
@@ -122,12 +133,15 @@ cleanup_runtime_state() {
 	return 1
 }
 
+# Boot/service recovery entrypoint.
 recover_runtime_state() {
 	runtime_live_state_present || return 0
 	log "Recovering runtime state after unclean shutdown"
 	cleanup_runtime_state
 }
 
+# Policy reload with snapshot safety. It refuses in-place reload when the old
+# live state cannot be identified well enough for rollback.
 reload_runtime_state() {
 	local old_route_table_id="" old_route_rule_priority=""
 	local new_route_table_id="" new_route_rule_priority=""
@@ -207,6 +221,8 @@ reload_runtime_state() {
 	return 0
 }
 
+# Refresh remote policy lists while service is running. nft is skipped when
+# effective list content matches the snapshot.
 update_runtime_policy_lists() {
 	local apply_rc=0 snapshot_rc=0 lists_changed=1
 

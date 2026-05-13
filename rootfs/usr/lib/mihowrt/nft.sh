@@ -1,5 +1,6 @@
 #!/bin/ash
 
+# Delete a managed table if it exists; missing table is a clean state.
 nft_delete_table_named_if_exists() {
 	local table="$1"
 	local table_state=1
@@ -7,20 +8,21 @@ nft_delete_table_named_if_exists() {
 	nft_table_exists_named "$table"
 	table_state=$?
 	case "$table_state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
+	0)
+		:
+		;;
+	1)
+		return 0
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	nft_delete_present_table_named "$table"
 }
 
+# Delete a table that caller already knows is present, then verify it is gone.
 nft_delete_present_table_named() {
 	local table="$1"
 	local table_state=1
@@ -31,11 +33,13 @@ nft_delete_present_table_named() {
 	[ "$table_state" -eq 1 ]
 }
 
+# Read inet table list once for callers that need repeated lookups.
 nft_list_tables_output() {
 	have_command nft || return 2
 	nft list tables inet 2>/dev/null
 }
 
+# Test for one table name inside nft list output.
 nft_table_list_has_named() {
 	local table="$1"
 	local tables_output="$2"
@@ -46,10 +50,12 @@ nft_table_list_has_named() {
 	'
 }
 
+# Remove current MihoWRT table.
 nft_delete_table_if_exists() {
 	nft_delete_table_named_if_exists "$NFT_TABLE_NAME"
 }
 
+# True when a named inet table exists.
 nft_table_exists_named() {
 	local table="$1"
 	local tables_output=""
@@ -62,6 +68,7 @@ nft_table_exists() {
 	nft_table_exists_named "$NFT_TABLE_NAME"
 }
 
+# Batch starts by deleting old managed tables so rules never duplicate.
 nft_emit_delete_existing_tables() {
 	local table tables_output
 
@@ -72,19 +79,23 @@ nft_emit_delete_existing_tables() {
 	done
 }
 
+# Append one line to the current nft batch file.
 nft_emit_line() {
-	printf '%s\n' "$1" >> "$NFT_BATCH_FILE"
+	printf '%s\n' "$1" >>"$NFT_BATCH_FILE"
 }
 
+# Remove successful batch temp file.
 nft_cleanup_batch_file() {
 	[ -n "${NFT_BATCH_FILE:-}" ] && rm -f "$NFT_BATCH_FILE"
 }
 
+# Remove failed batch temp file and return failure.
 nft_abort_batch() {
 	nft_cleanup_batch_file
 	return 1
 }
 
+# Emit large set payload in chunks instead of one huge nft line.
 nft_emit_elements_chunk() {
 	local set_name="$1"
 	local chunk="$2"
@@ -93,6 +104,7 @@ nft_emit_elements_chunk() {
 	nft_emit_line "add element inet $NFT_TABLE_NAME $set_name { $chunk }"
 }
 
+# Quote interface names for nft ifname set elements.
 nft_quote_ifname() {
 	local iface="$1"
 
@@ -100,6 +112,8 @@ nft_quote_ifname() {
 	printf '"%s"' "$iface"
 }
 
+# Load IP/CIDR-only policy entries into an interval set. Port-qualified entries
+# are skipped here and emitted later as explicit rules.
 nft_emit_policy_file_to_set() {
 	local file="$1"
 	local set_name="$2"
@@ -122,7 +136,7 @@ nft_emit_policy_file_to_set() {
 	while IFS= read -r line; do
 		line="$(trim "$line")"
 		case "$line" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 
 		if ! is_policy_entry "$line"; then
@@ -153,7 +167,7 @@ nft_emit_policy_file_to_set() {
 			chunk=""
 			chunk_count=0
 		fi
-	done < "$file"
+	done <"$file"
 
 	nft_emit_elements_chunk "$set_name" "$chunk" || return 1
 	eval "$total_count_var=$total_count"
@@ -161,6 +175,7 @@ nft_emit_policy_file_to_set() {
 	log "Loaded $set_count unscoped and $scoped_count port-scoped entries, skipped $invalid_count invalid entries for set $set_name"
 	return 0
 }
+# Compatibility helper for plain IPv4 list files.
 nft_emit_ipv4_file_to_set() {
 	local file="$1"
 	local set_name="$2"
@@ -170,6 +185,7 @@ nft_emit_ipv4_file_to_set() {
 	nft_emit_policy_file_to_set "$file" "$set_name" total_count "$count_var"
 }
 
+# Emit table, sets, base chains, and local IPv4 exclusions.
 nft_emit_base_table() {
 	nft_emit_line "add table inet $NFT_TABLE_NAME"
 	nft_emit_line "add set inet $NFT_TABLE_NAME $NFT_PROXY_DST_SET { type ipv4_addr; flags interval; auto-merge; }"
@@ -200,6 +216,7 @@ nft_emit_base_table() {
 	nft_emit_line "add chain inet $NFT_TABLE_NAME $NFT_CHAIN_PROXY { type filter hook prerouting priority -100; policy accept; }"
 }
 
+# Populate selected ingress interfaces.
 nft_emit_interface_set() {
 	local iface quoted_iface
 
@@ -209,6 +226,7 @@ nft_emit_interface_set() {
 	done
 }
 
+# Emit one nft rule into the current batch.
 nft_emit_rule() {
 	local chain="$1"
 	local expr="$2"
@@ -216,6 +234,7 @@ nft_emit_rule() {
 	nft_emit_line "add rule inet $NFT_TABLE_NAME $chain $expr"
 }
 
+# Emit explicit rules for port-qualified policy entries.
 nft_emit_policy_port_rules() {
 	local file="$1"
 	local field="$2"
@@ -228,7 +247,7 @@ nft_emit_policy_port_rules() {
 	while IFS= read -r line; do
 		line="$(trim "$line")"
 		case "$line" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 		is_policy_entry "$line" || continue
 		policy_entry_has_ports "$line" || continue
@@ -242,9 +261,10 @@ nft_emit_policy_port_rules() {
 			addr_expr="meta nfproto ipv4"
 		fi
 		nft_emit_rule "$chain" "$addr_expr meta l4proto { tcp, udp } th dport $ports_expr $action"
-	done < "$file"
+	done <"$file"
 }
 
+# Emit QUIC reject rules only for port-qualified entries that include UDP/443.
 nft_emit_policy_quic_port_rejects() {
 	local file="$1"
 	local field="$2"
@@ -256,7 +276,7 @@ nft_emit_policy_quic_port_rejects() {
 	while IFS= read -r line; do
 		line="$(trim "$line")"
 		case "$line" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 		is_policy_entry "$line" || continue
 		policy_entry_has_ports "$line" || continue
@@ -270,9 +290,10 @@ nft_emit_policy_quic_port_rejects() {
 			addr_expr="meta nfproto ipv4"
 		fi
 		nft_emit_rule "$chain" "$addr_expr udp dport 443 reject"
-	done < "$file"
+	done <"$file"
 }
 
+# Shared prerouting setup: DNS hijack, interface guard, local return, loop guard.
 nft_emit_common_policy_start() {
 	local dns_port
 
@@ -289,6 +310,7 @@ nft_emit_common_policy_start() {
 	fi
 }
 
+# Shared TPROXY rule and output-chain loop guards.
 nft_emit_common_proxy_rules() {
 	nft_emit_rule "$NFT_CHAIN_PROXY" "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
 
@@ -298,6 +320,7 @@ nft_emit_common_proxy_rules() {
 	nft_emit_rule "$NFT_CHAIN_OUTPUT" "ip daddr @$NFT_LOCALV4_SET return"
 }
 
+# direct-first marks only listed destinations/sources and fake-ip traffic.
 nft_emit_direct_first_policy_rules() {
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
@@ -351,6 +374,7 @@ nft_emit_direct_first_policy_rules() {
 	fi
 }
 
+# proxy-first marks all non-local TCP/UDP unless direct_dst returns it early.
 nft_emit_proxy_first_policy_rules() {
 	local direct_list_file="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
 
@@ -375,14 +399,16 @@ nft_emit_proxy_first_policy_rules() {
 	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 }
 
+# Dispatch rules for current policy mode.
 nft_emit_policy_rules() {
 	case "${POLICY_MODE:-direct-first}" in
-		direct-first) nft_emit_direct_first_policy_rules ;;
-		proxy-first) nft_emit_proxy_first_policy_rules ;;
-		*) return 1 ;;
+	direct-first) nft_emit_direct_first_policy_rules ;;
+	proxy-first) nft_emit_proxy_first_policy_rules ;;
+	*) return 1 ;;
 	esac
 }
 
+# Build and apply one complete nft batch.
 nft_apply_policy_batch() {
 	local dst_list_file="$1"
 	local src_list_file="$2"
@@ -392,21 +418,22 @@ nft_apply_policy_batch() {
 	nft_emit_base_table || return 1
 	nft_emit_interface_set || return 1
 	case "${POLICY_MODE:-direct-first}" in
-		direct-first)
-			nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || return 1
-			nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || return 1
-			;;
-		proxy-first)
-			nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || return 1
-			;;
-		*)
-			return 1
-			;;
+	direct-first)
+		nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || return 1
+		nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || return 1
+		;;
+	proxy-first)
+		nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || return 1
+		;;
+	*)
+		return 1
+		;;
 	esac
 	nft_emit_policy_rules || return 1
 	nft -f "$NFT_BATCH_FILE"
 }
 
+# Public nft apply entrypoint used by runtime orchestration.
 nft_apply_policy() {
 	local dst_list_file="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local src_list_file="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
@@ -431,6 +458,7 @@ nft_apply_policy() {
 	return 0
 }
 
+# Remove current and legacy managed nft tables during cleanup/recovery.
 nft_remove_policy() {
 	local table tables_output="" removed=0
 

@@ -13,6 +13,7 @@ const callServiceList = rpc.declare({
 });
 
 async function probeServiceStatus(serviceScript) {
+	// Fallback when ubus service data is unavailable or stale during procd transitions.
 	if (!serviceScript)
 		throw new Error(_('service probe unavailable'));
 
@@ -26,6 +27,7 @@ async function probeServiceStatus(serviceScript) {
 }
 
 async function getServiceStatus(serviceName, serviceScript) {
+	// Prefer ubus state, then init script; combine errors for diagnostics.
 	const errors = [];
 	let rpcRunning = null;
 
@@ -56,10 +58,12 @@ async function getServiceStatus(serviceName, serviceScript) {
 }
 
 function execErrorDetail(result) {
+	// Shared formatter for command failures.
 	return execHelper.errorDetail(result);
 }
 
 function notify(message, level) {
+	// Keep view code independent from LuCI notification details.
 	ui.addNotification(null, E('p', message), level);
 }
 

@@ -60,6 +60,8 @@ warn() {
 	printf 'Warning: %s\n' "$*" >&2
 }
 
+# Best-effort cleanup for temp files and dependency hold state. Backup dirs are
+# preserved on failure when user may need manual recovery.
 cleanup() {
 	[ -n "$TMP_APK" ] && rm -f "$TMP_APK"
 	[ -n "$NET_TMP" ] && rm -f "$NET_TMP"
@@ -155,14 +157,18 @@ kernel_stage_available() {
 	[ -n "$KERNEL_STAGED_BIN" ] && [ -x "$KERNEL_STAGED_BIN" ]
 }
 
+# Prevent package postinst from starting MihoWRT before user files and runtime
+# state have been restored.
 set_skip_start() {
-	: > "$SKIP_START_FILE"
+	: >"$SKIP_START_FILE"
 }
 
 clear_skip_start() {
 	rm -f "$SKIP_START_FILE"
 }
 
+# Track the installer transaction so signal handlers know which rollback path is
+# safe: reinstall rollback differs from fresh install rollback.
 begin_install_transaction() {
 	INSTALL_TRANSACTION_REINSTALL="${1:-0}"
 	INSTALL_TRANSACTION_PACKAGE_STARTED=0
@@ -176,6 +182,9 @@ end_install_transaction() {
 	INSTALL_TRANSACTION_PACKAGE_STARTED=0
 }
 
+# Roll back on interruption. If package mutation has not started yet, restore
+# saved service/kernel state directly; after package mutation, use full failure
+# handling.
 rollback_active_transaction() {
 	[ "$INSTALL_TRANSACTION_ACTIVE" = "1" ] || return 0
 
@@ -193,6 +202,7 @@ rollback_active_transaction() {
 	end_install_transaction
 }
 
+# Convert INT/TERM/HUP into the same rollback path as command failures.
 handle_signal() {
 	trap - INT TERM HUP
 	warn "installer interrupted; rolling back active transaction"
@@ -200,6 +210,8 @@ handle_signal() {
 	exit 1
 }
 
+# Wait briefly for start/restart commands to become observable without assuming
+# procd starts synchronously.
 wait_for_service_running() {
 	local waited=0
 	local timeout="$SERVICE_START_TIMEOUT"
@@ -255,11 +267,13 @@ run_service_action_with_liveness() {
 	return 0
 }
 
+# wget fallback with explicit retry loop because OpenWrt wget variants do not
+# consistently support the same retry flags.
 wget_download_to() {
 	local url="$1" output="$2" retries="$FETCH_RETRIES" attempt=1
 
 	case "$retries" in
-		''|*[!0-9]*|0) retries=1 ;;
+	'' | *[!0-9]* | 0) retries=1 ;;
 	esac
 
 	while [ "$attempt" -le "$retries" ]; do
@@ -271,6 +285,8 @@ wget_download_to() {
 	return 1
 }
 
+# Remove active network temp file and clear NET_TMP so EXIT cleanup does not
+# race a moved file.
 clear_net_tmp_path() {
 	local tmp_path="$1"
 
@@ -279,6 +295,8 @@ clear_net_tmp_path() {
 	return 0
 }
 
+# Fetch to a temp path using wget first, curl second. Return 127 when neither
+# fetcher exists and 2 when fetchers exist but failed.
 fetch_to_tmp() {
 	local url="$1" tmp_path="$2" have_fetcher=0
 
@@ -306,6 +324,7 @@ fetch_to_tmp() {
 	return 127
 }
 
+# Normalize fetch errors for user-facing installer output.
 report_fetch_failure() {
 	local action="$1"
 	local url="$2"
@@ -319,6 +338,7 @@ report_fetch_failure() {
 	return 1
 }
 
+# Fetch a URL into stdout through FETCH_TMP.
 fetch_url() {
 	local tmp_path="$FETCH_TMP" fetch_rc=0
 
@@ -336,6 +356,7 @@ fetch_url() {
 	report_fetch_failure fetch "$1" "$fetch_rc"
 }
 
+# Download URL to final path using a same-directory temp file then mv.
 download_file() {
 	local tmp_path="${2}.download.$$" fetch_rc=0
 
@@ -357,12 +378,13 @@ normalize_version() {
 	printf '%s\n' "$1" | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1 | tr -d 'vV' || true
 }
 
-# Keep in sync with rootfs/usr/lib/mihowrt/helpers.sh.
-# Installer duplicates these helpers so remote bootstrap stays standalone.
+# Keep in sync with rootfs/usr/lib/mihowrt/version.sh. Installer duplicates
+# these helpers so remote bootstrap stays standalone before package install.
 version_ge() {
 	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
 }
 
+# Map OpenWrt DISTRIB_ARCH to Mihomo release asset architecture.
 detect_mihomo_arch() {
 	local release_info distrib_arch
 
@@ -370,29 +392,31 @@ detect_mihomo_arch() {
 	distrib_arch="$(printf '%s\n' "$release_info" | sed -n "s/^DISTRIB_ARCH='\([^']*\)'/\1/p")"
 
 	case "$distrib_arch" in
-		aarch64_*) echo "arm64" ;;
-		x86_64) echo "amd64" ;;
-		i386_*) echo "386" ;;
-		riscv64_*) echo "riscv64" ;;
-		loongarch64_*) echo "loong64" ;;
-		mips64el_*) echo "mips64le" ;;
-		mips64_*) echo "mips64" ;;
-		mipsel_*hardfloat*) echo "mipsle-hardfloat" ;;
-		mipsel_*) echo "mipsle-softfloat" ;;
-		mips_*hardfloat*) echo "mips-hardfloat" ;;
-		mips_*) echo "mips-softfloat" ;;
-		arm_*neon-vfp*) echo "armv7" ;;
-		arm_*neon*|arm_*vfp*) echo "armv6" ;;
-		arm_*) echo "armv5" ;;
-		*) return 1 ;;
+	aarch64_*) echo "arm64" ;;
+	x86_64) echo "amd64" ;;
+	i386_*) echo "386" ;;
+	riscv64_*) echo "riscv64" ;;
+	loongarch64_*) echo "loong64" ;;
+	mips64el_*) echo "mips64le" ;;
+	mips64_*) echo "mips64" ;;
+	mipsel_*hardfloat*) echo "mipsle-hardfloat" ;;
+	mipsel_*) echo "mipsle-softfloat" ;;
+	mips_*hardfloat*) echo "mips-hardfloat" ;;
+	mips_*) echo "mips-softfloat" ;;
+	arm_*neon-vfp*) echo "armv7" ;;
+	arm_*neon* | arm_*vfp*) echo "armv6" ;;
+	arm_*) echo "armv5" ;;
+	*) return 1 ;;
 	esac
 }
 
+# Read installed Mihomo version if the core already exists.
 current_mihomo_version() {
 	[ -x "$CLASH_BIN" ] || return 1
 	"$CLASH_BIN" -v 2>/dev/null | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1
 }
 
+# Extract the requested asset URL from GitHub release JSON.
 kernel_asset_url() {
 	local release_json="$1"
 	local asset_name="$2"
@@ -402,10 +426,12 @@ kernel_asset_url() {
 		head -n1
 }
 
+# Extract release tag from GitHub release JSON.
 kernel_release_tag() {
 	printf '%s' "$1" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
 }
 
+# Skip core update when installed version is already >= latest release tag.
 kernel_release_already_current() {
 	local latest_tag="$1"
 	local current_ver="" latest_ver=""
@@ -420,6 +446,7 @@ kernel_release_already_current() {
 	return 1
 }
 
+# Download, decompress, chmod, and self-test a Mihomo core asset into staging.
 kernel_stage_binary_from_asset() {
 	local asset_url="$1"
 	local asset_name="$2"
@@ -436,7 +463,7 @@ kernel_stage_binary_from_asset() {
 		return 1
 	}
 
-	gzip -dc "$tmpgz" > "$tmpbin" || {
+	gzip -dc "$tmpgz" >"$tmpbin" || {
 		rm -f "$tmpgz" "$tmpbin"
 		err "failed to decompress Mihomo asset"
 		return 1
@@ -464,6 +491,7 @@ kernel_stage_binary_from_asset() {
 	KERNEL_STAGED_BIN="$tmpbin"
 }
 
+# Resolve latest Mihomo release for router architecture and prepare staged core.
 kernel_stage_update() {
 	local arch release_json latest_tag asset_name asset_url
 
@@ -516,6 +544,7 @@ kernel_apply_failure() {
 	return 1
 }
 
+# Replace installed core only after staging and backup are ready.
 kernel_apply_staged_update() {
 	if [ -n "$KERNEL_STAGED_BIN" ] && ! kernel_stage_available; then
 		kernel_apply_failure "staged Mihomo kernel is missing"
@@ -546,6 +575,7 @@ kernel_install_or_update() {
 	kernel_apply_staged_update
 }
 
+# Undo a core update during failed package transaction.
 rollback_kernel_update() {
 	[ "$KERNEL_TRANSACTION_APPLIED" = "1" ] || return 0
 
@@ -589,25 +619,27 @@ package_present() {
 
 package_requirement_present() {
 	case "$1" in
-		nftables)
-			package_present nftables ||
+	nftables)
+		package_present nftables ||
 			package_present nftables-json ||
 			package_present nftables-nojson ||
 			have_command nft
-			;;
-		wget|wget-any)
-			package_present wget ||
+		;;
+	wget | wget-any)
+		package_present wget ||
 			package_present wget-ssl ||
 			package_present wget-nossl ||
 			package_present uclient-fetch ||
 			have_command wget
-			;;
-		*)
-			package_present "$1"
-			;;
+		;;
+	*)
+		package_present "$1"
+		;;
 	esac
 }
 
+# Prompt only when a real tty is available; piped installs must use
+# MIHOWRT_ACTION.
 can_prompt() {
 	[ -c /dev/tty ] || return 1
 	: >/dev/tty 2>/dev/null || return 1
@@ -623,6 +655,7 @@ apk_supports_virtual() {
 	apk add --help 2>&1 | grep -q -- '--virtual'
 }
 
+# Verify package and dependency presence after apk transaction.
 verify_required_packages() {
 	local pkg
 
@@ -634,6 +667,8 @@ verify_required_packages() {
 	[ -z "$MISSING_PACKAGES" ]
 }
 
+# Hold dependencies with an APK virtual package so reinstall does not remove
+# runtime dependencies between apk del and apk add.
 hold_reinstall_dependencies() {
 	local pkg
 
@@ -653,6 +688,7 @@ hold_reinstall_dependencies() {
 	return 0
 }
 
+# Drop dependency hold when transaction completes or cleanup runs.
 release_reinstall_dependencies() {
 	[ "$REINSTALL_HOLD_ACTIVE" = "1" ] || package_present "$REINSTALL_HOLD_VIRTUAL" || return 0
 	apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
@@ -691,9 +727,11 @@ backup_file_or_mark_missing() {
 	fi
 
 	rm -f "$BACKUP_DIR/$name"
-	: > "$missing_marker"
+	: >"$missing_marker"
 }
 
+# Restore backed-up file, or remove destination when user had deleted it before
+# reinstall. This preserves explicit deletion of default list files.
 restore_file_or_remove() {
 	local name="$1"
 	local dst="$2"
@@ -711,6 +749,7 @@ restore_file_or_remove() {
 	restore_file "$name" "$dst"
 }
 
+# Iterate persistent user-owned files that must survive reinstall.
 for_each_user_state_file() {
 	local callback="$1"
 
@@ -738,17 +777,20 @@ preserve_backup_dir() {
 	warn "preserved backup dir: $BACKUP_DIR"
 }
 
+# Save user config/policy/DNS state before package mutation.
 backup_user_state() {
 	create_backup_dir || return 1
 	for_each_user_state_file backup_user_state_file || return 1
 	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME" || return 1
 }
 
+# Restore user config/policy files after package reinstall.
 restore_user_state() {
 	[ -n "$BACKUP_DIR" ] || return 0
 	for_each_user_state_file restore_user_state_file
 }
 
+# Run policy list migration after files are restored from backup.
 migrate_restored_policy_lists() {
 	[ -x "$ORCHESTRATOR" ] || return 0
 	"$ORCHESTRATOR" migrate-policy-lists >/dev/null 2>&1
@@ -759,6 +801,7 @@ service_enabled() {
 	"$INIT_SCRIPT" enabled >/dev/null 2>&1
 }
 
+# Verify pid still belongs to expected MihoWRT/Mihomo command line.
 service_pid_matches_pattern() {
 	local pid="$1"
 	local run_pattern="$2"
@@ -768,18 +811,20 @@ service_pid_matches_pattern() {
 	[ -n "$run_pattern" ] || return 0
 	[ -r "/proc/$pid/cmdline" ] || return 1
 
-	cmdline="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+	cmdline="$(tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
 	[ -n "$cmdline" ] || return 1
 
 	case "$cmdline" in
-		*"$run_pattern"*)
-			return 0
-			;;
+	*"$run_pattern"*)
+		return 0
+		;;
 	esac
 
 	return 1
 }
 
+# Detect running service using orchestrator first, then pid/pgrep fallbacks for
+# preinstall or half-updated states.
 service_running() {
 	local pid=""
 	local run_pattern="${ORCHESTRATOR} run-service"
@@ -790,7 +835,7 @@ service_running() {
 	fi
 
 	if [ -f "$SERVICE_PID_FILE" ]; then
-		IFS= read -r pid < "$SERVICE_PID_FILE" 2>/dev/null || pid=""
+		IFS= read -r pid <"$SERVICE_PID_FILE" 2>/dev/null || pid=""
 		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
 			service_pid_matches_pattern "$pid" "$run_pattern" && return 0
 			service_pid_matches_pattern "$pid" "$mihomo_pattern" && return 0
@@ -805,6 +850,7 @@ service_running() {
 	return 1
 }
 
+# Scan /proc for run-service when pid file is stale or missing.
 run_service_process_running() {
 	local proc=""
 	local cmdline=""
@@ -812,17 +858,18 @@ run_service_process_running() {
 
 	for proc in /proc/[0-9]*; do
 		[ -r "$proc/cmdline" ] || continue
-		cmdline="$(tr '\000' ' ' < "$proc/cmdline" 2>/dev/null || true)"
+		cmdline="$(tr '\000' ' ' <"$proc/cmdline" 2>/dev/null || true)"
 		case "$cmdline" in
-			*"$run_pattern"*)
-				return 0
-				;;
+		*"$run_pattern"*)
+			return 0
+			;;
 		esac
 	done
 
 	return 1
 }
 
+# Wait for service process disappearance after stop.
 wait_for_service_stop() {
 	local attempt=0
 
@@ -835,6 +882,7 @@ wait_for_service_stop() {
 	return 1
 }
 
+# Restart dnsmasq after staged UCI restore/apply.
 restart_dnsmasq() {
 	[ -x "$DNSMASQ_INIT_SCRIPT" ] || return 0
 	"$DNSMASQ_INIT_SCRIPT" restart >/dev/null 2>&1 || {
@@ -843,6 +891,8 @@ restart_dnsmasq() {
 	}
 }
 
+# Load installed dns-state helpers when possible. Fallback definitions keep the
+# remote installer usable before the package exists or after partial removal.
 ensure_dns_state_helpers() {
 	local script_dir=""
 	local helper_path=""
@@ -851,8 +901,7 @@ ensure_dns_state_helpers() {
 
 	for helper_path in \
 		"/usr/lib/mihowrt/dns-state.sh" \
-		"./rootfs/usr/lib/mihowrt/dns-state.sh"
-	do
+		"./rootfs/usr/lib/mihowrt/dns-state.sh"; do
 		if [ -r "$helper_path" ]; then
 			# shellcheck disable=SC1090
 			. "$helper_path"
@@ -861,12 +910,12 @@ ensure_dns_state_helpers() {
 	done
 
 	case "${0:-}" in
-		/*|*/*)
-			script_dir="$(
-				CDPATH=''
-				cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
-			)" || script_dir=""
-			;;
+	/* | */*)
+		script_dir="$(
+			CDPATH=''
+			cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
+		)" || script_dir=""
+		;;
 	esac
 	if [ -n "$script_dir" ] && [ -r "$script_dir/rootfs/usr/lib/mihowrt/dns-state.sh" ]; then
 		# shellcheck disable=SC1091
@@ -920,9 +969,9 @@ is_valid_port_value() {
 	local value="${1:-}"
 
 	case "${1:-}" in
-		''|*[!0-9]*)
-			return 1
-			;;
+	'' | *[!0-9]*)
+		return 1
+		;;
 	esac
 
 	while [ "${value#0}" != "$value" ]; do
@@ -937,9 +986,9 @@ is_valid_port_value() {
 
 is_uint_value() {
 	case "${1:-}" in
-		''|*[!0-9]*)
-			return 1
-			;;
+	'' | *[!0-9]*)
+		return 1
+		;;
 	esac
 
 	return 0
@@ -947,9 +996,9 @@ is_uint_value() {
 
 dns_name_chars_value_valid() {
 	case "$1" in
-		''|*[!-A-Za-z0-9._:%@]*)
-			return 1
-			;;
+	'' | *[!-A-Za-z0-9._:%@]*)
+		return 1
+		;;
 	esac
 
 	return 0
@@ -960,17 +1009,17 @@ is_dns_listen_host_value() {
 	local inner=""
 
 	case "$value" in
-		\[*\])
-			inner="${value#\[}"
-			inner="${inner%\]}"
-			dns_name_chars_value_valid "$inner"
-			;;
-		''|*'['*|*']'*)
-			return 1
-			;;
-		*)
-			dns_name_chars_value_valid "$value"
-			;;
+	\[*\])
+		inner="${value#\[}"
+		inner="${inner%\]}"
+		dns_name_chars_value_valid "$inner"
+		;;
+	'' | *'['* | *']'*)
+		return 1
+		;;
+	*)
+		dns_name_chars_value_valid "$value"
+		;;
 	esac
 }
 
@@ -979,29 +1028,29 @@ is_dns_listen_value() {
 	local host="" port=""
 
 	case "$value" in
-		*#*)
-			host="${value%#*}"
-			port="${value##*#}"
-			[ -n "$host" ] || return 1
-			case "$host" in
-				*'#'*|*[[:space:]]*)
-					return 1
-					;;
-			esac
-			is_dns_listen_host_value "$host" || return 1
-			is_valid_port_value "$port"
-			;;
-		*)
+	*#*)
+		host="${value%#*}"
+		port="${value##*#}"
+		[ -n "$host" ] || return 1
+		case "$host" in
+		*'#'* | *[[:space:]]*)
 			return 1
 			;;
+		esac
+		is_dns_listen_host_value "$host" || return 1
+		is_valid_port_value "$port"
+		;;
+	*)
+		return 1
+		;;
 	esac
 }
 
 dns_backup_text_has_controls_value() {
 	case "$1" in
-		*[[:cntrl:]]*)
-			return 0
-			;;
+	*[[:cntrl:]]*)
+		return 0
+		;;
 	esac
 
 	return 1
@@ -1013,9 +1062,9 @@ dns_backup_server_atom_value_valid() {
 
 dns_backup_server_selector_value_valid() {
 	case "$1" in
-		''|*[!#A-Za-z0-9._*:/-]*)
-			return 1
-			;;
+	'' | *[!#A-Za-z0-9._*:/-]*)
+		return 1
+		;;
 	esac
 
 	return 0
@@ -1023,9 +1072,9 @@ dns_backup_server_selector_value_valid() {
 
 value_has_space() {
 	case "$1" in
-		*[[:space:]]*)
-			return 0
-			;;
+	*[[:space:]]*)
+		return 0
+		;;
 	esac
 
 	return 1
@@ -1040,26 +1089,26 @@ dns_backup_server_target_value_valid() {
 	value_has_space "$value" && return 1
 
 	case "$value" in
-		*#*)
-			host="${value%#*}"
-			port="${value##*#}"
-			[ -n "$host" ] || return 1
-			case "$host" in
-				*'#'*|*/*)
-					return 1
-					;;
-			esac
-			dns_backup_server_atom_value_valid "$host" || return 1
-			is_valid_port_value "$port" || return 1
+	*#*)
+		host="${value%#*}"
+		port="${value##*#}"
+		[ -n "$host" ] || return 1
+		case "$host" in
+		*'#'* | */*)
+			return 1
 			;;
-		*)
-			case "$value" in
-				*/*)
-					return 1
-					;;
-			esac
-			dns_backup_server_atom_value_valid "$value" || return 1
+		esac
+		dns_backup_server_atom_value_valid "$host" || return 1
+		is_valid_port_value "$port" || return 1
+		;;
+	*)
+		case "$value" in
+		*/*)
+			return 1
 			;;
+		esac
+		dns_backup_server_atom_value_valid "$value" || return 1
+		;;
 	esac
 
 	return 0
@@ -1074,25 +1123,24 @@ dns_backup_server_value_valid() {
 	value_has_space "$value" && return 1
 
 	case "$value" in
-		/*)
-			rest="${value#/}"
-			case "$rest" in
-				*/*)
-					;;
-				*)
-					return 1
-					;;
-			esac
-			prefix="${rest%/*}"
-			target="${rest##*/}"
-			dns_backup_server_selector_value_valid "$prefix" || return 1
-			[ -z "$target" ] && return 0
-			[ "$target" = "#" ] && return 0
-			dns_backup_server_target_value_valid "$target"
-			;;
+	/*)
+		rest="${value#/}"
+		case "$rest" in
+		*/*) ;;
 		*)
-			dns_backup_server_target_value_valid "$value"
+			return 1
 			;;
+		esac
+		prefix="${rest%/*}"
+		target="${rest##*/}"
+		dns_backup_server_selector_value_valid "$prefix" || return 1
+		[ -z "$target" ] && return 0
+		[ "$target" = "#" ] && return 0
+		dns_backup_server_target_value_valid "$target"
+		;;
+	*)
+		dns_backup_server_target_value_valid "$value"
+		;;
 	esac
 }
 
@@ -1103,12 +1151,12 @@ dns_backup_resolvfile_value_valid() {
 	dns_backup_text_has_controls_value "$value" && return 1
 
 	case "$value" in
-		/*)
-			return 0
-			;;
-		*)
-			return 1
-			;;
+	/*)
+		return 0
+		;;
+	*)
+		return 1
+		;;
 	esac
 }
 
@@ -1131,33 +1179,33 @@ yaml_cleanup_scalar_value() {
 		value="${value#?}"
 
 		case "$char" in
-			"'")
-				if [ "$in_double" -eq 0 ]; then
-					if [ "$in_single" -eq 1 ]; then
-						in_single=0
-					else
-						in_single=1
-					fi
+		"'")
+			if [ "$in_double" -eq 0 ]; then
+				if [ "$in_single" -eq 1 ]; then
+					in_single=0
+				else
+					in_single=1
 				fi
-				;;
-			'"')
-				if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
-					if [ "$in_double" -eq 1 ]; then
-						in_double=0
-					else
-						in_double=1
-					fi
+			fi
+			;;
+		'"')
+			if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
+				if [ "$in_double" -eq 1 ]; then
+					in_double=0
+				else
+					in_double=1
 				fi
-				;;
-			'#')
-				if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
-					case "$prev" in
-						''|[[:space:]])
-							break
-							;;
-					esac
-				fi
-				;;
+			fi
+			;;
+		'#')
+			if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+				case "$prev" in
+				'' | [[:space:]])
+					break
+					;;
+				esac
+			fi
+			;;
 		esac
 
 		out="${out}${char}"
@@ -1167,18 +1215,18 @@ yaml_cleanup_scalar_value() {
 	value="$(trim_value "$out")"
 
 	case "$value" in
-		\"*\")
-			value="${value#\"}"
-			value="${value%\"}"
-			printf '%s' "$value"
-			return 0
-			;;
-		\'*\')
-			value="${value#\'}"
-			value="${value%\'}"
-			printf '%s' "$value"
-			return 0
-			;;
+	\"*\")
+		value="${value#\"}"
+		value="${value%\"}"
+		printf '%s' "$value"
+		return 0
+		;;
+	\'*\')
+		value="${value#\'}"
+		value="${value%\'}"
+		printf '%s' "$value"
+		return 0
+		;;
 	esac
 
 	trim_value "$value"
@@ -1192,19 +1240,19 @@ port_from_addr_value() {
 	[ -n "$value" ] || return 1
 
 	case "$value" in
-		\[*\]:*)
-			host="${value%%]*}"
-			host="${host#[}"
-			port="${value##*:}"
-			[ -n "$host" ] || return 1
-			;;
-		*:*:*)
-			return 1
-			;;
-		*)
-			port="${value##*:}"
-			[ "$port" != "$value" ] || return 1
-			;;
+	\[*\]:*)
+		host="${value%%]*}"
+		host="${host#[}"
+		port="${value##*:}"
+		[ -n "$host" ] || return 1
+		;;
+	*:*:*)
+		return 1
+		;;
+	*)
+		port="${value##*:}"
+		[ "$port" != "$value" ] || return 1
+		;;
 	esac
 
 	is_valid_port_value "$port" || return 1
@@ -1220,25 +1268,27 @@ normalize_dns_server_target_value() {
 	port="$(port_from_addr_value "$value")" || return 1
 
 	case "$value" in
-		\[*\]:*)
-			host="${value%%]*}"
-			host="${host#[}"
-			;;
-		*)
-			host="${value%:*}"
-			;;
+	\[*\]:*)
+		host="${value%%]*}"
+		host="${host#[}"
+		;;
+	*)
+		host="${value%:*}"
+		;;
 	esac
 
 	host="$(trim_value "$host")"
 	case "$host" in
-		''|0.0.0.0|::|'[::]')
-			host="127.0.0.1"
-			;;
+	'' | 0.0.0.0 | :: | '[::]')
+		host="127.0.0.1"
+		;;
 	esac
 
 	printf '%s#%s\n' "$host" "$port"
 }
 
+# Read dns.listen from a Mihomo config file without requiring the package
+# helpers. Used to seed/interpret DNS recovery metadata during install.
 config_mihomo_dns_target_from_path() {
 	local config_path="$1"
 	local dns_listen_raw=""
@@ -1270,6 +1320,8 @@ config_mihomo_dns_target_from_path() {
 	normalize_dns_server_target_value "$dns_listen_raw"
 }
 
+# Detect whether current dnsmasq still points at Mihomo DNS. This allows safe
+# recovery even when /var/run backup state was lost.
 dns_current_state_looks_hijacked() {
 	local expected_target="${1:-}" current_cachesize="" current_noresolv="" current_resolvfile="" current_servers=""
 	local current_host="" current_port="" tab=""
@@ -1289,36 +1341,37 @@ dns_current_state_looks_hijacked() {
 	[ -n "$current_servers" ] || return 1
 
 	case "$current_servers" in
-		*"${tab}"*)
-			return 1
-			;;
-		*"#"*)
-			current_host="${current_servers%#*}"
-			current_port="${current_servers##*#}"
-			[ -n "$current_host" ] || return 1
-			is_valid_port_value "$current_port" || return 1
-			;;
-		*)
-			return 1
-			;;
+	*"${tab}"*)
+		return 1
+		;;
+	*"#"*)
+		current_host="${current_servers%#*}"
+		current_port="${current_servers##*#}"
+		[ -n "$current_host" ] || return 1
+		is_valid_port_value "$current_port" || return 1
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	if [ -n "$expected_target" ]; then
 		[ "$current_servers" = "$expected_target" ] || return 1
 	else
 		case "$current_host" in
-			127.0.0.1|::1|localhost)
-				:
-				;;
-			*)
-				return 1
-				;;
+		127.0.0.1 | ::1 | localhost)
+			:
+			;;
+		*)
+			return 1
+			;;
 		esac
 	fi
 
 	return 0
 }
 
+# Read MIHOMO_DNS_TARGET metadata from backup, if present.
 dns_backup_mihomo_target() {
 	local backup_path="$1"
 	local line="" mihomo_target=""
@@ -1327,18 +1380,19 @@ dns_backup_mihomo_target() {
 
 	while IFS= read -r line; do
 		case "$line" in
-			MIHOMO_DNS_TARGET=*)
-				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
-				break
-				;;
+		MIHOMO_DNS_TARGET=*)
+			mihomo_target="${line#MIHOMO_DNS_TARGET=}"
+			break
+			;;
 		esac
-	done < "$backup_path"
+	done <"$backup_path"
 
 	[ -n "$mihomo_target" ] || return 1
 	is_dns_listen_value "$mihomo_target" || return 1
 	printf '%s\n' "$mihomo_target"
 }
 
+# Resolve expected Mihomo DNS target from backup metadata or config file.
 dns_backup_expected_target() {
 	local backup_path="$1"
 	local config_path="${2:-}"
@@ -1346,13 +1400,13 @@ dns_backup_expected_target() {
 
 	while IFS= read -r line; do
 		case "$line" in
-			MIHOMO_DNS_TARGET=*)
-				has_target_line=1
-				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
-				break
-				;;
+		MIHOMO_DNS_TARGET=*)
+			has_target_line=1
+			mihomo_target="${line#MIHOMO_DNS_TARGET=}"
+			break
+			;;
 		esac
-	done < "$backup_path"
+	done <"$backup_path"
 
 	if [ "$has_target_line" = "1" ] && [ -n "$mihomo_target" ]; then
 		is_dns_listen_value "$mihomo_target" || return 1
@@ -1370,6 +1424,7 @@ dns_backup_expected_target() {
 	config_mihomo_dns_target_from_path "$config_path"
 }
 
+# Validate DNS backup enough to restore it safely from the standalone installer.
 dns_backup_file_valid_for_restore() {
 	local backup_path="$1"
 	local line="" server="" orig_cachesize="" orig_noresolv="" orig_resolvfile="" mihomo_target="" has_target_line=0
@@ -1379,31 +1434,31 @@ dns_backup_file_valid_for_restore() {
 
 	while IFS= read -r line; do
 		case "$line" in
-			DNSMASQ_BACKUP=1)
-				seen_backup=1
-				;;
-			MIHOMO_DNS_TARGET=*)
-				has_target_line=1
-				mihomo_target="${line#MIHOMO_DNS_TARGET=}"
-				;;
-			ORIG_CACHESIZE=*)
-				seen_cachesize=1
-				orig_cachesize="${line#ORIG_CACHESIZE=}"
-				;;
-			ORIG_NORESOLV=*)
-				seen_noresolv=1
-				orig_noresolv="${line#ORIG_NORESOLV=}"
-				;;
-			ORIG_RESOLVFILE=*)
-				seen_resolvfile=1
-				orig_resolvfile="${line#ORIG_RESOLVFILE=}"
-				;;
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				[ -z "$server" ] || dns_backup_server_value_valid "$server" || return 1
-				;;
+		DNSMASQ_BACKUP=1)
+			seen_backup=1
+			;;
+		MIHOMO_DNS_TARGET=*)
+			has_target_line=1
+			mihomo_target="${line#MIHOMO_DNS_TARGET=}"
+			;;
+		ORIG_CACHESIZE=*)
+			seen_cachesize=1
+			orig_cachesize="${line#ORIG_CACHESIZE=}"
+			;;
+		ORIG_NORESOLV=*)
+			seen_noresolv=1
+			orig_noresolv="${line#ORIG_NORESOLV=}"
+			;;
+		ORIG_RESOLVFILE=*)
+			seen_resolvfile=1
+			orig_resolvfile="${line#ORIG_RESOLVFILE=}"
+			;;
+		ORIG_SERVER=*)
+			server="${line#ORIG_SERVER=}"
+			[ -z "$server" ] || dns_backup_server_value_valid "$server" || return 1
+			;;
 		esac
-	done < "$backup_path"
+	done <"$backup_path"
 
 	[ "$seen_backup" -eq 1 ] || return 1
 	[ "$seen_cachesize" -eq 1 ] || return 1
@@ -1415,12 +1470,12 @@ dns_backup_file_valid_for_restore() {
 	fi
 
 	case "$orig_noresolv" in
-		''|0|1)
-			:
-			;;
-		*)
-			return 1
-			;;
+	'' | 0 | 1)
+		:
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	if [ "$has_target_line" = "1" ] && [ -n "$mihomo_target" ]; then
@@ -1432,6 +1487,7 @@ dns_backup_file_valid_for_restore() {
 	return 0
 }
 
+# Parse DNS backup into INSTALL_DNS_RESTORE_* variables for staged restore.
 dns_restore_backup_state_read() {
 	local backup_path="$1"
 	local line="" server="" server_sep="" tab="" has_servers=0
@@ -1449,25 +1505,25 @@ dns_restore_backup_state_read() {
 	tab="$(printf '\t')"
 	while IFS= read -r line; do
 		case "$line" in
-			ORIG_CACHESIZE=*)
-				INSTALL_DNS_RESTORE_ORIG_CACHESIZE="${line#ORIG_CACHESIZE=}"
-				;;
-			ORIG_NORESOLV=*)
-				INSTALL_DNS_RESTORE_ORIG_NORESOLV="${line#ORIG_NORESOLV=}"
-				;;
-			ORIG_RESOLVFILE=*)
-				INSTALL_DNS_RESTORE_ORIG_RESOLVFILE="${line#ORIG_RESOLVFILE=}"
-				;;
-			ORIG_SERVER=*)
-				server="${line#ORIG_SERVER=}"
-				if [ -n "$server" ]; then
-					INSTALL_DNS_RESTORE_EXPECTED_SERVERS="${INSTALL_DNS_RESTORE_EXPECTED_SERVERS}${server_sep}${server}"
-					server_sep="$tab"
-					has_servers=1
-				fi
-				;;
+		ORIG_CACHESIZE=*)
+			INSTALL_DNS_RESTORE_ORIG_CACHESIZE="${line#ORIG_CACHESIZE=}"
+			;;
+		ORIG_NORESOLV=*)
+			INSTALL_DNS_RESTORE_ORIG_NORESOLV="${line#ORIG_NORESOLV=}"
+			;;
+		ORIG_RESOLVFILE=*)
+			INSTALL_DNS_RESTORE_ORIG_RESOLVFILE="${line#ORIG_RESOLVFILE=}"
+			;;
+		ORIG_SERVER=*)
+			server="${line#ORIG_SERVER=}"
+			if [ -n "$server" ]; then
+				INSTALL_DNS_RESTORE_EXPECTED_SERVERS="${INSTALL_DNS_RESTORE_EXPECTED_SERVERS}${server_sep}${server}"
+				server_sep="$tab"
+				has_servers=1
+			fi
+			;;
 		esac
-	done < "$backup_path"
+	done <"$backup_path"
 
 	INSTALL_DNS_RESTORE_HAS_SERVERS="$has_servers"
 	INSTALL_DNS_RESTORE_TARGET_NORESOLV="$INSTALL_DNS_RESTORE_ORIG_NORESOLV"
@@ -1479,6 +1535,8 @@ dns_restore_backup_state_read() {
 	fi
 }
 
+# Add MIHOMO_DNS_TARGET to older backup files so future recovery can tell
+# whether current dnsmasq state belongs to MihoWRT.
 seed_dns_backup_target_metadata() {
 	local backup_path="$1"
 	local config_path="$2"
@@ -1576,14 +1634,14 @@ restore_dhcp_server_list_or_revert() {
 	tab="$(printf '\t')"
 	while [ -n "$servers" ]; do
 		case "$servers" in
-			*"$tab"*)
-				server="${servers%%"$tab"*}"
-				servers="${servers#*"$tab"}"
-				;;
-			*)
-				server="$servers"
-				servers=""
-				;;
+		*"$tab"*)
+			server="${servers%%"$tab"*}"
+			servers="${servers#*"$tab"}"
+			;;
+		*)
+			server="$servers"
+			servers=""
+			;;
 		esac
 		[ -n "$server" ] || continue
 		add_dhcp_list_value_or_revert dhcp.@dnsmasq[0].server "$server" || return 1
@@ -1595,6 +1653,7 @@ stage_dhcp_clear_dnsmasq_targets_or_revert() {
 	delete_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile
 }
 
+# Stage exact dnsmasq restore from backup into UCI without committing yet.
 stage_dhcp_backup_restore_or_revert() {
 	local orig_cachesize="$1"
 	local target_noresolv="$2"
@@ -1610,6 +1669,7 @@ stage_dhcp_backup_restore_or_revert() {
 	set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$target_resolvfile"
 }
 
+# Stage safe default DNS settings when backup restore is impossible.
 stage_dhcp_default_dns_or_revert() {
 	local resolvfile="$1"
 
@@ -1621,6 +1681,7 @@ stage_dhcp_default_dns_or_revert() {
 	set_dhcp_option_or_revert dhcp.@dnsmasq[0].resolvfile "$resolvfile"
 }
 
+# Read route ids saved by MihoWRT runtime.
 route_state_read() {
 	local line key value
 
@@ -1630,14 +1691,14 @@ route_state_read() {
 
 	while IFS='=' read -r key value; do
 		case "$key" in
-			ROUTE_TABLE_ID)
-				ROUTE_TABLE_ID_EFFECTIVE="$value"
-				;;
-			ROUTE_RULE_PRIORITY)
-				ROUTE_RULE_PRIORITY_EFFECTIVE="$value"
-				;;
+		ROUTE_TABLE_ID)
+			ROUTE_TABLE_ID_EFFECTIVE="$value"
+			;;
+		ROUTE_RULE_PRIORITY)
+			ROUTE_RULE_PRIORITY_EFFECTIVE="$value"
+			;;
 		esac
-	done < "$ROUTE_STATE_FILE"
+	done <"$ROUTE_STATE_FILE"
 
 	[ -n "$ROUTE_TABLE_ID_EFFECTIVE" ] && [ -n "$ROUTE_RULE_PRIORITY_EFFECTIVE" ]
 }
@@ -1666,15 +1727,17 @@ fallback_state_probe() {
 	fi
 
 	case "$state" in
-		1)
-			return 1
-			;;
-		*)
-			return 2
-			;;
+	1)
+		return 1
+		;;
+	*)
+		return 2
+		;;
 	esac
 }
 
+# Probe/delete/probe helper for standalone cleanup. Treat unknown probe errors
+# as failure rather than deleting blindly.
 delete_fallback_state_if_present() {
 	local probe_callback="$1"
 	local delete_callback="$2"
@@ -1687,15 +1750,15 @@ delete_fallback_state_if_present() {
 		state=$?
 	fi
 	case "$state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
+	0)
+		:
+		;;
+	1)
+		return 0
+		;;
+	*)
+		return 1
+		;;
 	esac
 
 	"$delete_callback" "$@" || return 1
@@ -1736,8 +1799,8 @@ route_rule_exists_fallback() {
 	have_command ip || return 2
 
 	mark="$NFT_INTERCEPT_MARK"
-	mark_hex="$(printf '0x%x' "$(( NFT_INTERCEPT_MARK ))")"
-	mark_dec="$(( NFT_INTERCEPT_MARK ))"
+	mark_hex="$(printf '0x%x' "$((NFT_INTERCEPT_MARK))")"
+	mark_dec="$((NFT_INTERCEPT_MARK))"
 	rules_output="$(ip rule show 2>/dev/null)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
 		$1 == priority ":" &&
@@ -1778,9 +1841,9 @@ route_show_table_fallback() {
 	fi
 
 	case "$route_output" in
-		*"FIB table does not exist"*|*"No such file"*|*"does not exist"*)
-			return 0
-			;;
+	*"FIB table does not exist"* | *"No such file"* | *"does not exist"*)
+		return 0
+		;;
 	esac
 	return "$route_rc"
 }
@@ -1834,6 +1897,7 @@ route_teardown_ids_fallback() {
 	return 0
 }
 
+# Cleanup managed nft and route state when installed orchestrator is unavailable.
 cleanup_runtime_fallback() {
 	local rc=0
 
@@ -1883,6 +1947,8 @@ restore_dns_from_backup_file() {
 	commit_dhcp_and_restart_or_revert
 }
 
+# Restore dnsmasq to OpenWrt defaults when backup is unavailable but DNS is still
+# hijacked.
 restore_dns_defaults_fallback() {
 	local resolvfile=""
 
@@ -1901,6 +1967,8 @@ restore_dns_defaults_fallback() {
 	commit_dhcp_and_restart_or_revert
 }
 
+# Restore system DNS from MihoWRT backup only when current state still looks like
+# MihoWRT owns it. Optional fallback is used during failure/removal paths.
 restore_system_dns_defaults() {
 	local current_noresolv=""
 	local allow_fallback="${1:-0}"
@@ -1946,6 +2014,7 @@ restore_system_dns_defaults() {
 	return 0
 }
 
+# Remove managed runtime state through fallback helpers and restore DNS.
 restore_system_network_defaults() {
 	local context="$1"
 	local rc=0
@@ -1962,6 +2031,8 @@ restore_system_network_defaults() {
 	[ "$rc" -eq 0 ]
 }
 
+# Capture service state and user files before reinstall, hold dependencies, and
+# restore network defaults before package/core changes.
 prepare_update() {
 	service_enabled && WAS_ENABLED=1 || WAS_ENABLED=0
 	service_running && WAS_RUNNING=1 || WAS_RUNNING=0
@@ -1987,6 +2058,8 @@ prepare_update() {
 	restore_system_network_defaults "before update" || return 1
 }
 
+# Stop any service instance that package postinst may have started before user
+# state is restored.
 quiesce_postinstall_service() {
 	local stopped_cleanly=0
 
@@ -2008,6 +2081,7 @@ quiesce_postinstall_service() {
 	restore_system_network_defaults "after stopping auto-started service"
 }
 
+# Restore autostart/running state after package/core transaction.
 restore_runtime_state() {
 	set_service_enabled_state "$WAS_ENABLED"
 
@@ -2036,6 +2110,7 @@ restore_runtime_state() {
 	fi
 }
 
+# Roll back reinstall using saved user state and previous core when available.
 rollback_reinstall_state() {
 	local had_kernel_backup=0
 
@@ -2110,6 +2185,8 @@ restore_failed_package_state() {
 	rollback_fresh_kernel_or_warn "failed to roll back Mihomo kernel after install failure" || true
 }
 
+# Central package failure path. Disable service, quiesce any auto-started
+# instance, restore network defaults, and preserve recovery artifacts on failure.
 handle_install_failure() {
 	local reinstall="$1"
 	local message="$2"
@@ -2151,6 +2228,7 @@ remove_user_trees() {
 	done
 }
 
+# Remove package-owned files and user state during uninstall after cleanup.
 remove_user_state() {
 	remove_user_files \
 		/etc/apk/protected_paths.d/mihowrt.list \
@@ -2180,6 +2258,7 @@ remove_user_state() {
 	rmdir /opt/clash 2>/dev/null || true
 }
 
+# Stop service and restore network defaults before package removal.
 prepare_package_removal() {
 	release_reinstall_dependencies
 	clear_skip_start
@@ -2194,6 +2273,7 @@ prepare_package_removal() {
 	restore_system_network_defaults "before removal" || return 1
 }
 
+# Full uninstall path for package, core binary, user state, and runtime state.
 remove_package_and_kernel() {
 	prepare_package_removal || return 1
 	kernel_remove
@@ -2211,6 +2291,8 @@ remove_package_and_kernel() {
 	return 0
 }
 
+# Start and enable service after a fresh install; revert network state if start
+# fails.
 start_fresh_install_service() {
 	[ -x "$INIT_SCRIPT" ] || return 0
 
@@ -2257,6 +2339,7 @@ latest_package_asset_url_or_error() {
 	printf '%s\n' "$asset_url"
 }
 
+# Download selected APK release asset to TMP_APK.
 download_package_payload() {
 	local asset_url="$1"
 
@@ -2272,6 +2355,7 @@ download_package_payload() {
 	fi
 }
 
+# Restore user files and run list migration after package install.
 restore_reinstalled_user_state() {
 	log "Restoring saved config and policy state..."
 	if ! restore_user_state; then
@@ -2290,6 +2374,8 @@ restore_reinstalled_user_state() {
 	fi
 }
 
+# Try restored/new core first; if service restore fails and a previous core
+# exists, roll back core and retry runtime restore once.
 restore_runtime_state_after_reinstall() {
 	if restore_runtime_state; then
 		return 0
@@ -2306,17 +2392,20 @@ restore_runtime_state_after_reinstall() {
 	restore_runtime_state
 }
 
+# Successful reinstall cleanup.
 finish_reinstall_transaction() {
 	clear_kernel_backup
 	release_reinstall_dependencies
 	end_install_transaction
 }
 
+# Mark transaction closed and return failure from helper chains.
 abort_transaction() {
 	end_install_transaction
 	return 1
 }
 
+# Download APK and stage Mihomo core before touching installed package.
 prepare_package_payload() {
 	local asset_url=""
 
@@ -2330,6 +2419,7 @@ prepare_package_payload() {
 	}
 }
 
+# Complete reinstall after apk transaction has replaced files.
 complete_reinstall_after_package() {
 	if ! quiesce_postinstall_service; then
 		preserve_package_recovery_state
@@ -2348,6 +2438,7 @@ complete_reinstall_after_package() {
 	return 0
 }
 
+# Complete first install after apk transaction.
 complete_fresh_install_after_package() {
 	clear_kernel_backup
 	if ! start_fresh_install_service; then
@@ -2359,6 +2450,7 @@ complete_fresh_install_after_package() {
 	return 0
 }
 
+# Start package transaction and save current state for reinstalls.
 begin_package_transaction() {
 	local reinstall="$1"
 
@@ -2373,6 +2465,7 @@ begin_package_transaction() {
 	fi
 }
 
+# Apply staged core and set skip-start before apk mutation.
 prepare_package_install_mutation() {
 	local reinstall="$1"
 
@@ -2396,6 +2489,7 @@ prepare_package_install_mutation() {
 	fi
 }
 
+# Run apk add/del and verify required packages are present afterward.
 install_prepared_package() {
 	local reinstall="$1"
 
@@ -2414,6 +2508,7 @@ install_prepared_package() {
 	fi
 }
 
+# Main package install/update workflow.
 perform_package_action() {
 	local reinstall=0
 
@@ -2432,35 +2527,36 @@ perform_package_action() {
 	complete_fresh_install_after_package
 }
 
+# Core-only update workflow.
 perform_kernel_action() {
 	log "Installing/updating Mihomo kernel..."
 	kernel_install_or_update
 }
 
+# Resolve interactive or environment-selected action.
 resolve_action() {
 	case "${MIHOWRT_ACTION:-}" in
-		'' )
-			;;
-		1|package|pkg|install|update)
-			printf '%s' "package"
-			return 0
-			;;
-		2|kernel|core)
-			printf '%s' "kernel"
-			return 0
-			;;
-		3|remove|delete|uninstall)
-			printf '%s' "remove"
-			return 0
-			;;
-		4|stop|cancel)
-			printf '%s' "stop"
-			return 0
-			;;
-		*)
-			err "invalid MIHOWRT_ACTION: ${MIHOWRT_ACTION}"
-			return 1
-			;;
+	'') ;;
+	1 | package | pkg | install | update)
+		printf '%s' "package"
+		return 0
+		;;
+	2 | kernel | core)
+		printf '%s' "kernel"
+		return 0
+		;;
+	3 | remove | delete | uninstall)
+		printf '%s' "remove"
+		return 0
+		;;
+	4 | stop | cancel)
+		printf '%s' "stop"
+		return 0
+		;;
+	*)
+		err "invalid MIHOWRT_ACTION: ${MIHOWRT_ACTION}"
+		return 1
+		;;
 	esac
 
 	if [ "${MIHOWRT_FORCE_REINSTALL:-0}" = "1" ]; then
@@ -2486,11 +2582,23 @@ resolve_action() {
 			return 1
 		}
 		case "$choice" in
-			''|1) printf '%s' "package"; return 0 ;;
-			2) printf '%s' "kernel"; return 0 ;;
-			3) printf '%s' "remove"; return 0 ;;
-			4) printf '%s' "stop"; return 0 ;;
-			*) printf '%s\n' "Enter 1, 2, 3, or 4." >/dev/tty ;;
+		'' | 1)
+			printf '%s' "package"
+			return 0
+			;;
+		2)
+			printf '%s' "kernel"
+			return 0
+			;;
+		3)
+			printf '%s' "remove"
+			return 0
+			;;
+		4)
+			printf '%s' "stop"
+			return 0
+			;;
+		*) printf '%s\n' "Enter 1, 2, 3, or 4." >/dev/tty ;;
 		esac
 	done
 }
@@ -2514,6 +2622,7 @@ install_package() {
 	apk add --allow-untrusted "$apk_path"
 }
 
+# Validate prerequisites, resolve action, and dispatch.
 main() {
 	local action=""
 
@@ -2523,19 +2632,19 @@ main() {
 	action="$(resolve_action)" || exit 1
 
 	case "$action" in
-		package)
-			perform_package_action
-			;;
-		kernel)
-			perform_kernel_action
-			;;
-		remove)
-			remove_package_and_kernel
-			;;
-		stop)
-			log "Stopped."
-			return 0
-			;;
+	package)
+		perform_package_action
+		;;
+	kernel)
+		perform_kernel_action
+		;;
+	remove)
+		remove_package_and_kernel
+		;;
+	stop)
+		log "Stopped."
+		return 0
+		;;
 	esac
 }
 

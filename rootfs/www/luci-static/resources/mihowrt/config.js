@@ -5,6 +5,7 @@ const SERVICE_OK_COLOR = '#5cb85c';
 const SERVICE_ERROR_COLOR = '#d9534f';
 
 function errorDetail(state) {
+	// Convert backend error arrays into one user-facing message.
 	const errors = Array.isArray(state?.errors) ? state.errors.map(String).filter(Boolean) : [];
 	return errors.join('; ') || _('unknown error');
 }
@@ -34,6 +35,7 @@ function serviceEnabledBadgeColor(enabled) {
 }
 
 function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
+	// Keep router hostname as fallback for wildcard/loopback binds.
 	if (!addr)
 		return { host: fallbackHost, port: fallbackPort };
 
@@ -63,6 +65,7 @@ function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
 }
 
 function computeUiPath(externalUiName, externalUi) {
+	// Mihomo can expose dashboard as external-ui-name or simple external-ui dir.
 	if (externalUiName) {
 		const name = externalUiName.replace(/(^\/+|\/+$)/g, '');
 		return `/${name}/`;
@@ -77,6 +80,7 @@ function computeUiPath(externalUiName, externalUi) {
 }
 
 function dashboardUrl(config, baseHost) {
+	// Include Mihomo controller query parameters expected by dashboard UI.
 	const ec = config.externalController;
 	const ecTls = config.externalControllerTls;
 	const secret = config.secret;
@@ -103,6 +107,7 @@ function dashboardUrl(config, baseHost) {
 }
 
 async function openDashboard(options) {
+	// Avoid opening stale dashboard URL when service/config is not available.
 	const serviceName = options.serviceName;
 	const serviceScript = options.serviceScript;
 	const backendHelper = options.backendHelper;
@@ -135,6 +140,7 @@ function editorContentForSave(value) {
 }
 
 async function restartRunningService(backendHelper, wasRunning) {
+	// Restart only if service was running before config apply.
 	if (!wasRunning)
 		return { restarted: false, error: null };
 	try {
@@ -147,6 +153,7 @@ async function restartRunningService(backendHelper, wasRunning) {
 }
 
 function subscriptionUrlInputValue(input) {
+	// Trim subscription URL exactly once at UI boundary.
 	return String(input?.value || '').trim();
 }
 

@@ -1,5 +1,6 @@
 #!/bin/ash
 
+# Verify that a pid still points to the expected process command line.
 process_pid_matches_pattern() {
 	local pid="$1"
 	local run_pattern="${2:-}"
@@ -8,25 +9,26 @@ process_pid_matches_pattern() {
 	[ -n "$run_pattern" ] || return 0
 	[ -r "/proc/$pid/cmdline" ] || return 1
 
-	cmdline="$(tr '\000' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+	cmdline="$(tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
 	[ -n "$cmdline" ] || return 1
 
 	case "$cmdline" in
-		*"$run_pattern"*)
-			return 0
-			;;
+	*"$run_pattern"*)
+		return 0
+		;;
 	esac
 
 	return 1
 }
 
+# Check pid file first, then optional pgrep fallback.
 process_running_state() {
 	local pid_file="$1"
 	local run_pattern="${2:-}"
 	local pid=""
 
 	if [ -f "$pid_file" ]; then
-		IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
+		IFS= read -r pid <"$pid_file" 2>/dev/null || pid=""
 		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
 			process_pid_matches_pattern "$pid" "$run_pattern" && return 0
 		fi
@@ -39,6 +41,8 @@ process_running_state() {
 	return 1
 }
 
+# Public service-running probe used by LuCI and init script. Accept either the
+# parent run-service process or the Mihomo child during shutdown races.
 service_running_state() {
 	local pid_file="${SERVICE_PID_FILE:-/var/run/mihowrt/mihomo.pid}"
 	local run_pattern="${SERVICE_RUN_PATTERN:-${ORCHESTRATOR:-/usr/bin/mihowrt} run-service}"
@@ -46,7 +50,7 @@ service_running_state() {
 	local pid=""
 
 	if [ -f "$pid_file" ]; then
-		IFS= read -r pid < "$pid_file" 2>/dev/null || pid=""
+		IFS= read -r pid <"$pid_file" 2>/dev/null || pid=""
 		if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
 			process_pid_matches_pattern "$pid" "$run_pattern" && return 0
 			process_pid_matches_pattern "$pid" "$mihomo_pattern" && return 0
@@ -63,6 +67,8 @@ service_running_state() {
 	return 1
 }
 
+# Lightweight readiness probe: only check listeners, assuming caller already
+# knows the service is running.
 mihomo_ports_ready_state() {
 	local dns_port="$1"
 	local tproxy_port="$2"
@@ -73,15 +79,18 @@ mihomo_ports_ready_state() {
 	port_listening_udp "$dns_port" && { port_listening_tcp "$tproxy_port" || port_listening_udp "$tproxy_port"; }
 }
 
+# Full readiness probe for callers that do not already know service state.
 mihomo_ready_state() {
 	service_running_state || return 1
 	mihomo_ports_ready_state "$1" "$2"
 }
 
+# Convert decimal port to the uppercase /proc/net/* hex form.
 hex_port() {
 	printf '%04X' "$1"
 }
 
+# True when TCP port is listening.
 port_listening_tcp() {
 	local port_hex
 	port_hex="$(hex_port "$1")"
@@ -89,6 +98,7 @@ port_listening_tcp() {
 		/proc/net/tcp /proc/net/tcp6 2>/dev/null
 }
 
+# True when UDP port is present.
 port_listening_udp() {
 	local port_hex
 	port_hex="$(hex_port "$1")"
@@ -96,6 +106,8 @@ port_listening_udp() {
 		/proc/net/udp /proc/net/udp6 2>/dev/null
 }
 
+# Startup wait loop. Polling is acceptable here because it runs only while
+# Mihomo is starting and exits early if the process dies.
 wait_for_mihomo_ready() {
 	local dns_port="$1"
 	local tproxy_port="$2"

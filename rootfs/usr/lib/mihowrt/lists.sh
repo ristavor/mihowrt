@@ -1,23 +1,26 @@
 #!/bin/ash
 
+# Ensure policy list directory exists before package hooks or runtime apply use it.
 ensure_policy_files() {
 	ensure_dir "$LIST_DIR"
 }
 
+# Detect legacy ip:port syntax while ignoring URLs and IPv6-like strings.
 policy_entry_has_legacy_colon_ports() {
 	case "$1" in
-		*';'*|*:*:*)
-			return 1
-			;;
-		*:*)
-			is_policy_entry "$1" && policy_entry_has_ports "$1"
-			return $?
-			;;
+	*';'* | *:*:*)
+		return 1
+		;;
+	*:*)
+		is_policy_entry "$1" && policy_entry_has_ports "$1"
+		return $?
+		;;
 	esac
 
 	return 1
 }
 
+# Convert one legacy ip:port entry to the current ip;port form.
 policy_entry_legacy_colon_to_semicolon() {
 	local value="$1"
 
@@ -25,6 +28,7 @@ policy_entry_legacy_colon_to_semicolon() {
 	printf '%s;%s' "${value%:*}" "${value##*:}"
 }
 
+# Scan a list for legacy entries before writing anything to flash.
 policy_list_file_needs_migration() {
 	local file="$1"
 	local line="" trimmed=""
@@ -34,15 +38,16 @@ policy_list_file_needs_migration() {
 	while IFS= read -r line || [ -n "$line" ]; do
 		trimmed="$(trim "$line")"
 		case "$trimmed" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 
 		policy_entry_has_legacy_colon_ports "$trimmed" && return 0
-	done < "$file"
+	done <"$file"
 
 	return 1
 }
 
+# Rewrite a list only when migration is required and content actually changes.
 migrate_policy_list_file() {
 	local file="$1"
 	local tmp="" file_dir="" file_base="" line="" trimmed="" migrated=""
@@ -59,11 +64,11 @@ migrate_policy_list_file() {
 		return 1
 	}
 
-	exec 3< "$file" || {
+	exec 3<"$file" || {
 		rm -f "$tmp"
 		return 1
 	}
-	exec 4> "$tmp" || {
+	exec 4>"$tmp" || {
 		exec 3<&-
 		rm -f "$tmp"
 		return 1
@@ -107,6 +112,7 @@ migrate_policy_list_file() {
 	log "Migrated legacy policy list port syntax in $file"
 }
 
+# Migrate all user policy lists from old colon syntax.
 migrate_policy_list_files() {
 	ensure_policy_files || return 1
 	migrate_policy_list_file "$DST_LIST_FILE" || return 1
@@ -138,6 +144,8 @@ policy_remote_list_max_urls() {
 	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32 1024
 }
 
+# Start one apply-wide remote fetch budget. Each URL gets a bounded timeout and
+# the whole list resolution must finish before this deadline.
 policy_remote_list_fetch_limits_begin() {
 	local now="" budget=""
 
@@ -153,6 +161,8 @@ policy_remote_list_fetch_limits_begin() {
 	POLICY_REMOTE_LIST_FETCH_DEADLINE=$((now + budget))
 }
 
+# Count remote URLs across all lists in one apply to prevent accidental URL
+# storms from user-maintained lists.
 policy_remote_list_register_url() {
 	local url="$1"
 	local label="$2"
@@ -168,6 +178,7 @@ policy_remote_list_register_url() {
 	log "Fetching remote policy list $url"
 }
 
+# Clamp per-request timeout to remaining apply budget.
 policy_remote_list_effective_timeout() {
 	local timeout="$1"
 	local now="" remaining=0
@@ -200,40 +211,43 @@ is_policy_remote_list_url() {
 	policy_remote_list_url "$1" >/dev/null
 }
 
+# Return URL part from a remote entry, accepting optional ;ports suffix.
 policy_remote_list_url() {
 	local value="$1" url="" ports=""
 
 	case "$value" in
-		*';'*)
-			url="${value%;*}"
-			ports="${value##*;}"
-			is_http_fetch_url "$url" || return 1
-			is_policy_port_spec "$ports" || return 1
-			printf '%s' "$url"
-			return 0
-			;;
+	*';'*)
+		url="${value%;*}"
+		ports="${value##*;}"
+		is_http_fetch_url "$url" || return 1
+		is_policy_port_spec "$ports" || return 1
+		printf '%s' "$url"
+		return 0
+		;;
 	esac
 
 	is_http_fetch_url "$value" || return 1
 	printf '%s' "$value"
 }
 
+# Return normalized inherited ports from URL;ports entries.
 policy_remote_list_ports() {
 	local value="$1" url="" ports=""
 
 	case "$value" in
-		*';'*)
-			url="${value%;*}"
-			ports="${value##*;}"
-			is_http_fetch_url "$url" || return 1
-			policy_ports_normalized_spec "$ports"
-			return $?
-			;;
+	*';'*)
+		url="${value%;*}"
+		ports="${value##*;}"
+		is_http_fetch_url "$url" || return 1
+		policy_ports_normalized_spec "$ports"
+		return $?
+		;;
 	esac
 
 	printf '%s' ''
 }
 
+# Count non-comment list lines that satisfy a predicate.
 policy_count_matching_lines() {
 	local file="$1"
 	local predicate="$2"
@@ -248,13 +262,13 @@ policy_count_matching_lines() {
 	while IFS= read -r line; do
 		line="$(trim "$line")"
 		case "$line" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 
 		if "$predicate" "$line"; then
 			count=$((count + 1))
 		fi
-	done < "$file"
+	done <"$file"
 
 	echo "$count"
 }
@@ -263,6 +277,7 @@ count_remote_list_urls() {
 	policy_count_matching_lines "$1" is_policy_remote_list_url
 }
 
+# Stable, cheap fingerprint for diagnostics/snapshot comparison.
 policy_list_fingerprint() {
 	local file="$1"
 
@@ -278,6 +293,7 @@ policy_list_fingerprint() {
 	fi
 }
 
+# Remove temporary effective list files.
 policy_effective_list_cleanup() {
 	local path
 
@@ -286,6 +302,7 @@ policy_effective_list_cleanup() {
 	done
 }
 
+# Cleanup helper for newline-delimited temp path lists.
 policy_effective_list_cleanup_paths() {
 	local path
 
@@ -297,13 +314,15 @@ ${1:-}
 EOF
 }
 
+# Append one normalized effective policy entry.
 policy_effective_list_append_entry() {
 	local output="$1"
 	local entry="$2"
 
-	printf '%s\n' "$entry" >> "$output" || return 1
+	printf '%s\n' "$entry" >>"$output" || return 1
 }
 
+# Fetch a remote list into a temp file under /tmp with size/time limits.
 policy_fetch_remote_list() {
 	local remote_url="$1"
 	local remote_file="" remote_max_bytes="" remote_timeout=""
@@ -319,7 +338,7 @@ policy_fetch_remote_list() {
 		rm -f "$remote_file"
 		return 1
 	}
-	if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
+	if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" >"$remote_file"; then
 		rm -f "$remote_file"
 		return 1
 	fi
@@ -327,6 +346,8 @@ policy_fetch_remote_list() {
 	printf '%s' "$remote_file"
 }
 
+# Merge a remote URL entry. Nested URLs from remote content are skipped to keep
+# resolution bounded and non-recursive.
 policy_merge_remote_list_entry() {
 	local line="$1"
 	local output="$2"
@@ -350,6 +371,8 @@ policy_merge_remote_list_entry() {
 	rm -f "$remote_file"
 }
 
+# Validate and normalize one local policy entry, optionally applying inherited
+# ports from URL;ports.
 policy_merge_local_list_entry() {
 	local line="$1"
 	local output="$2"
@@ -369,6 +392,7 @@ policy_merge_local_list_entry() {
 	policy_effective_list_append_entry "$output" "$entry"
 }
 
+# Merge one source file into a raw effective list, resolving top-level URLs.
 policy_merge_list_file() {
 	local source="$1"
 	local output="$2"
@@ -382,7 +406,7 @@ policy_merge_list_file() {
 	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
-			''|'#'*) continue ;;
+		'' | '#'*) continue ;;
 		esac
 
 		if is_policy_remote_list_url "$line"; then
@@ -391,9 +415,10 @@ policy_merge_list_file() {
 		fi
 
 		policy_merge_local_list_entry "$line" "$output" "$label" "$inherited_ports" || return 1
-	done < "$source"
+	done <"$source"
 }
 
+# Build a deduplicated effective list and enforce total output size.
 policy_resolve_list_file() {
 	local source="$1"
 	local output="$2"
@@ -409,7 +434,7 @@ policy_resolve_list_file() {
 		err "Failed to allocate temporary effective policy list path"
 		return 1
 	}
-	: > "$raw_output" || {
+	: >"$raw_output" || {
 		rm -f "$raw_output"
 		return 1
 	}
@@ -427,7 +452,7 @@ policy_resolve_list_file() {
 				exit 2
 			print
 		}
-	' "$raw_output" > "$output"
+	' "$raw_output" >"$output"
 	dedup_rc=$?
 	if [ "$dedup_rc" -ne 0 ]; then
 		if [ "$dedup_rc" -eq 2 ]; then
@@ -441,6 +466,7 @@ policy_resolve_list_file() {
 	rm -f "$raw_output"
 }
 
+# Allocate an empty temp list file.
 policy_prepare_effective_list_path() {
 	local path=""
 
@@ -448,13 +474,14 @@ policy_prepare_effective_list_path() {
 		err "Failed to allocate temporary effective policy list path"
 		return 1
 	}
-	: > "$path" || {
+	: >"$path" || {
 		rm -f "$path"
 		return 1
 	}
 	printf '%s' "$path"
 }
 
+# Remember temp list paths so every failure path can clean them.
 policy_record_effective_list_file() {
 	local path="$1"
 
@@ -466,6 +493,7 @@ $path"
 	fi
 }
 
+# Resolve one source list into POLICY_RESOLVED_EFFECTIVE_LIST_FILE.
 policy_resolve_effective_list() {
 	local source="$1"
 	local label="$2"
@@ -478,6 +506,8 @@ policy_resolve_effective_list() {
 	POLICY_RESOLVED_EFFECTIVE_LIST_FILE="$effective"
 }
 
+# Save current list path variables before replacing them with temp effective
+# lists for one apply/reload transaction.
 policy_save_runtime_list_overrides() {
 	POLICY_PREV_DST_LIST_FILE_SET=0
 	POLICY_PREV_SRC_LIST_FILE_SET=0
@@ -503,6 +533,7 @@ policy_save_runtime_list_overrides() {
 	return 0
 }
 
+# Restore original list path variables and remove temp effective lists.
 policy_clear_runtime_list_overrides() {
 	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
 		policy_effective_list_cleanup_paths "$POLICY_EFFECTIVE_LIST_FILES"
@@ -534,6 +565,8 @@ policy_clear_runtime_list_overrides() {
 	unset POLICY_REMOTE_LIST_URL_COUNT POLICY_REMOTE_LIST_FETCH_DEADLINE
 }
 
+# Resolve only lists needed by current policy mode, then point nft/snapshot code
+# at temp effective files until policy_clear_runtime_list_overrides runs.
 policy_resolve_runtime_lists() {
 	local dst_effective="" src_effective="" direct_effective=""
 	local mode="${POLICY_MODE:-direct-first}"
@@ -544,36 +577,37 @@ policy_resolve_runtime_lists() {
 	policy_save_runtime_list_overrides
 
 	case "$mode" in
-		direct-first)
-			policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
-			dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-			policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
-			src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-			POLICY_DST_LIST_FILE="$dst_effective"
-			POLICY_SRC_LIST_FILE="$src_effective"
-			;;
-		proxy-first)
-			policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
-			direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-			POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
-			;;
-		*)
-			err "Invalid policy mode: $mode"
+	direct-first)
+		policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
 			policy_clear_runtime_list_overrides
 			return 1
-			;;
+		}
+		dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
+		policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
+		POLICY_DST_LIST_FILE="$dst_effective"
+		POLICY_SRC_LIST_FILE="$src_effective"
+		;;
+	proxy-first)
+		policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
+		POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
+		;;
+	*)
+		err "Invalid policy mode: $mode"
+		policy_clear_runtime_list_overrides
+		return 1
+		;;
 	esac
 }
 
+# Count valid manual/effective list entries for diagnostics.
 count_valid_list_entries() {
 	policy_count_matching_lines "$1" is_policy_entry
 }

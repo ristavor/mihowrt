@@ -18,11 +18,15 @@ msg() {
 	logger -p daemon.info -t "$SERVICE_NAME" "$*"
 }
 
+# Use the orchestrator's pid/probe logic instead of procd status, because the
+# runtime can still be cleaning up while procd has already noticed process exit.
 service_running() {
 	[ -x "$ORCHESTRATOR" ] || return 1
 	"$ORCHESTRATOR" service-running >/dev/null 2>&1
 }
 
+# Validate both Mihomo syntax and MihoWRT runtime fields before procd starts or
+# restarts the service, so bad configs do not partially mutate router state.
 validate_service_inputs() {
 	[ -x "$CLASH_BIN" ] || {
 		msg "ERROR: Mihomo binary not found at $CLASH_BIN"
@@ -47,6 +51,8 @@ validate_service_inputs() {
 	fi
 }
 
+# Start path cleans stale state first, then lets run-service own Mihomo lifetime
+# and stop-time cleanup.
 start_service() {
 	[ -f "$SKIP_START_FILE" ] && {
 		msg "Skipping MihoWRT service auto-start during installer transaction"
@@ -75,10 +81,14 @@ start_service() {
 	msg "MihoWRT service registered with procd"
 }
 
+# procd sends the stop signal to run-service; actual nft/route/DNS cleanup lives
+# in the orchestrator trap.
 stop_service() {
 	msg "Stopping MihoWRT service..."
 }
 
+# Reload only policy-level state. Changes to Mihomo DNS/TPROXY/fake-ip settings
+# require restart because those values define sockets and marks already in use.
 reload_service() {
 	msg "Reloading MihoWRT policy..."
 
@@ -95,6 +105,8 @@ reload_service() {
 	msg "MihoWRT policy reloaded"
 }
 
+# Refresh remote policy lists without touching nft when effective content is
+# unchanged.
 update_lists() {
 	msg "Updating MihoWRT remote policy lists..."
 
@@ -111,6 +123,8 @@ update_lists() {
 	msg "MihoWRT remote policy list update finished"
 }
 
+# Apply on-disk config safely: validate first, then restart only if service is
+# running. A stopped service keeps validated config for next start.
 apply() {
 	msg "Applying MihoWRT on-disk config..."
 
@@ -144,6 +158,7 @@ apply() {
 	msg "MihoWRT on-disk changes applied"
 }
 
+# Let LuCI Save & Apply call reload when /etc/config/mihowrt changes.
 service_triggers() {
 	procd_add_reload_trigger "mihowrt"
 }

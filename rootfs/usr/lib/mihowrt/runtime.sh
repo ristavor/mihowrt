@@ -1,5 +1,7 @@
 #!/bin/ash
 
+# Atomically point an /opt/clash runtime path at tmpfs, preserving the previous
+# path if symlink creation fails.
 install_runtime_symlink() {
 	local src="$1"
 	local dst="$2"
@@ -44,6 +46,7 @@ install_runtime_symlink() {
 	return 0
 }
 
+# Move directory cache content to tmpfs before linking future writes there.
 sync_runtime_dir() {
 	local src="$1"
 	local dst="$2"
@@ -67,6 +70,7 @@ sync_runtime_dir() {
 	return 0
 }
 
+# Move file cache content to tmpfs before linking future writes there.
 sync_runtime_file() {
 	local src="$1"
 	local dst="$2"
@@ -92,6 +96,7 @@ sync_runtime_file() {
 	return 0
 }
 
+# Prepare all Mihomo write-heavy paths that should not hit NAND repeatedly.
 setup_clash_runtime_dirs() {
 	ensure_dir "$RULESET_TMPFS"
 	ensure_dir "$PROXY_PROVIDERS_TMPFS"
@@ -113,6 +118,7 @@ setup_clash_runtime_dirs() {
 	return 0
 }
 
+# Public layout entrypoint used by package postinst and service start.
 init_runtime_layout() {
 	ensure_policy_files || return 1
 	migrate_policy_list_files || return 1

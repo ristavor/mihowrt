@@ -1,5 +1,7 @@
 #!/bin/ash
 
+# Clean one simple YAML scalar enough for the fields MihoWRT needs. Full YAML
+# validation is still delegated to Mihomo before writes are applied.
 yaml_cleanup_scalar() {
 	local value="$1"
 	local out="" char="" prev="" in_single=0 in_double=0
@@ -11,33 +13,33 @@ yaml_cleanup_scalar() {
 		value="${value#?}"
 
 		case "$char" in
-			"'")
-				if [ "$in_double" -eq 0 ]; then
-					if [ "$in_single" -eq 1 ]; then
-						in_single=0
-					else
-						in_single=1
-					fi
+		"'")
+			if [ "$in_double" -eq 0 ]; then
+				if [ "$in_single" -eq 1 ]; then
+					in_single=0
+				else
+					in_single=1
 				fi
-				;;
-			'"')
-				if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
-					if [ "$in_double" -eq 1 ]; then
-						in_double=0
-					else
-						in_double=1
-					fi
+			fi
+			;;
+		'"')
+			if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
+				if [ "$in_double" -eq 1 ]; then
+					in_double=0
+				else
+					in_double=1
 				fi
-				;;
-			'#')
-				if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
-					case "$prev" in
-						''|[[:space:]])
-							break
-							;;
-					esac
-				fi
-				;;
+			fi
+			;;
+		'#')
+			if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+				case "$prev" in
+				'' | [[:space:]])
+					break
+					;;
+				esac
+			fi
+			;;
 		esac
 
 		out="${out}${char}"
@@ -47,24 +49,26 @@ yaml_cleanup_scalar() {
 	value="$(trim "$out")"
 
 	case "$value" in
-		\"*\")
-			value="${value#\"}"
-			value="${value%\"}"
-			printf '%s' "$value"
-			return 0
-			;;
-		\'*\')
-			value="${value#\'}"
-			value="${value%\'}"
-			printf '%s' "$value"
-			return 0
-			;;
+	\"*\")
+		value="${value#\"}"
+		value="${value%\"}"
+		printf '%s' "$value"
+		return 0
+		;;
+	\'*\')
+		value="${value#\'}"
+		value="${value%\'}"
+		printf '%s' "$value"
+		return 0
+		;;
 	esac
 
 	value="$(trim "$value")"
 	printf '%s' "$value"
 }
 
+# Extract only router-integration scalar fields from Mihomo config. This avoids
+# inventing a full YAML parser in ash while keeping Mihomo as syntax authority.
 yaml_get_selected_scalars() {
 	local file="$1"
 
@@ -145,6 +149,8 @@ yaml_get_selected_scalars() {
 	' "$file" 2>/dev/null
 }
 
+# Accumulate config parsing errors into a newline-delimited string that jq later
+# turns into an array.
 append_error() {
 	local message="$1"
 
@@ -156,6 +162,8 @@ $message"
 	fi
 }
 
+# Return normalized config metadata for LuCI and runtime validation. Errors are
+# reported in JSON instead of hard-failing so the UI can show all problems.
 read_config_json() {
 	local dns_listen_raw="" dns_port="" mihomo_dns_listen="" tproxy_port="" routing_mark=""
 	local routing_mark_normalized="" intercept_mark_normalized=""
@@ -175,16 +183,16 @@ read_config_json() {
 		value="$(yaml_cleanup_scalar "$raw")"
 
 		case "$key" in
-			dns.listen) dns_listen_raw="$value" ;;
-			dns.enhanced-mode) enhanced_mode="$value" ;;
-			dns.fake-ip-range) fake_ip_range="$value" ;;
-			tproxy-port) tproxy_port="$value" ;;
-			routing-mark) routing_mark="$value" ;;
-			external-controller) external_controller="$value" ;;
-			external-controller-tls) external_controller_tls="$value" ;;
-			secret) secret="$value" ;;
-			external-ui) external_ui="$value" ;;
-			external-ui-name) external_ui_name="$value" ;;
+		dns.listen) dns_listen_raw="$value" ;;
+		dns.enhanced-mode) enhanced_mode="$value" ;;
+		dns.fake-ip-range) fake_ip_range="$value" ;;
+		tproxy-port) tproxy_port="$value" ;;
+		routing-mark) routing_mark="$value" ;;
+		external-controller) external_controller="$value" ;;
+		external-controller-tls) external_controller_tls="$value" ;;
+		secret) secret="$value" ;;
+		external-ui) external_ui="$value" ;;
+		external-ui-name) external_ui_name="$value" ;;
 		esac
 	done <<EOF
 $(yaml_get_selected_scalars "$CLASH_CONFIG")
@@ -215,7 +223,7 @@ EOF
 		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
 	else
 		routing_mark_normalized="$(normalize_uint "$routing_mark")"
-		intercept_mark_normalized="$(normalize_uint "$(( ${NFT_INTERCEPT_MARK:-0x00001000} ))")"
+		intercept_mark_normalized="$(normalize_uint "$((${NFT_INTERCEPT_MARK:-0x00001000}))")"
 		if [ "$routing_mark_normalized" = "$intercept_mark_normalized" ]; then
 			append_error "Mihomo routing mark conflicts with MihoWRT intercept mark: $routing_mark"
 		fi
@@ -273,6 +281,7 @@ EOF
 	}
 }
 
+# Temporarily point CLASH_CONFIG at a candidate file and restore caller state.
 read_config_json_for_path() {
 	local config_path="$1"
 	local active_config="$CLASH_CONFIG"
@@ -284,10 +293,13 @@ read_config_json_for_path() {
 	return "$rc"
 }
 
+# Marker for configs that already passed Mihomo and MihoWRT validation in the
+# current boot. The init script can skip duplicate Mihomo tests after apply.
 validated_config_stamp_file() {
 	printf '%s\n' "${VALIDATED_CONFIG_FILE:-${PKG_TMP_DIR:-/tmp/mihowrt}/validated.config}"
 }
 
+# Store the exact validated config as the stamp content, not just a timestamp.
 mark_validated_config() {
 	local stamp_file
 
@@ -296,6 +308,7 @@ mark_validated_config() {
 	cp -f "$CLASH_CONFIG" "$stamp_file"
 }
 
+# True when live config still matches the last validated candidate.
 current_config_has_validated_stamp() {
 	local stamp_file
 
@@ -303,6 +316,8 @@ current_config_has_validated_stamp() {
 	[ -r "$CLASH_CONFIG" ] && [ -r "$stamp_file" ] && cmp -s "$CLASH_CONFIG" "$stamp_file"
 }
 
+# Validate a temp config with Mihomo and MihoWRT, then atomically replace the
+# live config only after both checks pass.
 apply_config_file() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
@@ -315,12 +330,11 @@ apply_config_file() {
 	}
 
 	case "$candidate" in
-		/tmp/*)
-			;;
-		*)
-			err "temporary config must be stored under /tmp"
-			return 1
-			;;
+	/tmp/*) ;;
+	*)
+		err "temporary config must be stored under /tmp"
+		return 1
+		;;
 	esac
 
 	[ -r "$candidate" ] || {
@@ -386,6 +400,8 @@ apply_config_file() {
 	return 0
 }
 
+# LuCI convenience wrapper for content-based apply. It writes to /tmp first so
+# apply_config_file can reuse the same safe path and cleanup rules.
 apply_config_contents() {
 	local contents="$1"
 	local candidate=""
@@ -396,7 +412,7 @@ apply_config_contents() {
 		return 1
 	}
 
-	printf '%s' "$contents" > "$candidate" || {
+	printf '%s' "$contents" >"$candidate" || {
 		err "Failed to stage temporary config contents"
 		rm -f "$candidate"
 		return 1

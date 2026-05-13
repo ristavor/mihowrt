@@ -1,5 +1,6 @@
 #!/bin/ash
 
+# Collect source interfaces from UCI DynamicList.
 append_source_interface() {
 	local iface="$1"
 	[ -n "$iface" ] || return 0
@@ -11,6 +12,7 @@ append_source_interface() {
 	fi
 }
 
+# Prefer OpenWrt LAN device from UCI; fall back to old ifname for older configs.
 detect_lan_interface() {
 	local iface=""
 
@@ -33,10 +35,13 @@ detect_lan_interface() {
 	return 1
 }
 
+# Default interface used when UCI has no source_network_interfaces list.
 default_source_interface() {
 	detect_lan_interface || printf '%s' 'br-lan'
 }
 
+# Load Mihomo-derived runtime fields from parsed config JSON and fail with all
+# parse errors written to logs/stderr.
 load_runtime_config_from_yaml() {
 	local config_json
 	local config_errors
@@ -62,6 +67,7 @@ load_runtime_config_from_yaml() {
 	return 0
 }
 
+# Merge UCI policy settings and Mihomo YAML-derived settings into runtime vars.
 load_runtime_config() {
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 
@@ -80,6 +86,7 @@ load_runtime_config() {
 	load_runtime_config_from_yaml
 }
 
+# Validate the full runtime contract before any nft/route/DNS mutation.
 validate_runtime_config() {
 	local iface routing_mark="" intercept_mark=""
 	local clash_bin="${CLASH_BIN:-/opt/clash/bin/clash}"
@@ -110,7 +117,7 @@ validate_runtime_config() {
 		return 1
 	}
 	routing_mark="$(normalize_uint "$MIHOMO_ROUTING_MARK")"
-	intercept_mark="$(normalize_uint "$(( ${NFT_INTERCEPT_MARK:-0x00001000} ))")"
+	intercept_mark="$(normalize_uint "$((${NFT_INTERCEPT_MARK:-0x00001000}))")"
 	if [ "$routing_mark" = "$intercept_mark" ]; then
 		err "Mihomo routing mark conflicts with MihoWRT intercept mark: $MIHOMO_ROUTING_MARK"
 		return 1
@@ -131,12 +138,11 @@ validate_runtime_config() {
 	fi
 
 	case "${POLICY_MODE:-direct-first}" in
-		direct-first|proxy-first)
-			;;
-		*)
-			err "Invalid policy mode: ${POLICY_MODE:-}"
-			return 1
-			;;
+	direct-first | proxy-first) ;;
+	*)
+		err "Invalid policy mode: ${POLICY_MODE:-}"
+		return 1
+		;;
 	esac
 
 	[ "$DNS_ENHANCED_MODE" = "fake-ip" ] || {

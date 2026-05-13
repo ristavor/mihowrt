@@ -1,5 +1,7 @@
 #!/bin/ash
 
+# Return recent MihoWRT log lines as JSON for LuCI diagnostics. The limit is
+# clamped so diagnostics cannot stream unbounded logread output through rpcd.
 logs_json() {
 	local limit="${1:-200}"
 	local logread_cmd="" lines=""

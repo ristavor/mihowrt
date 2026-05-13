@@ -26,6 +26,7 @@ let updateListsButton = null;
 let policyActionInFlight = false;
 
 function validateNumericRange(value, label, min, max) {
+	// Empty value means backend auto-select.
 	if (!value)
 		return true;
 	if (!/^[0-9]+$/.test(value))
@@ -38,6 +39,7 @@ function validateNumericRange(value, label, min, max) {
 }
 
 function normalizeBlock(value) {
+	// Normalize line endings and keep a trailing newline for stable file writes.
 	value = (value || '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 	value = value.trim();
 	return value ? value + '\n' : '';
@@ -54,10 +56,12 @@ function syncListCaches(dstValue, srcValue, directDstValue) {
 }
 
 function currentPolicyMode() {
+	// Current mode controls which list files matter for dirty-check.
 	return policyModeOption ? (policyModeOption.formvalue(SETTINGS_SECTION_ID) || 'direct-first') : 'direct-first';
 }
 
 function hasListValueChanges() {
+	// Compare active textarea values with cached disk values, mode-aware.
 	if (currentPolicyMode() === 'proxy-first')
 		return currentNormalizedListValue(directDstListOption) !== (directDstValueCache || '');
 
@@ -66,11 +70,13 @@ function hasListValueChanges() {
 }
 
 function hasMihowrtUciChanges(changes) {
+	// LuCI UCI changes and raw list file changes have different apply paths.
 	const mihowrtChanges = changes?.mihowrt;
 	return Array.isArray(mihowrtChanges) && mihowrtChanges.length > 0;
 }
 
 function setPolicyActionBusy(busy) {
+	// Block overlapping save/update actions so file writes and reloads cannot race.
 	policyActionInFlight = busy;
 	if (updateListsButton)
 		updateListsButton.disabled = busy;
@@ -81,6 +87,7 @@ async function savePolicyMap() {
 }
 
 async function reloadPolicyIfNeeded(listChanged, wasRunning) {
+	// Reload nft policy only after list-only save and only when service is running.
 	if (!listChanged || !wasRunning)
 		return;
 
@@ -90,6 +97,7 @@ async function reloadPolicyIfNeeded(listChanged, wasRunning) {
 }
 
 async function updateRemoteLists() {
+	// Backend decides whether effective remote content changed and nft was updated.
 	if (policyActionInFlight)
 		return;
 
@@ -115,6 +123,7 @@ async function updateRemoteLists() {
 }
 
 async function removeListFileIfPresent(filePath) {
+	// Missing list files are valid because empty list means disabled policy file.
 	try {
 		await fs.remove(filePath);
 	}
@@ -126,6 +135,7 @@ async function removeListFileIfPresent(filePath) {
 }
 
 function bindTextFileOption(option, cacheName, filePath, description) {
+	// Bind TextValue to raw file instead of UCI and avoid no-op writes.
 	option.rows = 18;
 	option.wrap = 'off';
 	option.monospace = true;

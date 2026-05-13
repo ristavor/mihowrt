@@ -1,5 +1,7 @@
 #!/bin/ash
 
+# Convert multi-line UCI list output into a tab-delimited value that can be
+# stored safely in one backup variable.
 dns_flatten_lines() {
 	local line out="" sep="" tab=""
 
@@ -13,14 +15,17 @@ dns_flatten_lines() {
 	printf '%s' "$out"
 }
 
+# Current dnsmasq server list in flattened form.
 dns_current_servers_flat() {
 	uci -q get dhcp.@dnsmasq[0].server 2>/dev/null | dns_flatten_lines
 }
 
+# Read one dnsmasq option; missing options become empty strings.
 dnsmasq_option_get() {
 	uci -q get "dhcp.@dnsmasq[0].$1" 2>/dev/null || true
 }
 
+# Compare desired dnsmasq state with current UCI state without committing.
 dnsmasq_state_matches() {
 	local expected_cachesize="$1"
 	local expected_noresolv="$2"

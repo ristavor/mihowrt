@@ -41,6 +41,8 @@ require_command() {
 	}
 }
 
+# Resolve module directory. Tests override MIHOWRT_LIB_DIR to load modules from
+# the repository instead of an installed OpenWrt rootfs.
 mihowrt_lib_dir() {
 	if [ -n "${MIHOWRT_LIB_DIR:-}" ]; then
 		printf '%s\n' "$MIHOWRT_LIB_DIR"
@@ -49,6 +51,8 @@ mihowrt_lib_dir() {
 	printf '%s\n' "/usr/lib/mihowrt"
 }
 
+# Source one required module and emit a shell-visible error. Missing modules are
+# fatal because partial runtime loading can leave commands with undefined helpers.
 mihowrt_source_module() {
 	local module="$1"
 	local lib_dir="" path="" message=""
@@ -69,6 +73,8 @@ mihowrt_source_module() {
 MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh fetch.sh diagnostics.sh version.sh}"
 MIHOWRT_RUNTIME_MODULES="${MIHOWRT_RUNTIME_MODULES:-dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh runtime.sh}"
 
+# Load modules in caller-provided order; later modules may depend on functions
+# defined by earlier ones.
 mihowrt_source_module_list() {
 	local modules="$1" module=""
 

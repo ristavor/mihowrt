@@ -1,9 +1,11 @@
 #!/bin/ash
 
+# Historical readiness helper: snapshot validity means router policy was applied.
 runtime_policy_ready_state() {
 	runtime_snapshot_valid
 }
 
+# Read DNS/TPROXY readiness ports from active snapshot.
 load_snapshot_readiness_ports() {
 	local active_json="" snapshot_dns_listen=""
 	local snapshot_vars=""
@@ -23,6 +25,7 @@ load_snapshot_readiness_ports() {
 	fi
 }
 
+# Read DNS/TPROXY readiness ports from current config as fallback.
 load_config_readiness_ports() {
 	STATUS_READY_DNS_PORT=""
 	STATUS_READY_TPROXY_PORT=""
@@ -32,11 +35,13 @@ load_config_readiness_ports() {
 	STATUS_READY_TPROXY_PORT="$MIHOMO_TPROXY_PORT"
 }
 
+# CLI readiness probe that includes service-running check.
 service_ready_runtime_state() {
 	service_running_state || return 1
 	service_ready_runtime_state_for_running_service
 }
 
+# Fast readiness probe after caller already checked service is running.
 service_ready_runtime_state_for_running_service() {
 	if load_snapshot_readiness_ports; then
 		mihomo_ports_ready_state "$STATUS_READY_DNS_PORT" "$STATUS_READY_TPROXY_PORT"
@@ -48,6 +53,7 @@ service_ready_runtime_state_for_running_service() {
 	runtime_policy_ready_state
 }
 
+# Query init autostart state.
 service_enabled_state() {
 	local pkg_name="${PKG_NAME:-mihowrt}"
 
@@ -55,6 +61,7 @@ service_enabled_state() {
 	"/etc/init.d/$pkg_name" enabled >/dev/null 2>&1
 }
 
+# Small JSON used by LuCI config page polling.
 service_state_json() {
 	local service_enabled=0 service_running=0 service_ready=0
 
@@ -78,6 +85,7 @@ service_state_json() {
 		}'
 }
 
+# Fallback config object when config parsing cannot run.
 status_default_config_json() {
 	local clash_config="${CLASH_CONFIG:-/opt/clash/config.yaml}"
 
@@ -102,6 +110,7 @@ status_default_config_json() {
 		}'
 }
 
+# Fallback active object when no valid snapshot exists.
 status_default_active_json() {
 	jq -nc '{
 		present: false,
@@ -128,6 +137,8 @@ status_default_active_json() {
 	}'
 }
 
+# Load active snapshot for diagnostics, preserving invalid-snapshot errors in
+# status output instead of failing the whole response.
 load_status_active_snapshot_json() {
 	STATUS_ACTIVE_JSON=""
 	STATUS_RUNTIME_SNAPSHOT_PRESENT=0
@@ -148,6 +159,7 @@ load_status_active_snapshot_json() {
 	STATUS_ACTIVE_JSON="$(status_default_active_json)"
 }
 
+# Load current config parse result for diagnostics.
 load_status_config_json() {
 	local config_json=""
 
@@ -156,6 +168,7 @@ load_status_config_json() {
 	printf '%s\n' "$config_json"
 }
 
+# Load desired UCI/list state from disk.
 load_status_desired_state_json() {
 	local dns_hijack=0 route_table_id="" route_rule_priority="" disable_quic=0
 	local source_interfaces="" proxy_dst_count=0 proxy_src_count=0 direct_dst_count=0 settings_loaded=0
@@ -191,20 +204,20 @@ load_status_desired_state_json() {
 	direct_dst_source_hash="$(policy_list_fingerprint "$direct_list_file")"
 
 	case "$policy_mode" in
-		direct-first)
-			proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
-			proxy_src_count="$(count_valid_list_entries "$src_list_file")"
-			proxy_dst_url_count="$(count_remote_list_urls "$dst_list_file")"
-			proxy_src_url_count="$(count_remote_list_urls "$src_list_file")"
-			;;
-		proxy-first)
-			direct_dst_count="$(count_valid_list_entries "$direct_list_file")"
-			direct_dst_url_count="$(count_remote_list_urls "$direct_list_file")"
-			;;
-		*)
-			status_errors_raw="${status_errors_raw}${status_errors_raw:+
+	direct-first)
+		proxy_dst_count="$(count_valid_list_entries "$dst_list_file")"
+		proxy_src_count="$(count_valid_list_entries "$src_list_file")"
+		proxy_dst_url_count="$(count_remote_list_urls "$dst_list_file")"
+		proxy_src_url_count="$(count_remote_list_urls "$src_list_file")"
+		;;
+	proxy-first)
+		direct_dst_count="$(count_valid_list_entries "$direct_list_file")"
+		direct_dst_url_count="$(count_remote_list_urls "$direct_list_file")"
+		;;
+	*)
+		status_errors_raw="${status_errors_raw}${status_errors_raw:+
 }Invalid policy mode: $policy_mode"
-			;;
+		;;
 	esac
 
 	jq -nc \
@@ -246,9 +259,11 @@ load_status_desired_state_json() {
 			direct_dst_source_hash: $direct_dst_source_hash,
 			settings_loaded: ($settings_loaded == "1"),
 			errors: ($status_errors_raw | split("\n") | map(select(length > 0)))
-		}'
+	}'
 }
 
+# Summarize live runtime artifacts: service, DNS backup, route state, snapshot,
+# and listener readiness.
 load_status_runtime_state_json() {
 	local config_json="${1:-}" desired_json="${2:-}"
 	local service_enabled=0 service_running=0 service_ready=0 dns_backup_exists_flag=0 dns_backup_valid_flag=0
@@ -279,11 +294,12 @@ load_status_runtime_state_json() {
 	runtime_snapshot_valid="$STATUS_RUNTIME_SNAPSHOT_VALID"
 	runtime_errors_raw="$STATUS_RUNTIME_ERRORS_RAW"
 
-	status_vars="$(jq -nr \
-		--argjson config "$config_json" \
-		--argjson desired "$desired_json" \
-		--argjson active "$active_json" \
-		'@sh "dns_port=\($config.dns_port // "") tproxy_port=\($config.tproxy_port // "") desired_enabled=\($desired.enabled // false) desired_settings_loaded=\($desired.settings_loaded // false) active_enabled=\($active.enabled // false) readiness_dns_port=\($active.mihomo_dns_port // "") readiness_tproxy_port=\($active.mihomo_tproxy_port // "")"'
+	status_vars="$(
+		jq -nr \
+			--argjson config "$config_json" \
+			--argjson desired "$desired_json" \
+			--argjson active "$active_json" \
+			'@sh "dns_port=\($config.dns_port // "") tproxy_port=\($config.tproxy_port // "") desired_enabled=\($desired.enabled // false) desired_settings_loaded=\($desired.settings_loaded // false) active_enabled=\($active.enabled // false) readiness_dns_port=\($active.mihomo_dns_port // "") readiness_tproxy_port=\($active.mihomo_tproxy_port // "")"'
 	)" || return 1
 	eval "$status_vars" || return 1
 
@@ -337,6 +353,8 @@ load_status_runtime_state_json() {
 		}'
 }
 
+# Compare active snapshot with desired disk state. Remote URLs are compared by
+# source fingerprint because effective remote content changes only after fetch.
 compare_status_runtime_state_json() {
 	local config_json="$1"
 	local desired_json="$2"
@@ -391,6 +409,7 @@ compare_status_runtime_state_json() {
 			}'
 }
 
+# Compose final status JSON from independent config/desired/runtime pieces.
 emit_status_json() {
 	local config_json="$1"
 	local desired_json="$2"
@@ -437,6 +456,7 @@ emit_status_json() {
 		}'
 }
 
+# Public machine-readable diagnostics entrypoint.
 status_json() {
 	local config_json="" desired_json="" runtime_json="" comparison_json=""
 
@@ -448,6 +468,7 @@ status_json() {
 	emit_status_json "$config_json" "$desired_json" "$runtime_json" "$comparison_json"
 }
 
+# Human-readable diagnostics entrypoint for CLI use.
 status_runtime_state() {
 	local status_json_output=""
 

@@ -1641,13 +1641,39 @@ nft_table_exists_named_fallback() {
 	'
 }
 
-nft_delete_table_named_if_exists_fallback() {
-	local table="$1"
-	local table_state=1
+fallback_state_probe() {
+	local callback="$1"
+	local state=1
 
-	nft_table_exists_named_fallback "$table"
-	table_state=$?
-	case "$table_state" in
+	shift
+	if "$callback" "$@"; then
+		return 0
+	else
+		state=$?
+	fi
+
+	case "$state" in
+		1)
+			return 1
+			;;
+		*)
+			return 2
+			;;
+	esac
+}
+
+delete_fallback_state_if_present() {
+	local probe_callback="$1"
+	local delete_callback="$2"
+	local state=1
+
+	shift 2
+	if fallback_state_probe "$probe_callback" "$@"; then
+		state=0
+	else
+		state=$?
+	fi
+	case "$state" in
 		0)
 			:
 			;;
@@ -1659,10 +1685,24 @@ nft_delete_table_named_if_exists_fallback() {
 			;;
 	esac
 
-	nft delete table inet "$table" >/dev/null 2>&1 || return 1
-	nft_table_exists_named_fallback "$table"
-	table_state=$?
-	[ "$table_state" -eq 1 ]
+	"$delete_callback" "$@" || return 1
+	if fallback_state_probe "$probe_callback" "$@"; then
+		state=0
+	else
+		state=$?
+	fi
+	[ "$state" -eq 1 ]
+}
+
+nft_delete_table_named_command_fallback() {
+	nft delete table inet "$1" >/dev/null 2>&1
+}
+
+nft_delete_table_named_if_exists_fallback() {
+	delete_fallback_state_if_present \
+		nft_table_exists_named_fallback \
+		nft_delete_table_named_command_fallback \
+		"$1"
 }
 
 nft_delete_policy_tables_fallback() {
@@ -1732,70 +1772,40 @@ route_show_table_fallback() {
 	return "$route_rc"
 }
 
-route_delete_managed_route_fallback() {
+route_delete_managed_route_command_fallback() {
 	local route_table_id="$1"
-	local route_state=1
-
-	[ -n "$route_table_id" ] || return 0
-
-	if route_managed_route_exists_fallback "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
-	case "$route_state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
 
 	while ip route del local 0.0.0.0/0 dev lo table "$route_table_id" 2>/dev/null; do :; done
-	if route_managed_route_exists_fallback "$route_table_id"; then
-		route_state=0
-	else
-		route_state=$?
-	fi
-	[ "$route_state" -eq 1 ]
+}
+
+route_delete_managed_route_fallback() {
+	local route_table_id="$1"
+
+	[ -n "$route_table_id" ] || return 0
+	delete_fallback_state_if_present \
+		route_managed_route_exists_fallback \
+		route_delete_managed_route_command_fallback \
+		"$route_table_id"
+}
+
+route_delete_rule_command_fallback() {
+	local route_table_id="$1"
+	local route_rule_priority="$2"
+
+	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
 }
 
 route_delete_rule_fallback() {
 	local route_table_id="$1"
 	local route_rule_priority="$2"
-	local rule_state=1
 
 	[ -n "$route_table_id" ] || return 0
 	[ -n "$route_rule_priority" ] || return 0
-
-	if route_rule_exists_fallback "$route_table_id" "$route_rule_priority"; then
-		rule_state=0
-	else
-		rule_state=$?
-	fi
-	case "$rule_state" in
-		0)
-			:
-			;;
-		1)
-			return 0
-			;;
-		*)
-			return 1
-			;;
-	esac
-
-	while ip rule del fwmark "$NFT_INTERCEPT_MARK"/"$NFT_INTERCEPT_MARK" table "$route_table_id" priority "$route_rule_priority" 2>/dev/null; do :; done
-	if route_rule_exists_fallback "$route_table_id" "$route_rule_priority"; then
-		rule_state=0
-	else
-		rule_state=$?
-	fi
-	[ "$rule_state" -eq 1 ]
+	delete_fallback_state_if_present \
+		route_rule_exists_fallback \
+		route_delete_rule_command_fallback \
+		"$route_table_id" \
+		"$route_rule_priority"
 }
 
 route_teardown_ids_fallback() {

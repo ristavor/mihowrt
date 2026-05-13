@@ -239,82 +239,82 @@ wget_download_to() {
 	return 1
 }
 
-fetch_url() {
-	local have_fetcher=0 tmp_path="$FETCH_TMP"
+fetch_to_tmp() {
+	local url="$1" tmp_path="$2" have_fetcher=0
 
 	rm -f "$tmp_path"
 	NET_TMP="$tmp_path"
-	if have_command wget && wget_download_to "$1" "$tmp_path"; then
-		cat "$tmp_path" || {
-			rm -f "$tmp_path"
-			NET_TMP=""
-			return 1
-		}
+	if have_command wget; then
+		have_fetcher=1
+		if wget_download_to "$url" "$tmp_path"; then
+			return 0
+		fi
 		rm -f "$tmp_path"
-		NET_TMP=""
-		return 0
 	fi
-	have_command wget && have_fetcher=1
-	rm -f "$tmp_path"
 
-	if have_command curl && curl -fsL --retry "$FETCH_RETRIES" --connect-timeout "$FETCH_CONNECT_TIMEOUT" --max-time "$FETCH_MAX_TIME" -o "$tmp_path" "$1"; then
-		cat "$tmp_path" || {
-			rm -f "$tmp_path"
-			NET_TMP=""
-			return 1
-		}
+	if have_command curl; then
+		have_fetcher=1
+		if curl -fsL --retry "$FETCH_RETRIES" --connect-timeout "$FETCH_CONNECT_TIMEOUT" --max-time "$FETCH_MAX_TIME" -o "$tmp_path" "$url"; then
+			return 0
+		fi
 		rm -f "$tmp_path"
-		NET_TMP=""
-		return 0
 	fi
-	have_command curl && have_fetcher=1
+
 	rm -f "$tmp_path"
 	NET_TMP=""
 
-	if [ "$have_fetcher" = "1" ]; then
-		err "failed to fetch $1"
-	else
+	[ "$have_fetcher" = "1" ] && return 2
+	return 127
+}
+
+report_fetch_failure() {
+	local action="$1"
+	local url="$2"
+	local rc="$3"
+
+	if [ "$rc" = "127" ]; then
 		err "need wget or curl"
+	else
+		err "failed to $action $url"
 	fi
 	return 1
 }
 
-download_file() {
-	local have_fetcher=0 tmp_path="${2}.download.$$"
+fetch_url() {
+	local tmp_path="$FETCH_TMP" fetch_rc=0
 
-	rm -f "$tmp_path"
-	NET_TMP="$tmp_path"
-	if have_command wget && wget_download_to "$1" "$tmp_path"; then
-		mv -f "$tmp_path" "$2" || {
+	if fetch_to_tmp "$1" "$tmp_path"; then
+		cat "$tmp_path" || {
 			rm -f "$tmp_path"
 			NET_TMP=""
 			return 1
 		}
+		rm -f "$tmp_path"
 		NET_TMP=""
 		return 0
-	fi
-	have_command wget && have_fetcher=1
-	rm -f "$tmp_path"
-
-	if have_command curl && curl -fsL --retry "$FETCH_RETRIES" --connect-timeout "$FETCH_CONNECT_TIMEOUT" --max-time "$FETCH_MAX_TIME" -o "$tmp_path" "$1"; then
-		mv -f "$tmp_path" "$2" || {
-			rm -f "$tmp_path"
-			NET_TMP=""
-			return 1
-		}
-		NET_TMP=""
-		return 0
-	fi
-	have_command curl && have_fetcher=1
-	rm -f "$tmp_path"
-	NET_TMP=""
-
-	if [ "$have_fetcher" = "1" ]; then
-		err "failed to download $1"
 	else
-		err "need wget or curl"
+		fetch_rc=$?
 	fi
-	return 1
+
+	report_fetch_failure fetch "$1" "$fetch_rc"
+}
+
+download_file() {
+	local tmp_path="${2}.download.$$" fetch_rc=0
+
+	if fetch_to_tmp "$1" "$tmp_path"; then
+		mv -f "$tmp_path" "$2" || {
+			rm -f "$tmp_path"
+			NET_TMP=""
+			return 1
+		}
+		NET_TMP=""
+		return 0
+	else
+		fetch_rc=$?
+	fi
+
+	report_fetch_failure download "$1" "$fetch_rc"
 }
 
 normalize_version() {

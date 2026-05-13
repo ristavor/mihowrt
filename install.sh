@@ -398,28 +398,13 @@ kernel_asset_url() {
 		head -n1
 }
 
-kernel_stage_update() {
-	local arch release_json latest_tag latest_ver current_ver asset_name asset_url
-	local tmpgz tmpbin
+kernel_release_tag() {
+	printf '%s' "$1" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1
+}
 
-	clear_kernel_backup
-	require_command gzip
-
-	arch="$(detect_mihomo_arch)" || {
-		err "unable to detect Mihomo architecture from /etc/openwrt_release"
-		return 1
-	}
-
-	release_json="$(fetch_url "$MIHOMO_RELEASES_API")" || {
-		err "failed to query Mihomo latest release"
-		return 1
-	}
-
-	latest_tag="$(printf '%s' "$release_json" | sed -n 's/.*"tag_name":[[:space:]]*"\([^"]*\)".*/\1/p' | head -n1)"
-	[ -n "$latest_tag" ] || {
-		err "latest Mihomo release has no tag_name"
-		return 1
-	}
+kernel_release_already_current() {
+	local latest_tag="$1"
+	local current_ver="" latest_ver=""
 
 	current_ver="$(normalize_version "$(current_mihomo_version 2>/dev/null || true)")"
 	latest_ver="$(normalize_version "$latest_tag")"
@@ -428,12 +413,13 @@ kernel_stage_update() {
 		return 0
 	fi
 
-	asset_name="mihomo-linux-${arch}-${latest_tag}.gz"
-	asset_url="$(kernel_asset_url "$release_json" "$asset_name")"
-	[ -n "$asset_url" ] || {
-		err "no Mihomo asset found for architecture $arch"
-		return 1
-	}
+	return 1
+}
+
+kernel_stage_binary_from_asset() {
+	local asset_url="$1"
+	local asset_name="$2"
+	local tmpgz="" tmpbin=""
 
 	mkdir -p "$KERNEL_TMP_DIR"
 	tmpgz="$KERNEL_TMP_DIR/$asset_name"
@@ -472,29 +458,74 @@ kernel_stage_update() {
 	fi
 
 	KERNEL_STAGED_BIN="$tmpbin"
+}
+
+kernel_stage_update() {
+	local arch release_json latest_tag asset_name asset_url
+
+	clear_kernel_backup
+	require_command gzip
+
+	arch="$(detect_mihomo_arch)" || {
+		err "unable to detect Mihomo architecture from /etc/openwrt_release"
+		return 1
+	}
+
+	release_json="$(fetch_url "$MIHOMO_RELEASES_API")" || {
+		err "failed to query Mihomo latest release"
+		return 1
+	}
+
+	latest_tag="$(kernel_release_tag "$release_json")"
+	[ -n "$latest_tag" ] || {
+		err "latest Mihomo release has no tag_name"
+		return 1
+	}
+
+	if kernel_release_already_current "$latest_tag"; then
+		return 0
+	fi
+
+	asset_name="mihomo-linux-${arch}-${latest_tag}.gz"
+	asset_url="$(kernel_asset_url "$release_json" "$asset_name")"
+	[ -n "$asset_url" ] || {
+		err "no Mihomo asset found for architecture $arch"
+		return 1
+	}
+
+	kernel_stage_binary_from_asset "$asset_url" "$asset_name" || return 1
+	[ -n "$KERNEL_STAGED_BIN" ] || {
+		KERNEL_STAGED_TAG=""
+		KERNEL_STAGED_ARCH=""
+		return 0
+	}
+
 	KERNEL_STAGED_TAG="$latest_tag"
 	KERNEL_STAGED_ARCH="$arch"
 	log "Prepared Mihomo kernel $latest_tag for arch $arch"
 	return 0
 }
 
+kernel_apply_failure() {
+	clear_kernel_stage
+	err "$1"
+	return 1
+}
+
 kernel_apply_staged_update() {
 	if [ -n "$KERNEL_STAGED_BIN" ] && ! kernel_stage_available; then
-		err "staged Mihomo kernel is missing"
-		clear_kernel_stage
+		kernel_apply_failure "staged Mihomo kernel is missing"
 		return 1
 	fi
 	kernel_stage_available || return 0
 
 	mkdir -p "${CLASH_BIN%/*}" || return 1
 	stage_kernel_backup || {
-		clear_kernel_stage
-		err "failed to stage previous Mihomo kernel"
+		kernel_apply_failure "failed to stage previous Mihomo kernel"
 		return 1
 	}
 	mv -f "$KERNEL_STAGED_BIN" "$CLASH_BIN" || {
-		clear_kernel_stage
-		err "failed to install Mihomo kernel"
+		kernel_apply_failure "failed to install Mihomo kernel"
 		return 1
 	}
 	KERNEL_STAGED_BIN=""
@@ -2169,6 +2200,36 @@ handle_reinstall_state_failure() {
 	err "$message"
 }
 
+latest_package_asset_url_or_error() {
+	local asset_url=""
+
+	asset_url="$(latest_asset_url)" || {
+		err "failed to query latest ${PKG_NAME} release"
+		return 1
+	}
+	[ -n "$asset_url" ] || {
+		err "failed to find latest ${PKG_NAME} apk in GitHub release"
+		return 1
+	}
+
+	printf '%s\n' "$asset_url"
+}
+
+download_package_payload() {
+	local asset_url="$1"
+
+	if ! create_tmp_apk; then
+		err "failed to allocate temporary apk path"
+		return 1
+	fi
+
+	log "Downloading latest release asset..."
+	if ! download_file "$asset_url" "$TMP_APK"; then
+		err "failed to download latest ${PKG_NAME} apk"
+		return 1
+	fi
+}
+
 restore_reinstalled_user_state() {
 	log "Restoring saved config and policy state..."
 	if ! restore_user_state; then
@@ -2217,25 +2278,8 @@ abort_transaction() {
 prepare_package_payload() {
 	local asset_url=""
 
-	asset_url="$(latest_asset_url)" || {
-		err "failed to query latest ${PKG_NAME} release"
-		return 1
-	}
-	[ -n "$asset_url" ] || {
-		err "failed to find latest ${PKG_NAME} apk in GitHub release"
-		return 1
-	}
-
-	if ! create_tmp_apk; then
-		err "failed to allocate temporary apk path"
-		return 1
-	fi
-
-	log "Downloading latest release asset..."
-	if ! download_file "$asset_url" "$TMP_APK"; then
-		err "failed to download latest ${PKG_NAME} apk"
-		return 1
-	fi
+	asset_url="$(latest_package_asset_url_or_error)" || return 1
+	download_package_payload "$asset_url" || return 1
 
 	log "Preparing Mihomo kernel..."
 	kernel_stage_update || {

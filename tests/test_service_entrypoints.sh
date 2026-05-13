@@ -225,10 +225,7 @@ config_override_output="$(
 		printf '%s\n' "$CLASH_CONFIG"
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "$tmpdir/alt-config.yaml" "$config_override_output" "read-config command should accept config path override"
 
@@ -238,10 +235,7 @@ apply_config_output="$(
 		printf '%s\n' "$1"
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path"
 
@@ -254,10 +248,7 @@ dns:
 		printf '%s\n' "$1"
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "mode: direct
 dns:
@@ -269,10 +260,7 @@ subscription_json_output="$(
 		printf 'subscription-json\n'
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "subscription-json" "$subscription_json_output" "subscription-json command should dispatch to subscription JSON helper"
 
@@ -282,10 +270,7 @@ set_subscription_output="$(
 		printf '%s\n' "$1"
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "https://example.com/sub.yaml" "$set_subscription_output" "set-subscription-url command should forward URL"
 
@@ -295,10 +280,7 @@ fetch_subscription_output="$(
 		printf '%s\n' "$1"
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "https://example.com/sub.yaml" "$fetch_subscription_output" "fetch-subscription command should forward URL"
 
@@ -308,10 +290,7 @@ update_policy_lists_output="$(
 		printf 'updated=0\n'
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "updated=0" "$update_policy_lists_output" "update-policy-lists command should dispatch to remote list updater"
 
@@ -321,10 +300,7 @@ migrate_policy_lists_output="$(
 		printf 'migrated\n'
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "migrated" "$migrate_policy_lists_output" "migrate-policy-lists command should dispatch to policy list migration helper"
 
@@ -334,10 +310,7 @@ service_ready_output="$(
 		printf 'ready\n'
 	}
 	# shellcheck disable=SC1090
-	source <(
-		sed '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	)
+	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "ready" "$service_ready_output" "service-ready command should dispatch to runtime readiness helper"
 
@@ -355,10 +328,8 @@ EOF
 	chmod +x "$init_path"
 	# shellcheck disable=SC1090
 	source <(
-		sed \
-			-e '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			-e "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g" \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+		strip_mihowrt_cli_bootstrap |
+			sed "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g"
 	)
 )"
 assert_eq "skip=1 args=restart" "$restart_validated_output" "restart-validated-service command should skip duplicate Mihomo config test on init restart"
@@ -377,10 +348,8 @@ EOF
 	chmod +x "$init_path"
 	# shellcheck disable=SC1090
 	source <(
-		sed \
-			-e '/^check_required_file \/lib\/functions\.sh$/,/^\. \/usr\/lib\/mihowrt\/runtime\.sh$/d' \
-			-e "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g" \
-			"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+		strip_mihowrt_cli_bootstrap |
+			sed "s|\"/etc/init.d/\\\${PKG_NAME:-mihowrt}\"|\"$init_path\"|g"
 	)
 )"
 assert_eq "skip=0 args=restart" "$restart_unvalidated_output" "restart-validated-service command should keep full init validation when active config marker is stale"

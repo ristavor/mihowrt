@@ -42,6 +42,17 @@ export CLASH_BIN="$tmpdir/clash"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 
+module_dir="$tmpdir/modules"
+mkdir -p "$module_dir"
+printf '%s\n' "loaded_modules=\"\${loaded_modules:+\$loaded_modules }one\"" >"$module_dir/one.sh"
+printf '%s\n' "loaded_modules=\"\${loaded_modules:+\$loaded_modules }two\"" >"$module_dir/two.sh"
+saved_mihowrt_lib_dir="$MIHOWRT_LIB_DIR"
+MIHOWRT_LIB_DIR="$module_dir"
+loaded_modules=""
+mihowrt_source_module_list "one.sh two.sh"
+MIHOWRT_LIB_DIR="$saved_mihowrt_lib_dir"
+assert_eq "one two" "$loaded_modules" "mihowrt_source_module_list should source modules from shared manifest order"
+
 assert_true "uint_lte should accept equal values" uint_lte "4294967295" "4294967295"
 assert_true "uint_lte should accept leading zero values below max" uint_lte "00065535" "65535"
 assert_false "uint_lte should reject values above max" uint_lte "4294967296" "4294967295"

@@ -64,13 +64,24 @@ mihowrt_source_module() {
 	. "$path"
 }
 
+MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh fetch.sh diagnostics.sh version.sh}"
+MIHOWRT_RUNTIME_MODULES="${MIHOWRT_RUNTIME_MODULES:-dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh runtime.sh}"
+
+mihowrt_source_module_list() {
+	local modules="$1" module=""
+
+	# shellcheck disable=SC2086
+	for module in $modules; do
+		mihowrt_source_module "$module" || return 1
+	done
+}
+
 mihowrt_load_helper_modules() {
-	mihowrt_source_module validation.sh || return 1
-	mihowrt_source_module runtime-probe.sh || return 1
-	mihowrt_source_module config-io.sh || return 1
-	mihowrt_source_module fetch.sh || return 1
-	mihowrt_source_module diagnostics.sh || return 1
-	mihowrt_source_module version.sh || return 1
+	mihowrt_source_module_list "$MIHOWRT_HELPER_MODULES"
+}
+
+mihowrt_load_runtime_modules() {
+	mihowrt_source_module_list "$MIHOWRT_RUNTIME_MODULES"
 }
 
 mihowrt_load_helper_modules || return 1 2>/dev/null || exit 1

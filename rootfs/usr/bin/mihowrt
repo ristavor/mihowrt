@@ -10,39 +10,11 @@ check_required_file() {
 check_required_file /lib/functions.sh
 check_required_file /usr/lib/mihowrt/constants.sh
 check_required_file /usr/lib/mihowrt/helpers.sh
-check_required_file /usr/lib/mihowrt/validation-core.sh
-check_required_file /usr/lib/mihowrt/validation-policy.sh
-check_required_file /usr/lib/mihowrt/validation-dns.sh
-check_required_file /usr/lib/mihowrt/validation.sh
-check_required_file /usr/lib/mihowrt/runtime-probe.sh
-check_required_file /usr/lib/mihowrt/config-io.sh
-check_required_file /usr/lib/mihowrt/fetch.sh
-check_required_file /usr/lib/mihowrt/diagnostics.sh
-check_required_file /usr/lib/mihowrt/version.sh
-check_required_file /usr/lib/mihowrt/dns-state.sh
-check_required_file /usr/lib/mihowrt/lists.sh
-check_required_file /usr/lib/mihowrt/dns.sh
-check_required_file /usr/lib/mihowrt/nft.sh
-check_required_file /usr/lib/mihowrt/route.sh
-check_required_file /usr/lib/mihowrt/runtime-config.sh
-check_required_file /usr/lib/mihowrt/runtime-snapshot.sh
-check_required_file /usr/lib/mihowrt/policy.sh
-check_required_file /usr/lib/mihowrt/runtime-status.sh
-check_required_file /usr/lib/mihowrt/runtime.sh
 
 . /lib/functions.sh
 . /usr/lib/mihowrt/constants.sh
 . /usr/lib/mihowrt/helpers.sh
-. /usr/lib/mihowrt/dns-state.sh
-. /usr/lib/mihowrt/lists.sh
-. /usr/lib/mihowrt/dns.sh
-. /usr/lib/mihowrt/nft.sh
-. /usr/lib/mihowrt/route.sh
-. /usr/lib/mihowrt/runtime-config.sh
-. /usr/lib/mihowrt/runtime-snapshot.sh
-. /usr/lib/mihowrt/policy.sh
-. /usr/lib/mihowrt/runtime-status.sh
-. /usr/lib/mihowrt/runtime.sh
+mihowrt_load_runtime_modules || exit 1
 
 runtime_lock_file() {
 	printf '%s\n' "${RUNTIME_LOCK_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.lock}"

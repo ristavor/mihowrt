@@ -2086,6 +2086,27 @@ start_fresh_install_service() {
 	return 1
 }
 
+disable_installed_service() {
+	[ -x "$INIT_SCRIPT" ] || return 0
+	"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
+}
+
+handle_reinstall_state_failure() {
+	local kernel_warning="$1"
+	local message="$2"
+
+	disable_installed_service
+	if kernel_backup_available; then
+		if ! restore_kernel_backup; then
+			preserve_kernel_backup_dir
+			warn "$kernel_warning"
+		fi
+	fi
+	preserve_backup_dir
+	end_install_transaction
+	err "$message"
+}
+
 prepare_package_payload() {
 	local asset_url=""
 
@@ -2177,34 +2198,16 @@ perform_package_action() {
 		fi
 		log "Restoring saved config and policy state..."
 		if ! restore_user_state; then
-			if [ -x "$INIT_SCRIPT" ]; then
-				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-			fi
-			if kernel_backup_available; then
-				if ! restore_kernel_backup; then
-					preserve_kernel_backup_dir
-					warn "failed to restore previous Mihomo kernel after user-state restore failure"
-				fi
-			fi
-			preserve_backup_dir
-			end_install_transaction
-			err "failed to restore saved config and policy state"
+			handle_reinstall_state_failure \
+				"failed to restore previous Mihomo kernel after user-state restore failure" \
+				"failed to restore saved config and policy state"
 			return 1
 		fi
 		log "Migrating restored policy lists..."
 		if ! migrate_restored_policy_lists; then
-			if [ -x "$INIT_SCRIPT" ]; then
-				"$INIT_SCRIPT" disable >/dev/null 2>&1 || true
-			fi
-			if kernel_backup_available; then
-				if ! restore_kernel_backup; then
-					preserve_kernel_backup_dir
-					warn "failed to restore previous Mihomo kernel after policy-list migration failure"
-				fi
-			fi
-			preserve_backup_dir
-			end_install_transaction
-			err "failed to migrate restored policy list syntax"
+			handle_reinstall_state_failure \
+				"failed to restore previous Mihomo kernel after policy-list migration failure" \
+				"failed to migrate restored policy list syntax"
 			return 1
 		fi
 		if ! restore_runtime_state; then

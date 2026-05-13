@@ -72,6 +72,11 @@ nft_cleanup_batch_file() {
 	[ -n "${NFT_BATCH_FILE:-}" ] && rm -f "$NFT_BATCH_FILE"
 }
 
+nft_abort_batch() {
+	nft_cleanup_batch_file
+	return 1
+}
+
 nft_emit_elements_chunk() {
 	local set_name="$1"
 	local chunk="$2"
@@ -381,50 +386,25 @@ nft_apply_policy() {
 	NFT_PROXY_SRC_SET_COUNT=0
 	NFT_DIRECT_DST_SET_COUNT=0
 
-	nft_emit_delete_existing_tables || {
-		nft_cleanup_batch_file
-		return 1
-	}
+	nft_emit_delete_existing_tables || nft_abort_batch
 
-	nft_emit_base_table || {
-		nft_cleanup_batch_file
-		return 1
-	}
-	nft_emit_interface_set || {
-		nft_cleanup_batch_file
-		return 1
-	}
+	nft_emit_base_table || nft_abort_batch
+	nft_emit_interface_set || nft_abort_batch
 	case "${POLICY_MODE:-direct-first}" in
 		direct-first)
-			nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || {
-				nft_cleanup_batch_file
-				return 1
-			}
-			nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || {
-				nft_cleanup_batch_file
-				return 1
-			}
+			nft_emit_policy_file_to_set "$dst_list_file" "$NFT_PROXY_DST_SET" NFT_PROXY_DST_COUNT NFT_PROXY_DST_SET_COUNT || nft_abort_batch
+			nft_emit_policy_file_to_set "$src_list_file" "$NFT_PROXY_SRC_SET" NFT_PROXY_SRC_COUNT NFT_PROXY_SRC_SET_COUNT || nft_abort_batch
 			;;
 		proxy-first)
-			nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || {
-				nft_cleanup_batch_file
-				return 1
-			}
+			nft_emit_policy_file_to_set "$direct_list_file" "$NFT_DIRECT_DST_SET" NFT_DIRECT_DST_COUNT NFT_DIRECT_DST_SET_COUNT || nft_abort_batch
 			;;
 		*)
-			nft_cleanup_batch_file
-			return 1
+			nft_abort_batch
 			;;
 	esac
-	nft_emit_policy_rules || {
-		nft_cleanup_batch_file
-		return 1
-	}
+	nft_emit_policy_rules || nft_abort_batch
 
-	if ! nft -f "$NFT_BATCH_FILE"; then
-		nft_cleanup_batch_file
-		return 1
-	fi
+	nft -f "$NFT_BATCH_FILE" || nft_abort_batch
 
 	nft_cleanup_batch_file
 	log "Applied nft policy table $NFT_TABLE_NAME"

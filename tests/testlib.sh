@@ -3,6 +3,8 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MIHOWRT_LIB_DIR="${MIHOWRT_LIB_DIR:-$ROOT_DIR/rootfs/usr/lib/mihowrt}"
+export MIHOWRT_LIB_DIR
 
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2

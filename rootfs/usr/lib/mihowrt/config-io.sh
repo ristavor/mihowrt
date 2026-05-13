@@ -1,0 +1,399 @@
+#!/bin/ash
+
+yaml_cleanup_scalar() {
+	local value="$1"
+	local out="" char="" prev="" in_single=0 in_double=0
+
+	value="$(trim "$value")"
+
+	while [ -n "$value" ]; do
+		char="${value%"${value#?}"}"
+		value="${value#?}"
+
+		case "$char" in
+			"'")
+				if [ "$in_double" -eq 0 ]; then
+					if [ "$in_single" -eq 1 ]; then
+						in_single=0
+					else
+						in_single=1
+					fi
+				fi
+				;;
+			'"')
+				if [ "$in_single" -eq 0 ] && [ "$prev" != "\\" ]; then
+					if [ "$in_double" -eq 1 ]; then
+						in_double=0
+					else
+						in_double=1
+					fi
+				fi
+				;;
+			'#')
+				if [ "$in_single" -eq 0 ] && [ "$in_double" -eq 0 ]; then
+					case "$prev" in
+						''|[[:space:]])
+							break
+							;;
+					esac
+				fi
+				;;
+		esac
+
+		out="${out}${char}"
+		prev="$char"
+	done
+
+	value="$(trim "$out")"
+
+	case "$value" in
+		\"*\")
+			value="${value#\"}"
+			value="${value%\"}"
+			printf '%s' "$value"
+			return 0
+			;;
+		\'*\')
+			value="${value#\'}"
+			value="${value%\'}"
+			printf '%s' "$value"
+			return 0
+			;;
+	esac
+
+	value="$(trim "$value")"
+	printf '%s' "$value"
+}
+
+yaml_get_selected_scalars() {
+	local file="$1"
+
+	awk '
+		function emit(key, line) {
+			if (!seen[key]) {
+				print key "\t" line
+				seen[key] = 1
+			}
+		}
+
+		/^dns:[[:space:]]*($|#)/ {
+			in_dns = 1
+			next
+		}
+
+		{
+			if (in_dns && $0 ~ /^[^[:space:]#][^:]*:[[:space:]]*/) {
+				in_dns = 0
+			}
+
+			if (in_dns) {
+				line = $0
+				if (line ~ /^[[:space:]]+listen:[[:space:]]*/) {
+					sub("^[[:space:]]+listen:[[:space:]]*", "", line)
+					emit("dns.listen", line)
+					next
+				}
+				if (line ~ /^[[:space:]]+enhanced-mode:[[:space:]]*/) {
+					sub("^[[:space:]]+enhanced-mode:[[:space:]]*", "", line)
+					emit("dns.enhanced-mode", line)
+					next
+				}
+				if (line ~ /^[[:space:]]+fake-ip-range:[[:space:]]*/) {
+					sub("^[[:space:]]+fake-ip-range:[[:space:]]*", "", line)
+					emit("dns.fake-ip-range", line)
+					next
+				}
+			}
+
+			line = $0
+			if (line ~ /^tproxy-port:[[:space:]]*/) {
+				sub("^tproxy-port:[[:space:]]*", "", line)
+				emit("tproxy-port", line)
+				next
+			}
+			if (line ~ /^routing-mark:[[:space:]]*/) {
+				sub("^routing-mark:[[:space:]]*", "", line)
+				emit("routing-mark", line)
+				next
+			}
+			if (line ~ /^external-controller:[[:space:]]*/) {
+				sub("^external-controller:[[:space:]]*", "", line)
+				emit("external-controller", line)
+				next
+			}
+			if (line ~ /^external-controller-tls:[[:space:]]*/) {
+				sub("^external-controller-tls:[[:space:]]*", "", line)
+				emit("external-controller-tls", line)
+				next
+			}
+			if (line ~ /^secret:[[:space:]]*/) {
+				sub("^secret:[[:space:]]*", "", line)
+				emit("secret", line)
+				next
+			}
+			if (line ~ /^external-ui:[[:space:]]*/) {
+				sub("^external-ui:[[:space:]]*", "", line)
+				emit("external-ui", line)
+				next
+			}
+			if (line ~ /^external-ui-name:[[:space:]]*/) {
+				sub("^external-ui-name:[[:space:]]*", "", line)
+				emit("external-ui-name", line)
+				next
+			}
+		}
+	' "$file" 2>/dev/null
+}
+
+append_error() {
+	local message="$1"
+
+	if [ -n "$ERRORS_RAW" ]; then
+		ERRORS_RAW="${ERRORS_RAW}
+$message"
+	else
+		ERRORS_RAW="$message"
+	fi
+}
+
+read_config_json() {
+	local dns_listen_raw="" dns_port="" mihomo_dns_listen="" tproxy_port="" routing_mark=""
+	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
+	local external_controller="" external_controller_tls="" secret="" external_ui="" external_ui_name=""
+	local ERRORS_RAW=""
+	local key raw value
+
+	[ -r "$CLASH_CONFIG" ] || {
+		err "Mihomo config missing at $CLASH_CONFIG"
+		return 1
+	}
+
+	require_command jq || return 1
+
+	while IFS="$(printf '\t')" read -r key raw; do
+		value="$(yaml_cleanup_scalar "$raw")"
+
+		case "$key" in
+			dns.listen) dns_listen_raw="$value" ;;
+			dns.enhanced-mode) enhanced_mode="$value" ;;
+			dns.fake-ip-range) fake_ip_range="$value" ;;
+			tproxy-port) tproxy_port="$value" ;;
+			routing-mark) routing_mark="$value" ;;
+			external-controller) external_controller="$value" ;;
+			external-controller-tls) external_controller_tls="$value" ;;
+			secret) secret="$value" ;;
+			external-ui) external_ui="$value" ;;
+			external-ui-name) external_ui_name="$value" ;;
+		esac
+	done <<EOF
+$(yaml_get_selected_scalars "$CLASH_CONFIG")
+EOF
+
+	dns_port=""
+	mihomo_dns_listen=""
+	if [ -z "$dns_listen_raw" ]; then
+		append_error "Missing dns.listen in $CLASH_CONFIG"
+	else
+		mihomo_dns_listen="$(normalize_dns_server_target_from_addr "$dns_listen_raw" 2>/dev/null || true)"
+		if [ -z "$mihomo_dns_listen" ]; then
+			append_error "Invalid dns.listen in $CLASH_CONFIG: $dns_listen_raw"
+		else
+			dns_port="$(dns_listen_port "$mihomo_dns_listen")"
+		fi
+	fi
+
+	if [ -z "$tproxy_port" ]; then
+		append_error "Missing tproxy-port in $CLASH_CONFIG"
+	elif ! is_valid_port "$tproxy_port"; then
+		append_error "Invalid tproxy-port in $CLASH_CONFIG: $tproxy_port"
+	fi
+
+	if [ -z "$routing_mark" ]; then
+		append_error "Missing routing-mark in $CLASH_CONFIG"
+	elif ! is_valid_uint32_mark "$routing_mark"; then
+		append_error "Invalid routing-mark in $CLASH_CONFIG: $routing_mark"
+	fi
+
+	catch_fakeip=0
+	if [ -z "$enhanced_mode" ]; then
+		append_error "Missing dns.enhanced-mode in $CLASH_CONFIG; fake-ip is required"
+	elif [ "$enhanced_mode" != "fake-ip" ]; then
+		append_error "Invalid dns.enhanced-mode in $CLASH_CONFIG: $enhanced_mode; fake-ip is required"
+	else
+		catch_fakeip=1
+		if [ -z "$fake_ip_range" ]; then
+			append_error "Missing dns.fake-ip-range in $CLASH_CONFIG while dns.enhanced-mode=fake-ip"
+		elif ! is_ipv4_cidr "$fake_ip_range"; then
+			append_error "Invalid dns.fake-ip-range in $CLASH_CONFIG: $fake_ip_range"
+		fi
+	fi
+
+	jq -nc \
+		--arg config_path "$CLASH_CONFIG" \
+		--arg dns_listen_raw "$dns_listen_raw" \
+		--arg dns_port "$dns_port" \
+		--arg mihomo_dns_listen "$mihomo_dns_listen" \
+		--arg tproxy_port "$tproxy_port" \
+		--arg routing_mark "$routing_mark" \
+		--arg enhanced_mode "$enhanced_mode" \
+		--arg catch_fakeip "$catch_fakeip" \
+		--arg fake_ip_range "$fake_ip_range" \
+		--arg external_controller "$external_controller" \
+		--arg external_controller_tls "$external_controller_tls" \
+		--arg secret "$secret" \
+		--arg external_ui "$external_ui" \
+		--arg external_ui_name "$external_ui_name" \
+		--arg errors_raw "$ERRORS_RAW" \
+		'{
+			config_path: $config_path,
+			dns_listen_raw: $dns_listen_raw,
+			dns_port: $dns_port,
+			mihomo_dns_listen: $mihomo_dns_listen,
+			tproxy_port: $tproxy_port,
+			routing_mark: $routing_mark,
+			enhanced_mode: $enhanced_mode,
+			catch_fakeip: ($catch_fakeip == "1"),
+			fake_ip_range: $fake_ip_range,
+			external_controller: $external_controller,
+			external_controller_tls: $external_controller_tls,
+			secret: $secret,
+			external_ui: $external_ui,
+			external_ui_name: $external_ui_name,
+			errors: ($errors_raw | split("\n") | map(select(length > 0)))
+		}' || {
+		err "Failed to normalize config data from $CLASH_CONFIG"
+		return 1
+	}
+}
+
+read_config_json_for_path() {
+	local config_path="$1"
+	local active_config="$CLASH_CONFIG"
+	local rc=0
+
+	CLASH_CONFIG="$config_path"
+	read_config_json || rc=$?
+	CLASH_CONFIG="$active_config"
+	return "$rc"
+}
+
+validated_config_stamp_file() {
+	printf '%s\n' "${VALIDATED_CONFIG_FILE:-${PKG_TMP_DIR:-/tmp/mihowrt}/validated.config}"
+}
+
+mark_validated_config() {
+	local stamp_file
+
+	stamp_file="$(validated_config_stamp_file)"
+	ensure_dir "$(dirname "$stamp_file")" || return 1
+	cp -f "$CLASH_CONFIG" "$stamp_file"
+}
+
+current_config_has_validated_stamp() {
+	local stamp_file
+
+	stamp_file="$(validated_config_stamp_file)"
+	[ -r "$CLASH_CONFIG" ] && [ -r "$stamp_file" ] && cmp -s "$CLASH_CONFIG" "$stamp_file"
+}
+
+apply_config_file() {
+	local candidate="$1"
+	local active_config="$CLASH_CONFIG"
+	local target_tmp="${active_config}.tmp.$$"
+	local test_output="" config_json="" config_errors=""
+
+	[ -n "$candidate" ] || {
+		err "temporary config path is required"
+		return 1
+	}
+
+	case "$candidate" in
+		/tmp/*)
+			;;
+		*)
+			err "temporary config must be stored under /tmp"
+			return 1
+			;;
+	esac
+
+	[ -r "$candidate" ] || {
+		err "temporary config missing at $candidate"
+		return 1
+	}
+
+	[ -x "$CLASH_BIN" ] || {
+		err "Mihomo binary missing at $CLASH_BIN"
+		rm -f "$candidate"
+		return 1
+	}
+
+	test_output="$("$CLASH_BIN" -d "$CLASH_DIR" -f "$candidate" -t 2>&1)" || {
+		err "${test_output:-configuration test failed}"
+		rm -f "$candidate"
+		return 1
+	}
+
+	config_json="$(read_config_json_for_path "$candidate")" || {
+		rm -f "$candidate"
+		return 1
+	}
+
+	config_errors="$(printf '%s\n' "$config_json" | jq -r '.errors | join("; ")')" || {
+		err "Failed to inspect normalized config errors for $candidate"
+		rm -f "$candidate"
+		return 1
+	}
+
+	if [ -n "$config_errors" ]; then
+		err "$config_errors"
+		rm -f "$candidate"
+		return 1
+	fi
+
+	mkdir -p "$(dirname "$active_config")" || {
+		err "Failed to prepare config directory for $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	if [ -f "$active_config" ] && cmp -s "$candidate" "$active_config" 2>/dev/null; then
+		rm -f "$candidate"
+		mark_validated_config || err "Failed to record validated config marker"
+		return 0
+	fi
+
+	cp -f "$candidate" "$target_tmp" || {
+		err "Failed to stage validated config for $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	mv -f "$target_tmp" "$active_config" || {
+		err "Failed to install validated config to $active_config"
+		rm -f "$candidate" "$target_tmp"
+		return 1
+	}
+
+	rm -f "$candidate"
+	mark_validated_config || err "Failed to record validated config marker"
+	return 0
+}
+
+apply_config_contents() {
+	local contents="$1"
+	local candidate=""
+
+	require_command mktemp || return 1
+	candidate="$(mktemp /tmp/mihowrt-config.XXXXXX)" || {
+		err "Failed to allocate temporary config path"
+		return 1
+	}
+
+	printf '%s' "$contents" > "$candidate" || {
+		err "Failed to stage temporary config contents"
+		rm -f "$candidate"
+		return 1
+	}
+
+	apply_config_file "$candidate"
+}

@@ -10,6 +10,12 @@ check_required_file() {
 check_required_file /lib/functions.sh
 check_required_file /usr/lib/mihowrt/constants.sh
 check_required_file /usr/lib/mihowrt/helpers.sh
+check_required_file /usr/lib/mihowrt/validation.sh
+check_required_file /usr/lib/mihowrt/runtime-probe.sh
+check_required_file /usr/lib/mihowrt/config-io.sh
+check_required_file /usr/lib/mihowrt/fetch.sh
+check_required_file /usr/lib/mihowrt/diagnostics.sh
+check_required_file /usr/lib/mihowrt/version.sh
 check_required_file /usr/lib/mihowrt/dns-state.sh
 check_required_file /usr/lib/mihowrt/lists.sh
 check_required_file /usr/lib/mihowrt/dns.sh

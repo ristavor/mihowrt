@@ -4,6 +4,14 @@ set -euo pipefail
 
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+shell_files=(
+	"$ROOT_DIR/install.sh"
+	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
+	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
+	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
+	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
+)
+
 js_syntax_files=(
 	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/config.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/policy.js"
@@ -12,13 +20,6 @@ js_syntax_files=(
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ace.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/exec.js"
 	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ui.js"
-)
-
-shell_lint_files=(
-	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
-	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
-	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
-	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
 )
 
 check_js_syntax() {
@@ -37,18 +38,17 @@ NODE
 }
 
 run_all_tests() {
+	local shell_file
+
 	printf '==> shell syntax\n'
-	sh -n \
-		"$ROOT_DIR/install.sh" \
-		"$ROOT_DIR/rootfs/usr/bin/mihowrt" \
-		"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh \
-		"$ROOT_DIR/rootfs/etc/init.d/mihowrt" \
-		"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
+	for shell_file in "${shell_files[@]}"; do
+		sh -n "$shell_file"
+	done
 	printf 'ok - shell syntax\n'
 
 	printf '==> shell lint\n'
 	if command -v shellcheck >/dev/null 2>&1; then
-		shellcheck -s ash -e SC1091,SC2034 "${shell_lint_files[@]}"
+		shellcheck -s ash -e SC1091,SC2034 "${shell_files[@]}"
 		printf 'ok - shell lint\n'
 	else
 		printf 'skip - shell lint (shellcheck missing)\n'

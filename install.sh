@@ -568,13 +568,20 @@ verify_required_packages() {
 }
 
 hold_reinstall_dependencies() {
+	local pkg
+
 	apk_supports_virtual || return 1
 
 	if package_present "$REINSTALL_HOLD_VIRTUAL"; then
 		apk del "$REINSTALL_HOLD_VIRTUAL" >/dev/null 2>&1 || true
 	fi
 
-	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" $REQUIRED_REPO_PACKAGES >/dev/null 2>&1 || return 1
+	set --
+	for pkg in $REQUIRED_REPO_PACKAGES; do
+		set -- "$@" "$pkg"
+	done
+
+	apk add --virtual "$REINSTALL_HOLD_VIRTUAL" "$@" >/dev/null 2>&1 || return 1
 	REINSTALL_HOLD_ACTIVE=1
 	return 0
 }
@@ -778,11 +785,14 @@ ensure_dns_state_helpers() {
 
 	case "${0:-}" in
 		/*|*/*)
-			script_dir="$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd)" || script_dir=""
+			script_dir="$(
+				CDPATH=''
+				cd -- "$(dirname -- "$0")" 2>/dev/null && pwd
+			)" || script_dir=""
 			;;
 	esac
 	if [ -n "$script_dir" ] && [ -r "$script_dir/rootfs/usr/lib/mihowrt/dns-state.sh" ]; then
-		# shellcheck disable=SC1090
+		# shellcheck disable=SC1091
 		. "$script_dir/rootfs/usr/lib/mihowrt/dns-state.sh"
 		command -v dnsmasq_state_matches >/dev/null 2>&1 && return 0
 	fi
@@ -847,7 +857,7 @@ is_uint_value() {
 
 dns_name_chars_value_valid() {
 	case "$1" in
-		''|*[!A-Za-z0-9._:%@:-]*)
+		''|*[!-A-Za-z0-9._:%@]*)
 			return 1
 			;;
 	esac

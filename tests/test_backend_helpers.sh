@@ -195,11 +195,13 @@ if (state.directDstRemoteUrlCount !== 0)
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read read-config /tmp/mihowrt-config.test'] = {
 		code: 0,
-		stdout: '{"config_path":"/tmp/mihowrt-config.test","dns_port":5353,"catch_fakeip":true,"errors":["parse warning"]}'
+		stdout: '{"config_path":"/tmp/mihowrt-config.test","dns_port":5353,"catch_fakeip":true,"external_controller_unix":"mihomo.sock","errors":["parse warning"]}'
 	};
 	const configState = await context.backend.readConfig('/tmp/mihowrt-config.test');
 	if (configState.configPath !== '/tmp/mihowrt-config.test' || configState.dnsPort !== '5353' || !configState.catchFakeip)
 		throw new Error('readConfig should map backend JSON payload into config state');
+	if (configState.externalControllerUnix !== 'mihomo.sock')
+		throw new Error('readConfig should map Unix controller socket');
 	if (configState.errors[0] !== 'parse warning')
 		throw new Error('readConfig should preserve backend config parse errors');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args.join(' ') === 'read-config /tmp/mihowrt-config.test'))

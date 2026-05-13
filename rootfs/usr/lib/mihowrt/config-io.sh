@@ -110,6 +110,26 @@ yaml_get_selected_scalars() {
 			}
 
 			line = $0
+			if (line ~ /^port:[[:space:]]*/) {
+				sub("^port:[[:space:]]*", "", line)
+				emit("port", line)
+				next
+			}
+			if (line ~ /^socks-port:[[:space:]]*/) {
+				sub("^socks-port:[[:space:]]*", "", line)
+				emit("socks-port", line)
+				next
+			}
+			if (line ~ /^mixed-port:[[:space:]]*/) {
+				sub("^mixed-port:[[:space:]]*", "", line)
+				emit("mixed-port", line)
+				next
+			}
+			if (line ~ /^redir-port:[[:space:]]*/) {
+				sub("^redir-port:[[:space:]]*", "", line)
+				emit("redir-port", line)
+				next
+			}
 			if (line ~ /^tproxy-port:[[:space:]]*/) {
 				sub("^tproxy-port:[[:space:]]*", "", line)
 				emit("tproxy-port", line)
@@ -128,6 +148,11 @@ yaml_get_selected_scalars() {
 			if (line ~ /^external-controller-tls:[[:space:]]*/) {
 				sub("^external-controller-tls:[[:space:]]*", "", line)
 				emit("external-controller-tls", line)
+				next
+			}
+			if (line ~ /^external-controller-unix:[[:space:]]*/) {
+				sub("^external-controller-unix:[[:space:]]*", "", line)
+				emit("external-controller-unix", line)
 				next
 			}
 			if (line ~ /^secret:[[:space:]]*/) {
@@ -165,10 +190,12 @@ $message"
 # Return normalized config metadata for LuCI and runtime validation. Errors are
 # reported in JSON instead of hard-failing so the UI can show all problems.
 read_config_json() {
-	local dns_listen_raw="" dns_port="" mihomo_dns_listen="" tproxy_port="" routing_mark=""
+	local dns_listen_raw="" dns_port="" mihomo_dns_listen=""
+	local port="" socks_port="" mixed_port="" redir_port="" tproxy_port="" routing_mark=""
 	local routing_mark_normalized="" intercept_mark_normalized=""
 	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
-	local external_controller="" external_controller_tls="" secret="" external_ui="" external_ui_name=""
+	local external_controller="" external_controller_tls="" external_controller_unix=""
+	local secret="" external_ui="" external_ui_name=""
 	local ERRORS_RAW=""
 	local key raw value
 
@@ -186,10 +213,15 @@ read_config_json() {
 		dns.listen) dns_listen_raw="$value" ;;
 		dns.enhanced-mode) enhanced_mode="$value" ;;
 		dns.fake-ip-range) fake_ip_range="$value" ;;
+		port) port="$value" ;;
+		socks-port) socks_port="$value" ;;
+		mixed-port) mixed_port="$value" ;;
+		redir-port) redir_port="$value" ;;
 		tproxy-port) tproxy_port="$value" ;;
 		routing-mark) routing_mark="$value" ;;
 		external-controller) external_controller="$value" ;;
 		external-controller-tls) external_controller_tls="$value" ;;
+		external-controller-unix) external_controller_unix="$value" ;;
 		secret) secret="$value" ;;
 		external-ui) external_ui="$value" ;;
 		external-ui-name) external_ui_name="$value" ;;
@@ -248,6 +280,10 @@ EOF
 		--arg dns_listen_raw "$dns_listen_raw" \
 		--arg dns_port "$dns_port" \
 		--arg mihomo_dns_listen "$mihomo_dns_listen" \
+		--arg port "$port" \
+		--arg socks_port "$socks_port" \
+		--arg mixed_port "$mixed_port" \
+		--arg redir_port "$redir_port" \
 		--arg tproxy_port "$tproxy_port" \
 		--arg routing_mark "$routing_mark" \
 		--arg enhanced_mode "$enhanced_mode" \
@@ -255,6 +291,7 @@ EOF
 		--arg fake_ip_range "$fake_ip_range" \
 		--arg external_controller "$external_controller" \
 		--arg external_controller_tls "$external_controller_tls" \
+		--arg external_controller_unix "$external_controller_unix" \
 		--arg secret "$secret" \
 		--arg external_ui "$external_ui" \
 		--arg external_ui_name "$external_ui_name" \
@@ -264,6 +301,10 @@ EOF
 			dns_listen_raw: $dns_listen_raw,
 			dns_port: $dns_port,
 			mihomo_dns_listen: $mihomo_dns_listen,
+			port: $port,
+			socks_port: $socks_port,
+			mixed_port: $mixed_port,
+			redir_port: $redir_port,
 			tproxy_port: $tproxy_port,
 			routing_mark: $routing_mark,
 			enhanced_mode: $enhanced_mode,
@@ -271,6 +312,7 @@ EOF
 			fake_ip_range: $fake_ip_range,
 			external_controller: $external_controller,
 			external_controller_tls: $external_controller_tls,
+			external_controller_unix: $external_controller_unix,
 			secret: $secret,
 			external_ui: $external_ui,
 			external_ui_name: $external_ui_name,
@@ -366,7 +408,7 @@ config_requires_service_restart() {
 	local new_json="$2"
 	local key=""
 
-	for key in external_controller external_controller_tls secret external_ui external_ui_name; do
+	for key in external_controller external_controller_tls external_controller_unix secret external_ui external_ui_name; do
 		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
 	done
 
@@ -385,6 +427,18 @@ config_requires_policy_reload() {
 	if runtime_snapshot_valid 2>/dev/null && ! runtime_snapshot_policy_config_matches_current 2>/dev/null; then
 		return 0
 	fi
+
+	return 1
+}
+
+config_requires_mihomo_force_reload() {
+	local old_json="$1"
+	local new_json="$2"
+	local key=""
+
+	for key in dns_port port socks_port mixed_port redir_port tproxy_port; do
+		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
+	done
 
 	return 1
 }
@@ -425,7 +479,7 @@ apply_config_runtime() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
 	local old_config_json="" new_config_json=""
-	local config_changed=1 policy_reload_needed=0
+	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0
 	local reason="" http_code=""
 
 	if [ -r "$active_config" ]; then
@@ -465,7 +519,11 @@ apply_config_runtime() {
 		policy_reload_needed=1
 	fi
 
-	if ! mihomo_hot_reload_config "$old_config_json" "$active_config"; then
+	if config_requires_mihomo_force_reload "$old_config_json" "$new_config_json"; then
+		mihomo_force_reload=1
+	fi
+
+	if ! mihomo_hot_reload_config "$old_config_json" "$active_config" "$mihomo_force_reload"; then
 		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
 		http_code="${MIHOMO_API_HTTP_CODE:-}"
 		apply_config_result_json "restart_required" 1 0 0 "$reason" "$http_code"

@@ -10,7 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -28,11 +28,16 @@ export PROXY_PROVIDERS_TMPFS="$tmpdir/tmp/clash/proxy_providers"
 export PROXY_PROVIDERS_LINK="$tmpdir/opt/clash/proxy_providers"
 export CACHE_DB_TMPFS="$tmpdir/tmp/clash/cache.db"
 export CACHE_DB_LINK="$tmpdir/opt/clash/cache.db"
+export MIHOMO_SOCKET_TMPFS="$tmpdir/tmp/clash/mihomo.sock"
+export MIHOMO_SOCKET_LINK="$tmpdir/opt/clash/mihomo.sock"
+export SERVICE_PID_FILE="$tmpdir/run/mihomo.pid"
 
 mkdir -p "$tmpdir/opt/clash/ruleset" "$tmpdir/opt/clash/proxy_providers"
-printf 'ruleset-data\n' > "$tmpdir/opt/clash/ruleset/sample.txt"
-printf 'provider-data\n' > "$tmpdir/opt/clash/proxy_providers/provider.txt"
-printf 'cache-data\n' > "$tmpdir/opt/clash/cache.db"
+mkdir -p "$(dirname "$MIHOMO_SOCKET_TMPFS")"
+printf 'ruleset-data\n' >"$tmpdir/opt/clash/ruleset/sample.txt"
+printf 'provider-data\n' >"$tmpdir/opt/clash/proxy_providers/provider.txt"
+printf 'cache-data\n' >"$tmpdir/opt/clash/cache.db"
+printf 'stale-socket\n' >"$MIHOMO_SOCKET_TMPFS"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
@@ -47,12 +52,26 @@ init_runtime_layout
 assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "ruleset link target mismatch"
 assert_symlink_target "$PROXY_PROVIDERS_LINK" "$PROXY_PROVIDERS_TMPFS" "proxy providers link target mismatch"
 assert_symlink_target "$CACHE_DB_LINK" "$CACHE_DB_TMPFS" "cache db link target mismatch"
+assert_symlink_target "$MIHOMO_SOCKET_LINK" "$MIHOMO_SOCKET_TMPFS" "Mihomo socket link target mismatch"
 assert_file_contains "$RULESET_TMPFS/sample.txt" "ruleset-data" "ruleset content not copied"
 assert_file_contains "$PROXY_PROVIDERS_TMPFS/provider.txt" "provider-data" "provider content not copied"
 assert_file_contains "$CACHE_DB_TMPFS" "cache-data" "cache db content not copied"
+[[ ! -e "$MIHOMO_SOCKET_TMPFS" ]] || fail "runtime layout should remove stale Mihomo socket before start"
 
 init_runtime_layout
 assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "ruleset link should stay stable after rerun"
+assert_symlink_target "$MIHOMO_SOCKET_LINK" "$MIHOMO_SOCKET_TMPFS" "Mihomo socket link should stay stable after rerun"
+
+sleep 60 &
+active_pid="$!"
+mkdir -p "$(dirname "$SERVICE_PID_FILE")"
+printf '%s\n' "$active_pid" >"$SERVICE_PID_FILE"
+printf 'active-socket\n' >"$MIHOMO_SOCKET_TMPFS"
+setup_mihomo_socket_link
+assert_file_contains "$MIHOMO_SOCKET_TMPFS" "active-socket" "runtime layout should not remove active Mihomo socket"
+kill "$active_pid" 2>/dev/null || true
+wait "$active_pid" 2>/dev/null || true
+rm -f "$SERVICE_PID_FILE" "$MIHOMO_SOCKET_TMPFS"
 
 wrong_rules_target="$tmpdir/wrong-tmp/ruleset"
 mkdir -p "$wrong_rules_target"
@@ -62,18 +81,25 @@ init_runtime_layout
 assert_symlink_target "$RULESET_LINK" "$RULESET_TMPFS" "runtime layout should replace stale ruleset symlink to directory"
 compgen -G "$wrong_rules_target/ruleset.tmp.*" >/dev/null && fail "runtime layout should not move replacement symlink inside stale target directory"
 
+wrong_socket_target="$tmpdir/wrong-tmp/mihomo.sock"
+mkdir -p "$(dirname "$wrong_socket_target")"
+rm -f "$MIHOMO_SOCKET_LINK"
+command ln -s "$wrong_socket_target" "$MIHOMO_SOCKET_LINK"
+init_runtime_layout
+assert_symlink_target "$MIHOMO_SOCKET_LINK" "$MIHOMO_SOCKET_TMPFS" "runtime layout should replace stale Mihomo socket symlink"
+
 failure_rules_src="$tmpdir/failure/ruleset"
 failure_rules_dst="$tmpdir/failure-tmp/ruleset"
 failure_cache_src="$tmpdir/failure/cache.db"
 failure_cache_dst="$tmpdir/failure-tmp/cache.db"
 mkdir -p "$failure_rules_src"
-printf 'ruleset-failure\n' > "$failure_rules_src/failure.txt"
-printf 'cache-failure\n' > "$failure_cache_src"
+printf 'ruleset-failure\n' >"$failure_rules_src/failure.txt"
+printf 'cache-failure\n' >"$failure_cache_src"
 
 cp() {
 	case "$*" in
-		"-a $failure_rules_src/. "*) return 1 ;;
-		"-a $failure_cache_src "*) return 1 ;;
+	"-a $failure_rules_src/. "*) return 1 ;;
+	"-a $failure_cache_src "*) return 1 ;;
 	esac
 	command cp "$@"
 }
@@ -93,14 +119,14 @@ link_fail_rules_dst="$tmpdir/link-failure-tmp/ruleset"
 link_fail_cache_src="$tmpdir/link-failure/cache.db"
 link_fail_cache_dst="$tmpdir/link-failure-tmp/cache.db"
 mkdir -p "$link_fail_rules_src"
-printf 'ruleset-link-failure\n' > "$link_fail_rules_src/original.txt"
-printf 'cache-link-failure\n' > "$link_fail_cache_src"
+printf 'ruleset-link-failure\n' >"$link_fail_rules_src/original.txt"
+printf 'cache-link-failure\n' >"$link_fail_cache_src"
 
 ln() {
 	case "$*" in
-		"-s $link_fail_rules_dst $link_fail_rules_src.tmp."*|"-s $link_fail_cache_dst $link_fail_cache_src.tmp."*)
-			return 1
-			;;
+	"-s $link_fail_rules_dst $link_fail_rules_src.tmp."* | "-s $link_fail_cache_dst $link_fail_cache_src.tmp."*)
+		return 1
+		;;
 	esac
 	command ln "$@"
 }

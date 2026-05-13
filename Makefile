@@ -138,9 +138,11 @@ define Package/$(PKG_NAME)/postrm
 	rm -f /opt/clash/ruleset
 	rm -f /opt/clash/proxy_providers
 	rm -f /opt/clash/cache.db
+	rm -f /opt/clash/mihomo.sock
 	rm -rf /tmp/clash/ruleset
 	rm -rf /tmp/clash/proxy_providers
 	rm -f /tmp/clash/cache.db
+	rm -f /tmp/clash/mihomo.sock
 	rmdir /tmp/clash 2>/dev/null || true
 	rm -rf /tmp/mihowrt
 	rm -rf /var/run/mihowrt

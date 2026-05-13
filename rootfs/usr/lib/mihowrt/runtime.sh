@@ -96,6 +96,38 @@ sync_runtime_file() {
 	return 0
 }
 
+mihomo_socket_pid_active() {
+	local pid=""
+
+	[ -r "$SERVICE_PID_FILE" ] || return 1
+	pid="$(cat "$SERVICE_PID_FILE" 2>/dev/null || true)"
+	case "$pid" in
+	'' | *[!0-9]*)
+		return 1
+		;;
+	esac
+
+	kill -0 "$pid" 2>/dev/null
+}
+
+setup_mihomo_socket_link() {
+	ensure_dir "$(dirname "$MIHOMO_SOCKET_TMPFS")"
+
+	if mihomo_socket_pid_active; then
+		return 0
+	fi
+
+	if [ ! -L "$MIHOMO_SOCKET_LINK" ] || [ "$(readlink "$MIHOMO_SOCKET_LINK" 2>/dev/null)" != "$MIHOMO_SOCKET_TMPFS" ]; then
+		install_runtime_symlink "$MIHOMO_SOCKET_LINK" "$MIHOMO_SOCKET_TMPFS" || return 1
+	fi
+
+	if [ -e "$MIHOMO_SOCKET_TMPFS" ] || [ -S "$MIHOMO_SOCKET_TMPFS" ]; then
+		rm -f "$MIHOMO_SOCKET_TMPFS" || return 1
+	fi
+
+	return 0
+}
+
 # Prepare all Mihomo write-heavy paths that should not hit NAND repeatedly.
 setup_clash_runtime_dirs() {
 	ensure_dir "$RULESET_TMPFS"
@@ -113,6 +145,8 @@ setup_clash_runtime_dirs() {
 	if [ ! -L "$CACHE_DB_LINK" ] || [ "$(readlink "$CACHE_DB_LINK" 2>/dev/null)" != "$CACHE_DB_TMPFS" ]; then
 		sync_runtime_file "$CACHE_DB_LINK" "$CACHE_DB_TMPFS" || return 1
 	fi
+
+	setup_mihomo_socket_link || return 1
 
 	log "Runtime dirs/files set to tmpfs"
 	return 0

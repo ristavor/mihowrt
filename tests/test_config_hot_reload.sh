@@ -58,7 +58,7 @@ runtime_snapshot_policy_config_matches_current() {
 }
 
 mihomo_hot_reload_config() {
-	printf 'mihomo_hot_reload_config:%s\n' "$2" >>"$event_log"
+	printf 'mihomo_hot_reload_config:%s:force=%s\n' "$2" "${3:-}" >>"$event_log"
 	MIHOMO_API_REASON="${TEST_API_REASON:-api unavailable}"
 	MIHOMO_API_HTTP_CODE="${TEST_API_HTTP_CODE:-}"
 	return "${TEST_API_RC:-0}"
@@ -100,7 +100,7 @@ result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "running service should hot reload non-policy config changes"
 assert_eq "true" "$(json_bool "$result" '.hot_reloaded')" "hot reload result should flag hot_reloaded"
 assert_eq "false" "$(json_bool "$result" '.policy_reloaded')" "non-policy config should skip policy reload"
-assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG" "hot reload should use active config path"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "non-port config change should hot reload without force"
 assert_file_not_contains "$event_log" "reload_runtime_state" "non-policy config should not reload policy"
 
 : >"$event_log"
@@ -120,8 +120,17 @@ new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","se
 result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "runtime field change should hot reload then reload policy"
 assert_eq "true" "$(json_bool "$result" '.policy_reloaded')" "runtime field change should flag policy reload"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=1" "DNS port change should force Mihomo reload"
 assert_file_contains "$event_log" "wait_for_current_mihomo_listeners" "runtime field change should wait for reloaded listeners"
 assert_file_contains "$event_log" "reload_runtime_state:allow=1" "runtime field change should allow Mihomo config drift after API reload"
+
+: >"$event_log"
+write_configs
+TEST_API_RC=0
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
+result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
+assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "non-port runtime field change should still reload policy"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "non-port runtime field change should hot reload without force"
 
 : >"$event_log"
 write_configs
@@ -129,5 +138,12 @@ new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","
 result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "restart_required" "$(json_bool "$result" '.action')" "controller changes should require service restart"
 assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "controller changes should not call stale API reload"
+
+: >"$event_log"
+write_configs
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
+assert_eq "restart_required" "$(json_bool "$result" '.action')" "Unix controller changes should require service restart"
+assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "Unix controller changes should not call stale API reload"
 
 pass "config hot reload apply"

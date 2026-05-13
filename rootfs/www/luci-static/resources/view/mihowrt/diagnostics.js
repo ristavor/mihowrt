@@ -272,6 +272,7 @@ return view.extend({
 					renderField(_('Fake-IP Range'), status.config.fakeIpRange || _('none')),
 					renderField(_('External Controller'), status.config.externalController || _('none')),
 					renderField(_('External Controller TLS'), status.config.externalControllerTls || _('none')),
+					renderField(_('External Controller Unix'), status.config.externalControllerUnix || _('none')),
 					renderField(_('External UI Name'), status.config.externalUiName || _('none'))
 				]),
 				E('h3', { style: 'margin:0 0 8px 0;' }, _('Config Parse Errors')),

@@ -10,7 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -32,12 +32,17 @@ assert_eq "value" "$(yaml_cleanup_scalar '  value   # comment')" "yaml_cleanup_s
 assert_eq "quoted value" "$(yaml_cleanup_scalar '"quoted value"')" "yaml_cleanup_scalar strips double quotes"
 assert_eq "single quoted" "$(yaml_cleanup_scalar "'single quoted'")" "yaml_cleanup_scalar strips single quotes"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 mode: rule
+port: 7890
+socks-port: 7891
+mixed-port: 7892
+redir-port: 7893
 tproxy-port: 7894
 routing-mark: 2
 external-controller: 0.0.0.0:9090
 external-controller-tls: :9443
+external-controller-unix: mihomo.sock
 secret: "abc123"
 external-ui: ./ui
 external-ui-name: zashboard
@@ -52,14 +57,19 @@ config_json="$(read_config_json)"
 
 assert_eq "7874" "$(printf '%s\n' "$config_json" | jq -r '.dns_port')" "read_config_json extracts dns port"
 assert_eq "127.0.0.1#7874" "$(printf '%s\n' "$config_json" | jq -r '.mihomo_dns_listen')" "read_config_json normalizes dns listen target"
+assert_eq "7890" "$(printf '%s\n' "$config_json" | jq -r '.port')" "read_config_json extracts HTTP port"
+assert_eq "7891" "$(printf '%s\n' "$config_json" | jq -r '.socks_port')" "read_config_json extracts SOCKS port"
+assert_eq "7892" "$(printf '%s\n' "$config_json" | jq -r '.mixed_port')" "read_config_json extracts mixed port"
+assert_eq "7893" "$(printf '%s\n' "$config_json" | jq -r '.redir_port')" "read_config_json extracts redirect port"
 assert_eq "7894" "$(printf '%s\n' "$config_json" | jq -r '.tproxy_port')" "read_config_json extracts tproxy port"
 assert_eq "2" "$(printf '%s\n' "$config_json" | jq -r '.routing_mark')" "read_config_json extracts routing mark"
 assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.catch_fakeip')" "read_config_json enables fake-ip catch"
 assert_eq "198.18.0.0/15" "$(printf '%s\n' "$config_json" | jq -r '.fake_ip_range')" "read_config_json extracts fake-ip range"
+assert_eq "mihomo.sock" "$(printf '%s\n' "$config_json" | jq -r '.external_controller_unix')" "read_config_json extracts Unix controller socket"
 assert_eq "zashboard" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_name')" "read_config_json extracts external UI name"
 assert_eq "0" "$(printf '%s\n' "$config_json" | jq -r '.errors | length')" "read_config_json should not emit errors for valid config"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: 7894
 routing-mark: 2
 
@@ -75,7 +85,7 @@ assert_eq "7874" "$(printf '%s\n' "$bound_json" | jq -r '.dns_port')" "read_conf
 assert_eq "192.168.70.1#7874" "$(printf '%s\n' "$bound_json" | jq -r '.mihomo_dns_listen')" "read_config_json should preserve non-loopback dns.listen host"
 assert_eq "0" "$(printf '%s\n' "$bound_json" | jq -r '.errors | length')" "read_config_json should accept valid bound host"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: 7894
 routing-mark: 2
 
@@ -87,7 +97,7 @@ missing_mode_json="$(read_config_json)"
 
 assert_eq "true" "$(printf '%s\n' "$missing_mode_json" | jq -r 'any(.errors[]; contains("Missing dns.enhanced-mode"))')" "read_config_json should require dns.enhanced-mode"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: 7894
 routing-mark: 2
 
@@ -101,10 +111,11 @@ redir_host_json="$(read_config_json)"
 
 assert_eq "true" "$(printf '%s\n' "$redir_host_json" | jq -r 'any(.errors[]; contains("fake-ip is required"))')" "read_config_json should reject non fake-ip enhanced modes"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 # parser should keep quoted scalars intact and ignore unrelated nested dns keys
 external-ui-name: "meta cube"
 external-controller: "127.0.0.1:9090#frag"
+external-controller-unix: "mihomo custom.sock"
 external-ui: "./ui bundle"
 secret: "abc#123"
 routing-mark: 100
@@ -123,11 +134,12 @@ quoted_json="$(read_config_json)"
 assert_eq "5353" "$(printf '%s\n' "$quoted_json" | jq -r '.dns_port')" "read_config_json should parse quoted dns.listen"
 assert_eq "127.0.0.1#5353" "$(printf '%s\n' "$quoted_json" | jq -r '.mihomo_dns_listen')" "read_config_json should normalize quoted dns.listen"
 assert_eq "127.0.0.1:9090#frag" "$(printf '%s\n' "$quoted_json" | jq -r '.external_controller')" "read_config_json should preserve quoted controller with hash"
+assert_eq "mihomo custom.sock" "$(printf '%s\n' "$quoted_json" | jq -r '.external_controller_unix')" "read_config_json should preserve quoted Unix controller socket"
 assert_eq "abc#123" "$(printf '%s\n' "$quoted_json" | jq -r '.secret')" "read_config_json should preserve quoted secret with hash"
 assert_eq "meta cube" "$(printf '%s\n' "$quoted_json" | jq -r '.external_ui_name')" "read_config_json should preserve spaced external UI name"
 assert_eq "0" "$(printf '%s\n' "$quoted_json" | jq -r '.errors | length')" "read_config_json should ignore unrelated nested dns keys"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 external-controller: "127.0.0.1:9090" # inline comment
 secret: "abc#123" # inline comment
 tproxy-port: "7894" # inline comment
@@ -148,7 +160,7 @@ assert_eq "abc#123" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.secret')" 
 assert_eq "198.18.0.0/15" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.fake_ip_range')" "read_config_json should parse quoted fake-ip-range with trailing comment"
 assert_eq "0" "$(printf '%s\n' "$quoted_comment_json" | jq -r '.errors | length')" "read_config_json should accept valid quoted scalars with trailing comments"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: bad
 routing-mark: 4294967296
 
@@ -165,7 +177,7 @@ assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contai
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Invalid routing-mark"))')" "read_config_json should report invalid routing mark"
 assert_eq "true" "$(printf '%s\n' "$invalid_json" | jq -r 'any(.errors[]; contains("Missing dns.fake-ip-range"))')" "read_config_json should report missing fake-ip range"
 
-cat > "$CLASH_CONFIG" <<'EOF'
+cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: 7894
 routing-mark: 2
 dns: *shared_dns

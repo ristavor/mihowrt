@@ -12,6 +12,10 @@ function emptyConfigState() {
 		configPath: '/opt/clash/config.yaml',
 		dnsPort: '',
 		mihomoDnsListen: '',
+		port: '',
+		socksPort: '',
+		mixedPort: '',
+		redirPort: '',
 		tproxyPort: '',
 		routingMark: '',
 		enhancedMode: '',
@@ -19,6 +23,7 @@ function emptyConfigState() {
 		fakeIpRange: '',
 		externalController: '',
 		externalControllerTls: '',
+		externalControllerUnix: '',
 		secret: '',
 		externalUi: '',
 		externalUiName: '',
@@ -122,6 +127,10 @@ function assignConfigState(state, payload) {
 	state.configPath = String(payload?.config_path || state.configPath);
 	state.dnsPort = String(payload?.dns_port || '');
 	state.mihomoDnsListen = String(payload?.mihomo_dns_listen || '');
+	state.port = String(payload?.port || '');
+	state.socksPort = String(payload?.socks_port || '');
+	state.mixedPort = String(payload?.mixed_port || '');
+	state.redirPort = String(payload?.redir_port || '');
 	state.tproxyPort = String(payload?.tproxy_port || '');
 	state.routingMark = String(payload?.routing_mark || '');
 	state.enhancedMode = String(payload?.enhanced_mode || '');
@@ -129,6 +138,7 @@ function assignConfigState(state, payload) {
 	state.fakeIpRange = String(payload?.fake_ip_range || '');
 	state.externalController = String(payload?.external_controller || '');
 	state.externalControllerTls = String(payload?.external_controller_tls || '');
+	state.externalControllerUnix = String(payload?.external_controller_unix || '');
 	state.secret = String(payload?.secret || '');
 	state.externalUi = String(payload?.external_ui || '');
 	state.externalUiName = String(payload?.external_ui_name || '');

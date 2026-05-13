@@ -2245,6 +2245,7 @@ remove_user_state() {
 		/opt/clash/lst/always_proxy_src.txt \
 		/opt/clash/lst/direct_dst.txt \
 		/opt/clash/cache.db \
+		/opt/clash/mihomo.sock \
 		/usr/bin/mihowrt \
 		/usr/bin/mihowrt-read \
 		/usr/share/luci/menu.d/luci-app-mihowrt.json \

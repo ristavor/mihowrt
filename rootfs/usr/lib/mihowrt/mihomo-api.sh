@@ -88,10 +88,36 @@ mihomo_api_url_from_controller() {
 	printf 'http://%s:%s' "$safe_host" "$port"
 }
 
+mihomo_api_socket_path() {
+	local socket="$1"
+	local clash_dir="${CLASH_DIR:-/opt/clash}"
+
+	socket="$(trim "$socket")"
+	[ -n "$socket" ] || {
+		mihomo_api_set_reason "Mihomo Unix controller socket is empty"
+		return 1
+	}
+
+	case "$socket" in
+	*://* | *[[:cntrl:]]*)
+		mihomo_api_set_reason "Mihomo Unix controller socket path is unsupported"
+		return 1
+		;;
+	/*)
+		printf '%s' "$socket"
+		;;
+	*)
+		printf '%s/%s' "$clash_dir" "$socket"
+		;;
+	esac
+}
+
 mihomo_hot_reload_config() {
 	local config_json="$1"
 	local config_path="${2:-${CLASH_CONFIG:-/opt/clash/config.yaml}}"
-	local controller="" secret="" base_url="" payload="" body_file="" http_code="" curl_rc=0
+	local force="${3:-0}" force_query="false"
+	local controller="" controller_unix="" secret="" base_url="" socket_path=""
+	local payload="" body_file="" http_code="" curl_rc=0
 	local timeout="${MIHOMO_API_TIMEOUT:-6}"
 
 	MIHOMO_API_REASON=""
@@ -100,6 +126,11 @@ mihomo_hot_reload_config() {
 	case "$timeout" in
 	'' | *[!0-9]*)
 		timeout=6
+		;;
+	esac
+	case "$force" in
+	1 | true | yes)
+		force_query="true"
 		;;
 	esac
 
@@ -113,11 +144,20 @@ mihomo_hot_reload_config() {
 		mihomo_api_set_reason "Failed to read Mihomo controller from active config"
 		return 2
 	}
+	controller_unix="$(printf '%s\n' "$config_json" | jq -r '.external_controller_unix // ""')" || {
+		mihomo_api_set_reason "Failed to read Mihomo Unix controller from active config"
+		return 2
+	}
 	secret="$(printf '%s\n' "$config_json" | jq -r '.secret // ""')" || {
 		mihomo_api_set_reason "Failed to read Mihomo controller secret from active config"
 		return 2
 	}
-	base_url="$(mihomo_api_url_from_controller "$controller")" || return 2
+	if [ -n "$controller_unix" ]; then
+		socket_path="$(mihomo_api_socket_path "$controller_unix")" || return 2
+		base_url="http://127.0.0.1"
+	else
+		base_url="$(mihomo_api_url_from_controller "$controller")" || return 2
+	fi
 
 	case "$config_path" in
 	/*) ;;
@@ -136,17 +176,24 @@ mihomo_hot_reload_config() {
 		return 2
 	}
 
-	if [ -n "$secret" ]; then
+	if [ -n "$socket_path" ]; then
+		http_code="$(curl -sS --connect-timeout 2 --max-time "$timeout" \
+			--unix-socket "$socket_path" \
+			-o "$body_file" -w '%{http_code}' \
+			-X PUT "$base_url/configs?force=$force_query" \
+			-H 'Content-Type: application/json' \
+			--data "$payload" 2>/dev/null)" || curl_rc=$?
+	elif [ -n "$secret" ]; then
 		http_code="$(curl -sS --connect-timeout 2 --max-time "$timeout" \
 			-o "$body_file" -w '%{http_code}' \
-			-X PUT "$base_url/configs?force=true" \
+			-X PUT "$base_url/configs?force=$force_query" \
 			-H "Authorization: Bearer $secret" \
 			-H 'Content-Type: application/json' \
 			--data "$payload" 2>/dev/null)" || curl_rc=$?
 	else
 		http_code="$(curl -sS --connect-timeout 2 --max-time "$timeout" \
 			-o "$body_file" -w '%{http_code}' \
-			-X PUT "$base_url/configs?force=true" \
+			-X PUT "$base_url/configs?force=$force_query" \
 			-H 'Content-Type: application/json' \
 			--data "$payload" 2>/dev/null)" || curl_rc=$?
 	fi

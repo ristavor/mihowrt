@@ -114,54 +114,35 @@ migrate_policy_list_files() {
 	migrate_policy_list_file "$DIRECT_DST_LIST_FILE" || return 1
 }
 
-policy_remote_list_max_bytes() {
-	local max_bytes="${POLICY_REMOTE_LIST_MAX_BYTES:-262144}"
+policy_positive_uint_or_default() {
+	local value="${1:-}"
+	local default="$2"
 
-	if ! is_uint "$max_bytes" || [ "$max_bytes" -le 0 ]; then
-		max_bytes=262144
+	if ! is_uint "$value" || [ "$value" -le 0 ]; then
+		value="$default"
 	fi
 
-	printf '%s' "$max_bytes"
+	printf '%s' "$value"
+}
+
+policy_remote_list_max_bytes() {
+	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_BYTES:-}" 262144
 }
 
 policy_effective_list_max_bytes() {
-	local max_bytes="${POLICY_EFFECTIVE_LIST_MAX_BYTES:-1048576}"
-
-	if ! is_uint "$max_bytes" || [ "$max_bytes" -le 0 ]; then
-		max_bytes=1048576
-	fi
-
-	printf '%s' "$max_bytes"
+	policy_positive_uint_or_default "${POLICY_EFFECTIVE_LIST_MAX_BYTES:-}" 1048576
 }
 
 policy_remote_list_fetch_timeout() {
-	local timeout="${POLICY_REMOTE_LIST_FETCH_TIMEOUT:-15}"
-
-	if ! is_uint "$timeout" || [ "$timeout" -le 0 ]; then
-		timeout=15
-	fi
-
-	printf '%s' "$timeout"
+	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_TIMEOUT:-}" 15
 }
 
 policy_remote_list_fetch_budget() {
-	local budget="${POLICY_REMOTE_LIST_FETCH_BUDGET:-60}"
-
-	if ! is_uint "$budget" || [ "$budget" -le 0 ]; then
-		budget=60
-	fi
-
-	printf '%s' "$budget"
+	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_BUDGET:-}" 60
 }
 
 policy_remote_list_max_urls() {
-	local max_urls="${POLICY_REMOTE_LIST_MAX_URLS:-32}"
-
-	if ! is_uint "$max_urls" || [ "$max_urls" -le 0 ]; then
-		max_urls=32
-	fi
-
-	printf '%s' "$max_urls"
+	policy_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32
 }
 
 policy_remote_list_fetch_limits_begin() {
@@ -260,8 +241,9 @@ policy_remote_list_ports() {
 	printf '%s' ''
 }
 
-count_remote_list_urls() {
+policy_count_matching_lines() {
 	local file="$1"
+	local predicate="$2"
 	local count=0
 	local line
 
@@ -276,12 +258,16 @@ count_remote_list_urls() {
 			''|'#'*) continue ;;
 		esac
 
-		if is_policy_remote_list_url "$line"; then
+		if "$predicate" "$line"; then
 			count=$((count + 1))
 		fi
 	done < "$file"
 
 	echo "$count"
+}
+
+count_remote_list_urls() {
+	policy_count_matching_lines "$1" is_policy_remote_list_url
 }
 
 policy_list_fingerprint() {
@@ -325,6 +311,29 @@ policy_effective_list_append_entry() {
 	printf '%s\n' "$entry" >> "$output" || return 1
 }
 
+policy_fetch_remote_list() {
+	local remote_url="$1"
+	local remote_file="" remote_max_bytes="" remote_timeout=""
+
+	remote_file="$(mktemp "$PKG_TMP_DIR/policy-remote.XXXXXX")" || {
+		err "Failed to allocate temporary remote policy list path"
+		return 1
+	}
+
+	remote_max_bytes="$(policy_remote_list_max_bytes)"
+	remote_timeout="$(policy_remote_list_fetch_timeout)"
+	remote_timeout="$(policy_remote_list_effective_timeout "$remote_timeout")" || {
+		rm -f "$remote_file"
+		return 1
+	}
+	if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
+		rm -f "$remote_file"
+		return 1
+	fi
+
+	printf '%s' "$remote_file"
+}
+
 policy_merge_list_file() {
 	local source="$1"
 	local output="$2"
@@ -332,7 +341,6 @@ policy_merge_list_file() {
 	local allow_urls="$4"
 	local inherited_ports="${5:-}"
 	local line="" entry="" remote_file="" remote_url="" remote_ports=""
-	local remote_max_bytes="" remote_timeout=""
 
 	[ -f "$source" ] || return 0
 
@@ -351,20 +359,7 @@ policy_merge_list_file() {
 			remote_url="$(policy_remote_list_url "$line")" || return 1
 			remote_ports="$(policy_remote_list_ports "$line")" || return 1
 			policy_remote_list_register_url "$remote_url" "$label" || return 1
-			remote_file="$(mktemp "$PKG_TMP_DIR/policy-remote.XXXXXX")" || {
-				err "Failed to allocate temporary remote policy list path"
-				return 1
-			}
-			remote_max_bytes="$(policy_remote_list_max_bytes)"
-			remote_timeout="$(policy_remote_list_fetch_timeout)"
-			remote_timeout="$(policy_remote_list_effective_timeout "$remote_timeout")" || {
-				rm -f "$remote_file"
-				return 1
-			}
-			if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" > "$remote_file"; then
-				rm -f "$remote_file"
-				return 1
-			fi
+			remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
 			policy_merge_list_file "$remote_file" "$output" "$remote_url" 0 "$remote_ports" || {
 				rm -f "$remote_file"
 				return 1
@@ -447,6 +442,54 @@ policy_prepare_effective_list_path() {
 	printf '%s' "$path"
 }
 
+policy_record_effective_list_file() {
+	local path="$1"
+
+	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
+		POLICY_EFFECTIVE_LIST_FILES="${POLICY_EFFECTIVE_LIST_FILES}
+$path"
+	else
+		POLICY_EFFECTIVE_LIST_FILES="$path"
+	fi
+}
+
+policy_resolve_effective_list() {
+	local source="$1"
+	local label="$2"
+	local effective=""
+
+	POLICY_RESOLVED_EFFECTIVE_LIST_FILE=""
+	effective="$(policy_prepare_effective_list_path)" || return 1
+	policy_record_effective_list_file "$effective"
+	policy_resolve_list_file "$source" "$effective" "$label" || return 1
+	POLICY_RESOLVED_EFFECTIVE_LIST_FILE="$effective"
+}
+
+policy_save_runtime_list_overrides() {
+	POLICY_PREV_DST_LIST_FILE_SET=0
+	POLICY_PREV_SRC_LIST_FILE_SET=0
+	POLICY_PREV_DIRECT_LIST_FILE_SET=0
+	POLICY_EFFECTIVE_LIST_FILES=""
+	POLICY_SOURCE_DST_LIST_FILE="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	POLICY_SOURCE_SRC_LIST_FILE="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	POLICY_SOURCE_DIRECT_LIST_FILE="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
+
+	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
+		POLICY_PREV_DST_LIST_FILE_SET=1
+		POLICY_PREV_DST_LIST_FILE="$POLICY_DST_LIST_FILE"
+	}
+	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
+		POLICY_PREV_SRC_LIST_FILE_SET=1
+		POLICY_PREV_SRC_LIST_FILE="$POLICY_SRC_LIST_FILE"
+	}
+	[ "${POLICY_DIRECT_DST_LIST_FILE+x}" = x ] && {
+		POLICY_PREV_DIRECT_LIST_FILE_SET=1
+		POLICY_PREV_DIRECT_LIST_FILE="$POLICY_DIRECT_DST_LIST_FILE"
+	}
+
+	return 0
+}
+
 policy_clear_runtime_list_overrides() {
 	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
 		policy_effective_list_cleanup_paths "$POLICY_EFFECTIVE_LIST_FILES"
@@ -474,6 +517,7 @@ policy_clear_runtime_list_overrides() {
 	unset POLICY_PREV_DST_LIST_FILE POLICY_PREV_SRC_LIST_FILE POLICY_PREV_DIRECT_LIST_FILE
 	unset POLICY_SOURCE_DST_LIST_FILE POLICY_SOURCE_SRC_LIST_FILE POLICY_SOURCE_DIRECT_LIST_FILE
 	unset POLICY_PREV_DST_LIST_FILE_SET POLICY_PREV_SRC_LIST_FILE_SET POLICY_PREV_DIRECT_LIST_FILE_SET
+	unset POLICY_RESOLVED_EFFECTIVE_LIST_FILE
 	unset POLICY_REMOTE_LIST_URL_COUNT POLICY_REMOTE_LIST_FETCH_DEADLINE
 }
 
@@ -484,59 +528,29 @@ policy_resolve_runtime_lists() {
 	ensure_dir "$PKG_TMP_DIR"
 	[ -z "${POLICY_EFFECTIVE_LIST_FILES:-}" ] || policy_clear_runtime_list_overrides
 	policy_remote_list_fetch_limits_begin || return 1
-
-	POLICY_PREV_DST_LIST_FILE_SET=0
-	POLICY_PREV_SRC_LIST_FILE_SET=0
-	POLICY_PREV_DIRECT_LIST_FILE_SET=0
-	POLICY_SOURCE_DST_LIST_FILE="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
-	POLICY_SOURCE_SRC_LIST_FILE="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
-	POLICY_SOURCE_DIRECT_LIST_FILE="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
-	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_DST_LIST_FILE_SET=1
-		POLICY_PREV_DST_LIST_FILE="$POLICY_DST_LIST_FILE"
-	}
-	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_SRC_LIST_FILE_SET=1
-		POLICY_PREV_SRC_LIST_FILE="$POLICY_SRC_LIST_FILE"
-	}
-	[ "${POLICY_DIRECT_DST_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_DIRECT_LIST_FILE_SET=1
-		POLICY_PREV_DIRECT_LIST_FILE="$POLICY_DIRECT_DST_LIST_FILE"
-	}
+	policy_save_runtime_list_overrides
 
 	case "$mode" in
 		direct-first)
-			dst_effective="$(policy_prepare_effective_list_path)" || {
+			policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
 				policy_clear_runtime_list_overrides
 				return 1
 			}
-			src_effective="$(policy_prepare_effective_list_path)" || {
-				rm -f "$dst_effective"
+			dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
+			policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
 				policy_clear_runtime_list_overrides
 				return 1
 			}
-			POLICY_EFFECTIVE_LIST_FILES="$(printf '%s\n%s' "$dst_effective" "$src_effective")"
-			policy_resolve_list_file "${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}" "$dst_effective" "proxy destination list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
-			policy_resolve_list_file "${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}" "$src_effective" "proxy source list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
+			src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 			POLICY_DST_LIST_FILE="$dst_effective"
 			POLICY_SRC_LIST_FILE="$src_effective"
 			;;
 		proxy-first)
-			direct_effective="$(policy_prepare_effective_list_path)" || {
+			policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
 				policy_clear_runtime_list_overrides
 				return 1
 			}
-			POLICY_EFFECTIVE_LIST_FILES="$direct_effective"
-			policy_resolve_list_file "${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}" "$direct_effective" "direct destination list" || {
-				policy_clear_runtime_list_overrides
-				return 1
-			}
+			direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 			POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
 			;;
 		*)
@@ -548,25 +562,5 @@ policy_resolve_runtime_lists() {
 }
 
 count_valid_list_entries() {
-	local file="$1"
-	local count=0
-	local line
-
-	[ -f "$file" ] || {
-		echo 0
-		return 0
-	}
-
-	while IFS= read -r line; do
-		line="$(trim "$line")"
-		case "$line" in
-			''|'#'*) continue ;;
-		esac
-
-		if is_policy_entry "$line"; then
-			count=$((count + 1))
-		fi
-	done < "$file"
-
-	echo "$count"
+	policy_count_matching_lines "$1" is_policy_entry
 }

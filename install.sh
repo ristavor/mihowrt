@@ -2212,13 +2212,8 @@ begin_package_transaction() {
 	fi
 }
 
-perform_package_action() {
-	local reinstall=0
-
-	package_installed && reinstall=1 || reinstall=0
-	prepare_package_payload || return 1
-
-	begin_package_transaction "$reinstall" || return 1
+prepare_package_install_mutation() {
+	local reinstall="$1"
 
 	log "Installing/updating Mihomo kernel..."
 	if ! kernel_apply_staged_update; then
@@ -2238,6 +2233,16 @@ perform_package_action() {
 		err "failed to set skip-start marker"
 		return 1
 	fi
+}
+
+perform_package_action() {
+	local reinstall=0
+
+	package_installed && reinstall=1 || reinstall=0
+	prepare_package_payload || return 1
+
+	begin_package_transaction "$reinstall" || return 1
+	prepare_package_install_mutation "$reinstall" || return 1
 
 	INSTALL_TRANSACTION_PACKAGE_STARTED=1
 	if ! install_package "$reinstall" "$TMP_APK"; then

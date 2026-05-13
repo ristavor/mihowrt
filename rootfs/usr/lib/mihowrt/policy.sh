@@ -155,8 +155,8 @@ runtime_snapshot_save() {
 	dst_snapshot="$(runtime_snapshot_dst_file)"
 	src_snapshot="$(runtime_snapshot_src_file)"
 	direct_snapshot="$(runtime_snapshot_direct_file)"
-	route_table_id="$ROUTE_TABLE_ID_EFFECTIVE"
-	route_rule_priority="$ROUTE_RULE_PRIORITY_EFFECTIVE"
+	route_table_id="${ROUTE_TABLE_ID_EFFECTIVE:-}"
+	route_rule_priority="${ROUTE_RULE_PRIORITY_EFFECTIVE:-}"
 	dst_source_hash="$(policy_list_fingerprint "$source_dst_list_file")" || return 1
 	src_source_hash="$(policy_list_fingerprint "$source_src_list_file")" || return 1
 	direct_source_hash="$(policy_list_fingerprint "$source_direct_list_file")" || return 1
@@ -186,14 +186,14 @@ runtime_snapshot_save() {
 
 	jq -nc \
 		--arg policy_mode "${POLICY_MODE:-direct-first}" \
-		--arg dns_hijack "$DNS_HIJACK" \
+		--arg dns_hijack "${DNS_HIJACK:-}" \
 		--arg mihomo_dns_port "$MIHOMO_DNS_PORT" \
 		--arg mihomo_dns_listen "$MIHOMO_DNS_LISTEN" \
 		--arg mihomo_tproxy_port "$MIHOMO_TPROXY_PORT" \
 		--arg mihomo_routing_mark "$MIHOMO_ROUTING_MARK" \
 		--arg route_table_id_effective "$route_table_id" \
 		--arg route_rule_priority_effective "$route_rule_priority" \
-		--arg disable_quic "$DISABLE_QUIC" \
+		--arg disable_quic "${DISABLE_QUIC:-}" \
 		--arg dns_enhanced_mode "$DNS_ENHANCED_MODE" \
 		--arg catch_fakeip "$CATCH_FAKEIP" \
 		--arg fakeip_range "$FAKEIP_RANGE" \
@@ -535,9 +535,11 @@ load_runtime_config_from_yaml() {
 }
 
 load_runtime_config() {
+	local pkg_config="${PKG_CONFIG:-mihowrt}"
+
 	SOURCE_INTERFACES=""
 
-	config_load "$PKG_CONFIG" || return 1
+	config_load "$pkg_config" || return 1
 
 	config_get POLICY_MODE "settings" "policy_mode" "direct-first"
 	config_get_bool DNS_HIJACK "settings" "dns_hijack" 1
@@ -552,14 +554,16 @@ load_runtime_config() {
 
 validate_runtime_config() {
 	local iface routing_mark="" intercept_mark=""
+	local clash_bin="${CLASH_BIN:-/opt/clash/bin/clash}"
+	local clash_config="${CLASH_CONFIG:-/opt/clash/config.yaml}"
 
-	[ -x "$CLASH_BIN" ] || {
-		err "Mihomo binary missing at $CLASH_BIN"
+	[ -x "$clash_bin" ] || {
+		err "Mihomo binary missing at $clash_bin"
 		return 1
 	}
 
-	[ -f "$CLASH_CONFIG" ] || {
-		err "Mihomo config missing at $CLASH_CONFIG"
+	[ -f "$clash_config" ] || {
+		err "Mihomo config missing at $clash_config"
 		return 1
 	}
 

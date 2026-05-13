@@ -322,12 +322,16 @@ dns_persist_backup_recovery_needed() {
 	expected_target="$DNS_BACKUP_MIHOMO_TARGET"
 	[ -n "$expected_target" ] || expected_target="$(dns_runtime_mihomo_target 2>/dev/null || true)"
 	dns_current_state_looks_hijacked "$expected_target" || return 1
+	dns_expected_state_matches_current && return 1
+	return 0
+}
+
+dns_expected_state_matches_current() {
 	dnsmasq_state_matches \
 		"$DNS_BACKUP_EXPECTED_CACHESIZE" \
 		"$DNS_BACKUP_EXPECTED_TARGET_NORESOLV" \
 		"$DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE" \
-		"$DNS_BACKUP_EXPECTED_SERVERS" && return 1
-	return 0
+		"$DNS_BACKUP_EXPECTED_SERVERS"
 }
 
 dns_backup_source_file() {
@@ -510,6 +514,49 @@ dns_restore_fallback() {
 	return 0
 }
 
+dns_restore_loaded_backup_state() {
+	if dns_expected_state_matches_current; then
+		dns_cleanup_backup_files
+		log "dnsmasq settings already restored"
+		return 0
+	fi
+
+	if ! dns_stage_expected_restore_state; then
+		dns_revert_staged_changes
+		return 1
+	fi
+	dns_commit_dhcp_and_restart "dnsmasq restart failed during restore" || return 1
+
+	dns_cleanup_backup_files
+	log "dnsmasq settings restored"
+	return 0
+}
+
+dns_restore_backup_file_or_fallback() {
+	local backup_path="$1"
+
+	if ! dns_backup_read_expected_state "$backup_path"; then
+		warn "dnsmasq backup state invalid, applying fallback recovery"
+		dns_restore_fallback
+		return $?
+	fi
+
+	dns_restore_loaded_backup_state
+}
+
+dns_restore_without_backup() {
+	local mihomo_dns_target="$1"
+
+	if dns_current_state_looks_hijacked "$mihomo_dns_target"; then
+		warn "dnsmasq recovery backup unavailable while Mihomo DNS still appears active; applying fallback recovery"
+		dns_restore_fallback
+		return $?
+	fi
+
+	log "No dnsmasq recovery backup found, skipping restore"
+	return 0
+}
+
 dns_setup() {
 	local dns_target
 
@@ -549,38 +596,9 @@ dns_restore() {
 
 	backup_path="$(dns_backup_source_file 2>/dev/null || true)"
 	if [ -z "$backup_path" ]; then
-		if dns_current_state_looks_hijacked "$mihomo_dns_target"; then
-			warn "dnsmasq recovery backup unavailable while Mihomo DNS still appears active; applying fallback recovery"
-			dns_restore_fallback
-			return $?
-		fi
-		log "No dnsmasq recovery backup found, skipping restore"
-		return 0
-	fi
-
-	if ! dns_backup_read_expected_state "$backup_path"; then
-		warn "dnsmasq backup state invalid, applying fallback recovery"
-		dns_restore_fallback
+		dns_restore_without_backup "$mihomo_dns_target"
 		return $?
 	fi
 
-	if dnsmasq_state_matches \
-		"$DNS_BACKUP_EXPECTED_CACHESIZE" \
-		"$DNS_BACKUP_EXPECTED_TARGET_NORESOLV" \
-		"$DNS_BACKUP_EXPECTED_TARGET_RESOLVFILE" \
-		"$DNS_BACKUP_EXPECTED_SERVERS"; then
-		dns_cleanup_backup_files
-		log "dnsmasq settings already restored"
-		return 0
-	fi
-
-	if ! dns_stage_expected_restore_state; then
-		dns_revert_staged_changes
-		return 1
-	fi
-	dns_commit_dhcp_and_restart "dnsmasq restart failed during restore" || return 1
-
-	dns_cleanup_backup_files
-	log "dnsmasq settings restored"
-	return 0
+	dns_restore_backup_file_or_fallback "$backup_path"
 }

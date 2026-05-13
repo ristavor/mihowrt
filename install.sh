@@ -644,6 +644,24 @@ restore_file_or_remove() {
 	restore_file "$name" "$dst"
 }
 
+for_each_user_state_file() {
+	local callback="$1"
+
+	"$callback" /opt/clash/config.yaml config.yaml || return 1
+	"$callback" /etc/config/mihowrt mihowrt.uci || return 1
+	"$callback" /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt || return 1
+	"$callback" /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt || return 1
+	"$callback" /opt/clash/lst/direct_dst.txt direct_dst.txt || return 1
+}
+
+backup_user_state_file() {
+	backup_file_or_mark_missing "$1" "$2"
+}
+
+restore_user_state_file() {
+	restore_file_or_remove "$2" "$1"
+}
+
 preserve_backup_dir() {
 	[ -n "$BACKUP_DIR" ] || return 0
 	[ -d "$BACKUP_DIR" ] || return 0
@@ -655,21 +673,13 @@ preserve_backup_dir() {
 
 backup_user_state() {
 	create_backup_dir || return 1
-	backup_file_or_mark_missing /opt/clash/config.yaml config.yaml || return 1
-	backup_file_or_mark_missing /etc/config/mihowrt mihowrt.uci || return 1
-	backup_file_or_mark_missing /opt/clash/lst/always_proxy_dst.txt always_proxy_dst.txt || return 1
-	backup_file_or_mark_missing /opt/clash/lst/always_proxy_src.txt always_proxy_src.txt || return 1
-	backup_file_or_mark_missing /opt/clash/lst/direct_dst.txt direct_dst.txt || return 1
+	for_each_user_state_file backup_user_state_file || return 1
 	backup_file_or_mark_missing "$DNS_BACKUP_FILE" "$DNS_BACKUP_NAME" || return 1
 }
 
 restore_user_state() {
 	[ -n "$BACKUP_DIR" ] || return 0
-	restore_file_or_remove config.yaml /opt/clash/config.yaml || return 1
-	restore_file_or_remove mihowrt.uci /etc/config/mihowrt || return 1
-	restore_file_or_remove always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt || return 1
-	restore_file_or_remove always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || return 1
-	restore_file_or_remove direct_dst.txt /opt/clash/lst/direct_dst.txt || return 1
+	for_each_user_state_file restore_user_state_file
 }
 
 migrate_restored_policy_lists() {

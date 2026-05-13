@@ -624,6 +624,7 @@ fetch_subscription_json() {
 	}
 
 	if fetch_subscription_config_to_file "$url" "$body_file"; then
+		patch_config_api_defaults "$body_file" "$(read_config_json 2>/dev/null || true)" >/dev/null 2>&1 || true
 		config_json="$(read_config_json_for_path "$body_file" 2>/dev/null || true)"
 		if [ -n "$config_json" ] && mihomo_hot_reload_supported "$config_json"; then
 			hot_reload_supported=1
@@ -749,8 +750,7 @@ update_subscription_config() {
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?
 	action="$(printf '%s\n' "$result" | jq -r '.action // ""' 2>/dev/null || true)"
 	case "$action" in
-	saved | hot_reloaded | policy_reloaded)
-		;;
+	saved | hot_reloaded | policy_reloaded) ;;
 	*)
 		printf '%s\n' "$result"
 		return 0

@@ -568,7 +568,7 @@ return view.extend({
 			]),
 			E('h2', _('Mihomo YAML Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
-			E('p', { class: 'cbi-section-descr' }, _('Keep MihoWRT-managed runtime paths standardized: external-controller-unix should be mihomo.sock, rule-provider paths should stay under ./ruleset/, and proxy-provider paths should stay under ./proxy_providers/. Custom names can write runtime data to flash or prevent socket hot reload.')),
+			E('p', { class: 'cbi-section-descr' }, _('If you want Mihomo runtime files to stay on tmpfs, use the managed paths: external-controller-unix: mihomo.sock, rule-provider files under ./ruleset/, and proxy-provider files under ./proxy_providers/.')),
 			E('div', {
 				style: 'margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
 			}, [

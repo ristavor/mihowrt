@@ -13,7 +13,7 @@ SERVICE_PID_FILE="$tmpdir/mihomo.pid"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/config-io.sh"
 
-old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json="$old_json"
 
 log() {
@@ -50,6 +50,17 @@ read_config_json() {
 apply_config_file() {
 	printf 'apply_config_file:%s\n' "$1" >>"$event_log"
 	cp -f "$1" "$CLASH_CONFIG"
+}
+
+patch_config_api_defaults() {
+	printf 'patch_config_api_defaults:%s\n' "$1" >>"$event_log"
+	new_json="$(
+		printf '%s\n' "$new_json" | jq -c '
+			(if (.external_controller_unix // "") == "" then .external_controller_unix = "mihomo.sock" else . end) |
+			(if (.external_controller // "") == "" then .external_controller = "192.168.7.1:9090" else . end) |
+			(if (.secret // "") == "" then .secret = "0123456789abcdef0123456789abcdef0123456789abcdef" else . end)
+		'
+	)"
 }
 
 runtime_snapshot_valid() {
@@ -162,14 +173,14 @@ assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "controller cha
 
 : >"$event_log"
 write_configs
-new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"custom.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "restart_required" "$(json_bool "$result" '.action')" "Unix controller changes should require service restart"
 assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "Unix controller changes should not call stale API reload"
 
 : >"$event_log"
 write_configs
-old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload safe config changes"
@@ -179,21 +190,22 @@ assert_file_not_contains "$event_log" "restart_required" "auto-update should not
 
 : >"$event_log"
 write_configs
-old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
-assert_eq "manual_restart_required" "$(json_bool "$result" '.action')" "auto-update should not apply API field changes"
-assert_file_not_contains "$event_log" "install_validated_config_candidate" "auto-update should not install config requiring manual restart"
+assert_eq "manual_restart_required" "$(json_bool "$result" '.action')" "auto-update should flag real API field changes"
+assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config requiring manual restart"
 assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "auto-update should not call API after API field drift"
 assert_file_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo controller/UI settings changed; manual restart is required" "auto-update should disable itself on API field drift"
 
 : >"$event_log"
 write_configs
-old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+old_json='{"external_controller":"192.168.7.1:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json='{"external_controller":"","external_controller_tls":"","external_controller_unix":"","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
-assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update should disable when downloaded config has no hot reload API"
-assert_file_not_contains "$event_log" "install_validated_config_candidate" "auto-update should not install config without hot reload API"
-assert_file_contains "$event_log" "subscription_store_auto_update_state:0:" "auto-update should persist disabled state when hot reload API is missing"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "auto-update should patch missing API fields before hot reload checks"
+assert_file_contains "$event_log" "patch_config_api_defaults:$tmpdir/candidate.yaml" "auto-update should patch downloaded config API defaults"
+assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should install config after API default patch"
+assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0:" "auto-update should not disable when missing API fields are patchable"
 
 pass "config hot reload apply"

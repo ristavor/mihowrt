@@ -12,10 +12,10 @@ const { assertEq } = harness;
 const viewSource = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
 if (viewSource.includes('window.location.reload()'))
 	throw new Error('config.js should not do full page reloads after local actions');
-if (!viewSource.includes('external-controller-unix should be mihomo.sock'))
-	throw new Error('config.js should warn about the standardized Mihomo socket name');
+if (!viewSource.includes('external-controller-unix: mihomo.sock'))
+	throw new Error('config.js should show the tmpfs Mihomo socket path');
 if (!viewSource.includes('./ruleset/') || !viewSource.includes('./proxy_providers/'))
-	throw new Error('config.js should warn about standardized provider paths');
+	throw new Error('config.js should show tmpfs provider paths');
 if (viewSource.includes('cache.db'))
 	throw new Error('config.js should not show cache.db naming guidance');
 

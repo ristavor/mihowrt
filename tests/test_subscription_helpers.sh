@@ -164,6 +164,16 @@ assert_eq "" "$(subscription_effective_update_interval 0 "" "")" "subscription_e
 assert_eq "0" "$(subscription_effective_update_interval 0 "" 0)" "subscription_effective_update_interval should preserve zero header interval as disabled"
 assert_eq "" "$(subscription_effective_update_interval 1 "" 24)" "subscription_effective_update_interval should disable auto-update when override is on but empty"
 
+SUBSCRIPTION_CRON_FILE="$tmpdir/root.cron"
+printf '0 0 * * * echo keep\n17 * * * * /usr/bin/mihowrt auto-update-subscription >/dev/null 2>&1 # mihowrt subscription auto-update\n' >"$SUBSCRIPTION_CRON_FILE"
+subscription_sync_auto_update_cron 0
+assert_file_contains "$SUBSCRIPTION_CRON_FILE" "echo keep" "subscription cron sync should preserve unrelated entries when disabled"
+assert_file_not_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should remove auto-update task when disabled"
+subscription_sync_auto_update_cron 1
+assert_file_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should create auto-update task only when enabled"
+subscription_sync_auto_update_cron 0
+assert_file_not_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should remove auto-update task after interval becomes disabled"
+
 : >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "
 assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should read current URL before writing"

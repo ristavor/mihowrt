@@ -136,6 +136,7 @@ define Package/$(PKG_NAME)/postrm
 	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
 	rm -f /etc/apk/protected_paths.d/mihowrt.list
 	sed -i '/# mihowrt subscription auto-update/d' /etc/crontabs/root 2>/dev/null || true
+	sed -i '/# mihowrt policy remote auto-update/d' /etc/crontabs/root 2>/dev/null || true
 	/etc/init.d/cron restart >/dev/null 2>&1 || true
 	rm -f /opt/clash/ruleset
 	rm -f /opt/clash/proxy_providers

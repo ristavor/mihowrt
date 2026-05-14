@@ -144,6 +144,248 @@ policy_remote_list_max_urls() {
 	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32 1024
 }
 
+policy_remote_update_interval_valid() {
+	local value="$1"
+
+	is_uint "$value" || return 1
+	value="$(normalize_uint "$value")"
+	uint_lte "$value" 8760
+}
+
+policy_remote_now_epoch() {
+	date +%s 2>/dev/null || printf '0\n'
+}
+
+policy_remote_next_update_epoch() {
+	local interval="$1" now=""
+
+	if [ -z "$interval" ] || ! policy_remote_update_interval_valid "$interval"; then
+		printf '%s' ''
+		return 0
+	fi
+	now="$(policy_remote_now_epoch)"
+	printf '%s' $((now + (interval * 3600)))
+}
+
+policy_remote_cron_file() {
+	printf '%s' "${POLICY_REMOTE_CRON_FILE:-/etc/crontabs/root}"
+}
+
+policy_remote_cron_marker() {
+	printf '%s' "# mihowrt policy remote auto-update"
+}
+
+policy_remote_restart_cron() {
+	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
+policy_remote_sync_auto_update_cron() {
+	local enabled="$1"
+	local cron_file="" marker="" tmp_file="" changed=0
+
+	cron_file="$(policy_remote_cron_file)"
+	marker="$(policy_remote_cron_marker)"
+	tmp_file="${cron_file}.mihowrt.$$"
+	ensure_dir "$(dirname "$cron_file")" || return 1
+
+	if [ -r "$cron_file" ]; then
+		grep -vF "$marker" "$cron_file" >"$tmp_file" || true
+	else
+		: >"$tmp_file"
+	fi
+
+	if [ "$enabled" = "1" ]; then
+		printf '23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 %s\n' "$marker" >>"$tmp_file"
+	fi
+
+	if [ -f "$cron_file" ] && cmp -s "$tmp_file" "$cron_file"; then
+		rm -f "$tmp_file"
+		return 0
+	fi
+
+	mv -f "$tmp_file" "$cron_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+	changed=1
+
+	[ "$changed" -eq 1 ] && policy_remote_restart_cron
+	return 0
+}
+
+policy_remote_configured_update_interval() {
+	local interval=""
+
+	require_command uci || return 1
+	interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.policy_remote_update_interval" 2>/dev/null || true)"
+	[ -n "$interval" ] || {
+		printf '%s' '0'
+		return 0
+	}
+
+	policy_remote_update_interval_valid "$interval" || return 1
+	normalize_uint "$interval"
+}
+
+policy_remote_auto_update_state_file() {
+	printf '%s' "${POLICY_REMOTE_AUTO_UPDATE_STATE_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/policy-remote-auto.state}"
+}
+
+policy_remote_clear_auto_update_state() {
+	rm -f "$(policy_remote_auto_update_state_file)"
+}
+
+policy_remote_state_value() {
+	local key="$1"
+	local file=""
+
+	file="$(policy_remote_auto_update_state_file)"
+	[ -r "$file" ] || return 1
+	sed -n "s/^$key=//p" "$file" | tail -n 1
+}
+
+policy_remote_write_auto_update_state() {
+	local interval="$1"
+	local result="${2:-scheduled}"
+	local reason="${3:-}"
+	local state_file="" state_dir="" tmp_file="" now="" next_update=""
+
+	state_file="$(policy_remote_auto_update_state_file)"
+	state_dir="$(dirname "$state_file")"
+	ensure_dir "$state_dir" || return 1
+	tmp_file="${state_file}.tmp.$$"
+	now="$(policy_remote_now_epoch)"
+	next_update="$(policy_remote_next_update_epoch "$interval")"
+	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+
+	{
+		printf 'interval=%s\n' "$interval"
+		printf 'last_update=%s\n' "$now"
+		printf 'next_update=%s\n' "$next_update"
+		printf 'last_result=%s\n' "$result"
+		printf 'reason=%s\n' "$reason"
+	} >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+
+	mv -f "$tmp_file" "$state_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+}
+
+policy_remote_refresh_auto_update_state() {
+	local interval=""
+
+	interval="$(policy_remote_configured_update_interval)" || {
+		policy_remote_sync_auto_update_cron 0 || return 1
+		policy_remote_clear_auto_update_state
+		return 0
+	}
+
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		policy_remote_sync_auto_update_cron 0 || return 1
+		policy_remote_clear_auto_update_state
+		return 0
+	fi
+
+	policy_remote_write_auto_update_state "$interval" "scheduled" "" || return 1
+	policy_remote_sync_auto_update_cron 1
+}
+
+policy_remote_due_for_update() {
+	local interval="" next_update="" now=""
+
+	interval="$(policy_remote_configured_update_interval)" || {
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 1
+	}
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 1
+	fi
+
+	next_update="$(policy_remote_state_value next_update 2>/dev/null || true)"
+	if [ -z "$next_update" ]; then
+		policy_remote_write_auto_update_state "$interval" "scheduled" "" || true
+		return 1
+	fi
+	now="$(policy_remote_now_epoch)"
+	[ -n "$next_update" ] && is_uint "$next_update" || return 0
+	[ "$now" -ge "$next_update" ]
+}
+
+policy_remote_mark_update_success() {
+	local interval=""
+
+	interval="$(policy_remote_configured_update_interval)" || {
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 0
+	}
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 0
+	fi
+
+	policy_remote_write_auto_update_state "$interval" "success" "" || return 1
+}
+
+policy_remote_mark_update_failure() {
+	local reason="${1:-remote policy list auto-update failed}"
+	local interval=""
+
+	interval="$(policy_remote_configured_update_interval)" || {
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 0
+	}
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		return 0
+	fi
+
+	policy_remote_write_auto_update_state "$interval" "failure" "$reason"
+}
+
+auto_update_policy_remote_lists() {
+	local interval="" output="" rc=0
+
+	interval="$(policy_remote_configured_update_interval)" || {
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		printf 'updated=0\n'
+		return 0
+	}
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		policy_remote_sync_auto_update_cron 0 || true
+		policy_remote_clear_auto_update_state
+		printf 'updated=0\n'
+		return 0
+	fi
+
+	if ! policy_remote_due_for_update; then
+		printf 'updated=0\n'
+		return 0
+	fi
+
+	output="$(update_runtime_policy_lists)"
+	rc=$?
+	if [ "$rc" -eq 0 ]; then
+		policy_remote_mark_update_success || true
+		printf '%s\n' "$output"
+		return 0
+	fi
+
+	policy_remote_mark_update_failure "remote policy list auto-update failed" || true
+	return "$rc"
+}
+
 # Start one apply-wide remote fetch budget. Each URL gets a bounded timeout and
 # the whole list resolution must finish before this deadline.
 policy_remote_list_fetch_limits_begin() {

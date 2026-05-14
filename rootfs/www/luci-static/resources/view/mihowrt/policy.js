@@ -292,6 +292,15 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks. DNS/53 hijack is not affected.');
 
+		o = s.option(form.Value, 'policy_remote_update_interval', _('Remote List Auto-update (hours)'));
+		o.placeholder = '0';
+		o.default = '0';
+		o.rmempty = false;
+		o.description = _('0 disables automatic remote list updates. Positive values refetch URL entries on that interval.');
+		o.validate = function(section_id, value) {
+			return validateNumericRange(value, _('Remote list auto-update interval'), 0, 8760);
+		};
+
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[;Port], ;Port, or URL[;Port])'));
 		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;

@@ -280,11 +280,15 @@ set-subscription-url)
 	with_runtime_lock set_subscription_url "$2"
 	;;
 set-subscription-settings)
-	[ "$#" -ge 4 ] || {
+	[ "$#" -ge 4 ] && [ "$#" -le 6 ] || {
 		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours] [loaded-hot-reload-supported:0|1]" >&2
 		exit 1
 	}
-	with_runtime_lock set_subscription_settings "$2" "$3" "$4" "${5:-}" "${6:-1}"
+	case "$#" in
+	4) with_runtime_lock set_subscription_settings "$2" "$3" "$4" ;;
+	5) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" ;;
+	6) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" "$6" ;;
+	esac
 	;;
 fetch-subscription)
 	[ -n "${2:-}" ] || {

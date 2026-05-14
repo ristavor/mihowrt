@@ -356,6 +356,24 @@ function editorHasUnsavedChanges() {
 	return !!editor && configHelper.editorContentForSave(editor.getValue()) !== savedConfigContent;
 }
 
+async function readPersistedConfigContent(fallbackValue) {
+	try {
+		return configHelper.editorContentForSave(await fs.read(CLASH_CONFIG));
+	}
+	catch (e) {
+		return fallbackValue;
+	}
+}
+
+async function syncEditorToPersistedConfig(fallbackValue) {
+	const persistedValue = await readPersistedConfigContent(fallbackValue);
+
+	if (editor && persistedValue !== fallbackValue)
+		editor.setValue(persistedValue, -1);
+
+	return persistedValue;
+}
+
 function confirmSubscriptionOverwrite() {
 	// Protect unsaved manual edits from being overwritten by subscription fetch.
 	if (!editorHasUnsavedChanges())
@@ -510,7 +528,8 @@ return view.extend({
 				}
 
 				const applyResult = await backendHelper.applyConfig(value) || { restartRequired: wasRunning };
-				savedConfigContent = value;
+				const persistedValue = await syncEditorToPersistedConfig(value);
+				savedConfigContent = persistedValue;
 				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
 
 				const persistPendingSubscriptionAfterApply = async function() {

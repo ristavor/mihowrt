@@ -10,7 +10,7 @@ const harness = require('./tests/js_luci_harness');
 
 const source = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
 const settingsMatch = source.match(/async function persistSubscriptionSettings[\s\S]*?\n}\n\nfunction editorHasUnsavedChanges/);
-const unsavedMatch = source.match(/function editorHasUnsavedChanges[\s\S]*?\n}\n\nfunction confirmSubscriptionOverwrite/);
+const unsavedMatch = source.match(/function editorHasUnsavedChanges[\s\S]*?\n}\n\nasync function readPersistedConfigContent/);
 const confirmMatch = source.match(/function confirmSubscriptionOverwrite[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
 const loadMatch = source.match(/async function loadSubscriptionIntoEditor[\s\S]*?\n}\n\nreturn view\.extend/);
 const fetchStart = source.indexOf('const fetchSubscription = async function() {');
@@ -28,7 +28,7 @@ if (fetchStart === -1 || fetchEnd === -1)
 	throw new Error('fetchSubscription() not found');
 
 const settingsFnSource = settingsMatch[0].replace(/\n\nfunction editorHasUnsavedChanges$/, '');
-const unsavedFnSource = unsavedMatch[0].replace(/\n\nfunction confirmSubscriptionOverwrite$/, '');
+const unsavedFnSource = unsavedMatch[0].replace(/\n\nasync function readPersistedConfigContent$/, '');
 const confirmFnSource = confirmMatch[0].replace(/\n\nasync function withSubscriptionLock$/, '');
 const loadFnSource = loadMatch[0].replace(/\n\nreturn view\.extend$/, '');
 const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');

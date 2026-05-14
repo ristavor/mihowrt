@@ -631,7 +631,7 @@ return view.extend({
 				(subscriptionSaveButton = E('button', {
 					class: 'btn',
 					click: saveSubscription
-				}, _('Save Subscription URL'))),
+				}, _('Save Subscription Settings'))),
 				(subscriptionFetchButton = E('button', {
 					class: 'btn cbi-button-action',
 					click: fetchSubscription

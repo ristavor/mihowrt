@@ -11,6 +11,10 @@ const vm = require('vm');
 
 const rootDir = process.cwd();
 const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resources/view/mihowrt/policy.js'), 'utf8');
+if (!source.includes("s.option(form.Button, '_update_remote_lists'"))
+	throw new Error('policy.js should render update remote lists button near remote list settings');
+if (source.includes('const toolbar = E('))
+	throw new Error('policy.js should not render update remote lists as a detached toolbar');
 const normalizeMatch = source.match(/function normalizeBlock[\s\S]*?\n}\n\nfunction currentNormalizedListValue/);
 const syncMatch = source.match(/function syncListCaches[\s\S]*?\n}\n\nfunction hasListValueChanges/);
 const listChangesMatch = source.match(/function hasListValueChanges[\s\S]*?\n}\n\nfunction hasMihowrtUciChanges/);

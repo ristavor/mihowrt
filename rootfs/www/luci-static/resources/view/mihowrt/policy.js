@@ -315,6 +315,12 @@ return view.extend({
 			return validateNumericRange(value, _('Remote list auto-update interval'), 0, 8760);
 		};
 
+		o = s.option(form.Button, '_update_remote_lists', _('Update Remote Lists'));
+		updateListsButton = o;
+		o.inputstyle = 'action';
+		o.description = _('Fetch remote URL entries now. Save policy list or interval changes before updating.');
+		o.onclick = updateRemoteLists;
+
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[;Port], ;Port, or URL[;Port])'));
 		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;
@@ -330,15 +336,6 @@ return view.extend({
 		directDstListOption = o;
 		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Use ; before ports, including URL;port. Remote lists are fetched on apply/start and merged with manual entries without changing this file. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS.'));
 
-		const toolbar = E('div', {
-			style: 'margin-bottom: 15px; display: flex; justify-content: flex-end;'
-		}, [
-			(updateListsButton = E('button', {
-				class: 'btn cbi-button-action',
-				click: updateRemoteLists
-			}, _('Update Remote Lists')))
-		]);
-
-		return Promise.resolve(m.render()).then(mapNode => E([toolbar, mapNode]));
+		return m.render();
 	}
 });

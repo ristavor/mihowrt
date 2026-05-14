@@ -177,6 +177,17 @@ policy_resolve_runtime_lists
 assert_eq_file $'1.1.1.1\n2.2.2.2\n3.3.3.0/24:15-2000\n1.1.1.2:443' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should merge and dedupe destination entries"
 assert_eq_file $'4.4.4.4\n:53\n:853' "$POLICY_SRC_LIST_FILE" "policy_resolve_runtime_lists should merge source entries"
 policy_cache_save_current
+have_command() {
+	case "$1" in
+	cksum | awk) return 1 ;;
+	*) command -v "$1" >/dev/null 2>&1 ;;
+	esac
+}
+policy_cache_save_current
+unset -f have_command
+have_command() {
+	command -v "$1" >/dev/null 2>&1
+}
 assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should not rewrite persistent destination list"
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
 assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.1" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"

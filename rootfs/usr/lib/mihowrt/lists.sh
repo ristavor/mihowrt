@@ -523,17 +523,32 @@ count_remote_list_urls() {
 # Stable, cheap fingerprint for diagnostics/snapshot comparison.
 policy_list_fingerprint() {
 	local file="$1"
+	local line="" first="" second=""
 
-	if ! have_command cksum || ! have_command awk; then
-		printf '%s' ''
+	if [ ! -f "$file" ]; then
+		printf '%s' 'missing:0'
 		return 0
 	fi
 
-	if [ -f "$file" ]; then
-		cksum "$file" | awk '{ printf "%s:%s", $1, $2 }'
-	else
-		printf '%s' '4294967295:0'
+	if have_command sha256sum; then
+		line="$(sha256sum "$file" 2>/dev/null)" || return 1
+		first="${line%% *}"
+		[ -n "$first" ] || return 1
+		printf 'sha256:%s' "$first"
+		return 0
 	fi
+
+	if have_command cksum; then
+		line="$(cksum "$file" 2>/dev/null)" || return 1
+		first="${line%% *}"
+		second="${line#* }"
+		second="${second%% *}"
+		[ -n "$first" ] && [ -n "$second" ] || return 1
+		printf 'cksum:%s:%s' "$first" "$second"
+		return 0
+	fi
+
+	return 1
 }
 
 policy_cache_dir() {

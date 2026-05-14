@@ -190,6 +190,11 @@ yaml_get_selected_scalars() {
 				emit("external-ui-name", line)
 				next
 			}
+			if (line ~ /^external-ui-url:[[:space:]]*/) {
+				sub("^external-ui-url:[[:space:]]*", "", line)
+				emit("external-ui-url", line)
+				next
+			}
 		}
 	' "$file" 2>/dev/null
 }
@@ -245,7 +250,7 @@ read_config_json() {
 	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
 	local external_controller="" external_controller_tls="" external_controller_unix=""
 	local external_controller_pipe="" external_doh_server="" external_controller_cors="" api_tls=""
-	local secret="" external_ui="" external_ui_name=""
+	local secret="" external_ui="" external_ui_name="" external_ui_url=""
 	local ERRORS_RAW=""
 	local key raw value
 
@@ -279,6 +284,7 @@ read_config_json() {
 		secret) secret="$value" ;;
 		external-ui) external_ui="$value" ;;
 		external-ui-name) external_ui_name="$value" ;;
+		external-ui-url) external_ui_url="$value" ;;
 		esac
 	done <<EOF
 $(yaml_get_selected_scalars "$CLASH_CONFIG")
@@ -358,6 +364,7 @@ EOF
 		--arg secret "$secret" \
 		--arg external_ui "$external_ui" \
 		--arg external_ui_name "$external_ui_name" \
+		--arg external_ui_url "$external_ui_url" \
 		--arg errors_raw "$ERRORS_RAW" \
 		'{
 			config_path: $config_path,
@@ -385,6 +392,7 @@ EOF
 			secret: $secret,
 			external_ui: $external_ui,
 			external_ui_name: $external_ui_name,
+			external_ui_url: $external_ui_url,
 			errors: ($errors_raw | split("\n") | map(select(length > 0)))
 		}' || {
 		err "Failed to normalize config data from $CLASH_CONFIG"
@@ -731,7 +739,7 @@ config_requires_service_restart() {
 	local new_json="$2"
 	local key=""
 
-	for key in external_controller external_controller_tls external_controller_unix external_controller_pipe secret external_controller_cors external_doh_server api_tls external_ui external_ui_name; do
+	for key in external_controller external_controller_tls external_controller_unix external_controller_pipe secret external_controller_cors external_doh_server api_tls external_ui external_ui_name external_ui_url; do
 		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
 	done
 

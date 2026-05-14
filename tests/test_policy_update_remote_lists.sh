@@ -14,9 +14,9 @@ DST_LIST_FILE="$tmpdir/source-dst.txt"
 SRC_LIST_FILE="$tmpdir/source-src.txt"
 DIRECT_DST_LIST_FILE="$tmpdir/source-direct.txt"
 mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR"
-: > "$DST_LIST_FILE"
-: > "$SRC_LIST_FILE"
-: > "$DIRECT_DST_LIST_FILE"
+: >"$DST_LIST_FILE"
+: >"$SRC_LIST_FILE"
+: >"$DIRECT_DST_LIST_FILE"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
@@ -96,14 +96,15 @@ policy_route_state_read() {
 
 policy_resolve_runtime_lists() {
 	printf 'policy_resolve_runtime_lists\n' >>"$event_log"
+	printf 'policy_resolve_runtime_lists:cache_fallback=%s\n' "${POLICY_ALLOW_CACHE_FALLBACK:-}" >>"$event_log"
 	[ "${TEST_RESOLVE_RUNTIME_LISTS_RC:-0}" -eq 0 ] || return "${TEST_RESOLVE_RUNTIME_LISTS_RC:-1}"
 	POLICY_DST_LIST_FILE="$tmpdir/effective-dst.txt"
 	POLICY_SRC_LIST_FILE="$tmpdir/effective-src.txt"
 	POLICY_DIRECT_DST_LIST_FILE="$tmpdir/effective-direct.txt"
 	POLICY_EFFECTIVE_LIST_FILES="$(printf '%s\n%s\n%s' "$POLICY_DST_LIST_FILE" "$POLICY_SRC_LIST_FILE" "$POLICY_DIRECT_DST_LIST_FILE")"
-	printf '%s\n' "${TEST_EFFECTIVE_DST:-1.1.1.1}" > "$POLICY_DST_LIST_FILE"
-	printf '%s\n' "${TEST_EFFECTIVE_SRC:-:53}" > "$POLICY_SRC_LIST_FILE"
-	printf '%s\n' "${TEST_EFFECTIVE_DIRECT:-8.8.8.8}" > "$POLICY_DIRECT_DST_LIST_FILE"
+	printf '%s\n' "${TEST_EFFECTIVE_DST:-1.1.1.1}" >"$POLICY_DST_LIST_FILE"
+	printf '%s\n' "${TEST_EFFECTIVE_SRC:-:53}" >"$POLICY_SRC_LIST_FILE"
+	printf '%s\n' "${TEST_EFFECTIVE_DIRECT:-8.8.8.8}" >"$POLICY_DIRECT_DST_LIST_FILE"
 }
 
 policy_clear_runtime_list_overrides() {
@@ -170,15 +171,15 @@ policy_route_teardown_ids() {
 }
 
 write_snapshot_lists() {
-	printf '%s\n' "${1:-1.1.1.1}" > "$(runtime_snapshot_dst_file)"
-	printf '%s\n' "${2:-:53}" > "$(runtime_snapshot_src_file)"
-	printf '%s\n' "${3:-8.8.8.8}" > "$(runtime_snapshot_direct_file)"
-	cat > "$(runtime_snapshot_file)" <<EOF
+	printf '%s\n' "${1:-1.1.1.1}" >"$(runtime_snapshot_dst_file)"
+	printf '%s\n' "${2:-:53}" >"$(runtime_snapshot_src_file)"
+	printf '%s\n' "${3:-8.8.8.8}" >"$(runtime_snapshot_direct_file)"
+	cat >"$(runtime_snapshot_file)" <<EOF
 {"enabled":true,"policy_mode":"${TEST_SNAPSHOT_POLICY_MODE:-${TEST_POLICY_MODE:-direct-first}}","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id_effective":"${TEST_OLD_ROUTE_TABLE_ID:-200}","route_rule_priority_effective":"${TEST_OLD_ROUTE_RULE_PRIORITY:-10000}","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan"]}
 EOF
 }
 
-: > "$event_log"
+: >"$event_log"
 TEST_POLICY_MODE="direct-first"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_EFFECTIVE_DST="1.1.1.1"
@@ -191,7 +192,7 @@ assert_file_contains "$event_log" "runtime_snapshot_save" "unchanged update shou
 assert_file_not_contains "$event_log" "nft_apply_policy" "unchanged update should not edit nft policy"
 assert_file_contains "$event_log" "log:Remote policy lists unchanged; nft policy left untouched" "unchanged update should log nft no-op"
 
-: > "$event_log"
+: >"$event_log"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_EFFECTIVE_DST="2.2.2.2"
 TEST_EFFECTIVE_SRC=":53"
@@ -205,7 +206,7 @@ assert_file_not_contains "$event_log" "dns_setup" "changed update should not rec
 assert_file_contains "$event_log" "runtime_snapshot_save" "changed update should persist new snapshot"
 assert_file_contains "$event_log" "log:Updated remote policy lists and refreshed direct-first nft policy" "changed update should log nft refresh"
 
-: > "$event_log"
+: >"$event_log"
 TEST_EFFECTIVE_DST="1.1.1.1"
 TEST_EFFECTIVE_SRC=":53"
 TEST_EFFECTIVE_DIRECT="9.9.9.9"
@@ -217,7 +218,7 @@ assert_eq "updated=1" "$update_output" "proxy-first update should compare direct
 assert_file_contains "$event_log" "nft_update_policy_components_fast:direct_dst" "proxy-first direct list change should fast update direct component"
 TEST_POLICY_MODE="direct-first"
 
-: > "$event_log"
+: >"$event_log"
 TEST_SNAPSHOT_POLICY_MODE="direct-first"
 TEST_POLICY_MODE="proxy-first"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
@@ -228,16 +229,17 @@ assert_file_not_contains "$event_log" "policy_resolve_runtime_lists" "policy con
 unset TEST_SNAPSHOT_POLICY_MODE
 TEST_POLICY_MODE="direct-first"
 
-: > "$event_log"
+: >"$event_log"
 TEST_RESOLVE_RUNTIME_LISTS_RC=1
 TEST_ROUTE_STATE_READ_COUNT=0
 assert_false "update_runtime_policy_lists should fail when remote list preparation fails" update_runtime_policy_lists >/dev/null
 assert_file_contains "$event_log" "err:Failed to prepare updated policy lists" "resolve failure should be reported"
+assert_file_contains "$event_log" "policy_resolve_runtime_lists:cache_fallback=0" "explicit policy list update should disable cache fallback"
 assert_file_not_contains "$event_log" "nft_apply_policy" "resolve failure should not edit nft policy"
 assert_file_not_contains "$event_log" "runtime_snapshot_restore" "resolve failure should not rollback unchanged runtime"
 TEST_RESOLVE_RUNTIME_LISTS_RC=0
 
-: > "$event_log"
+: >"$event_log"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_EFFECTIVE_DST="2.2.2.2"
 TEST_EFFECTIVE_SRC=":53"
@@ -250,7 +252,7 @@ assert_file_contains "$event_log" "runtime_snapshot_restore" "changed apply fail
 TEST_NFT_APPLY_RC=0
 TEST_FAST_SUPPORT_RC=0
 
-: > "$event_log"
+: >"$event_log"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_EFFECTIVE_DST="2.2.2.2"
 TEST_EFFECTIVE_SRC=":53"
@@ -262,7 +264,7 @@ assert_file_contains "$event_log" "runtime_snapshot_restore" "fast update failur
 assert_file_not_contains "$event_log" "nft_apply_policy" "fast update failure should not fall through to full rebuild"
 TEST_FAST_UPDATE_RC=0
 
-: > "$event_log"
+: >"$event_log"
 write_snapshot_lists "1.1.1.1" ":53" "8.8.8.8"
 TEST_OLD_ROUTE_TABLE_ID=201
 TEST_EFFECTIVE_DST="2.2.2.2"
@@ -273,7 +275,7 @@ assert_file_contains "$event_log" "err:Policy route state changed since runtime 
 assert_file_not_contains "$event_log" "policy_resolve_runtime_lists" "route drift should not fetch remote lists"
 unset TEST_OLD_ROUTE_TABLE_ID
 
-: > "$event_log"
+: >"$event_log"
 TEST_RUNTIME_LIVE_STATE_PRESENT_RC=1
 assert_false "update_runtime_policy_lists should fail when runtime is not active" update_runtime_policy_lists >/dev/null
 assert_file_contains "$event_log" "err:Runtime policy state is not active; cannot update remote policy lists" "inactive runtime should be reported"

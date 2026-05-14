@@ -196,6 +196,16 @@ assert_file_contains "$event_log" "Remote policy lists unavailable; using cached
 policy_clear_runtime_list_overrides
 unset TEST_WGET_FAIL_ALL
 
+: >"$event_log"
+: >"$TEST_WGET_LOG"
+export TEST_WGET_FAIL_ALL=1
+export POLICY_ALLOW_CACHE_FALLBACK=0
+assert_false "policy_resolve_runtime_lists should fail when cache fallback is disabled" policy_resolve_runtime_lists
+assert_unset POLICY_DST_LIST_FILE "disabled cache fallback should not leave destination override"
+assert_unset POLICY_SRC_LIST_FILE "disabled cache fallback should not leave source override"
+assert_file_not_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "disabled cache fallback should not report cached runtime lists"
+unset TEST_WGET_FAIL_ALL POLICY_ALLOW_CACHE_FALLBACK
+
 POLICY_REMOTE_LIST_MAX_BYTES=999999999999999999999
 POLICY_EFFECTIVE_LIST_MAX_BYTES=999999999999999999999
 POLICY_REMOTE_LIST_FETCH_TIMEOUT=999999999999999999999

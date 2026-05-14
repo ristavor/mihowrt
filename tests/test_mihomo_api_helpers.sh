@@ -43,10 +43,11 @@ assert_eq "/tmp/mihomo.sock" "$(mihomo_api_socket_path "/tmp/mihomo.sock")" "abs
 assert_false "URL-like Unix socket should be rejected" mihomo_api_socket_path "unix://mihomo.sock" >/dev/null
 
 MIHOMO_API_LIVE_STATE_FILE="$tmpdir/live-api.json"
-live_input='{"external_controller":"0.0.0.0:9090","external_controller_unix":"mihomo.sock","secret":"top-secret","external_controller_cors":"external-controller-cors:\n  allow-private-network: true","dns_port":"7874"}'
+live_input='{"external_controller":"0.0.0.0:9090","external_controller_unix":"mihomo.sock","secret":"top-secret","external_controller_cors":"external-controller-cors:\n  allow-private-network: true","external_ui_url":"https://example.com/ui.zip","dns_port":"7874"}'
 assert_true "live API state should be saved from config metadata" mihomo_api_live_state_save "$live_input"
 assert_eq "mihomo.sock" "$(mihomo_api_live_state_read | jq -r '.external_controller_unix')" "live API state should preserve Unix socket"
 assert_eq "top-secret" "$(mihomo_api_live_state_read | jq -r '.secret')" "live API state should preserve secret"
+assert_eq "https://example.com/ui.zip" "$(mihomo_api_live_state_read | jq -r '.external_ui_url')" "live API state should preserve external UI URL"
 assert_eq "null" "$(mihomo_api_live_state_read | jq -r '.dns_port')" "live API state should omit non-API runtime fields"
 assert_eq "mihomo.sock" "$(mihomo_api_live_or_config_json '{"external_controller":"127.0.0.1:9091","external_controller_unix":"new.sock"}' | jq -r '.external_controller_unix')" "live API state should win over saved config metadata"
 mihomo_api_live_state_clear

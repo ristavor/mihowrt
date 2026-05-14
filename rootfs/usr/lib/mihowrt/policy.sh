@@ -319,6 +319,30 @@ reload_runtime_state() {
 	return 0
 }
 
+policy_resolve_runtime_lists_without_cache() {
+	local previous_cache_fallback="" previous_cache_fallback_set=0 rc=0
+
+	if [ "${POLICY_ALLOW_CACHE_FALLBACK+x}" = x ]; then
+		previous_cache_fallback_set=1
+		previous_cache_fallback="$POLICY_ALLOW_CACHE_FALLBACK"
+	fi
+
+	POLICY_ALLOW_CACHE_FALLBACK=0
+	if policy_resolve_runtime_lists; then
+		rc=0
+	else
+		rc=$?
+	fi
+
+	if [ "$previous_cache_fallback_set" -eq 1 ]; then
+		POLICY_ALLOW_CACHE_FALLBACK="$previous_cache_fallback"
+	else
+		unset POLICY_ALLOW_CACHE_FALLBACK
+	fi
+
+	return "$rc"
+}
+
 # Refresh remote policy lists while service is running. nft is skipped when
 # effective list content matches the snapshot.
 update_runtime_policy_lists() {
@@ -354,7 +378,7 @@ update_runtime_policy_lists() {
 		return 1
 	fi
 
-	policy_resolve_runtime_lists || {
+	policy_resolve_runtime_lists_without_cache || {
 		err "Failed to prepare updated policy lists"
 		return 1
 	}

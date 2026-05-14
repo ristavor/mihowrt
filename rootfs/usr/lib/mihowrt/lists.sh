@@ -737,6 +737,21 @@ policy_cache_apply_runtime_lists() {
 	return 0
 }
 
+policy_cache_fallback_enabled() {
+	case "${POLICY_ALLOW_CACHE_FALLBACK:-1}" in
+	0 | false | no | off)
+		return 1
+		;;
+	esac
+
+	return 0
+}
+
+policy_cache_apply_runtime_lists_if_allowed() {
+	policy_cache_fallback_enabled || return 1
+	policy_cache_apply_runtime_lists
+}
+
 # Remove temporary effective list files.
 policy_effective_list_cleanup() {
 	local path
@@ -1026,13 +1041,13 @@ policy_resolve_runtime_lists() {
 	direct-first)
 		policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
 			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists || return 1
+			policy_cache_apply_runtime_lists_if_allowed || return 1
 			return 0
 		}
 		dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 		policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
 			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists || return 1
+			policy_cache_apply_runtime_lists_if_allowed || return 1
 			return 0
 		}
 		src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
@@ -1042,7 +1057,7 @@ policy_resolve_runtime_lists() {
 	proxy-first)
 		policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
 			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists || return 1
+			policy_cache_apply_runtime_lists_if_allowed || return 1
 			return 0
 		}
 		direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"

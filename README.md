@@ -197,13 +197,25 @@ for router integration:
 dns.listen
 dns.enhanced-mode
 dns.fake-ip-range
+port
+socks-port
+mixed-port
+redir-port
+allow-lan
+bind-address
 tproxy-port
 routing-mark
 external-controller
 external-controller-tls
+external-controller-unix
+external-controller-pipe
+external-controller-cors
+external-doh-server
 secret
+tls
 external-ui
 external-ui-name
+external-ui-url
 ```
 
 Full Mihomo syntax remains Mihomo responsibility:

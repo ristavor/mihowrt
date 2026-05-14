@@ -108,9 +108,14 @@ status_default_config_json() {
 			external_controller: "",
 			external_controller_tls: "",
 			external_controller_unix: "",
+			external_controller_pipe: "",
+			external_controller_cors: "",
+			external_doh_server: "",
+			api_tls: "",
 			secret: "",
 			external_ui: "",
 			external_ui_name: "",
+			external_ui_url: "",
 			errors: ["Failed to read config"]
 		}'
 }

@@ -79,6 +79,7 @@ external-doh-server: /dns-query
 secret: "abc123"
 external-ui: ./ui
 external-ui-name: zashboard
+external-ui-url: https://example.com/ui.zip
 tls:
   certificate: ./server.crt
   private-key: ./server.key
@@ -116,6 +117,7 @@ assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.external_controller_c
 assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.api_tls | contains("client-auth-type: require-and-verify")')" "read_config_json extracts API TLS block"
 assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.api_tls | contains("ech-key: |")')" "read_config_json extracts API TLS ECH key"
 assert_eq "zashboard" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_name')" "read_config_json extracts external UI name"
+assert_eq "https://example.com/ui.zip" "$(printf '%s\n' "$config_json" | jq -r '.external_ui_url')" "read_config_json extracts external UI URL"
 assert_eq "0" "$(printf '%s\n' "$config_json" | jq -r '.errors | length')" "read_config_json should not emit errors for valid config"
 
 cat >"$CLASH_CONFIG" <<'EOF'

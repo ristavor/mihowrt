@@ -162,7 +162,8 @@ mihomo_api_live_state_save() {
 		external_doh_server: (.external_doh_server // ""),
 		api_tls: (.api_tls // ""),
 		external_ui: (.external_ui // ""),
-		external_ui_name: (.external_ui_name // "")
+		external_ui_name: (.external_ui_name // ""),
+		external_ui_url: (.external_ui_url // "")
 	}' >"$tmp_file" || {
 		rm -f "$tmp_file"
 		return 1
@@ -198,7 +199,8 @@ mihomo_api_live_state_read() {
 		external_doh_server: (.external_doh_server // ""),
 		api_tls: (.api_tls // ""),
 		external_ui: (.external_ui // ""),
-		external_ui_name: (.external_ui_name // "")
+		external_ui_name: (.external_ui_name // ""),
+		external_ui_url: (.external_ui_url // "")
 	}' "$state_file"
 }
 

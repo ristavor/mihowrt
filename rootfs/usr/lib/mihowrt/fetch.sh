@@ -1226,20 +1226,6 @@ update_subscription_config() {
 	fi
 
 	header_interval="${FETCH_PROFILE_UPDATE_INTERVAL:-}"
-	if [ -z "$header_interval" ] || subscription_interval_valid "$header_interval"; then
-		settings_error="$(
-			set_subscription_settings "$url" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)" "$header_interval" 2>&1 >/dev/null
-		)" || {
-			rc=$?
-			rm -f "$candidate"
-			err "${settings_error:-Failed to persist subscription update interval}"
-			jq -nc \
-				--arg message "${settings_error:-Failed to persist subscription update interval}" \
-				'{updated:false,error:{kind:"uci_failed",message:$message,http_code:null}}'
-			return "$rc"
-		}
-	fi
-
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?
 	action="$(printf '%s\n' "$result" | jq -r '.action // ""' 2>/dev/null || true)"
 	restart_required="$(printf '%s\n' "$result" | jq -r 'if .restart_required then "1" else "0" end' 2>/dev/null || printf '0')"
@@ -1255,6 +1241,19 @@ update_subscription_config() {
 		return 1
 		;;
 	esac
+
+	if [ -z "$header_interval" ] || subscription_interval_valid "$header_interval"; then
+		settings_error="$(
+			set_subscription_settings "$url" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)" "$header_interval" 2>&1 >/dev/null
+		)" || {
+			rc=$?
+			err "${settings_error:-Failed to persist subscription update interval}"
+			jq -nc \
+				--arg message "${settings_error:-Failed to persist subscription update interval}" \
+				'{updated:false,error:{kind:"uci_failed",message:$message,http_code:null}}'
+			return "$rc"
+		}
+	fi
 
 	override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
 	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"

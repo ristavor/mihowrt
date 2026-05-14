@@ -15,7 +15,14 @@ cat >"$tmpbin/logger" <<'EOF'
 exit 0
 EOF
 
-chmod +x "$tmpbin/logger"
+export CLASH_BIN="$tmpdir/opt/clash/bin/clash"
+mkdir -p "$(dirname "$CLASH_BIN")"
+cat >"$CLASH_BIN" <<'EOF'
+#!/usr/bin/env bash
+sleep "${1:-60}"
+EOF
+
+chmod +x "$tmpbin/logger" "$CLASH_BIN"
 export PATH="$tmpbin:$PATH"
 
 export LIST_DIR="$tmpdir/opt/clash/lst"
@@ -66,11 +73,22 @@ sleep 60 &
 active_pid="$!"
 mkdir -p "$(dirname "$SERVICE_PID_FILE")"
 printf '%s\n' "$active_pid" >"$SERVICE_PID_FILE"
+printf 'stale-active-socket\n' >"$MIHOMO_SOCKET_TMPFS"
+setup_mihomo_socket_link
+[[ ! -e "$MIHOMO_SOCKET_TMPFS" ]] || fail "runtime layout should remove stale Mihomo socket when pid belongs to another process"
+kill "$active_pid" 2>/dev/null || true
+wait "$active_pid" 2>/dev/null || true
+rm -f "$SERVICE_PID_FILE" "$MIHOMO_SOCKET_TMPFS"
+
+"$CLASH_BIN" 60 &
+mihomo_pid="$!"
+mkdir -p "$(dirname "$SERVICE_PID_FILE")"
+printf '%s\n' "$mihomo_pid" >"$SERVICE_PID_FILE"
 printf 'active-socket\n' >"$MIHOMO_SOCKET_TMPFS"
 setup_mihomo_socket_link
 assert_file_contains "$MIHOMO_SOCKET_TMPFS" "active-socket" "runtime layout should not remove active Mihomo socket"
-kill "$active_pid" 2>/dev/null || true
-wait "$active_pid" 2>/dev/null || true
+kill "$mihomo_pid" 2>/dev/null || true
+wait "$mihomo_pid" 2>/dev/null || true
 rm -f "$SERVICE_PID_FILE" "$MIHOMO_SOCKET_TMPFS"
 
 wrong_rules_target="$tmpdir/wrong-tmp/ruleset"

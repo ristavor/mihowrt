@@ -447,6 +447,27 @@ assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "update_subscript
 export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
 export TEST_UCI_INTERVAL_OVERRIDE="0"
 export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL=""
+apply_config_runtime_auto_update() {
+	printf 'apply_config_runtime_auto_update:%s\n' "$1" >>"$TEST_UCI_LOG"
+	rm -f "$1"
+	printf '%s\n' '{"action":"auto_update_disabled","reason":"config validation failed"}'
+	return 1
+}
+set +e
+auto_update_apply_fail_json="$(update_subscription_config)"
+auto_update_apply_fail_rc=$?
+set -e
+assert_eq "1" "$auto_update_apply_fail_rc" "update_subscription_config should fail when fetched config cannot be applied"
+assert_eq "" "$auto_update_apply_fail_json" "update_subscription_config should not emit stale apply JSON when apply command fails"
+assert_file_not_contains "$TEST_UCI_LOG" "delete mihowrt.settings.subscription_header_interval" "failed subscription apply should not clear stored header interval"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
 export TEST_UCI_HEADER_INTERVAL=""
 export TEST_WGET_MODE=ok
 export TEST_WGET_PROFILE_UPDATE_INTERVAL="24"
@@ -462,7 +483,7 @@ auto_update_uci_fail_rc=$?
 set -e
 assert_eq "1" "$auto_update_uci_fail_rc" "update_subscription_config should fail when header interval cannot be persisted"
 assert_eq "uci_failed" "$(printf '%s\n' "$auto_update_uci_fail_json" | jq -r '.error.kind')" "update_subscription_config should expose UCI persistence failure"
-assert_file_not_contains "$TEST_UCI_LOG" "apply_config_runtime_auto_update:" "update_subscription_config should not apply fetched config when interval persistence failed"
+assert_file_contains "$TEST_UCI_LOG" "apply_config_runtime_auto_update:" "update_subscription_config should persist header interval only after successful apply"
 unset TEST_UCI_COMMIT_RC
 
 : >"$TEST_UCI_LOG"

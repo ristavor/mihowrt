@@ -96,6 +96,26 @@ sync_runtime_file() {
 	return 0
 }
 
+mihomo_socket_pid_matches_binary() {
+	local pid="$1"
+	local clash_bin="${CLASH_BIN:-}"
+	local exe="" cmdline=""
+
+	[ -n "$clash_bin" ] || return 1
+
+	exe="$(readlink "/proc/$pid/exe" 2>/dev/null || true)"
+	[ "$exe" = "$clash_bin" ] && return 0
+
+	[ -r "/proc/$pid/cmdline" ] || return 1
+	cmdline="$(tr '\000' ' ' <"/proc/$pid/cmdline" 2>/dev/null || true)"
+	[ -n "$cmdline" ] || return 1
+	case " $cmdline " in
+	*" $clash_bin "*) return 0 ;;
+	esac
+
+	return 1
+}
+
 mihomo_socket_pid_active() {
 	local pid=""
 
@@ -107,7 +127,8 @@ mihomo_socket_pid_active() {
 		;;
 	esac
 
-	kill -0 "$pid" 2>/dev/null
+	kill -0 "$pid" 2>/dev/null || return 1
+	mihomo_socket_pid_matches_binary "$pid"
 }
 
 setup_mihomo_socket_link() {

@@ -71,6 +71,24 @@ const context = {
 		updateChanged: false,
 		updateError: null,
 		syncPolicyRemoteError: null,
+		updateButtonNode: { disabled: false },
+		updateButtonOption: {
+			readonly: null,
+			cbid: sectionId => `cbid.mihowrt.${sectionId}._update_remote_lists`
+		},
+		document: {
+			getElementById(id) {
+				context.lastButtonLookupId = id;
+				return {
+					previousElementSibling: {
+						querySelector(selector) {
+							context.lastButtonQuerySelector = selector;
+							return context.updateButtonNode;
+						}
+					}
+				};
+			}
+		},
 		fs: {
 		writeCalls: [],
 		removeCalls: [],
@@ -125,9 +143,20 @@ const context = {
 	};
 
 	vm.createContext(context);
-	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
+	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setUpdateListsButton = value => { updateListsButton = value; };\nglobalThis.setPolicyActionBusy = setPolicyActionBusy;\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
 
 (async () => {
+	context.setPolicyMap({ readonly: false, save: async() => {} });
+	context.setUpdateListsButton(context.updateButtonOption);
+	context.setPolicyActionBusy(true);
+	if (!context.updateButtonNode.disabled || context.updateButtonOption.readonly !== true)
+		throw new Error('setPolicyActionBusy should disable rendered update remote lists button');
+	if (context.lastButtonLookupId !== 'cbid.mihowrt.settings._update_remote_lists' || context.lastButtonQuerySelector !== 'button')
+		throw new Error('setPolicyActionBusy should find rendered form button node');
+	context.setPolicyActionBusy(false);
+	if (context.updateButtonNode.disabled || context.updateButtonOption.readonly !== null)
+		throw new Error('setPolicyActionBusy should re-enable rendered update remote lists button');
+
 	const option = {};
 	context.setDstCache('1.1.1.1\n');
 	context.bindTextFileOption(option, 'dst', '/opt/clash/lst/always_proxy_dst.txt', 'desc');

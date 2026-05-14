@@ -190,7 +190,7 @@ have_command() {
 }
 assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should not rewrite persistent destination list"
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.1" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.2" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "-T 15" "policy_resolve_runtime_lists should use bounded fetch timeout"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "policy_resolve_runtime_lists should not recursively fetch nested URLs"
 policy_clear_runtime_list_overrides

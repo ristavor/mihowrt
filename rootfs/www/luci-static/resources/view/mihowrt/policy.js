@@ -87,11 +87,24 @@ function policyRemoteAutoUpdateChanged(changes) {
 		mihowrtChanges.some(change => changeMentionsOption(change, 'policy_remote_update_interval'));
 }
 
+function updateRemoteListsButtonNode() {
+	if (!updateListsButton || !updateListsButton.cbid || typeof document === 'undefined')
+		return null;
+
+	const hidden = document.getElementById(updateListsButton.cbid(SETTINGS_SECTION_ID));
+	const output = hidden ? hidden.previousElementSibling : null;
+	return output ? output.querySelector('button') : null;
+}
+
 function setPolicyActionBusy(busy) {
 	// Block overlapping save/update actions so file writes and reloads cannot race.
 	policyActionInFlight = busy;
 	if (updateListsButton)
-		updateListsButton.disabled = busy;
+		updateListsButton.readonly = busy ? true : null;
+
+	const buttonNode = updateRemoteListsButtonNode();
+	if (buttonNode)
+		buttonNode.disabled = busy || !!(policyMap && policyMap.readonly);
 }
 
 async function savePolicyMap() {

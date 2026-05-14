@@ -28,6 +28,10 @@ require_command() {
 	command -v "$1" >/dev/null 2>&1
 }
 
+ensure_dir() {
+	mkdir -p "$1"
+}
+
 service_running_state() {
 	printf 'service_running_state\n' >>"$event_log"
 	return "${TEST_SERVICE_RUNNING_RC:-0}"
@@ -96,6 +100,7 @@ validate_config_candidate() {
 
 install_validated_config_candidate() {
 	printf 'install_validated_config_candidate:%s\n' "$1" >>"$event_log"
+	cp -f "$1" "$CLASH_CONFIG"
 	rm -f "$1"
 }
 
@@ -195,8 +200,22 @@ new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","ex
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload safe config changes"
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should install safe hot-reloadable config"
-assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should hot reload without forced restart for non-port changes"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should hot reload active config after install"
 assert_file_not_contains "$event_log" "restart_required" "auto-update should not request restart for safe changes"
+
+: >"$event_log"
+write_configs
+TEST_API_RC=2
+TEST_API_REASON="Mihomo API reload request failed"
+TEST_API_HTTP_CODE="000"
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update API failure should disable schedule and restore active config"
+assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update failure should install before API reload so relative paths resolve"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update failure should call API with active config path"
+assert_eq "old" "$(cat "$CLASH_CONFIG")" "auto-update failure should roll back active config after failed hot reload"
+TEST_API_RC=0
+TEST_API_REASON=""
+TEST_API_HTTP_CODE=""
 
 : >"$event_log"
 write_configs
@@ -206,7 +225,7 @@ result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload through live API when API fields drift"
 assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should still flag manual restart after API field drift"
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config requiring manual restart"
-assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API after API field drift"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API with active config after API field drift"
 assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API/UI settings changed; manual restart is required" "auto-update should not disable itself on API field drift"
 
 : >"$event_log"
@@ -217,7 +236,7 @@ result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "auto-update should hot reload API server-only field changes through live API"
 assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should flag manual restart after API server-only field drift"
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config with API server drift"
-assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API after API server field drift"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API with active config after API server field drift"
 assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API/UI settings changed; manual restart is required" "auto-update should not disable itself on API server drift"
 
 : >"$event_log"

@@ -349,6 +349,16 @@ sync_policy_remote_output="$(
 )"
 assert_eq "policy-cron-synced" "$sync_policy_remote_output" "sync-policy-remote-auto-update command should dispatch to policy cron sync helper"
 
+sync_subscription_output="$(
+	set -- sync-subscription-auto-update
+	subscription_refresh_auto_update_state() {
+		printf 'subscription-cron-synced\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "subscription-cron-synced" "$sync_subscription_output" "sync-subscription-auto-update command should dispatch to subscription cron sync helper"
+
 update_subscription_output="$(
 	set -- update-subscription
 	update_subscription_config() {
@@ -482,7 +492,7 @@ case "${1:-}" in
 	cleanup)
 			exit "${TEST_ORCH_CLEANUP_RC:-0}"
 			;;
-		recover|run-service|update-policy-lists|sync-policy-remote-auto-update)
+		recover|run-service|update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update)
 			exit 0
 			;;
 esac
@@ -536,6 +546,7 @@ assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service sho
 assert_file_contains "$orch_log" "recover" "start_service should run crash recovery before start"
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "start_service should sync remote policy auto-update schedule"
+assert_file_contains "$orch_log" "sync-subscription-auto-update" "start_service should sync subscription auto-update schedule"
 assert_file_contains "$orch_log" "cleanup" "start_service should clean stale runtime state before procd start"
 assert_file_contains "$procd_log" "set:command $ORCHESTRATOR run-service" "start_service should register run-service command with procd"
 assert_file_not_contains "$procd_log" "set:file " "start_service should avoid procd file triggers that race explicit UI apply/reload"
@@ -582,6 +593,7 @@ reload_service
 assert_file_contains "$msg_log" "Reloading MihoWRT policy..." "reload_service should log policy reload"
 assert_file_contains "$msg_log" "MihoWRT policy reloaded" "reload_service should log successful policy reload"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "reload_service should sync remote policy auto-update schedule"
+assert_file_contains "$orch_log" "sync-subscription-auto-update" "reload_service should sync subscription auto-update schedule"
 assert_file_contains "$orch_log" "service-running" "reload_service should check service state through orchestrator"
 assert_file_contains "$orch_log" "reload-policy" "reload_service should invoke policy-only reload through orchestrator"
 
@@ -591,6 +603,7 @@ rm -f "$SERVICE_PID_FILE"
 reload_service
 assert_file_contains "$msg_log" "MihoWRT service is not running; skipping policy reload" "reload_service should skip policy reload when service is stopped"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "reload_service should sync remote policy auto-update even when stopped"
+assert_file_contains "$orch_log" "sync-subscription-auto-update" "reload_service should sync subscription auto-update even when stopped"
 assert_file_contains "$orch_log" "service-running" "reload_service should still ask orchestrator for service state when service is stopped"
 assert_file_not_contains "$orch_log" "reload-policy" "reload_service should not invoke policy reload when service is stopped"
 
@@ -629,6 +642,7 @@ assert_file_contains "$msg_log" "start" "apply should start service after stop d
 assert_file_contains "$msg_log" "MihoWRT on-disk changes applied" "apply should confirm successful on-disk apply"
 assert_file_contains "$orch_log" "validate" "apply should validate policy before restart"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "apply should sync remote policy auto-update schedule"
+assert_file_contains "$orch_log" "sync-subscription-auto-update" "apply should sync subscription auto-update schedule"
 assert_file_contains "$orch_log" "service-running" "apply should check service state before restart"
 
 : >"$msg_log"
@@ -638,6 +652,7 @@ apply
 assert_file_contains "$msg_log" "MihoWRT service is not running; validated on-disk config only" "apply should avoid starting stopped service implicitly"
 assert_file_contains "$orch_log" "validate" "apply should still validate config when service is stopped"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "apply should sync remote policy auto-update when service is stopped"
+assert_file_contains "$orch_log" "sync-subscription-auto-update" "apply should sync subscription auto-update when service is stopped"
 assert_file_contains "$orch_log" "service-running" "apply should still inspect running state when service is stopped"
 assert_file_not_contains "$msg_log" "start" "apply should not start stopped service automatically"
 

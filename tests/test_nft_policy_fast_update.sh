@@ -83,8 +83,21 @@ assert_file_not_contains "$NFT_CAPTURE_FILE" "flush set inet $NFT_TABLE_NAME $NF
 assert_file_not_contains "$NFT_CAPTURE_FILE" "delete table inet $NFT_TABLE_NAME" "fast update should not rebuild nft table"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "flush chain inet $NFT_TABLE_NAME $NFT_CHAIN_PROXY_DST_PORTS_PREROUTING" "unscoped fast update should not touch port chains"
 
+cat /dev/null >"$(runtime_snapshot_dst_file)"
+cat >"$POLICY_DST_LIST_FILE" <<'EOF'
+4.4.4.4
+EOF
+assert_false "adding first unscoped proxy_dst entry should require full reload to add set rule" nft_policy_component_fast_update_supported proxy_dst
+
+cat >"$(runtime_snapshot_dst_file)" <<'EOF'
+4.4.4.4
+EOF
+: >"$POLICY_DST_LIST_FILE"
+assert_false "removing last unscoped proxy_dst entry should require full reload to remove set rule" nft_policy_component_fast_update_supported proxy_dst
+
 cat >"$(runtime_snapshot_dst_file)" <<'EOF'
 1.1.1.1;443
+1.1.1.0/24
 EOF
 
 cat >"$POLICY_DST_LIST_FILE" <<'EOF'
@@ -107,12 +120,14 @@ cat >"$(runtime_snapshot_dst_file)" <<'EOF'
 EOF
 
 cat >"$POLICY_DST_LIST_FILE" <<'EOF'
+3.3.3.3
 2.2.2.2;443
 EOF
 assert_false "adding first port-scoped entry should require full reload to add jump" nft_policy_component_fast_update_supported proxy_dst
 
 cat >"$(runtime_snapshot_dst_file)" <<'EOF'
 1.1.1.1;443
+3.3.3.3
 EOF
 
 cat >"$POLICY_DST_LIST_FILE" <<'EOF'

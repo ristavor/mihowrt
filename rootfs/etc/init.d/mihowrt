@@ -52,9 +52,13 @@ validate_service_inputs() {
 	fi
 }
 
-sync_policy_remote_auto_update() {
+sync_auto_update_schedules() {
 	if ! "$ORCHESTRATOR" sync-policy-remote-auto-update >/dev/null 2>&1; then
 		msg "ERROR: Failed to sync remote policy auto-update schedule"
+		return 1
+	fi
+	if ! "$ORCHESTRATOR" sync-subscription-auto-update >/dev/null 2>&1; then
+		msg "ERROR: Failed to sync subscription auto-update schedule"
 		return 1
 	fi
 }
@@ -73,7 +77,7 @@ start_service() {
 	if ! validate_service_inputs; then
 		return 1
 	fi
-	sync_policy_remote_auto_update || return 1
+	sync_auto_update_schedules || return 1
 
 	if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
 		msg "ERROR: Failed to clean stale runtime state"
@@ -100,7 +104,7 @@ stop_service() {
 # require restart because those values define sockets and marks already in use.
 reload_service() {
 	msg "Reloading MihoWRT policy..."
-	sync_policy_remote_auto_update || return 1
+	sync_auto_update_schedules || return 1
 
 	if ! service_running; then
 		msg "MihoWRT service is not running; skipping policy reload"
@@ -157,7 +161,7 @@ apply() {
 	if ! validate_service_inputs; then
 		return 1
 	fi
-	sync_policy_remote_auto_update || return 1
+	sync_auto_update_schedules || return 1
 
 	if ! service_running; then
 		msg "MihoWRT service is not running; validated on-disk config only"

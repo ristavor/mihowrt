@@ -206,6 +206,29 @@ nft_policy_file_port_scoped_count() {
 	printf '%s\n' "$count"
 }
 
+nft_policy_file_unscoped_count() {
+	local file="$1"
+	local count=0
+	local line
+
+	[ -f "$file" ] || {
+		printf '0\n'
+		return 0
+	}
+
+	while IFS= read -r line; do
+		line="$(trim "$line")"
+		case "$line" in
+		'' | '#'*) continue ;;
+		esac
+		is_policy_entry "$line" || continue
+		policy_entry_has_ports "$line" && continue
+		count=$((count + 1))
+	done <"$file"
+
+	printf '%s\n' "$count"
+}
+
 # Compatibility helper for plain IPv4 list files.
 nft_emit_ipv4_file_to_set() {
 	local file="$1"
@@ -588,15 +611,21 @@ nft_policy_component_port_chains() {
 
 nft_policy_component_fast_update_supported() {
 	local component="$1"
-	local old_file="" new_file="" old_ports=0 new_ports=0 chain=""
+	local old_file="" new_file="" old_ports=0 new_ports=0 old_unscoped=0 new_unscoped=0 chain=""
 
 	old_file="$(nft_policy_component_snapshot_file "$component")" || return 1
 	new_file="$(nft_policy_component_file "$component")" || return 1
 	old_ports="$(nft_policy_file_port_scoped_count "$old_file")" || return 1
 	new_ports="$(nft_policy_file_port_scoped_count "$new_file")" || return 1
+	old_unscoped="$(nft_policy_file_unscoped_count "$old_file")" || return 1
+	new_unscoped="$(nft_policy_file_unscoped_count "$new_file")" || return 1
 
 	if { [ "$old_ports" -eq 0 ] && [ "$new_ports" -gt 0 ]; } ||
 		{ [ "$old_ports" -gt 0 ] && [ "$new_ports" -eq 0 ]; }; then
+		return 1
+	fi
+	if { [ "$old_unscoped" -eq 0 ] && [ "$new_unscoped" -gt 0 ]; } ||
+		{ [ "$old_unscoped" -gt 0 ] && [ "$new_unscoped" -eq 0 ]; }; then
 		return 1
 	fi
 

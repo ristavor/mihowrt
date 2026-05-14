@@ -276,7 +276,7 @@ policy_remote_write_auto_update_state() {
 }
 
 policy_remote_refresh_auto_update_state() {
-	local interval=""
+	local interval="" existing_interval="" existing_next_update=""
 
 	interval="$(policy_remote_configured_update_interval)" || {
 		policy_remote_sync_auto_update_cron 0 || return 1
@@ -288,6 +288,13 @@ policy_remote_refresh_auto_update_state() {
 		policy_remote_sync_auto_update_cron 0 || return 1
 		policy_remote_clear_auto_update_state
 		return 0
+	fi
+
+	existing_interval="$(policy_remote_state_value interval 2>/dev/null || true)"
+	existing_next_update="$(policy_remote_state_value next_update 2>/dev/null || true)"
+	if [ "$existing_interval" = "$interval" ] && [ -n "$existing_next_update" ] && is_uint "$existing_next_update"; then
+		policy_remote_sync_auto_update_cron 1
+		return $?
 	fi
 
 	policy_remote_write_auto_update_state "$interval" "scheduled" "" || return 1

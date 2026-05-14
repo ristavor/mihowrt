@@ -86,6 +86,9 @@ policy_remote_refresh_auto_update_state
 assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "refresh should create cron for positive interval"
 assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "interval=6" "refresh should write tmpfs schedule state for positive interval"
 assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "next_update=" "refresh should store next update in tmpfs"
+printf 'interval=6\nlast_update=1\nnext_update=123\nlast_result=scheduled\nreason=\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
+policy_remote_refresh_auto_update_state
+assert_eq "123" "$(policy_remote_state_value next_update)" "refresh should preserve next update when interval is unchanged"
 
 : >"$TEST_UCI_LOG"
 printf 'next_update=123\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"

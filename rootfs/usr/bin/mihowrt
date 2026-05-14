@@ -206,6 +206,9 @@ auto-update-policy-lists)
 sync-policy-remote-auto-update)
 	policy_remote_refresh_auto_update_state
 	;;
+sync-subscription-auto-update)
+	subscription_refresh_auto_update_state
+	;;
 migrate-legacy-settings)
 	migrate_legacy_uci_settings
 	;;
@@ -307,7 +310,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
 	exit 1
 	;;
 esac

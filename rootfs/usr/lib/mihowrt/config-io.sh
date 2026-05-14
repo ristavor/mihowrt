@@ -800,6 +800,7 @@ apply_config_runtime() {
 apply_config_runtime_auto_update() {
 	local candidate="$1"
 	local active_config="$CLASH_CONFIG"
+	local rollback_config=""
 	local old_config_json="" new_config_json="" live_config_json=""
 	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0 service_restart_needed=0
 	local reason="" http_code=""
@@ -877,15 +878,28 @@ apply_config_runtime_auto_update() {
 		mihomo_force_reload=1
 	fi
 
-	install_validated_config_candidate "$candidate" || return 1
+	rollback_config="$(backup_active_config_for_rollback)" || {
+		reason="Failed to back up active config before Mihomo hot reload"
+		rm -f "$candidate"
+		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason"
+		return $?
+	}
+
+	install_validated_config_candidate "$candidate" || {
+		rm -f "$rollback_config"
+		return 1
+	}
 
 	if ! mihomo_hot_reload_config "$live_config_json" "$active_config" "$mihomo_force_reload"; then
 		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
 		http_code="${MIHOMO_API_HTTP_CODE:-}"
+		restore_active_config_from_rollback "$rollback_config" || err "Failed to restore active config after failed auto-update hot reload"
 		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
 		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason" "$http_code"
 		return $?
 	fi
+	rm -f "$rollback_config"
 
 	log "Auto-updated subscription config through Mihomo hot reload"
 
@@ -985,6 +999,43 @@ install_validated_config_candidate() {
 
 	rm -f "$candidate"
 	mark_validated_config || err "Failed to record validated config marker"
+	return 0
+}
+
+backup_active_config_for_rollback() {
+	local active_config="$CLASH_CONFIG"
+	local backup_config=""
+
+	require_command mktemp || return 1
+	[ -r "$active_config" ] || {
+		err "active config missing at $active_config"
+		return 1
+	}
+
+	backup_config="$(mktemp /tmp/mihowrt-config.rollback.XXXXXX)" || {
+		err "Failed to allocate config rollback path"
+		return 1
+	}
+
+	cp -f "$active_config" "$backup_config" || {
+		rm -f "$backup_config"
+		err "Failed to back up active config before Mihomo hot reload"
+		return 1
+	}
+
+	printf '%s' "$backup_config"
+}
+
+restore_active_config_from_rollback() {
+	local rollback_config="$1"
+	local active_config="$CLASH_CONFIG"
+
+	[ -r "$rollback_config" ] || return 1
+	cp -f "$rollback_config" "$active_config" || return 1
+	rm -f "$rollback_config"
+	if ! mark_validated_config; then
+		err "Failed to record restored config marker"
+	fi
 	return 0
 }
 

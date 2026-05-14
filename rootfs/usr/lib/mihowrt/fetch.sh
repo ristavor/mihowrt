@@ -584,39 +584,132 @@ subscription_commit_if_changed() {
 	}
 }
 
+subscription_configured_update_interval() {
+	local interval_override="" update_interval="" header_interval=""
+
+	require_command uci || return 1
+	interval_override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
+	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"
+	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
+	subscription_effective_update_interval "$interval_override" "$update_interval" "$header_interval"
+}
+
+subscription_auto_update_state_file() {
+	printf '%s' "${SUBSCRIPTION_AUTO_UPDATE_STATE_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/subscription-auto.state}"
+}
+
+subscription_clear_auto_update_state() {
+	rm -f "$(subscription_auto_update_state_file)"
+}
+
+subscription_state_value() {
+	local key="$1"
+	local file=""
+
+	file="$(subscription_auto_update_state_file)"
+	[ -r "$file" ] || return 1
+	sed -n "s/^$key=//p" "$file" | tail -n 1
+}
+
+subscription_write_auto_update_state() {
+	local interval="$1"
+	local result="${2:-scheduled}"
+	local reason="${3:-}"
+	local state_file="" state_dir="" tmp_file="" now="" next_update=""
+
+	state_file="$(subscription_auto_update_state_file)"
+	state_dir="$(dirname "$state_file")"
+	ensure_dir "$state_dir" || return 1
+	tmp_file="${state_file}.tmp.$$"
+	now="$(subscription_now_epoch)"
+	next_update="$(subscription_next_update_epoch "$interval")"
+	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+
+	{
+		printf 'enabled=1\n'
+		printf 'interval=%s\n' "$interval"
+		printf 'last_update=%s\n' "$now"
+		printf 'next_update=%s\n' "$next_update"
+		printf 'last_result=%s\n' "$result"
+		printf 'reason=%s\n' "$reason"
+	} >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+
+	mv -f "$tmp_file" "$state_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+}
+
+subscription_write_auto_update_disabled_state() {
+	local reason="${1:-}"
+	local state_file="" state_dir="" tmp_file="" now=""
+
+	state_file="$(subscription_auto_update_state_file)"
+	state_dir="$(dirname "$state_file")"
+	ensure_dir "$state_dir" || return 1
+	tmp_file="${state_file}.tmp.$$"
+	now="$(subscription_now_epoch)"
+	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+
+	{
+		printf 'enabled=0\n'
+		printf 'interval=\n'
+		printf 'last_update=%s\n' "$now"
+		printf 'next_update=\n'
+		printf 'last_result=disabled\n'
+		printf 'reason=%s\n' "$reason"
+	} >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+
+	mv -f "$tmp_file" "$state_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+}
+
 subscription_store_auto_update_state() {
 	local enabled="$1"
 	local interval="$2"
 	local reason="${3:-}"
 	local reset_next="${4:-1}"
-	local next_update="" changed=0 rc=0
-	local pkg_config="${PKG_CONFIG:-mihowrt}"
+	local existing_interval="" existing_next_update=""
 
-	require_command uci || return 1
-	uci -q set "$pkg_config.settings=settings" || return 1
-
-	subscription_set_option_if_changed subscription_auto_update_enabled "$enabled"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_set_option_if_changed subscription_auto_update_reason "$reason"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-
-	if [ "$enabled" = "1" ]; then
-		if [ "$reset_next" = "1" ]; then
-			next_update="$(subscription_next_update_epoch "$interval")"
-			subscription_set_option_if_changed subscription_next_update "$next_update"
-			rc=$?
-			case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+	if [ "$enabled" != "1" ]; then
+		subscription_sync_auto_update_cron 0 || return 1
+		if [ -n "$reason" ]; then
+			subscription_write_auto_update_disabled_state "$reason" || return 1
+		else
+			subscription_clear_auto_update_state
 		fi
-	else
-		subscription_delete_option_if_present subscription_next_update
-		rc=$?
-		case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+		return 0
 	fi
 
-	subscription_commit_if_changed "$changed" || return 1
-	subscription_sync_auto_update_cron "$enabled"
+	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		subscription_sync_auto_update_cron 0 || return 1
+		if [ -n "$reason" ]; then
+			subscription_write_auto_update_disabled_state "$reason" || return 1
+		else
+			subscription_clear_auto_update_state
+		fi
+		return 0
+	fi
+
+	if [ "$reset_next" != "1" ]; then
+		existing_interval="$(subscription_state_value interval 2>/dev/null || true)"
+		existing_next_update="$(subscription_state_value next_update 2>/dev/null || true)"
+		if [ "$existing_interval" = "$interval" ] && [ -n "$existing_next_update" ] && is_uint "$existing_next_update"; then
+			subscription_sync_auto_update_cron 1
+			return $?
+		fi
+	fi
+
+	subscription_write_auto_update_state "$interval" "scheduled" "$reason" || return 1
+	subscription_sync_auto_update_cron 1
 }
 
 subscription_hot_reload_supported_for_config_json() {
@@ -643,13 +736,13 @@ subscription_refresh_auto_update_state() {
 		return 0
 	fi
 
-	subscription_store_auto_update_state 1 "$interval" ""
+	subscription_store_auto_update_state 1 "$interval" "" 0
 }
 
 # Emit stored subscription URL for LuCI.
 subscription_url_json() {
 	local subscription_url="" interval_override="" update_interval="" header_interval=""
-	local auto_enabled="" last_update="" next_update="" reason="" effective_interval=""
+	local auto_enabled="0" state_enabled="" last_update="" next_update="" reason="" effective_interval=""
 
 	require_command jq || return 1
 	require_command uci || return 1
@@ -657,11 +750,20 @@ subscription_url_json() {
 	interval_override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
 	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"
 	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
-	auto_enabled="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_auto_update_enabled" 2>/dev/null || true)"
-	last_update="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_last_update" 2>/dev/null || true)"
-	next_update="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_next_update" 2>/dev/null || true)"
-	reason="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_auto_update_reason" 2>/dev/null || true)"
 	effective_interval="$(subscription_effective_update_interval "$interval_override" "$update_interval" "$header_interval")"
+	state_enabled="$(subscription_state_value enabled 2>/dev/null || true)"
+	last_update="$(subscription_state_value last_update 2>/dev/null || true)"
+	next_update="$(subscription_state_value next_update 2>/dev/null || true)"
+	reason="$(subscription_state_value reason 2>/dev/null || true)"
+	if [ -n "$subscription_url" ] && [ -n "$effective_interval" ] && [ "$effective_interval" != "0" ] && [ "$state_enabled" != "0" ]; then
+		auto_enabled=1
+	elif [ -z "$reason" ]; then
+		if [ -z "$subscription_url" ]; then
+			reason="subscription URL is empty"
+		else
+			reason="auto-update interval is disabled"
+		fi
+	fi
 
 	jq -nc \
 		--arg subscription_url "$subscription_url" \
@@ -722,7 +824,7 @@ set_subscription_url() {
 
 set_subscription_settings() {
 	local url="" override="" interval="" header_interval="${4:-}" header_provided=0
-	local current_config_json="" changed=0 rc=0
+	local current_config_json="" current_url="" changed=0 rc=0
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 
 	url="$(trim "${1:-}")"
@@ -748,36 +850,62 @@ set_subscription_settings() {
 	fi
 
 	require_command uci || return 1
+	current_url="$(uci -q get "$pkg_config.settings.subscription_url" 2>/dev/null || true)"
 	uci -q set "$pkg_config.settings=settings" || {
 		err "Failed to prepare subscription UCI section"
 		return 1
 	}
 
-	subscription_set_option_if_changed subscription_url "$url"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_set_option_if_changed subscription_interval_override "$override"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+	if subscription_set_option_if_changed subscription_url "$url"; then
+		changed=1
+	else
+		rc=$?
+		[ "$rc" -eq 1 ] || return 1
+	fi
+	if subscription_set_option_if_changed subscription_interval_override "$override"; then
+		changed=1
+	else
+		rc=$?
+		[ "$rc" -eq 1 ] || return 1
+	fi
 	if [ -n "$interval" ]; then
 		interval="$(normalize_uint "$interval")"
-		subscription_set_option_if_changed subscription_update_interval "$interval"
-		rc=$?
-		case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+		if subscription_set_option_if_changed subscription_update_interval "$interval"; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
 	else
-		subscription_delete_option_if_present subscription_update_interval
-		rc=$?
-		case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+		if subscription_delete_option_if_present subscription_update_interval; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
 	fi
 	if [ "$header_provided" -eq 1 ] && [ -n "$header_interval" ]; then
 		header_interval="$(normalize_uint "$header_interval")"
-		subscription_set_option_if_changed subscription_header_interval "$header_interval"
-		rc=$?
-		case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+		if subscription_set_option_if_changed subscription_header_interval "$header_interval"; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
 	elif [ "$header_provided" -eq 1 ]; then
-		subscription_delete_option_if_present subscription_header_interval
-		rc=$?
-		case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
+		if subscription_delete_option_if_present subscription_header_interval; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
+	elif [ "$url" != "$current_url" ]; then
+		if subscription_delete_option_if_present subscription_header_interval; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
 	fi
 
 	subscription_commit_if_changed "$changed" || return 1
@@ -881,49 +1009,54 @@ fetch_subscription_json() {
 }
 
 subscription_due_for_update() {
-	local enabled="" next_update="" now=""
+	local subscription_url="" interval="" next_update="" now=""
 
 	require_command uci || return 1
-	enabled="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_auto_update_enabled" 2>/dev/null || true)"
-	[ "$enabled" = "1" ] || return 1
-	next_update="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_next_update" 2>/dev/null || true)"
+	subscription_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true)"
+	interval="$(subscription_configured_update_interval)" || {
+		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" || true
+		return 1
+	}
+	if [ -z "$subscription_url" ] || [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		if [ -z "$subscription_url" ]; then
+			subscription_store_auto_update_state 0 "" "subscription URL is empty" || true
+		else
+			subscription_store_auto_update_state 0 "" "auto-update interval is disabled" || true
+		fi
+		return 1
+	fi
+
+	next_update="$(subscription_state_value next_update 2>/dev/null || true)"
+	if [ -z "$next_update" ]; then
+		subscription_write_auto_update_state "$interval" "scheduled" "" || true
+		return 1
+	fi
 	now="$(subscription_now_epoch)"
 	[ -n "$next_update" ] && is_uint "$next_update" || return 0
 	[ "$now" -ge "$next_update" ]
 }
 
 subscription_mark_update_success() {
-	local interval="" next_update="" now="" changed=0 rc=0
-	local override="" update_interval="" header_interval=""
-	local pkg_config="${PKG_CONFIG:-mihowrt}"
+	local interval=""
 
-	require_command uci || return 1
-	override="$(uci -q get "$pkg_config.settings.subscription_interval_override" 2>/dev/null || true)"
-	update_interval="$(uci -q get "$pkg_config.settings.subscription_update_interval" 2>/dev/null || true)"
-	header_interval="$(uci -q get "$pkg_config.settings.subscription_header_interval" 2>/dev/null || true)"
-	interval="$(subscription_effective_update_interval "$override" "$update_interval" "$header_interval")"
+	interval="$(subscription_configured_update_interval)" || {
+		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
+		return 0
+	}
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
 		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
 		return 0
 	fi
 
-	now="$(subscription_now_epoch)"
-	next_update="$(subscription_next_update_epoch "$interval")"
-	uci -q set "$pkg_config.settings=settings" || return 1
-	subscription_set_option_if_changed subscription_last_update "$now"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_set_option_if_changed subscription_next_update "$next_update"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_set_option_if_changed subscription_auto_update_enabled "1"
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_set_option_if_changed subscription_auto_update_reason ""
-	rc=$?
-	case "$rc" in 0) changed=1 ;; 2) return 1 ;; esac
-	subscription_commit_if_changed "$changed" || return 1
-	subscription_sync_auto_update_cron 1
+	subscription_write_auto_update_state "$interval" "success" "" || return 1
+}
+
+subscription_mark_update_failure() {
+	local interval="" reason="${1:-subscription auto-update failed}"
+
+	interval="$(subscription_configured_update_interval)" || return 0
+	[ -n "$interval" ] && [ "$interval" != "0" ] || return 0
+	subscription_write_auto_update_state "$interval" "failure" "$reason"
 }
 
 update_subscription_config() {
@@ -946,7 +1079,9 @@ update_subscription_config() {
 		return 1
 	}
 
-	if ! fetch_subscription_config_to_file "$url" "$candidate"; then
+	if fetch_subscription_config_to_file "$url" "$candidate"; then
+		:
+	else
 		rc=$?
 		rm -f "$candidate"
 		jq -nc \
@@ -985,10 +1120,18 @@ update_subscription_config() {
 }
 
 auto_update_subscription_config() {
+	local output="" rc=0
+
 	if ! subscription_due_for_update; then
 		printf 'updated=0\n'
 		return 0
 	fi
 
-	update_subscription_config
+	output="$(update_subscription_config)" || rc=$?
+	printf '%s\n' "$output"
+	if [ "$rc" -ne 0 ]; then
+		subscription_mark_update_failure "subscription auto-update failed" || true
+		return "$rc"
+	fi
+	return 0
 }

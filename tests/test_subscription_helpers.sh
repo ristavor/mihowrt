@@ -107,6 +107,7 @@ chmod +x "$tmpbin/logger" "$tmpbin/uci" "$tmpbin/wget"
 export PATH="$tmpbin:$PATH"
 export TEST_UCI_LOG="$tmpdir/uci.log"
 export TEST_WGET_LOG="$tmpdir/wget.log"
+SUBSCRIPTION_AUTO_UPDATE_STATE_FILE="$tmpdir/subscription-auto.state"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
@@ -175,6 +176,35 @@ subscription_sync_auto_update_cron 0
 assert_file_not_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should remove auto-update task after interval becomes disabled"
 
 : >"$TEST_UCI_LOG"
+: >"$SUBSCRIPTION_CRON_FILE"
+rm -f "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="1"
+export TEST_UCI_UPDATE_INTERVAL="12"
+export TEST_UCI_HEADER_INTERVAL="24"
+subscription_refresh_auto_update_state
+assert_file_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription refresh should create cron for positive interval"
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "interval=12" "subscription refresh should write tmpfs schedule state"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set" "subscription refresh should not write runtime schedule state to UCI"
+
+printf 'interval=12\nlast_update=1\nnext_update=123\nlast_result=scheduled\nreason=\n' >"$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE"
+subscription_refresh_auto_update_state
+assert_eq "123" "$(subscription_state_value next_update)" "subscription refresh should preserve next update when interval is unchanged"
+
+: >"$TEST_UCI_LOG"
+subscription_mark_update_success
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "last_result=success" "subscription success should update tmpfs result"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set" "subscription success should not write schedule state to UCI"
+printf '17 * * * * /usr/bin/mihowrt auto-update-subscription >/dev/null 2>&1 # mihowrt subscription auto-update\n' >"$SUBSCRIPTION_CRON_FILE"
+subscription_cron_before="$(cat "$SUBSCRIPTION_CRON_FILE")"
+subscription_mark_update_success
+assert_eq "$subscription_cron_before" "$(cat "$SUBSCRIPTION_CRON_FILE")" "subscription success should not rewrite cron"
+subscription_store_auto_update_state 0 "" "api failed"
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "enabled=0" "subscription disabled state should be kept in tmpfs for UI reason"
+assert_eq "false" "$(subscription_url_json | jq -r '.subscription_auto_update_enabled')" "subscription_url_json should expose disabled runtime state"
+assert_eq "api failed" "$(subscription_url_json | jq -r '.subscription_auto_update_reason')" "subscription_url_json should expose disabled runtime reason"
+
+: >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "
 assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should read current URL before writing"
 assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings=settings" "set_subscription_url should ensure named UCI section"
@@ -196,6 +226,14 @@ assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url s
 : >"$TEST_UCI_LOG"
 assert_false "set_subscription_url should reject unsupported schemes" set_subscription_url "file:///tmp/config.yaml"
 [[ ! -s "$TEST_UCI_LOG" ]] || fail "set_subscription_url should not touch UCI for invalid URL"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/old.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+set_subscription_settings "https://example.com/new.yaml" 0 ""
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_header_interval" "set_subscription_settings should clear stale fetched interval when URL changes without header"
 
 : >"$TEST_WGET_LOG"
 SUBSCRIPTION_FETCH_TIMEOUT=7
@@ -323,5 +361,16 @@ auto_update_zero_header_json="$(update_subscription_config)"
 assert_eq "hot_reloaded" "$(printf '%s\n' "$auto_update_zero_header_json" | jq -r '.action')" "update_subscription_config should still apply when subscription interval header is zero"
 assert_file_contains "$TEST_UCI_LOG" "store_auto_update_state:0::auto-update interval is disabled" "update_subscription_config should disable scheduling when header interval is zero"
 assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "update_subscription_config should not schedule next update for zero header interval"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_WGET_MODE=fail
+set +e
+auto_update_fetch_fail_json="$(update_subscription_config)"
+auto_update_fetch_fail_rc=$?
+set -e
+assert_eq "1" "$auto_update_fetch_fail_rc" "update_subscription_config should return non-zero when subscription fetch fails"
+assert_eq "false" "$(printf '%s\n' "$auto_update_fetch_fail_json" | jq -r '.updated')" "update_subscription_config should expose failed update JSON"
+assert_eq "wget_failed" "$(printf '%s\n' "$auto_update_fetch_fail_json" | jq -r '.error.kind')" "update_subscription_config should expose fetch failure kind"
 
 pass "subscription helpers"

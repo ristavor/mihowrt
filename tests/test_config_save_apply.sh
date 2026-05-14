@@ -59,6 +59,7 @@ function createContext(overrides = {}) {
 		execCalls: [],
 		notifications: [],
 		appliedStates: [],
+		pendingPersistCalls: [],
 		refreshCalls: 0,
 		serviceStatusCalls: 0,
 		restartValidatedCalls: 0,
@@ -133,6 +134,12 @@ let savedConfigContent = 'mode: old\\n';
 ${controlsFnSource}
 ${updateFnSource}
 ${restartFnSource}
+async function persistPendingSubscriptionSettings(configContent) {
+	globalThis.pendingPersistCalls.push(configContent);
+	if (globalThis.pendingPersistError)
+		throw new Error(globalThis.pendingPersistError);
+	return !!globalThis.pendingPersistResult;
+}
 const saveAndApply = ${saveFnSource};
 globalThis.saveAndApply = saveAndApply;
 globalThis.getSavedConfigContent = () => savedConfigContent;
@@ -155,6 +162,7 @@ globalThis.getSaveInFlight = () => saveInFlight;
 	assert(success.pollPredicateResult === undefined, 'saveAndApply should skip restart polling after hot reload');
 	assert(success.appliedStates.length === 0, 'saveAndApply should not apply restart-settled state after hot reload');
 	assert(success.refreshCalls === 1, 'saveAndApply should refresh state after hot reload');
+	assert(success.pendingPersistCalls.length === 1 && success.pendingPersistCalls[0] === 'mode: direct\n', 'saveAndApply should persist staged subscription settings after hot reload apply');
 	assert(success.disabledDuringApply === true, 'saveAndApply should lock controls while save is in flight');
 	assert(success.getSavedConfigContent() === 'mode: direct\n', 'saveAndApply should update saved content after success');
 	assert(success.getSaveInFlight() === false, 'saveAndApply should clear save lock after success');
@@ -168,6 +176,7 @@ globalThis.getSaveInFlight = () => saveInFlight;
 	await restartFallback.saveAndApply();
 	assert(restartFallback.restartValidatedCalls === 1, 'saveAndApply should restart running service when backend requires restart');
 	assert(restartFallback.pollPredicateResult === true, 'saveAndApply should wait for ready service state after restart fallback');
+	assert(restartFallback.pendingPersistCalls.length === 1 && restartFallback.pendingPersistCalls[0] === 'mode: direct\n', 'saveAndApply should persist staged subscription settings after restart fallback settles');
 	assert(restartFallback.appliedStates.length === 1 && restartFallback.appliedStates[0].running === true && restartFallback.appliedStates[0].enabled === true, 'saveAndApply should apply settled running state after restart fallback');
 	assert(restartFallback.refreshCalls === 0, 'saveAndApply should not force refresh on successful restart fallback');
 	assert(restartFallback.notifications.some(item => item.level === 'info' && String(item.message).includes('Service restarted successfully.')), 'saveAndApply should report service restart fallback success');
@@ -179,11 +188,28 @@ globalThis.getSaveInFlight = () => saveInFlight;
 	await failure.saveAndApply();
 
 	assert(failure.writeCalls.length === 0, 'saveAndApply should not write temp config before backend failure');
+	assert(failure.pendingPersistCalls.length === 0, 'saveAndApply should not persist staged subscription settings after backend failure');
 	assert(!failure.execCalls.some(call => call.cmd === '/bin/sh'), 'saveAndApply should not attempt temp config cleanup after backend failure');
 	assert(failure.restartValidatedCalls === 0, 'saveAndApply should not restart service when backend apply fails');
 	assert(failure.getSaveInFlight() === false, 'saveAndApply should clear save lock after backend failure');
 	assert(failure.saveApplyButton.disabled === false, 'saveAndApply should re-enable controls after backend failure');
 	assert(failure.notifications.some(item => item.level === 'error' && String(item.message).includes('Unable to save contents: apply broke')), 'saveAndApply should surface backend apply failure');
+
+	const pendingFailure = createContext({ pendingPersistError: 'subscription save broke' });
+	await pendingFailure.saveAndApply();
+	assert(pendingFailure.notifications.some(item => item.level === 'warning' && String(item.message).includes('subscription save broke')), 'saveAndApply should warn when staged subscription settings fail to save');
+
+	const unchangedPending = createContext({
+		editor: {
+			getValue: () => 'mode: old\n'
+		},
+		pendingPersistResult: true
+	});
+	await unchangedPending.saveAndApply();
+	assert(unchangedPending.serviceStatusCalls === 0, 'saveAndApply should not read service state when unchanged config only saves staged subscription settings');
+	assert(!unchangedPending.applyConfigPath, 'saveAndApply should not apply unchanged config when only subscription settings are pending');
+	assert(unchangedPending.pendingPersistCalls.length === 1 && unchangedPending.pendingPersistCalls[0] === 'mode: old\n', 'saveAndApply should persist staged subscription settings even when config is unchanged');
+	assert(unchangedPending.notifications.some(item => item.level === 'info' && String(item.message).includes('Subscription settings saved.')), 'saveAndApply should report saved staged subscription settings for unchanged config');
 })().catch(err => {
 	throw err;
 });

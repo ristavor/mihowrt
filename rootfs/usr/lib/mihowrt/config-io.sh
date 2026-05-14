@@ -986,9 +986,14 @@ apply_config_runtime_auto_update() {
 	if ! mihomo_hot_reload_config "$live_config_json" "$active_config" "$mihomo_force_reload"; then
 		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
 		http_code="${MIHOMO_API_HTTP_CODE:-}"
-		restore_active_config_from_rollback "$rollback_config" || err "Failed to restore active config after failed auto-update hot reload"
-		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
-		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason" "$http_code"
+		rollback_restart_required="$old_service_restart_needed"
+		rollback_restart_reason="$old_service_restart_reason"
+		rollback_auto_update_hot_reload "$rollback_config" "$live_config_json" "$active_config" "$mihomo_force_reload" "$reason" || {
+			rollback_restart_required=1
+			rollback_restart_reason="Auto-update rollback failed; manual service restart is required"
+		}
+		subscription_store_auto_update_state 0 "" "$reason" 1 "$rollback_restart_required" "$rollback_restart_reason" 2>/dev/null || true
+		apply_config_result_json "auto_update_disabled" "$rollback_restart_required" 0 0 "$reason" "$http_code"
 		return $?
 	fi
 

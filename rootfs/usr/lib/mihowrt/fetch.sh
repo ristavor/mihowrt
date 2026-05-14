@@ -1216,9 +1216,13 @@ update_subscription_config() {
 	restart_reason="$(printf '%s\n' "$result" | jq -r '.reason // ""' 2>/dev/null || true)"
 	case "$action" in
 	saved | hot_reloaded | policy_reloaded) ;;
+	auto_update_disabled)
+		printf '%s\n' "$result"
+		return 1
+		;;
 	*)
 		printf '%s\n' "$result"
-		return 0
+		return 1
 		;;
 	esac
 
@@ -1245,7 +1249,9 @@ auto_update_subscription_config() {
 	output="$(update_subscription_config)" || rc=$?
 	printf '%s\n' "$output"
 	if [ "$rc" -ne 0 ]; then
-		subscription_mark_update_failure "subscription auto-update failed" || true
+		if [ "$(printf '%s\n' "$output" | jq -r '.action // ""' 2>/dev/null || true)" != "auto_update_disabled" ]; then
+			subscription_mark_update_failure "subscription auto-update failed" || true
+		fi
 		return "$rc"
 	fi
 	return 0

@@ -29,6 +29,7 @@ let saveInFlight = false;
 let subscriptionInFlight = false;
 let savedConfigContent = '';
 let savedSubscriptionUrl = null;
+let pendingSubscriptionSettings = null;
 let lastServiceState = {
 	running: false,
 	enabled: false,
@@ -336,6 +337,28 @@ async function persistSubscriptionSettings(subscriptionUrl, headerInterval = nul
 	savedSubscriptionUrl = String(subscriptionUrl || '').trim();
 }
 
+function stageSubscriptionSettings(subscriptionUrl, result) {
+	const content = configHelper.editorContentForSave(String(result?.content || ''));
+
+	pendingSubscriptionSettings = {
+		subscriptionUrl: String(subscriptionUrl || '').trim(),
+		profileUpdateInterval: String(result?.profileUpdateInterval || ''),
+		hotReloadSupported: result?.hotReloadSupported !== false,
+		configContent: content
+	};
+}
+
+async function persistPendingSubscriptionSettings(configContent) {
+	const pending = pendingSubscriptionSettings;
+
+	if (!pending || pending.configContent !== configContent)
+		return false;
+
+	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval, pending.hotReloadSupported);
+	pendingSubscriptionSettings = null;
+	return true;
+}
+
 function editorHasUnsavedChanges() {
 	// Compare editor content with the last validated/saved content.
 	return !!editor && configHelper.editorContentForSave(editor.getValue()) !== savedConfigContent;
@@ -418,6 +441,7 @@ return view.extend({
 			await withSubscriptionLock(async () => {
 				const value = subscriptionUrlInputValue();
 				await persistSubscriptionSettings(value);
+				pendingSubscriptionSettings = null;
 
 				mihowrtUi.notify(value ? _('Subscription URL saved.') : _('Subscription disabled.'), 'info');
 			}).catch(e => {
@@ -447,12 +471,7 @@ return view.extend({
 					return;
 				}
 
-				try {
-					await persistSubscriptionSettings(value, result.profileUpdateInterval, result.hotReloadSupported);
-				}
-				catch (e) {
-					mihowrtUi.notify(_('Subscription loaded, but settings were not saved: %s').format(e.message), 'warning');
-				}
+				stageSubscriptionSettings(value, result);
 
 				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');
 			}).catch(e => {
@@ -475,6 +494,16 @@ return view.extend({
 
 				const value = configHelper.editorContentForSave(editor.getValue());
 				if (value === savedConfigContent) {
+					try {
+						if (await persistPendingSubscriptionSettings(value)) {
+							mihowrtUi.notify(_('Subscription settings saved.'), 'info');
+							return;
+						}
+					}
+					catch (e) {
+						mihowrtUi.notify(_('Unable to save subscription settings: %s').format(e.message), 'error');
+						return;
+					}
 					mihowrtUi.notify(_('Configuration is unchanged.'), 'info');
 					return;
 				}
@@ -492,7 +521,17 @@ return view.extend({
 				savedConfigContent = value;
 				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
 
+				const persistPendingSubscriptionAfterApply = async function() {
+					try {
+						await persistPendingSubscriptionSettings(value);
+					}
+					catch (e) {
+						mihowrtUi.notify(_('Configuration saved, but subscription settings were not saved: %s').format(e.message), 'warning');
+					}
+				};
+
 				if (!applyResult.restartRequired) {
+					await persistPendingSubscriptionAfterApply();
 					await refreshServiceState();
 					if (applyResult.policyReloaded)
 						mihowrtUi.notify(_('Configuration hot-reloaded; policy updated.'), 'info');
@@ -526,9 +565,11 @@ return view.extend({
 					}
 
 					applyServiceState(restartSettled.running, restartSettled.enabled);
+					await persistPendingSubscriptionAfterApply();
 					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
 				}
 				else {
+					await persistPendingSubscriptionAfterApply();
 					await refreshServiceState();
 				}
 			}

@@ -394,9 +394,33 @@ export TEST_UCI_UPDATE_INTERVAL=""
 export TEST_UCI_HEADER_INTERVAL="24"
 export TEST_WGET_MODE=ok
 export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
+set +e
 auto_update_disabled_json="$(update_subscription_config)"
+auto_update_disabled_rc=$?
+set -e
 assert_eq "auto_update_disabled" "$(printf '%s\n' "$auto_update_disabled_json" | jq -r '.action')" "update_subscription_config should return disabled action from apply"
+assert_eq "1" "$auto_update_disabled_rc" "update_subscription_config should fail when apply disables auto-update"
 assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "failed auto-update apply should not re-enable auto-update state"
+
+subscription_mark_update_failure() {
+	printf 'mark_update_failure:%s\n' "${1:-}" >>"$TEST_UCI_LOG"
+}
+
+: >"$TEST_UCI_LOG"
+printf 'interval=24\nlast_update=1\nnext_update=0\nlast_result=scheduled\nreason=\n' >"$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
+set +e
+auto_update_disabled_cron_json="$(auto_update_subscription_config)"
+auto_update_disabled_cron_rc=$?
+set -e
+assert_eq "auto_update_disabled" "$(printf '%s\n' "$auto_update_disabled_cron_json" | jq -r '.action')" "auto_update_subscription_config should expose disabled action"
+assert_eq "1" "$auto_update_disabled_cron_rc" "auto_update_subscription_config should fail when apply disables auto-update"
+assert_file_not_contains "$TEST_UCI_LOG" "mark_update_failure:" "auto_update_subscription_config should not re-enable disabled state as generic failure"
 
 apply_config_runtime_auto_update() {
 	rm -f "$1"

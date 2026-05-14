@@ -86,6 +86,10 @@ mihomo_hot_reload_config() {
 	printf 'mihomo_hot_reload_config_api:%s:%s\n' "$(printf '%s\n' "$1" | jq -r '.external_controller // ""')" "$(printf '%s\n' "$1" | jq -r '.external_controller_unix // ""')" >>"$event_log"
 	MIHOMO_API_REASON="${TEST_API_REASON:-api unavailable}"
 	MIHOMO_API_HTTP_CODE="${TEST_API_HTTP_CODE:-}"
+	if [ "${TEST_API_FAIL_ONCE:-0}" = "1" ]; then
+		TEST_API_FAIL_ONCE=0
+		return 2
+	fi
 	return "${TEST_API_RC:-0}"
 }
 
@@ -227,14 +231,29 @@ assert_file_not_contains "$event_log" "restart_required" "auto-update should not
 
 : >"$event_log"
 write_configs
-TEST_API_RC=2
+TEST_API_RC=0
+TEST_API_FAIL_ONCE=1
 TEST_API_REASON="Mihomo API reload request failed"
 TEST_API_HTTP_CODE="000"
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update API failure should disable schedule and restore active config"
+assert_eq "false" "$(json_bool "$result" '.restart_required')" "confirmed rollback after API failure should not force manual restart"
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update failure should install before API reload so relative paths resolve"
-assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update failure should call API with active config path"
+assert_eq "2" "$(grep -cF "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "$event_log")" "auto-update API failure should hot reload new config then restored config"
+assert_file_contains "$event_log" "log:Rolled back subscription config after failed auto-update hot reload: Mihomo API reload request failed" "API failure should log confirmed rollback"
 assert_eq "old" "$(cat "$CLASH_CONFIG")" "auto-update failure should roll back active config after failed hot reload"
+unset TEST_API_FAIL_ONCE
+
+: >"$event_log"
+write_configs
+TEST_API_RC=2
+TEST_API_REASON="Mihomo API reload request failed"
+TEST_API_HTTP_CODE="000"
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update API failure with failed rollback should disable schedule"
+assert_eq "true" "$(json_bool "$result" '.restart_required')" "failed rollback after API failure should require manual restart"
+assert_eq "old" "$(cat "$CLASH_CONFIG")" "failed rollback request should still restore active file"
+assert_file_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API reload request failed:1:1:Auto-update rollback failed; manual service restart is required" "API failure should persist manual restart when rollback hot reload fails"
 TEST_API_RC=0
 TEST_API_REASON=""
 TEST_API_HTTP_CODE=""

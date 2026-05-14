@@ -566,7 +566,7 @@ policy_fetch_remote_list() {
 		rm -f "$remote_file"
 		return 1
 	}
-	if ! fetch_http_body_limited "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" >"$remote_file"; then
+	if ! fetch_http_body_limited_to_file "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" "$remote_file" 0; then
 		rm -f "$remote_file"
 		return 1
 	fi

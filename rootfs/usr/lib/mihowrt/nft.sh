@@ -140,7 +140,7 @@ nft_emit_policy_file_to_set() {
 		return 0
 	}
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;
@@ -193,7 +193,7 @@ nft_policy_file_port_scoped_count() {
 		return 0
 	}
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;
@@ -216,7 +216,7 @@ nft_policy_file_unscoped_count() {
 		return 0
 	}
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;
@@ -303,7 +303,7 @@ nft_emit_policy_port_rules() {
 
 	[ -f "$file" ] || return 0
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;
@@ -332,7 +332,7 @@ nft_emit_policy_quic_port_rejects() {
 
 	[ -f "$file" ] || return 0
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;

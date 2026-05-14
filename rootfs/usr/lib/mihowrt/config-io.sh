@@ -808,7 +808,7 @@ apply_config_runtime_auto_update() {
 	local active_config="$CLASH_CONFIG"
 	local rollback_config=""
 	local old_config_json="" new_config_json="" live_config_json=""
-	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0 service_restart_needed=0
+	local config_changed=1 policy_reload_needed=0 mihomo_force_reload=0 service_restart_needed=0 old_service_restart_needed=0 rollback_restart_required=0
 	local reason="" http_code=""
 
 	if [ -r "$active_config" ]; then
@@ -856,6 +856,9 @@ apply_config_runtime_auto_update() {
 		live_config_json="$(mihomo_api_live_or_config_json "$old_config_json" 2>/dev/null || true)"
 	fi
 	[ -n "$live_config_json" ] || live_config_json="$old_config_json"
+	if config_requires_service_restart "$live_config_json" "$old_config_json"; then
+		old_service_restart_needed=1
+	fi
 
 	if ! mihomo_hot_reload_supported "$live_config_json"; then
 		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in live config}"
@@ -905,11 +908,11 @@ apply_config_runtime_auto_update() {
 		apply_config_result_json "auto_update_disabled" 0 0 0 "$reason" "$http_code"
 		return $?
 	fi
-	rm -f "$rollback_config"
 
 	log "Auto-updated subscription config through Mihomo hot reload"
 
 	if [ "$policy_reload_needed" -eq 0 ]; then
+		rm -f "$rollback_config"
 		config_refresh_subscription_auto_update_state "$new_config_json" "$service_restart_needed" "$reason"
 		apply_config_result_json "hot_reloaded" "$service_restart_needed" 1 0 "$reason"
 		return $?
@@ -917,18 +920,23 @@ apply_config_runtime_auto_update() {
 
 	if ! wait_for_current_mihomo_listeners; then
 		reason="Mihomo listeners were not ready after auto-update hot reload"
+		rollback_restart_required="$old_service_restart_needed"
+		rollback_auto_update_hot_reload "$rollback_config" "$live_config_json" "$active_config" "$mihomo_force_reload" "$reason" || rollback_restart_required=1
 		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
-		apply_config_result_json "auto_update_disabled" 0 1 0 "$reason"
+		apply_config_result_json "auto_update_disabled" "$rollback_restart_required" 1 0 "$reason"
 		return $?
 	fi
 
 	if ! MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD=1 reload_runtime_state; then
 		reason="Policy reload failed after auto-update hot reload"
+		rollback_restart_required="$old_service_restart_needed"
+		rollback_auto_update_hot_reload "$rollback_config" "$live_config_json" "$active_config" "$mihomo_force_reload" "$reason" || rollback_restart_required=1
 		subscription_store_auto_update_state 0 "" "$reason" 2>/dev/null || true
-		apply_config_result_json "auto_update_disabled" 0 1 0 "$reason"
+		apply_config_result_json "auto_update_disabled" "$rollback_restart_required" 1 0 "$reason"
 		return $?
 	fi
 
+	rm -f "$rollback_config"
 	config_refresh_subscription_auto_update_state "$new_config_json" "$service_restart_needed" "$reason"
 	apply_config_result_json "policy_reloaded" "$service_restart_needed" 1 1 "$reason"
 }
@@ -1042,6 +1050,27 @@ restore_active_config_from_rollback() {
 	if ! mark_validated_config; then
 		err "Failed to record restored config marker"
 	fi
+	return 0
+}
+
+rollback_auto_update_hot_reload() {
+	local rollback_config="$1"
+	local live_config_json="$2"
+	local active_config="$3"
+	local force_reload="$4"
+	local reason="$5"
+
+	if ! restore_active_config_from_rollback "$rollback_config"; then
+		err "Failed to restore active config after failed auto-update hot reload"
+		return 1
+	fi
+
+	if ! mihomo_hot_reload_config "$live_config_json" "$active_config" "$force_reload"; then
+		err "Failed to hot reload restored config after failed auto-update: ${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
+		return 1
+	fi
+
+	log "Rolled back subscription config after failed auto-update hot reload: $reason"
 	return 0
 }
 

@@ -141,6 +141,24 @@ assert_file_line_before "$NFT_CAPTURE_FILE" \
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip daddr 9.9.9.9" "nft_apply_policy should skip invalid port-scoped entries"
 assert_file_not_contains "$NFT_CAPTURE_FILE" "ip saddr 7.7.7.0/24 udp dport 443 reject" "nft_apply_policy should not reject QUIC for source port filters without 443"
 
+printf '10.10.10.10' >"$DST_LIST_FILE"
+: >"$SRC_LIST_FILE"
+NFT_CAPTURE_FILE="$tmpdir/nft-no-newline-unscoped.batch"
+
+nft_apply_policy
+assert_eq "1" "$NFT_PROXY_DST_COUNT" "nft_apply_policy should count final unscoped destination without trailing newline"
+assert_eq "1" "$NFT_PROXY_DST_SET_COUNT" "nft_apply_policy should add final unscoped destination without trailing newline to set"
+assert_file_contains "$NFT_CAPTURE_FILE" "add element inet $NFT_TABLE_NAME $NFT_PROXY_DST_SET { 10.10.10.10 }" "nft_apply_policy should emit final unscoped destination without trailing newline"
+
+printf '10.10.10.20;443' >"$DST_LIST_FILE"
+NFT_CAPTURE_FILE="$tmpdir/nft-no-newline-port.batch"
+
+nft_apply_policy
+assert_eq "1" "$NFT_PROXY_DST_COUNT" "nft_apply_policy should count final port-scoped destination without trailing newline"
+assert_eq "0" "$NFT_PROXY_DST_SET_COUNT" "nft_apply_policy should keep final port-scoped destination without trailing newline out of set"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 10.10.10.20 udp dport 443 reject" "nft_apply_policy should emit QUIC reject for final port-scoped destination without trailing newline"
+assert_file_contains "$NFT_CAPTURE_FILE" "ip daddr 10.10.10.20 meta l4proto { tcp, udp } th dport 443 meta mark set $NFT_INTERCEPT_MARK" "nft_apply_policy should emit mark rule for final port-scoped destination without trailing newline"
+
 cat >"$DST_LIST_FILE" <<'EOF'
 ;443
 EOF

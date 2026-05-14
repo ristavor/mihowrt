@@ -224,6 +224,31 @@ TEST_API_HTTP_CODE=""
 
 : >"$event_log"
 write_configs
+TEST_WAIT_LISTENERS_RC=1
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7875","mihomo_dns_listen":"127.0.0.1#7875","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update listener failure should disable schedule"
+assert_eq "false" "$(json_bool "$result" '.restart_required')" "successful rollback after listener failure should not force manual restart"
+assert_eq "old" "$(cat "$CLASH_CONFIG")" "auto-update listener failure should restore active config"
+assert_eq "2" "$(grep -cF "mihomo_hot_reload_config:$CLASH_CONFIG:force=1" "$event_log")" "listener failure should hot reload new config then restored config"
+assert_file_contains "$event_log" "log:Rolled back subscription config after failed auto-update hot reload: Mihomo listeners were not ready after auto-update hot reload" "listener failure should log rollback"
+TEST_WAIT_LISTENERS_RC=0
+
+: >"$event_log"
+write_configs
+TEST_RELOAD_RUNTIME_RC=1
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update policy reload failure should disable schedule"
+assert_eq "old" "$(cat "$CLASH_CONFIG")" "auto-update policy reload failure should restore active config"
+assert_eq "2" "$(grep -cF "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "$event_log")" "policy failure should hot reload new config then restored config"
+assert_file_contains "$event_log" "log:Rolled back subscription config after failed auto-update hot reload: Policy reload failed after auto-update hot reload" "policy failure should log rollback"
+TEST_RELOAD_RUNTIME_RC=0
+
+: >"$event_log"
+write_configs
 old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"

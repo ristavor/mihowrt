@@ -76,6 +76,11 @@ runtime_snapshot_policy_config_matches_current() {
 	return "${TEST_POLICY_CONFIG_MATCH_RC:-0}"
 }
 
+load_runtime_config() {
+	printf 'load_runtime_config\n' >>"$event_log"
+	return "${TEST_LOAD_RUNTIME_CONFIG_RC:-0}"
+}
+
 mihomo_hot_reload_config() {
 	printf 'mihomo_hot_reload_config:%s:force=%s\n' "$2" "${3:-}" >>"$event_log"
 	printf 'mihomo_hot_reload_config_api:%s:%s\n' "$(printf '%s\n' "$1" | jq -r '.external_controller // ""')" "$(printf '%s\n' "$1" | jq -r '.external_controller_unix // ""')" >>"$event_log"
@@ -154,6 +159,18 @@ assert_eq "false" "$(json_bool "$result" '.policy_reloaded')" "non-policy config
 assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "non-port config change should hot reload without force"
 assert_file_not_contains "$event_log" "reload_runtime_state" "non-policy config should not reload policy"
 assert_file_contains "$event_log" "subscription_refresh_auto_update_state:0::" "manual apply should let subscription refresh detect live API drift itself"
+
+: >"$event_log"
+write_configs
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_POLICY_CONFIG_MATCH_RC=0
+new_json="$old_json"
+result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "matching runtime snapshot should still hot reload without policy reload"
+assert_file_contains "$event_log" "load_runtime_config" "policy reload check should load runtime vars before snapshot compare"
+assert_file_contains "$event_log" "runtime_snapshot_policy_config_matches_current" "valid snapshot should be compared after loading runtime config"
+assert_file_not_contains "$event_log" "reload_runtime_state" "matching runtime snapshot should not reload policy"
+unset TEST_RUNTIME_SNAPSHOT_VALID_RC TEST_POLICY_CONFIG_MATCH_RC
 
 : >"$event_log"
 write_configs

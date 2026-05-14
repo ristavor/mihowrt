@@ -594,6 +594,53 @@ patch_config_api_defaults() {
 	fi
 }
 
+# Ensure fresh installs do not start Mihomo with an unauthenticated external
+# controller. Validation still happens in the caller after the atomic write.
+ensure_active_config_api_defaults() {
+	local active_config="$CLASH_CONFIG"
+	local candidate="" target_tmp=""
+
+	require_command mktemp || return 1
+	[ -r "$active_config" ] || {
+		err "active config missing at $active_config"
+		return 1
+	}
+
+	candidate="$(mktemp /tmp/mihowrt-config.XXXXXX)" || {
+		err "Failed to allocate temporary config path"
+		return 1
+	}
+
+	cp -f "$active_config" "$candidate" || {
+		rm -f "$candidate"
+		err "Failed to stage active config for API default patching"
+		return 1
+	}
+
+	patch_config_api_defaults "$candidate" || {
+		rm -f "$candidate"
+		return 1
+	}
+
+	if cmp -s "$candidate" "$active_config" 2>/dev/null; then
+		rm -f "$candidate"
+		return 0
+	fi
+
+	target_tmp="${active_config}.tmp.$$"
+	cp -f "$candidate" "$target_tmp" || {
+		rm -f "$candidate" "$target_tmp"
+		err "Failed to stage patched active config for $active_config"
+		return 1
+	}
+	mv -f "$target_tmp" "$active_config" || {
+		rm -f "$candidate" "$target_tmp"
+		err "Failed to install patched active config $active_config"
+		return 1
+	}
+	rm -f "$candidate"
+}
+
 # Marker for configs that already passed Mihomo and MihoWRT validation in the
 # current boot. The init script can skip duplicate Mihomo tests after apply.
 validated_config_stamp_file() {
@@ -683,8 +730,13 @@ config_requires_policy_reload() {
 		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
 	done
 
-	if runtime_snapshot_valid 2>/dev/null && ! runtime_snapshot_policy_config_matches_current 2>/dev/null; then
-		return 0
+	if runtime_snapshot_valid 2>/dev/null; then
+		if command -v load_runtime_config >/dev/null 2>&1; then
+			load_runtime_config || return 0
+		fi
+		if ! runtime_snapshot_policy_config_matches_current 2>/dev/null; then
+			return 0
+		fi
 	fi
 
 	return 1

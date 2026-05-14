@@ -409,6 +409,19 @@ migrate_legacy_settings_output="$(
 )"
 assert_eq "legacy-migrated" "$migrate_legacy_settings_output" "migrate-legacy-settings command should dispatch to legacy UCI migration helper"
 
+ensure_api_defaults_output="$(
+	set -- ensure-api-defaults
+	with_runtime_lock() {
+		"$@"
+	}
+	ensure_active_config_api_defaults() {
+		printf 'api-defaults\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "api-defaults" "$ensure_api_defaults_output" "ensure-api-defaults command should dispatch active config API default patch"
+
 service_ready_output="$(
 	set -- service-ready
 	service_ready_runtime_state() {
@@ -554,6 +567,7 @@ rm -f "$SKIP_START_FILE"
 start_service
 assert_file_contains "$msg_log" "Starting MihoWRT service..." "start_service should log service start"
 assert_file_contains "$orch_log" "recover" "start_service should run crash recovery before start"
+assert_file_contains "$orch_log" "ensure-api-defaults" "start_service should patch missing API defaults before validation"
 assert_file_contains "$orch_log" "validate" "start_service should validate policy state"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "start_service should sync remote policy auto-update schedule"
 assert_file_contains "$orch_log" "sync-subscription-auto-update" "start_service should sync subscription auto-update schedule"
@@ -568,6 +582,7 @@ assert_file_not_contains "$msg_log" "MihoWRT service started" "start_service sho
 : >"$clash_log"
 MIHOWRT_SKIP_CLASH_TEST=1 validate_service_inputs
 assert_file_not_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG -t" "validate_service_inputs should skip duplicate Mihomo syntax test when backend already validated config"
+assert_file_contains "$orch_log" "ensure-api-defaults" "validate_service_inputs should still ensure API defaults when duplicate syntax test is skipped"
 assert_file_contains "$orch_log" "validate" "validate_service_inputs should still run MihoWRT policy validation when syntax test is skipped"
 assert_file_contains "$msg_log" "Skipping duplicate Mihomo configuration test" "validate_service_inputs should log skipped duplicate syntax validation"
 unset MIHOWRT_SKIP_CLASH_TEST

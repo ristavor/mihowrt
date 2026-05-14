@@ -110,6 +110,16 @@ dns:
   fake-ip-range: 198.18.0.0/15
 EOF
 
+ensure_active_config_api_defaults
+assert_file_contains "$CLASH_CONFIG" "external-controller-unix: mihomo.sock" "ensure_active_config_api_defaults should patch missing Unix controller before first start"
+assert_file_contains "$CLASH_CONFIG" "external-controller: 192.168.7.1:9090" "ensure_active_config_api_defaults should patch missing external controller before first start"
+assert_file_contains "$CLASH_CONFIG" "secret: 0123456789abcdef0123456789abcdef0123456789abcdef" "ensure_active_config_api_defaults should generate API secret before first start"
+before_mtime="$(stat -c %Y "$CLASH_CONFIG")"
+sleep 1
+ensure_active_config_api_defaults
+after_mtime="$(stat -c %Y "$CLASH_CONFIG")"
+assert_eq "$before_mtime" "$after_mtime" "ensure_active_config_api_defaults should avoid rewriting already patched config"
+
 candidate_valid="$tmpdir/candidate-valid.yaml"
 cp "$tmpdir/expected.yaml" "$candidate_valid"
 apply_config_file "$candidate_valid"

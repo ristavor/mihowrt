@@ -1164,6 +1164,7 @@ subscription_mark_update_failure() {
 update_subscription_config() {
 	local url="" candidate="" result="" action="" header_interval="" override="" update_interval=""
 	local interval="" rc=0 restart_required="" restart_reason=""
+	local settings_error=""
 
 	require_command jq || return 1
 	require_command mktemp || return 1
@@ -1196,7 +1197,17 @@ update_subscription_config() {
 
 	header_interval="${FETCH_PROFILE_UPDATE_INTERVAL:-}"
 	if [ -z "$header_interval" ] || subscription_interval_valid "$header_interval"; then
-		set_subscription_settings "$url" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)" "$header_interval" >/dev/null 2>&1 || true
+		settings_error="$(
+			set_subscription_settings "$url" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)" "$header_interval" 2>&1 >/dev/null
+		)" || {
+			rc=$?
+			rm -f "$candidate"
+			err "${settings_error:-Failed to persist subscription update interval}"
+			jq -nc \
+				--arg message "${settings_error:-Failed to persist subscription update interval}" \
+				'{updated:false,error:{kind:"uci_failed",message:$message,http_code:null}}'
+			return "$rc"
+		}
 	fi
 
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?

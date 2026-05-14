@@ -292,6 +292,9 @@ runtime_snapshot_save() {
 		"$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" || return 1
 
 	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
+	if command -v policy_cache_save_current >/dev/null 2>&1; then
+		policy_cache_save_current || warn "Failed to update persistent policy cache"
+	fi
 	log "Saved runtime snapshot"
 	return 0
 }

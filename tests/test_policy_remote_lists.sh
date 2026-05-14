@@ -10,16 +10,20 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
 
-cat > "$tmpbin/wget" <<'EOF'
+cat >"$tmpbin/wget" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
 printf '%s\n' "$*" >>"${TEST_WGET_LOG:?}"
+
+if [[ "${TEST_WGET_FAIL_ALL:-0}" == "1" ]]; then
+	exit 1
+fi
 
 url=""
 while [[ "$#" -gt 0 ]]; do
@@ -125,6 +129,7 @@ assert_eq_file() {
 }
 
 PKG_TMP_DIR="$tmpdir/run"
+POLICY_CACHE_DIR="$tmpdir/policy-cache"
 DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
 SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
 DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
@@ -153,14 +158,14 @@ assert_file_not_contains "$event_log" "path-secret" "remote invalid entry warnin
 assert_file_not_contains "$event_log" "token=nested" "remote invalid entry warning should not expose invalid URL query"
 unset POLICY_REMOTE_LIST_URL_COUNT
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 https://example.com/dst-a.txt
 1.1.1.1
 1.1.1.2:0443,443
 EOF
 
-cat > "$SRC_LIST_FILE" <<'EOF'
+cat >"$SRC_LIST_FILE" <<'EOF'
 https://example.com/src-a.txt
 :0853
 EOF
@@ -171,6 +176,7 @@ policy_resolve_runtime_lists
 
 assert_eq_file $'1.1.1.1\n2.2.2.2\n3.3.3.0/24:15-2000\n1.1.1.2:443' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should merge and dedupe destination entries"
 assert_eq_file $'4.4.4.4\n:53\n:853' "$POLICY_SRC_LIST_FILE" "policy_resolve_runtime_lists should merge source entries"
+policy_cache_save_current
 assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should not rewrite persistent destination list"
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
 assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.6" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
@@ -179,6 +185,16 @@ assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "poli
 policy_clear_runtime_list_overrides
 assert_unset POLICY_DST_LIST_FILE "policy_clear_runtime_list_overrides should unset destination override"
 assert_unset POLICY_SRC_LIST_FILE "policy_clear_runtime_list_overrides should unset source override"
+
+: >"$event_log"
+: >"$TEST_WGET_LOG"
+export TEST_WGET_FAIL_ALL=1
+policy_resolve_runtime_lists
+assert_eq_file $'1.1.1.1\n2.2.2.2\n3.3.3.0/24:15-2000\n1.1.1.2:443' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should fall back to cached destination list when remote fetch fails"
+assert_eq_file $'4.4.4.4\n:53\n:853' "$POLICY_SRC_LIST_FILE" "policy_resolve_runtime_lists should fall back to cached source list when remote fetch fails"
+assert_file_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "policy_resolve_runtime_lists should warn when cached effective lists are used"
+policy_clear_runtime_list_overrides
+unset TEST_WGET_FAIL_ALL
 
 POLICY_REMOTE_LIST_MAX_BYTES=999999999999999999999
 POLICY_EFFECTIVE_LIST_MAX_BYTES=999999999999999999999
@@ -192,14 +208,14 @@ assert_eq "3600" "$(policy_remote_list_fetch_budget)" "remote list fetch budget 
 assert_eq "1024" "$(policy_remote_list_max_urls)" "remote list URL limit should cap huge overrides"
 unset POLICY_REMOTE_LIST_MAX_BYTES POLICY_EFFECTIVE_LIST_MAX_BYTES POLICY_REMOTE_LIST_FETCH_TIMEOUT POLICY_REMOTE_LIST_FETCH_BUDGET POLICY_REMOTE_LIST_MAX_URLS
 
-printf 'https://example.com/dst-b.txt' > "$DST_LIST_FILE"
+printf 'https://example.com/dst-b.txt' >"$DST_LIST_FILE"
 assert_eq "1" "$(count_remote_list_urls "$DST_LIST_FILE")" "count_remote_list_urls should count final URL without trailing newline"
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 https://example.com/scoped-url.txt;0443,0053
 11.11.11.11;00080
 EOF
-: > "$SRC_LIST_FILE"
+: >"$SRC_LIST_FILE"
 POLICY_MODE="direct-first"
 : >"$TEST_WGET_LOG"
 policy_resolve_runtime_lists
@@ -208,7 +224,7 @@ assert_file_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt" "URL 
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt;0443" "URL port suffix should not be passed to wget"
 policy_clear_runtime_list_overrides
 
-cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
+cat >"$DIRECT_DST_LIST_FILE" <<'EOF'
 https://example.com/direct-a.txt
 8.8.8.8
 EOF
@@ -219,20 +235,30 @@ policy_resolve_runtime_lists
 assert_eq_file $'8.8.8.8\n9.9.9.0/24:443' "$POLICY_DIRECT_DST_LIST_FILE" "policy_resolve_runtime_lists should merge direct destination entries in proxy-first mode"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/direct-a.txt" "proxy-first should fetch direct destination remote lists"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/dst-a.txt" "proxy-first should not fetch inactive proxy destination remote lists"
+policy_cache_save_current
 policy_clear_runtime_list_overrides
 
-cat > "$DST_LIST_FILE" <<'EOF'
+: >"$event_log"
+: >"$TEST_WGET_LOG"
+export TEST_WGET_FAIL_ALL=1
+policy_resolve_runtime_lists
+assert_eq_file $'8.8.8.8\n9.9.9.0/24:443' "$POLICY_DIRECT_DST_LIST_FILE" "proxy-first should fall back to cached direct destination list when remote fetch fails"
+assert_file_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "proxy-first fallback should warn when cached effective lists are used"
+policy_clear_runtime_list_overrides
+unset TEST_WGET_FAIL_ALL
+
+cat >"$DST_LIST_FILE" <<'EOF'
 https://example.com/fail.txt
 EOF
 POLICY_MODE="direct-first"
 assert_false "policy_resolve_runtime_lists should fail when remote list fetch fails" policy_resolve_runtime_lists
 assert_unset POLICY_DST_LIST_FILE "failed policy_resolve_runtime_lists should clean destination override"
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 https://example.com/dst-a.txt
 https://example.com/dst-b.txt
 EOF
-: > "$SRC_LIST_FILE"
+: >"$SRC_LIST_FILE"
 POLICY_REMOTE_LIST_MAX_URLS=1
 : >"$TEST_WGET_LOG"
 assert_false "policy_resolve_runtime_lists should reject too many remote list URLs" policy_resolve_runtime_lists
@@ -240,26 +266,26 @@ assert_file_contains "$TEST_WGET_LOG" "https://example.com/dst-a.txt" "policy_re
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/dst-b.txt" "policy_resolve_runtime_lists should stop before fetching URLs beyond the URL limit"
 unset POLICY_REMOTE_LIST_MAX_URLS
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 https://example.com/large.txt
 EOF
 POLICY_REMOTE_LIST_MAX_BYTES=4
 assert_false "policy_resolve_runtime_lists should reject oversized remote lists" policy_resolve_runtime_lists
 unset POLICY_REMOTE_LIST_MAX_BYTES
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 1.1.1.1
 1.1.1.1
 EOF
-: > "$SRC_LIST_FILE"
+: >"$SRC_LIST_FILE"
 POLICY_EFFECTIVE_LIST_MAX_BYTES=8
 policy_resolve_runtime_lists
 assert_eq_file "1.1.1.1" "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should dedupe before enforcing effective size"
 policy_clear_runtime_list_overrides
 unset POLICY_EFFECTIVE_LIST_MAX_BYTES
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 2.2.2.2
 EOF
@@ -267,10 +293,10 @@ POLICY_EFFECTIVE_LIST_MAX_BYTES=8
 assert_false "policy_resolve_runtime_lists should reject oversized effective lists" policy_resolve_runtime_lists
 unset POLICY_EFFECTIVE_LIST_MAX_BYTES
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 https://example.com/dst-a.txt
 EOF
-: > "$SRC_LIST_FILE"
+: >"$SRC_LIST_FILE"
 POLICY_MODE="direct-first"
 apply_seen_dst=""
 snapshot_seen_dst=""

@@ -150,6 +150,7 @@ define Package/$(PKG_NAME)/postrm
 	rm -rf /tmp/mihowrt
 	rm -rf /var/run/mihowrt
 	rm -f /etc/mihowrt/dns.backup
+	rm -rf /etc/mihowrt/policy-cache
 	rmdir /etc/mihowrt 2>/dev/null || true
 	rm -rf /www/luci-static/resources/view/mihowrt
 	rm -rf /www/luci-static/resources/mihowrt

@@ -536,6 +536,207 @@ policy_list_fingerprint() {
 	fi
 }
 
+policy_cache_dir() {
+	printf '%s\n' "${POLICY_CACHE_DIR:-${PKG_PERSIST_DIR:-/etc/mihowrt}/policy-cache}"
+}
+
+policy_cache_metadata_file() {
+	printf '%s\n' "$(policy_cache_dir)/metadata.json"
+}
+
+policy_cache_dst_file() {
+	printf '%s\n' "$(policy_cache_dir)/always_proxy_dst.effective"
+}
+
+policy_cache_src_file() {
+	printf '%s\n' "$(policy_cache_dir)/always_proxy_src.effective"
+}
+
+policy_cache_direct_file() {
+	printf '%s\n' "$(policy_cache_dir)/direct_dst.effective"
+}
+
+policy_cache_install_file_if_changed() {
+	local source="$1"
+	local target="$2"
+	local tmp=""
+
+	if [ -f "$source" ] && [ -f "$target" ] && cmp -s "$source" "$target" 2>/dev/null; then
+		return 0
+	fi
+	if [ ! -f "$source" ] && [ -f "$target" ] && [ ! -s "$target" ]; then
+		return 0
+	fi
+
+	tmp="${target}.tmp.$$"
+	if [ -f "$source" ]; then
+		cp -f "$source" "$tmp" || {
+			rm -f "$tmp"
+			return 1
+		}
+	else
+		: >"$tmp" || {
+			rm -f "$tmp"
+			return 1
+		}
+	fi
+	mv -f "$tmp" "$target" || {
+		rm -f "$tmp"
+		return 1
+	}
+}
+
+policy_cache_install_text_if_changed() {
+	local text="$1"
+	local target="$2"
+	local current=""
+	local tmp=""
+
+	if [ -f "$target" ]; then
+		current="$(cat "$target" 2>/dev/null || true)"
+		[ "$current" = "$text" ] && return 0
+	fi
+
+	tmp="${target}.tmp.$$"
+	printf '%s\n' "$text" >"$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+	mv -f "$tmp" "$target" || {
+		rm -f "$tmp"
+		return 1
+	}
+}
+
+policy_cache_save_current() {
+	local cache_dir="" metadata_file="" metadata_json=""
+	local cache_effective_dst="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local cache_effective_src="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	local cache_effective_direct="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
+	local cache_source_dst="${POLICY_SOURCE_DST_LIST_FILE:-$DST_LIST_FILE}"
+	local cache_source_src="${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}"
+	local cache_source_direct="${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
+	local dst_source_hash="" src_source_hash="" direct_source_hash=""
+
+	require_command jq || return 1
+
+	cache_dir="$(policy_cache_dir)"
+	metadata_file="$(policy_cache_metadata_file)"
+	ensure_dir "$cache_dir" || return 1
+
+	dst_source_hash="$(policy_list_fingerprint "$cache_source_dst")" || return 1
+	src_source_hash="$(policy_list_fingerprint "$cache_source_src")" || return 1
+	direct_source_hash="$(policy_list_fingerprint "$cache_source_direct")" || return 1
+	[ -n "$dst_source_hash" ] && [ -n "$src_source_hash" ] && [ -n "$direct_source_hash" ] || return 1
+
+	metadata_json="$(jq -nc \
+		--arg policy_mode "${POLICY_MODE:-direct-first}" \
+		--arg dst_source_hash "$dst_source_hash" \
+		--arg src_source_hash "$src_source_hash" \
+		--arg direct_source_hash "$direct_source_hash" \
+		'{
+			policy_mode: $policy_mode,
+			always_proxy_dst_source_hash: $dst_source_hash,
+			always_proxy_src_source_hash: $src_source_hash,
+			direct_dst_source_hash: $direct_source_hash
+		}')" || return 1
+
+	policy_cache_install_file_if_changed "$cache_effective_dst" "$(policy_cache_dst_file)" || return 1
+	policy_cache_install_file_if_changed "$cache_effective_src" "$(policy_cache_src_file)" || return 1
+	policy_cache_install_file_if_changed "$cache_effective_direct" "$(policy_cache_direct_file)" || return 1
+	policy_cache_install_text_if_changed "$metadata_json" "$metadata_file" || return 1
+}
+
+policy_cache_metadata_value() {
+	local key="$1"
+	local metadata_file=""
+
+	metadata_file="$(policy_cache_metadata_file)"
+	[ -r "$metadata_file" ] || return 1
+	jq -r --arg key "$key" '.[$key] // ""' "$metadata_file"
+}
+
+policy_cache_source_hash_matches() {
+	local key="$1"
+	local source="$2"
+	local cached_hash="" current_hash=""
+
+	cached_hash="$(policy_cache_metadata_value "$key")" || return 1
+	current_hash="$(policy_list_fingerprint "$source")" || return 1
+	[ -n "$cached_hash" ] && [ "$cached_hash" = "$current_hash" ]
+}
+
+policy_cache_prepare_effective_copy() {
+	local source="$1"
+	local label="$2"
+	local output=""
+
+	[ -r "$source" ] || return 1
+	output="$(policy_prepare_effective_list_path)" || return 1
+	cp -f "$source" "$output" || {
+		rm -f "$output"
+		return 1
+	}
+	policy_record_effective_list_file "$output"
+	log "Using cached effective policy list for $label"
+	POLICY_CACHED_EFFECTIVE_LIST_FILE="$output"
+}
+
+policy_cache_apply_runtime_lists() {
+	local mode="${POLICY_MODE:-direct-first}"
+	local cached_mode="" dst_effective="" src_effective="" direct_effective=""
+
+	require_command jq || return 1
+	cached_mode="$(policy_cache_metadata_value policy_mode)" || return 1
+	[ "$cached_mode" = "$mode" ] || return 1
+
+	policy_save_runtime_list_overrides
+	case "$mode" in
+	direct-first)
+		policy_cache_source_hash_matches always_proxy_dst_source_hash "$POLICY_SOURCE_DST_LIST_FILE" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		policy_cache_source_hash_matches always_proxy_src_source_hash "$POLICY_SOURCE_SRC_LIST_FILE" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		policy_cache_prepare_effective_copy "$(policy_cache_dst_file)" "proxy destination list" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		dst_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
+		policy_cache_prepare_effective_copy "$(policy_cache_src_file)" "proxy source list" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		src_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
+		POLICY_DST_LIST_FILE="$dst_effective"
+		POLICY_SRC_LIST_FILE="$src_effective"
+		;;
+	proxy-first)
+		policy_cache_source_hash_matches direct_dst_source_hash "$POLICY_SOURCE_DIRECT_LIST_FILE" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		policy_cache_prepare_effective_copy "$(policy_cache_direct_file)" "direct destination list" || {
+			policy_clear_runtime_list_overrides
+			return 1
+		}
+		direct_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
+		POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
+		;;
+	*)
+		policy_clear_runtime_list_overrides
+		return 1
+		;;
+	esac
+
+	unset POLICY_CACHED_EFFECTIVE_LIST_FILE
+	warn "Remote policy lists unavailable; using cached effective lists"
+	return 0
+}
+
 # Remove temporary effective list files.
 policy_effective_list_cleanup() {
 	local path
@@ -802,6 +1003,7 @@ policy_clear_runtime_list_overrides() {
 	fi
 
 	unset POLICY_EFFECTIVE_LIST_FILES
+	unset POLICY_CACHED_EFFECTIVE_LIST_FILE
 	unset POLICY_PREV_DST_LIST_FILE POLICY_PREV_SRC_LIST_FILE POLICY_PREV_DIRECT_LIST_FILE
 	unset POLICY_SOURCE_DST_LIST_FILE POLICY_SOURCE_SRC_LIST_FILE POLICY_SOURCE_DIRECT_LIST_FILE
 	unset POLICY_PREV_DST_LIST_FILE_SET POLICY_PREV_SRC_LIST_FILE_SET POLICY_PREV_DIRECT_LIST_FILE_SET
@@ -824,12 +1026,14 @@ policy_resolve_runtime_lists() {
 	direct-first)
 		policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
 			policy_clear_runtime_list_overrides
-			return 1
+			policy_cache_apply_runtime_lists || return 1
+			return 0
 		}
 		dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 		policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
 			policy_clear_runtime_list_overrides
-			return 1
+			policy_cache_apply_runtime_lists || return 1
+			return 0
 		}
 		src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 		POLICY_DST_LIST_FILE="$dst_effective"
@@ -838,7 +1042,8 @@ policy_resolve_runtime_lists() {
 	proxy-first)
 		policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
 			policy_clear_runtime_list_overrides
-			return 1
+			policy_cache_apply_runtime_lists || return 1
+			return 0
 		}
 		direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
 		POLICY_DIRECT_DST_LIST_FILE="$direct_effective"

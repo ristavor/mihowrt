@@ -63,6 +63,8 @@ port: 7890
 socks-port: 7891
 mixed-port: 7892
 redir-port: 7893
+allow-lan: true
+bind-address: 127.0.0.1
 tproxy-port: 7894
 routing-mark: 2
 external-controller: 0.0.0.0:9090
@@ -101,6 +103,8 @@ assert_eq "7890" "$(printf '%s\n' "$config_json" | jq -r '.port')" "read_config_
 assert_eq "7891" "$(printf '%s\n' "$config_json" | jq -r '.socks_port')" "read_config_json extracts SOCKS port"
 assert_eq "7892" "$(printf '%s\n' "$config_json" | jq -r '.mixed_port')" "read_config_json extracts mixed port"
 assert_eq "7893" "$(printf '%s\n' "$config_json" | jq -r '.redir_port')" "read_config_json extracts redirect port"
+assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.allow_lan')" "read_config_json extracts allow-lan"
+assert_eq "127.0.0.1" "$(printf '%s\n' "$config_json" | jq -r '.bind_address')" "read_config_json extracts bind-address"
 assert_eq "7894" "$(printf '%s\n' "$config_json" | jq -r '.tproxy_port')" "read_config_json extracts tproxy port"
 assert_eq "2" "$(printf '%s\n' "$config_json" | jq -r '.routing_mark')" "read_config_json extracts routing mark"
 assert_eq "true" "$(printf '%s\n' "$config_json" | jq -r '.catch_fakeip')" "read_config_json enables fake-ip catch"

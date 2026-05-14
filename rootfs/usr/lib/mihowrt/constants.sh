@@ -4,6 +4,7 @@ PKG_CONFIG="mihowrt"
 PKG_TMP_DIR="/tmp/mihowrt"
 PKG_STATE_DIR="/var/run/mihowrt"
 PKG_PERSIST_DIR="/etc/mihowrt"
+POLICY_CACHE_DIR="$PKG_PERSIST_DIR/policy-cache"
 
 CLASH_DIR="/opt/clash"
 CLASH_BIN="$CLASH_DIR/bin/clash"

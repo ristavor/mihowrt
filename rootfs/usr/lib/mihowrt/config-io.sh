@@ -130,6 +130,16 @@ yaml_get_selected_scalars() {
 				emit("redir-port", line)
 				next
 			}
+			if (line ~ /^allow-lan:[[:space:]]*/) {
+				sub("^allow-lan:[[:space:]]*", "", line)
+				emit("allow-lan", line)
+				next
+			}
+			if (line ~ /^bind-address:[[:space:]]*/) {
+				sub("^bind-address:[[:space:]]*", "", line)
+				emit("bind-address", line)
+				next
+			}
 			if (line ~ /^tproxy-port:[[:space:]]*/) {
 				sub("^tproxy-port:[[:space:]]*", "", line)
 				emit("tproxy-port", line)
@@ -230,6 +240,7 @@ $message"
 read_config_json() {
 	local dns_listen_raw="" dns_port="" mihomo_dns_listen=""
 	local port="" socks_port="" mixed_port="" redir_port="" tproxy_port="" routing_mark=""
+	local allow_lan="" bind_address=""
 	local routing_mark_normalized="" intercept_mark_normalized=""
 	local enhanced_mode="" catch_fakeip="" fake_ip_range=""
 	local external_controller="" external_controller_tls="" external_controller_unix=""
@@ -256,6 +267,8 @@ read_config_json() {
 		socks-port) socks_port="$value" ;;
 		mixed-port) mixed_port="$value" ;;
 		redir-port) redir_port="$value" ;;
+		allow-lan) allow_lan="$value" ;;
+		bind-address) bind_address="$value" ;;
 		tproxy-port) tproxy_port="$value" ;;
 		routing-mark) routing_mark="$value" ;;
 		external-controller) external_controller="$value" ;;
@@ -328,6 +341,8 @@ EOF
 		--arg socks_port "$socks_port" \
 		--arg mixed_port "$mixed_port" \
 		--arg redir_port "$redir_port" \
+		--arg allow_lan "$allow_lan" \
+		--arg bind_address "$bind_address" \
 		--arg tproxy_port "$tproxy_port" \
 		--arg routing_mark "$routing_mark" \
 		--arg enhanced_mode "$enhanced_mode" \
@@ -353,6 +368,8 @@ EOF
 			socks_port: $socks_port,
 			mixed_port: $mixed_port,
 			redir_port: $redir_port,
+			allow_lan: $allow_lan,
+			bind_address: $bind_address,
 			tproxy_port: $tproxy_port,
 			routing_mark: $routing_mark,
 			enhanced_mode: $enhanced_mode,
@@ -747,7 +764,7 @@ config_requires_mihomo_force_reload() {
 	local new_json="$2"
 	local key=""
 
-	for key in dns_port port socks_port mixed_port redir_port tproxy_port; do
+	for key in dns_port port socks_port mixed_port redir_port allow_lan bind_address tproxy_port; do
 		config_json_field_changed "$old_json" "$new_json" "$key" && return 0
 	done
 

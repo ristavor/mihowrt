@@ -10,7 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
 
-cat > "$tmpbin/logger" <<'EOF'
+cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
@@ -27,27 +27,28 @@ source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
 
 PKG_STATE_DIR="$tmpdir/state"
+POLICY_CACHE_DIR="$tmpdir/policy-cache"
 ROUTE_STATE_FILE="$PKG_STATE_DIR/route.state"
 DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
 SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
 DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
 
 ensure_dir "$PKG_STATE_DIR"
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=201
 ROUTE_RULE_PRIORITY=10001
 EOF
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 1.1.1.1
 2.2.2.0/24
 EOF
 
-cat > "$SRC_LIST_FILE" <<'EOF'
+cat >"$SRC_LIST_FILE" <<'EOF'
 3.3.3.3
 EOF
 
-cat > "$DIRECT_DST_LIST_FILE" <<'EOF'
+cat >"$DIRECT_DST_LIST_FILE" <<'EOF'
 8.8.8.8
 EOF
 
@@ -90,7 +91,7 @@ cp "$direct_snapshot_backup" "$snapshot_direct_file"
 
 snapshot_backup="$tmpdir/runtime.snapshot.good.json"
 cp "$snapshot_file" "$snapshot_backup"
-jq '.enabled = false' "$snapshot_backup" > "$snapshot_file"
+jq '.enabled = false' "$snapshot_backup" >"$snapshot_file"
 assert_false "runtime_snapshot_valid should reject disabled legacy snapshots" runtime_snapshot_valid
 cp "$snapshot_backup" "$snapshot_file"
 assert_true "runtime_snapshot_valid should accept mandatory fake-ip policy snapshots" runtime_snapshot_valid
@@ -115,11 +116,11 @@ mv() {
 	command mv "$@"
 }
 
-cat > "$DST_LIST_FILE" <<'EOF'
+cat >"$DST_LIST_FILE" <<'EOF'
 9.9.9.9
 EOF
 
-cat > "$SRC_LIST_FILE" <<'EOF'
+cat >"$SRC_LIST_FILE" <<'EOF'
 8.8.8.8
 EOF
 
@@ -162,7 +163,7 @@ apply_runtime_state_internal() {
 		"$MIHOMO_ROUTE_TABLE_ID" \
 		"$POLICY_DST_LIST_FILE" \
 		"$POLICY_SRC_LIST_FILE" \
-		"$POLICY_DIRECT_DST_LIST_FILE" > "$restore_log"
+		"$POLICY_DIRECT_DST_LIST_FILE" >"$restore_log"
 	return 0
 }
 
@@ -176,7 +177,7 @@ assert_false "runtime_snapshot_clear should remove destination snapshot file" te
 assert_false "runtime_snapshot_clear should remove source snapshot file" test -f "$snapshot_src_file"
 assert_false "runtime_snapshot_clear should remove direct destination snapshot file" test -f "$snapshot_direct_file"
 
-cat > "$ROUTE_STATE_FILE" <<'EOF'
+cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=201
 ROUTE_RULE_PRIORITY=10001
 EOF

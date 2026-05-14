@@ -207,6 +207,24 @@ assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=
 
 : >"$event_log"
 write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","port":"7890","socks_port":"","mixed_port":"","redir_port":"","allow_lan":"false","bind_address":"127.0.0.1","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","port":"7890","socks_port":"","mixed_port":"","redir_port":"","allow_lan":"true","bind_address":"127.0.0.1","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "allow-lan change should hot reload without service restart"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=1" "allow-lan change should force legacy listener reload"
+assert_file_not_contains "$event_log" "reload_runtime_state" "allow-lan change should not reload nft policy"
+
+: >"$event_log"
+write_configs
+old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","port":"7890","socks_port":"","mixed_port":"","redir_port":"","allow_lan":"true","bind_address":"127.0.0.1","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","port":"7890","socks_port":"","mixed_port":"","redir_port":"","allow_lan":"true","bind_address":"0.0.0.0","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "bind-address change should hot reload without service restart"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=1" "bind-address change should force legacy listener reload"
+assert_file_not_contains "$event_log" "reload_runtime_state" "bind-address change should not reload nft policy"
+
+: >"$event_log"
+write_configs
 new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","secret":"","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
 result="$(apply_config_runtime "$tmpdir/candidate.yaml")"
 assert_eq "restart_required" "$(json_bool "$result" '.action')" "controller changes should require service restart"

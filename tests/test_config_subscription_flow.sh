@@ -9,15 +9,15 @@ const vm = require('vm');
 const harness = require('./tests/js_luci_harness');
 
 const source = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
-const persistMatch = source.match(/async function persistSubscriptionUrlIfChanged[\s\S]*?\n}\n\nfunction editorHasUnsavedChanges/);
+const settingsMatch = source.match(/async function persistSubscriptionSettings[\s\S]*?\n}\n\nfunction editorHasUnsavedChanges/);
 const unsavedMatch = source.match(/function editorHasUnsavedChanges[\s\S]*?\n}\n\nfunction confirmSubscriptionOverwrite/);
 const confirmMatch = source.match(/function confirmSubscriptionOverwrite[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
 const loadMatch = source.match(/async function loadSubscriptionIntoEditor[\s\S]*?\n}\n\nreturn view\.extend/);
 const fetchStart = source.indexOf('const fetchSubscription = async function() {');
 const fetchEnd = source.indexOf('\n\n\t\tconst saveAndApply = async function() {', fetchStart);
 
-if (!persistMatch)
-	throw new Error('persistSubscriptionUrlIfChanged() not found');
+if (!settingsMatch)
+	throw new Error('persistSubscriptionSettings() not found');
 if (!unsavedMatch)
 	throw new Error('editorHasUnsavedChanges() not found');
 if (!confirmMatch)
@@ -27,7 +27,7 @@ if (!loadMatch)
 if (fetchStart === -1 || fetchEnd === -1)
 	throw new Error('fetchSubscription() not found');
 
-const persistFnSource = persistMatch[0].replace(/\n\nfunction editorHasUnsavedChanges$/, '');
+const settingsFnSource = settingsMatch[0].replace(/\n\nfunction editorHasUnsavedChanges$/, '');
 const unsavedFnSource = unsavedMatch[0].replace(/\n\nfunction confirmSubscriptionOverwrite$/, '');
 const confirmFnSource = confirmMatch[0].replace(/\n\nasync function withSubscriptionLock$/, '');
 const loadFnSource = loadMatch[0].replace(/\n\nreturn view\.extend$/, '');
@@ -45,7 +45,6 @@ function assert(condition, message) {
 
 	const context = {
 		setValues: [],
-		saveCalls: [],
 		saveSettingsCalls: [],
 		confirmCalls: 0,
 		confirmResult: true,
@@ -57,7 +56,6 @@ function assert(condition, message) {
 		subscriptionIntervalInput: { value: '' },
 		editorValue: 'mode: old\n',
 		backendHelper: {
-			saveSubscriptionUrl: async(url) => context.saveCalls.push(url),
 			saveSubscriptionSettings: async(url, override, interval, header, hotReloadSupported) => {
 				context.saveSettingsCalls.push({ url, override, interval, header, hotReloadSupported });
 			},
@@ -84,29 +82,17 @@ let subscriptionIntervalInput = globalThis.subscriptionIntervalInput;
 let savedConfigContent = 'mode: old\\n';
 let savedSubscriptionUrl = 'https://example.com/same.yaml';
 let pendingSubscriptionSettings = null;
-${persistFnSource}
+${settingsFnSource}
 ${unsavedFnSource}
 ${confirmFnSource}
 ${loadFnSource}
-globalThis.persistSubscriptionUrlIfChanged = persistSubscriptionUrlIfChanged;
 globalThis.stageSubscriptionSettings = stageSubscriptionSettings;
 globalThis.persistPendingSubscriptionSettings = persistPendingSubscriptionSettings;
 globalThis.editorHasUnsavedChanges = editorHasUnsavedChanges;
 globalThis.confirmSubscriptionOverwrite = confirmSubscriptionOverwrite;
-globalThis.getSavedSubscriptionUrl = () => savedSubscriptionUrl;
-globalThis.setSavedSubscriptionUrl = value => { savedSubscriptionUrl = value; };
 globalThis.getPendingSubscriptionSettings = () => pendingSubscriptionSettings;
 globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 `, context);
-
-	assert(await context.persistSubscriptionUrlIfChanged('https://example.com/same.yaml') === false, 'persistSubscriptionUrlIfChanged should skip unchanged URL');
-	assert(context.saveCalls.length === 0, 'persistSubscriptionUrlIfChanged should avoid redundant UCI writes');
-	assert(await context.persistSubscriptionUrlIfChanged('https://example.com/new.yaml') === true, 'persistSubscriptionUrlIfChanged should save changed URL');
-	assert(context.saveCalls.length === 1 && context.saveCalls[0] === 'https://example.com/new.yaml', 'persistSubscriptionUrlIfChanged should write changed URL once');
-	assert(context.getSavedSubscriptionUrl() === 'https://example.com/new.yaml', 'persistSubscriptionUrlIfChanged should update saved URL after save');
-	context.setSavedSubscriptionUrl(null);
-	assert(await context.persistSubscriptionUrlIfChanged('https://example.com/new.yaml') === true, 'persistSubscriptionUrlIfChanged should save when initial URL state is unknown');
-	assert(context.saveCalls.length === 2, 'persistSubscriptionUrlIfChanged should not skip save after failed initial URL read');
 
 	context.editorValue = 'mode: old\n';
 	context.confirmCalls = 0;

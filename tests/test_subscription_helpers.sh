@@ -270,29 +270,6 @@ assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_
 assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "subscription failure should preserve pending manual restart reason"
 
 : >"$TEST_UCI_LOG"
-set_subscription_url " https://example.com/new.yaml "
-assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should read current URL before writing"
-assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings=settings" "set_subscription_url should ensure named UCI section"
-assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_url=https://example.com/new.yaml" "set_subscription_url should store trimmed URL"
-assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should commit UCI config"
-
-: >"$TEST_UCI_LOG"
-export TEST_UCI_SUBSCRIPTION_URL="https://example.com/same.yaml"
-set_subscription_url "https://example.com/same.yaml"
-assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "set_subscription_url should still read current URL for no-op saves"
-assert_file_not_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should avoid NAND writes when URL is unchanged"
-
-: >"$TEST_UCI_LOG"
-export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
-set_subscription_url ""
-assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_url" "set_subscription_url should delete empty URL"
-assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "set_subscription_url should commit URL deletion"
-
-: >"$TEST_UCI_LOG"
-assert_false "set_subscription_url should reject unsupported schemes" set_subscription_url "file:///tmp/config.yaml"
-[[ ! -s "$TEST_UCI_LOG" ]] || fail "set_subscription_url should not touch UCI for invalid URL"
-
-: >"$TEST_UCI_LOG"
 export TEST_UCI_SUBSCRIPTION_URL="https://example.com/old.yaml"
 export TEST_UCI_INTERVAL_OVERRIDE="0"
 export TEST_UCI_UPDATE_INTERVAL=""

@@ -40,6 +40,10 @@ err() {
 	printf 'err:%s\n' "$*" >>"$cli_log"
 }
 
+warn() {
+	printf 'warn:%s\n' "$*" >>"$cli_log"
+}
+
 load_runtime_config() {
 	printf 'load_runtime_config\n' >>"$cli_log"
 	[ "${TEST_LOAD_RUNTIME_CONFIG_RC:-0}" -eq 0 ] || return "${TEST_LOAD_RUNTIME_CONFIG_RC:-1}"
@@ -97,6 +101,11 @@ cleanup_runtime_state() {
 mihomo_api_live_state_save_current() {
 	printf 'mihomo_api_live_state_save_current\n' >>"$cli_log"
 	return "${TEST_LIVE_API_SAVE_RC:-0}"
+}
+
+subscription_refresh_auto_update_state() {
+	printf 'subscription_refresh_auto_update_state\n' >>"$cli_log"
+	return "${TEST_SUBSCRIPTION_REFRESH_RC:-0}"
 }
 
 mihomo_api_live_state_clear() {
@@ -158,11 +167,22 @@ assert_file_contains "$cli_log" "init_runtime_layout" "run_service should initia
 assert_file_contains "$cli_log" "wait_for_mihomo_ready:7874:7894:" "run_service should wait for Mihomo ports"
 assert_file_contains "$clash_log" "-d $CLASH_DIR -f $CLASH_CONFIG" "run_service should start Mihomo with explicit config path"
 assert_file_contains "$cli_log" "mihomo_api_live_state_save_current" "run_service should save live API state after Mihomo is ready"
+assert_file_contains "$cli_log" "subscription_refresh_auto_update_state" "run_service should refresh subscription auto-update state after live API state is saved"
 assert_file_contains "$cli_log" "apply_runtime_state" "run_service should apply runtime state after Mihomo is ready"
 assert_file_contains "$cli_log" "log:MihoWRT service ready" "run_service should log service readiness only after Mihomo and policy state are ready"
 assert_file_contains "$cli_log" "cleanup_runtime_state" "run_service should clean up runtime state on exit"
 assert_file_contains "$cli_log" "mihomo_api_live_state_clear" "run_service should clear live API state on exit"
 [[ ! -e "$SERVICE_PID_FILE" ]] || fail "run_service should remove PID file on clean exit"
+
+: >"$cli_log"
+TEST_LIVE_API_SAVE_RC=1
+TEST_WAIT_READY_RC=0
+TEST_APPLY_RUNTIME_RC=0
+TEST_CLEANUP_RUNTIME_RC=0
+run_service
+assert_file_contains "$cli_log" "warn:Failed to persist live Mihomo API state" "run_service should warn when live API state cannot be saved"
+assert_file_not_contains "$cli_log" "subscription_refresh_auto_update_state" "run_service should not refresh subscription state without saved live API metadata"
+TEST_LIVE_API_SAVE_RC=0
 
 : >"$cli_log"
 TEST_WAIT_READY_RC=0
@@ -288,16 +308,6 @@ subscription_json_output="$(
 	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "subscription-json" "$subscription_json_output" "subscription-json command should dispatch to subscription JSON helper"
-
-set_subscription_output="$(
-	set -- set-subscription-url "https://example.com/sub.yaml"
-	set_subscription_url() {
-		printf '%s\n' "$1"
-	}
-	# shellcheck disable=SC1090
-	source <(strip_mihowrt_cli_bootstrap)
-)"
-assert_eq "https://example.com/sub.yaml" "$set_subscription_output" "set-subscription-url command should forward URL"
 
 set_subscription_settings_output="$(
 	set -- set-subscription-settings "https://example.com/sub.yaml" 1 12 24

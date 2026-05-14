@@ -912,40 +912,6 @@ subscription_url_json() {
 		}'
 }
 
-# Persist subscription URL only when changed to avoid unnecessary UCI commits.
-set_subscription_url() {
-	local url="" current_url=""
-
-	url="$(trim "${1:-}")"
-	if [ -n "$url" ] && ! is_subscription_url "$url"; then
-		err "Invalid subscription URL: use http:// or https:// without whitespace"
-		return 1
-	fi
-
-	require_command uci || return 1
-	current_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true)"
-	[ "$url" != "$current_url" ] || return 0
-
-	uci -q set "${PKG_CONFIG:-mihowrt}.settings=settings" || {
-		err "Failed to prepare subscription UCI section"
-		return 1
-	}
-
-	if [ -n "$url" ]; then
-		uci -q set "${PKG_CONFIG:-mihowrt}.settings.subscription_url=$url" || {
-			err "Failed to store subscription URL"
-			return 1
-		}
-	else
-		uci -q delete "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true
-	fi
-
-	uci -q commit "${PKG_CONFIG:-mihowrt}" || {
-		err "Failed to commit subscription URL"
-		return 1
-	}
-}
-
 set_subscription_settings() {
 	local url="" override="" interval="" header_interval="${4:-}" header_provided=0
 	local current_url="" changed=0 rc=0

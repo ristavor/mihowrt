@@ -293,12 +293,6 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readLogs should surface backend command failures');
 
 	context.execCalls.length = 0;
-	await context.backend.saveSubscriptionUrl('https://example.com/sub.yaml');
-	const saveSubscriptionExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-url');
-	if (!saveSubscriptionExec || saveSubscriptionExec.args[1] !== 'https://example.com/sub.yaml')
-		throw new Error('saveSubscriptionUrl should pass URL to backend command');
-
-	context.execCalls.length = 0;
 	await context.backend.saveSubscriptionSettings('https://example.com/sub.yaml', true, '12', '24');
 	const saveSubscriptionSettingsExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-settings');
 	if (!saveSubscriptionSettingsExec || saveSubscriptionSettingsExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|1|12|24')

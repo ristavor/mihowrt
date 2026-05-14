@@ -374,7 +374,6 @@ Mutating operations use `/usr/bin/mihowrt` and require LuCI write ACL:
 
 ```text
 apply-config
-set-subscription-url
 set-subscription-settings
 fetch-subscription
 fetch-subscription-json
@@ -689,7 +688,6 @@ Main backend:
 /usr/bin/mihowrt apply-config /tmp/candidate.yaml
 /usr/bin/mihowrt apply-config-contents '<yaml>'
 /usr/bin/mihowrt subscription-json
-/usr/bin/mihowrt set-subscription-url '<url>'
 /usr/bin/mihowrt set-subscription-settings '<url>' 0 ''
 /usr/bin/mihowrt fetch-subscription '<url>'
 /usr/bin/mihowrt fetch-subscription-json '<url>'

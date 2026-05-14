@@ -317,18 +317,6 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return configHelper.subscriptionUrlInputValue(input);
 }
 
-async function persistSubscriptionUrlIfChanged(subscriptionUrl) {
-	// Avoid UCI commit when subscription URL did not change.
-	const value = String(subscriptionUrl || '').trim();
-
-	if (savedSubscriptionUrl !== null && value === savedSubscriptionUrl)
-		return false;
-
-	await backendHelper.saveSubscriptionUrl(value);
-	savedSubscriptionUrl = value;
-	return true;
-}
-
 async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null, hotReloadSupported = null) {
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
 	const updateInterval = String(subscriptionIntervalInput?.value || '').trim();

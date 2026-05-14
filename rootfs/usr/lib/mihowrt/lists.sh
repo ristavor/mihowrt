@@ -389,6 +389,10 @@ policy_remote_list_fetch_limits_begin() {
 	POLICY_REMOTE_LIST_FETCH_DEADLINE=$((now + budget))
 }
 
+policy_remote_redacted_url() {
+	http_fetch_redacted_url "$1" 2>/dev/null || printf '<redacted>'
+}
+
 # Count remote URLs across all lists in one apply to prevent accidental URL
 # storms from user-maintained lists.
 policy_remote_list_register_url() {
@@ -403,7 +407,7 @@ policy_remote_list_register_url() {
 		return 1
 	fi
 
-	log "Fetching remote policy list $url"
+	log "Fetching remote policy list $(policy_remote_redacted_url "$url")"
 }
 
 # Clamp per-request timeout to remaining apply budget.
@@ -584,7 +588,8 @@ policy_merge_remote_list_entry() {
 	local remote_file="" remote_url="" remote_ports=""
 
 	if [ "$allow_urls" -ne 1 ]; then
-		warn "Skipping nested remote policy list URL '$line' in $label"
+		remote_url="$(policy_remote_list_url "$line" 2>/dev/null || true)"
+		warn "Skipping nested remote policy list URL '$(policy_remote_redacted_url "$remote_url")' in $label"
 		return 0
 	fi
 

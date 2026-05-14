@@ -334,6 +334,10 @@ assert_false "fetch_subscription_config should fail when wget fails" fetch_subsc
 subscription_error_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
 assert_eq "false" "$(printf '%s\n' "$subscription_error_json" | jq -r '.ok')" "fetch_subscription_json should return ok=false on fetch failure"
 assert_eq "wget_failed" "$(printf '%s\n' "$subscription_error_json" | jq -r '.error.kind')" "fetch_subscription_json should expose wget failure kind"
+subscription_secret_error_json="$(fetch_subscription_json "https://example.com/secret-token.yaml?token=abc")"
+assert_file_not_contains <(printf '%s\n' "$subscription_secret_error_json") "secret-token" "fetch errors should not expose subscription URL path"
+assert_file_not_contains <(printf '%s\n' "$subscription_secret_error_json") "token=abc" "fetch errors should not expose subscription URL query"
+assert_file_contains <(printf '%s\n' "$subscription_secret_error_json") "https://example.com/<redacted>" "fetch errors should keep only redacted subscription URL origin"
 
 export TEST_WGET_MODE=http404
 subscription_http_json="$(fetch_subscription_json "https://example.com/missing.yaml")"

@@ -11,6 +11,34 @@ http_fetch_header_value() {
 	printf '%s' "$value" | tr '\r\n\t' '   ' | tr -d '[:cntrl:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
+http_fetch_redacted_url() {
+	local url="$1"
+	local scheme="" rest="" authority=""
+
+	case "$url" in
+	http://*)
+		scheme="http"
+		rest="${url#http://}"
+		;;
+	https://*)
+		scheme="https"
+		rest="${url#https://}"
+		;;
+	*)
+		printf '<redacted>'
+		return 0
+		;;
+	esac
+
+	authority="${rest%%/*}"
+	authority="${authority%%\?*}"
+	authority="${authority%%#*}"
+	authority="${authority#*@}"
+	[ -n "$authority" ] || authority="unknown-host"
+
+	printf '%s://%s/<redacted>' "$scheme" "$authority"
+}
+
 device_read_file_value() {
 	local file="$1"
 
@@ -291,6 +319,7 @@ fetch_http_body_limited_to_file() {
 	local label="${4:-download}"
 	local include_device_headers="${6:-0}"
 	local header_hwid="" header_device_os="" header_ver_os="" header_device_model=""
+	local safe_url=""
 
 	fetch_http_reset_error
 	url="$(trim "${1:-}")"
@@ -300,6 +329,7 @@ fetch_http_body_limited_to_file() {
 		err "$FETCH_HTTP_ERROR_MESSAGE"
 		return 1
 	fi
+	safe_url="$(http_fetch_redacted_url "$url")"
 
 	if ! is_uint "$max_bytes"; then
 		fetch_http_set_error "invalid_limit" "Invalid $label size limit: $max_bytes"
@@ -400,7 +430,7 @@ fetch_http_body_limited_to_file() {
 	fi
 
 	if [ "$reader_rc" -ne 0 ]; then
-		fetch_http_set_error "io_error" "Failed to store $label from $url"
+		fetch_http_set_error "io_error" "Failed to store $label from $safe_url"
 		err "$FETCH_HTTP_ERROR_MESSAGE"
 		rm -f "$stderr_file"
 		return 1
@@ -408,11 +438,11 @@ fetch_http_body_limited_to_file() {
 
 	if [ "$wget_rc" -ne 0 ]; then
 		if [ -n "$FETCH_HTTP_STATUS" ]; then
-			fetch_http_set_error "http_error" "Failed to fetch $label from $url: HTTP $FETCH_HTTP_STATUS"
+			fetch_http_set_error "http_error" "Failed to fetch $label from $safe_url: HTTP $FETCH_HTTP_STATUS"
 		elif fetch_stderr_looks_timeout "$stderr_file"; then
-			fetch_http_set_error "timeout" "Failed to fetch $label from $url: timeout"
+			fetch_http_set_error "timeout" "Failed to fetch $label from $safe_url: timeout"
 		else
-			fetch_http_set_error "wget_failed" "Failed to fetch $label from $url"
+			fetch_http_set_error "wget_failed" "Failed to fetch $label from $safe_url"
 		fi
 		err "$FETCH_HTTP_ERROR_MESSAGE"
 		rm -f "$stderr_file"

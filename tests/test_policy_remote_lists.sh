@@ -94,6 +94,14 @@ source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/runtime-snapshot.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/policy.sh"
 
+event_log="$tmpdir/events.log"
+log() {
+	printf '%s\n' "$*" >>"$event_log"
+}
+warn() {
+	printf '%s\n' "$*" >>"$event_log"
+}
+
 assert_unset() {
 	local var_name="$1"
 	local message="$2"
@@ -115,6 +123,20 @@ PKG_TMP_DIR="$tmpdir/run"
 DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
 SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
 DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
+
+: >"$event_log"
+POLICY_REMOTE_LIST_URL_COUNT=0
+policy_remote_list_register_url "https://example.com/path/secret-token.txt?token=abc" "test list"
+assert_file_contains "$event_log" "https://example.com/<redacted>" "remote policy logs should keep redacted URL origin"
+assert_file_not_contains "$event_log" "secret-token" "remote policy logs should not expose URL path"
+assert_file_not_contains "$event_log" "token=abc" "remote policy logs should not expose URL query"
+
+: >"$event_log"
+policy_merge_remote_list_entry "https://example.com/nested-secret.txt?token=abc" "$tmpdir/nested.out" "nested test list" 0
+assert_file_contains "$event_log" "https://example.com/<redacted>" "nested URL warning should keep redacted origin"
+assert_file_not_contains "$event_log" "nested-secret" "nested URL warning should not expose URL path"
+assert_file_not_contains "$event_log" "token=abc" "nested URL warning should not expose URL query"
+unset POLICY_REMOTE_LIST_URL_COUNT
 
 cat > "$DST_LIST_FILE" <<'EOF'
 1.1.1.1

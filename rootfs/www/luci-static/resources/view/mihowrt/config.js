@@ -351,8 +351,12 @@ function stageSubscriptionSettings(subscriptionUrl, result) {
 async function persistPendingSubscriptionSettings(configContent) {
 	const pending = pendingSubscriptionSettings;
 
-	if (!pending || pending.configContent !== configContent)
+	if (!pending)
 		return false;
+	if (pending.configContent !== configContent) {
+		pendingSubscriptionSettings = null;
+		return false;
+	}
 
 	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval, pending.hotReloadSupported);
 	pendingSubscriptionSettings = null;

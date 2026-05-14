@@ -674,10 +674,16 @@ config_requires_mihomo_force_reload() {
 }
 
 config_refresh_subscription_auto_update_state() {
-	local config_json="$1"
+	local config_json="${1:-}"
+
+	: "$config_json"
 
 	if command -v subscription_refresh_auto_update_state >/dev/null 2>&1; then
-		subscription_refresh_auto_update_state "$config_json" || true
+		if [ "$#" -ge 2 ]; then
+			subscription_refresh_auto_update_state "${2:-0}" "${3:-}" || true
+		else
+			subscription_refresh_auto_update_state || true
+		fi
 	fi
 }
 
@@ -866,7 +872,7 @@ apply_config_runtime_auto_update() {
 
 	if [ "$config_changed" -eq 0 ]; then
 		rm -f "$candidate"
-		config_refresh_subscription_auto_update_state "$new_config_json"
+		config_refresh_subscription_auto_update_state "$new_config_json" "$service_restart_needed" "$reason"
 		apply_config_result_json "saved" "$service_restart_needed" 0 0 "$reason"
 		return $?
 	fi
@@ -904,7 +910,7 @@ apply_config_runtime_auto_update() {
 	log "Auto-updated subscription config through Mihomo hot reload"
 
 	if [ "$policy_reload_needed" -eq 0 ]; then
-		config_refresh_subscription_auto_update_state "$new_config_json"
+		config_refresh_subscription_auto_update_state "$new_config_json" "$service_restart_needed" "$reason"
 		apply_config_result_json "hot_reloaded" "$service_restart_needed" 1 0 "$reason"
 		return $?
 	fi
@@ -923,7 +929,7 @@ apply_config_runtime_auto_update() {
 		return $?
 	fi
 
-	config_refresh_subscription_auto_update_state "$new_config_json"
+	config_refresh_subscription_auto_update_state "$new_config_json" "$service_restart_needed" "$reason"
 	apply_config_result_json "policy_reloaded" "$service_restart_needed" 1 1 "$reason"
 }
 

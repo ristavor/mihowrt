@@ -120,7 +120,15 @@ async function openDashboard(options) {
 			return;
 		}
 
-		const config = await backendHelper.readConfig();
+		let config = null;
+		if (typeof backendHelper.readLiveApiConfig === 'function') {
+			const liveConfig = await backendHelper.readLiveApiConfig();
+			if (!liveConfig.errors || !liveConfig.errors.length)
+				config = liveConfig;
+		}
+
+		if (!config)
+			config = await backendHelper.readConfig();
 		if (config.errors && config.errors.length) {
 			uiHelper.notify(_('Unable to open dashboard: %s').format(config.errors.join('; ')), 'error');
 			return;

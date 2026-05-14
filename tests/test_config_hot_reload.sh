@@ -121,6 +121,10 @@ subscription_store_auto_update_state() {
 	printf 'subscription_store_auto_update_state:%s:%s:%s\n' "$1" "$2" "$3" >>"$event_log"
 }
 
+subscription_refresh_auto_update_state() {
+	printf 'subscription_refresh_auto_update_state:%s:%s:%s\n' "$#" "${1:-}" "${2:-}" >>"$event_log"
+}
+
 write_configs() {
 	printf 'old\n' >"$CLASH_CONFIG"
 	printf 'new\n' >"$tmpdir/candidate.yaml"
@@ -149,6 +153,7 @@ assert_eq "true" "$(json_bool "$result" '.hot_reloaded')" "hot reload result sho
 assert_eq "false" "$(json_bool "$result" '.policy_reloaded')" "non-policy config should skip policy reload"
 assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "non-port config change should hot reload without force"
 assert_file_not_contains "$event_log" "reload_runtime_state" "non-policy config should not reload policy"
+assert_file_contains "$event_log" "subscription_refresh_auto_update_state:0::" "manual apply should let subscription refresh detect live API drift itself"
 
 : >"$event_log"
 write_configs
@@ -227,6 +232,7 @@ assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update shoul
 assert_file_contains "$event_log" "install_validated_config_candidate:$tmpdir/candidate.yaml" "auto-update should save config requiring manual restart"
 assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "auto-update should call live API with active config after API field drift"
 assert_file_not_contains "$event_log" "subscription_store_auto_update_state:0::Mihomo API/UI settings changed; manual restart is required" "auto-update should not disable itself on API field drift"
+assert_file_contains "$event_log" "subscription_refresh_auto_update_state:2:1:Mihomo API/UI settings changed; manual restart is required" "auto-update should persist explicit manual restart state"
 
 : >"$event_log"
 write_configs

@@ -62,12 +62,18 @@ assert_true "positive policy remote auto-update interval should be valid" policy
 assert_false "too large policy remote auto-update interval should be invalid" policy_remote_update_interval_valid "8761"
 
 POLICY_REMOTE_CRON_FILE="$tmpdir/root.cron"
+rm -f "$POLICY_REMOTE_CRON_FILE"
+policy_remote_sync_auto_update_cron 0
+[[ ! -e "$POLICY_REMOTE_CRON_FILE" ]] || fail "policy remote cron sync should not create crontab when disabled and marker is absent"
 printf '0 0 * * * echo keep\n23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 # mihowrt policy remote auto-update\n' >"$POLICY_REMOTE_CRON_FILE"
 policy_remote_sync_auto_update_cron 0
 assert_file_contains "$POLICY_REMOTE_CRON_FILE" "echo keep" "policy remote cron sync should preserve unrelated entries when disabled"
 assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should remove auto-update task when disabled"
 policy_remote_sync_auto_update_cron 1
 assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should create auto-update task only when enabled"
+policy_cron_inode="$(stat -c %i "$POLICY_REMOTE_CRON_FILE")"
+policy_remote_sync_auto_update_cron 1
+assert_eq "$policy_cron_inode" "$(stat -c %i "$POLICY_REMOTE_CRON_FILE")" "policy remote cron sync should not rewrite unchanged enabled task"
 policy_remote_sync_auto_update_cron 0
 assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should remove auto-update task after interval becomes disabled"
 

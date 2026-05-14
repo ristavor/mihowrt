@@ -165,13 +165,62 @@ assert_eq "" "$(subscription_effective_update_interval 0 "" "")" "subscription_e
 assert_eq "0" "$(subscription_effective_update_interval 0 "" 0)" "subscription_effective_update_interval should preserve zero header interval as disabled"
 assert_eq "" "$(subscription_effective_update_interval 1 "" 24)" "subscription_effective_update_interval should disable auto-update when override is on but empty"
 
+detect_log="$tmpdir/detect.log"
+read_config_json() {
+	printf 'read_config_json\n' >>"$detect_log"
+	printf '%s\n' '{"external_controller_unix":"mihomo.sock"}'
+}
+
+mihomo_api_live_state_read() {
+	printf 'mihomo_api_live_state_read\n' >>"$detect_log"
+	printf '%s\n' '{"external_controller_unix":"mihomo.sock"}'
+}
+
+config_requires_service_restart() {
+	return 1
+}
+
+SUBSCRIPTION_CRON_FILE="$tmpdir/detect.cron"
+SUBSCRIPTION_AUTO_UPDATE_STATE_FILE="$tmpdir/detect.state"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="1"
+export TEST_UCI_UPDATE_INTERVAL="0"
+export TEST_UCI_HEADER_INTERVAL="24"
+: >"$detect_log"
+subscription_refresh_auto_update_state
+[[ ! -s "$detect_log" ]] || fail "subscription refresh should skip config/live API reads when auto-update is disabled"
+subscription_refresh_auto_update_state 1 "Manual restart required"
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "manual_restart_required=1" "disabled subscription refresh should keep explicit manual restart state"
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "manual_restart_reason=Manual restart required" "disabled subscription refresh should keep explicit manual restart reason"
+[[ ! -s "$detect_log" ]] || fail "subscription refresh should not detect API drift when disabled state is explicit"
+
+export TEST_UCI_UPDATE_INTERVAL="12"
+subscription_refresh_auto_update_state
+assert_file_contains "$detect_log" "read_config_json" "subscription refresh should detect API drift only when auto-update is enabled"
+
+read_config_json() {
+	return 1
+}
+
+mihomo_api_live_state_read() {
+	return 1
+}
+
+SUBSCRIPTION_AUTO_UPDATE_STATE_FILE="$tmpdir/subscription-auto.state"
+
 SUBSCRIPTION_CRON_FILE="$tmpdir/root.cron"
+rm -f "$SUBSCRIPTION_CRON_FILE"
+subscription_sync_auto_update_cron 0
+[[ ! -e "$SUBSCRIPTION_CRON_FILE" ]] || fail "subscription cron sync should not create crontab when disabled and marker is absent"
 printf '0 0 * * * echo keep\n17 * * * * /usr/bin/mihowrt auto-update-subscription >/dev/null 2>&1 # mihowrt subscription auto-update\n' >"$SUBSCRIPTION_CRON_FILE"
 subscription_sync_auto_update_cron 0
 assert_file_contains "$SUBSCRIPTION_CRON_FILE" "echo keep" "subscription cron sync should preserve unrelated entries when disabled"
 assert_file_not_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should remove auto-update task when disabled"
 subscription_sync_auto_update_cron 1
 assert_file_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should create auto-update task only when enabled"
+subscription_cron_inode="$(stat -c %i "$SUBSCRIPTION_CRON_FILE")"
+subscription_sync_auto_update_cron 1
+assert_eq "$subscription_cron_inode" "$(stat -c %i "$SUBSCRIPTION_CRON_FILE")" "subscription cron sync should not rewrite unchanged enabled task"
 subscription_sync_auto_update_cron 0
 assert_file_not_contains "$SUBSCRIPTION_CRON_FILE" "auto-update-subscription" "subscription cron sync should remove auto-update task after interval becomes disabled"
 
@@ -203,6 +252,19 @@ subscription_store_auto_update_state 0 "" "api failed"
 assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "enabled=0" "subscription disabled state should be kept in tmpfs for UI reason"
 assert_eq "false" "$(subscription_url_json | jq -r '.subscription_auto_update_enabled')" "subscription_url_json should expose disabled runtime state"
 assert_eq "api failed" "$(subscription_url_json | jq -r '.subscription_auto_update_reason')" "subscription_url_json should expose disabled runtime reason"
+subscription_write_auto_update_state 12 "success" "" 1 "Mihomo API/UI settings changed; manual restart is required" 123
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "subscription_url_json should expose pending manual restart"
+assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "subscription_url_json should expose pending manual restart reason"
+subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "disabled subscription state should preserve pending manual restart"
+assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "disabled subscription state should preserve pending manual restart reason"
+set_subscription_settings "https://example.com/current.yaml" 1 12 24
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "set_subscription_settings should preserve pending manual restart when drift cannot be detected"
+assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "set_subscription_settings should preserve pending manual restart reason when drift cannot be detected"
+subscription_mark_update_failure "fetch failed"
+assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "last_result=failure" "subscription failure should update tmpfs result"
+assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "subscription failure should preserve pending manual restart"
+assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "subscription failure should preserve pending manual restart reason"
 
 : >"$TEST_UCI_LOG"
 set_subscription_url " https://example.com/new.yaml "

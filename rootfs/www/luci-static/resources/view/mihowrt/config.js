@@ -611,6 +611,10 @@ return view.extend({
 			!subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason
 				? E('p', { class: 'cbi-section-descr' }, subscriptionState.subscriptionAutoUpdateReason)
 				: '',
+			subscriptionState.subscriptionManualRestartRequired
+				? E('p', { class: 'cbi-section-descr', style: 'color: #a94442;' },
+					subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.'))
+				: '',
 			editorNode,
 			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 				(saveApplyButton = E('button', {

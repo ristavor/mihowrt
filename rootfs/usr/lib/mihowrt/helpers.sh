@@ -41,6 +41,68 @@ require_command() {
 	}
 }
 
+mihowrt_sync_cron_marker() {
+	local cron_file="$1"
+	local marker="$2"
+	local enabled="$3"
+	local entry="$4"
+	local cron_dir="" scratch_dir="" scratch_file="" tmp_file=""
+	local marker_count="" entry_count=""
+
+	MIHOWRT_CRON_CHANGED=0
+
+	if [ "$enabled" != "1" ]; then
+		[ -r "$cron_file" ] || return 0
+		grep -qF "$marker" "$cron_file" 2>/dev/null || return 0
+	else
+		if [ -r "$cron_file" ]; then
+			marker_count="$(grep -cF "$marker" "$cron_file" 2>/dev/null || true)"
+			entry_count="$({ grep -Fx "$entry" "$cron_file" 2>/dev/null || true; } | wc -l | tr -d ' ')"
+			[ "$marker_count" = "1" ] && [ "$entry_count" = "1" ] && return 0
+		fi
+	fi
+
+	cron_dir="$(dirname "$cron_file")"
+	scratch_dir="${TMPDIR:-/tmp}"
+	scratch_file="$scratch_dir/mihowrt-cron.$$"
+	tmp_file="${cron_file}.mihowrt.$$"
+
+	ensure_dir "$scratch_dir" || return 1
+	if [ -r "$cron_file" ]; then
+		grep -vF "$marker" "$cron_file" >"$scratch_file" || true
+	else
+		: >"$scratch_file"
+	fi
+
+	if [ "$enabled" = "1" ]; then
+		printf '%s\n' "$entry" >>"$scratch_file" || {
+			rm -f "$scratch_file"
+			return 1
+		}
+	fi
+
+	if [ -f "$cron_file" ] && cmp -s "$scratch_file" "$cron_file"; then
+		rm -f "$scratch_file"
+		return 0
+	fi
+
+	ensure_dir "$cron_dir" || {
+		rm -f "$scratch_file"
+		return 1
+	}
+	cat "$scratch_file" >"$tmp_file" || {
+		rm -f "$scratch_file" "$tmp_file"
+		return 1
+	}
+	mv -f "$tmp_file" "$cron_file" || {
+		rm -f "$scratch_file" "$tmp_file"
+		return 1
+	}
+	rm -f "$scratch_file"
+	MIHOWRT_CRON_CHANGED=1
+	return 0
+}
+
 # Resolve module directory. Tests override MIHOWRT_LIB_DIR to load modules from
 # the repository instead of an installed OpenWrt rootfs.
 mihowrt_lib_dir() {

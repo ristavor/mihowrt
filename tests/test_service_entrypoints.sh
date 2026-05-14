@@ -244,6 +244,16 @@ config_override_output="$(
 )"
 assert_eq "$tmpdir/alt-config.yaml" "$config_override_output" "read-config command should accept config path override"
 
+live_api_output="$(
+	set -- live-api-json
+	mihomo_api_live_state_read() {
+		printf 'live-api\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "live-api" "$live_api_output" "live-api-json command should dispatch to live API state helper"
+
 apply_config_output="$(
 	set -- apply-config "$tmpdir/candidate.yaml"
 	apply_config_runtime() {

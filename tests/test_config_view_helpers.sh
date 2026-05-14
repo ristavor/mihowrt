@@ -151,6 +151,48 @@ assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true wh
 	assertEq(ipv6Notifications.length, 0, 'openDashboard should not warn on valid IPv6 controller config');
 	if (!String(ipv6OpenedUrl).startsWith('http://[2001:db8::1]:9090/zashboard/?'))
 		throw new Error(`openDashboard should keep IPv6 host bracketed, got '${ipv6OpenedUrl}'`);
+
+	const liveNotifications = [];
+	let liveOpenedUrl = null;
+	await configHelper.openDashboard({
+		serviceName: 'mihowrt',
+		serviceScript: '/etc/init.d/mihowrt',
+		backendHelper: {
+			readLiveApiConfig: async() => ({
+				errors: [],
+				externalController: '127.0.0.1:9191',
+				externalControllerTls: '',
+				secret: 'old-secret',
+				externalUi: '',
+				externalUiName: 'ui-old'
+			}),
+			readConfig: async() => ({
+				errors: [],
+				externalController: '192.168.1.1:9090',
+				externalControllerTls: '',
+				secret: 'new-secret',
+				externalUi: '',
+				externalUiName: 'ui-new'
+			})
+		},
+		uiHelper: {
+			getServiceStatus: async() => true,
+			notify: (message, level) => liveNotifications.push({ message, level })
+		},
+		windowObject: {
+			location: { hostname: 'router.lan' },
+			open: (url) => {
+				liveOpenedUrl = url;
+				return {};
+			}
+		}
+	});
+
+	assertEq(liveNotifications.length, 0, 'openDashboard should not warn when live API state is available');
+	if (!String(liveOpenedUrl).startsWith('http://router.lan:9191/ui-old/?'))
+		throw new Error(`openDashboard should use live API endpoint before manual restart, got '${liveOpenedUrl}'`);
+	if (!String(liveOpenedUrl).includes('secret=old-secret'))
+		throw new Error('openDashboard should use live API secret before manual restart');
 })().catch(err => {
 	throw err;
 });

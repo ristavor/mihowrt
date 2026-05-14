@@ -54,13 +54,12 @@ validate_service_inputs() {
 
 sync_auto_update_schedules() {
 	if ! "$ORCHESTRATOR" sync-policy-remote-auto-update >/dev/null 2>&1; then
-		msg "ERROR: Failed to sync remote policy auto-update schedule"
-		return 1
+		msg "WARNING: Failed to sync remote policy auto-update schedule"
 	fi
 	if ! "$ORCHESTRATOR" sync-subscription-auto-update >/dev/null 2>&1; then
-		msg "ERROR: Failed to sync subscription auto-update schedule"
-		return 1
+		msg "WARNING: Failed to sync subscription auto-update schedule"
 	fi
+	return 0
 }
 
 # Start path cleans stale state first, then lets run-service own Mihomo lifetime

@@ -217,12 +217,23 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readConfig should surface backend command failures');
 
 	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt-read live-api-json'] = {
+		code: 0,
+		stdout: '{"external_controller":"0.0.0.0:9090","external_controller_unix":"mihomo.sock","secret":"live-secret"}'
+	};
+	const liveApiState = await context.backend.readLiveApiConfig();
+	if (liveApiState.externalController !== '0.0.0.0:9090' || liveApiState.externalControllerUnix !== 'mihomo.sock' || liveApiState.secret !== 'live-secret')
+		throw new Error('readLiveApiConfig should map live Mihomo API state');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'live-api-json'))
+		throw new Error('readLiveApiConfig should dispatch through read-only backend command');
+
+	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read subscription-json'] = {
 		code: 0,
-		stdout: '{"subscription_url":"https://example.com/sub.yaml","subscription_interval_override":true,"subscription_update_interval":"12","subscription_header_interval":"24","subscription_auto_update_enabled":true}'
+		stdout: '{"subscription_url":"https://example.com/sub.yaml","subscription_interval_override":true,"subscription_update_interval":"12","subscription_header_interval":"24","subscription_auto_update_enabled":true,"subscription_manual_restart_required":true,"subscription_manual_restart_reason":"Manual restart required"}'
 	};
 	const subscriptionState = await context.backend.readSubscriptionUrl();
-	if (subscriptionState.subscriptionUrl !== 'https://example.com/sub.yaml' || !subscriptionState.subscriptionIntervalOverride || subscriptionState.subscriptionUpdateInterval !== '12' || subscriptionState.subscriptionHeaderInterval !== '24' || !subscriptionState.subscriptionAutoUpdateEnabled || subscriptionState.errors.length)
+	if (subscriptionState.subscriptionUrl !== 'https://example.com/sub.yaml' || !subscriptionState.subscriptionIntervalOverride || subscriptionState.subscriptionUpdateInterval !== '12' || subscriptionState.subscriptionHeaderInterval !== '24' || !subscriptionState.subscriptionAutoUpdateEnabled || !subscriptionState.subscriptionManualRestartRequired || subscriptionState.subscriptionManualRestartReason !== 'Manual restart required' || subscriptionState.errors.length)
 		throw new Error('readSubscriptionUrl should parse saved subscription URL');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'subscription-json'))
 		throw new Error('readSubscriptionUrl should dispatch through read-only backend command');
@@ -324,6 +335,15 @@ if (state.directDstRemoteUrlCount !== 0)
 	const policyListsUnchanged = await context.backend.updatePolicyLists();
 	if (policyListsUnchanged)
 		throw new Error('updatePolicyLists should report unchanged lists from backend stdout');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt sync-policy-remote-auto-update'] = {
+		code: 0,
+		stdout: ''
+	};
+	await context.backend.syncPolicyRemoteAutoUpdate();
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'sync-policy-remote-auto-update'))
+		throw new Error('syncPolicyRemoteAutoUpdate should dispatch through backend command');
 
 	context.execCalls.length = 0;
 	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/bad.yaml'] = {

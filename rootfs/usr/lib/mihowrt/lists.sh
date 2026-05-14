@@ -181,35 +181,14 @@ policy_remote_restart_cron() {
 
 policy_remote_sync_auto_update_cron() {
 	local enabled="$1"
-	local cron_file="" marker="" tmp_file="" changed=0
+	local cron_file="" marker="" entry=""
 
 	cron_file="$(policy_remote_cron_file)"
 	marker="$(policy_remote_cron_marker)"
-	tmp_file="${cron_file}.mihowrt.$$"
-	ensure_dir "$(dirname "$cron_file")" || return 1
+	entry="23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 $marker"
 
-	if [ -r "$cron_file" ]; then
-		grep -vF "$marker" "$cron_file" >"$tmp_file" || true
-	else
-		: >"$tmp_file"
-	fi
-
-	if [ "$enabled" = "1" ]; then
-		printf '23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 %s\n' "$marker" >>"$tmp_file"
-	fi
-
-	if [ -f "$cron_file" ] && cmp -s "$tmp_file" "$cron_file"; then
-		rm -f "$tmp_file"
-		return 0
-	fi
-
-	mv -f "$tmp_file" "$cron_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
-	changed=1
-
-	[ "$changed" -eq 1 ] && policy_remote_restart_cron
+	mihowrt_sync_cron_marker "$cron_file" "$marker" "$enabled" "$entry" || return 1
+	[ "${MIHOWRT_CRON_CHANGED:-0}" -eq 1 ] && policy_remote_restart_cron
 	return 0
 }
 

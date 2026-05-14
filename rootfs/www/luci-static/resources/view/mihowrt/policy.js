@@ -75,6 +75,18 @@ function hasMihowrtUciChanges(changes) {
 	return Array.isArray(mihowrtChanges) && mihowrtChanges.length > 0;
 }
 
+function changeMentionsOption(change, optionName) {
+	if (Array.isArray(change))
+		return change.some(item => changeMentionsOption(item, optionName));
+	return String(change) === optionName;
+}
+
+function policyRemoteAutoUpdateChanged(changes) {
+	const mihowrtChanges = changes?.mihowrt;
+	return Array.isArray(mihowrtChanges) &&
+		mihowrtChanges.some(change => changeMentionsOption(change, 'policy_remote_update_interval'));
+}
+
 function setPolicyActionBusy(busy) {
 	// Block overlapping save/update actions so file writes and reloads cannot race.
 	policyActionInFlight = busy;
@@ -223,6 +235,8 @@ return view.extend({
 			const changes = await uci.changes();
 			if (hasMihowrtUciChanges(changes)) {
 				await ui.changes.apply(mode == '0');
+				if (policyRemoteAutoUpdateChanged(changes))
+					await backendHelper.syncPolicyRemoteAutoUpdate();
 				return;
 			}
 

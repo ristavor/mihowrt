@@ -5,7 +5,7 @@ BACKEND="${MIHOWRT_BACKEND:-/usr/bin/mihowrt}"
 # Keep LuCI read ACL on a narrow command surface. Mutating operations must go
 # through /usr/bin/mihowrt with write ACL.
 usage() {
-	echo "Usage: $0 {read-config|subscription-json|service-state-json|status-json|logs-json}" >&2
+	echo "Usage: $0 {read-config|live-api-json|subscription-json|service-state-json|status-json|logs-json}" >&2
 	exit 1
 }
 
@@ -41,7 +41,7 @@ read-config)
 		;;
 	esac
 	;;
-subscription-json | service-state-json | status-json)
+live-api-json | subscription-json | service-state-json | status-json)
 	[ "$#" -eq 1 ] || usage
 	backend_exec "$1"
 	;;

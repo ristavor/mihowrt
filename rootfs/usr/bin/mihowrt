@@ -204,10 +204,10 @@ auto-update-policy-lists)
 	with_runtime_lock auto_update_policy_remote_lists
 	;;
 sync-policy-remote-auto-update)
-	policy_remote_refresh_auto_update_state
+	with_runtime_lock policy_remote_refresh_auto_update_state
 	;;
 sync-subscription-auto-update)
-	subscription_refresh_auto_update_state
+	with_runtime_lock subscription_refresh_auto_update_state
 	;;
 migrate-legacy-settings)
 	migrate_legacy_uci_settings
@@ -249,6 +249,9 @@ read-config)
 	[ -n "${2:-}" ] && CLASH_CONFIG="$2"
 	read_config_json
 	;;
+live-api-json)
+	mihomo_api_live_state_read
+	;;
 apply-config)
 	[ -n "${2:-}" ] || {
 		echo "Usage: $0 apply-config <temp-config-path>" >&2
@@ -271,14 +274,14 @@ set-subscription-url)
 		echo "Usage: $0 set-subscription-url <url>" >&2
 		exit 1
 	}
-	set_subscription_url "$2"
+	with_runtime_lock set_subscription_url "$2"
 	;;
 set-subscription-settings)
 	[ "$#" -ge 4 ] || {
 		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours] [loaded-hot-reload-supported:0|1]" >&2
 		exit 1
 	}
-	set_subscription_settings "$2" "$3" "$4" "${5:-}" "${6:-1}"
+	with_runtime_lock set_subscription_settings "$2" "$3" "$4" "${5:-}" "${6:-1}"
 	;;
 fetch-subscription)
 	[ -n "${2:-}" ] || {
@@ -310,7 +313,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|apply-config|apply-config-contents|subscription-json|set-subscription-url|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-legacy-settings|migrate-policy-lists|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-config-contents|subscription-json|set-subscription-url|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
 	exit 1
 	;;
 esac

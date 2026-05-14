@@ -520,35 +520,14 @@ subscription_restart_cron() {
 
 subscription_sync_auto_update_cron() {
 	local enabled="$1"
-	local cron_file="" marker="" tmp_file="" changed=0
+	local cron_file="" marker="" entry=""
 
 	cron_file="$(subscription_cron_file)"
 	marker="$(subscription_cron_marker)"
-	tmp_file="${cron_file}.mihowrt.$$"
-	ensure_dir "$(dirname "$cron_file")" || return 1
+	entry="17 * * * * /usr/bin/mihowrt auto-update-subscription >/dev/null 2>&1 $marker"
 
-	if [ -r "$cron_file" ]; then
-		grep -vF "$marker" "$cron_file" >"$tmp_file" || true
-	else
-		: >"$tmp_file"
-	fi
-
-	if [ "$enabled" = "1" ]; then
-		printf '17 * * * * /usr/bin/mihowrt auto-update-subscription >/dev/null 2>&1 %s\n' "$marker" >>"$tmp_file"
-	fi
-
-	if [ -f "$cron_file" ] && cmp -s "$tmp_file" "$cron_file"; then
-		rm -f "$tmp_file"
-		return 0
-	fi
-
-	mv -f "$tmp_file" "$cron_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
-	changed=1
-
-	[ "$changed" -eq 1 ] && subscription_restart_cron
+	mihowrt_sync_cron_marker "$cron_file" "$marker" "$enabled" "$entry" || return 1
+	[ "${MIHOWRT_CRON_CHANGED:-0}" -eq 1 ] && subscription_restart_cron
 	return 0
 }
 
@@ -615,6 +594,9 @@ subscription_write_auto_update_state() {
 	local interval="$1"
 	local result="${2:-scheduled}"
 	local reason="${3:-}"
+	local manual_restart_required="${4:-0}"
+	local manual_restart_reason="${5:-}"
+	local next_update_override="${6:-}"
 	local state_file="" state_dir="" tmp_file="" now="" next_update=""
 
 	state_file="$(subscription_auto_update_state_file)"
@@ -622,8 +604,17 @@ subscription_write_auto_update_state() {
 	ensure_dir "$state_dir" || return 1
 	tmp_file="${state_file}.tmp.$$"
 	now="$(subscription_now_epoch)"
-	next_update="$(subscription_next_update_epoch "$interval")"
+	if [ -n "$next_update_override" ]; then
+		next_update="$next_update_override"
+	else
+		next_update="$(subscription_next_update_epoch "$interval")"
+	fi
 	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | tr '\n' ' ')"
+	case "$manual_restart_required" in
+	1 | true | yes) manual_restart_required=1 ;;
+	*) manual_restart_required=0 ;;
+	esac
 
 	{
 		printf 'enabled=1\n'
@@ -632,6 +623,8 @@ subscription_write_auto_update_state() {
 		printf 'next_update=%s\n' "$next_update"
 		printf 'last_result=%s\n' "$result"
 		printf 'reason=%s\n' "$reason"
+		printf 'manual_restart_required=%s\n' "$manual_restart_required"
+		printf 'manual_restart_reason=%s\n' "$manual_restart_reason"
 	} >"$tmp_file" || {
 		rm -f "$tmp_file"
 		return 1
@@ -645,6 +638,8 @@ subscription_write_auto_update_state() {
 
 subscription_write_auto_update_disabled_state() {
 	local reason="${1:-}"
+	local manual_restart_required="${2:-0}"
+	local manual_restart_reason="${3:-}"
 	local state_file="" state_dir="" tmp_file="" now=""
 
 	state_file="$(subscription_auto_update_state_file)"
@@ -653,6 +648,11 @@ subscription_write_auto_update_disabled_state() {
 	tmp_file="${state_file}.tmp.$$"
 	now="$(subscription_now_epoch)"
 	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | tr '\n' ' ')"
+	case "$manual_restart_required" in
+	1 | true | yes) manual_restart_required=1 ;;
+	*) manual_restart_required=0 ;;
+	esac
 
 	{
 		printf 'enabled=0\n'
@@ -661,6 +661,8 @@ subscription_write_auto_update_disabled_state() {
 		printf 'next_update=\n'
 		printf 'last_result=disabled\n'
 		printf 'reason=%s\n' "$reason"
+		printf 'manual_restart_required=%s\n' "$manual_restart_required"
+		printf 'manual_restart_reason=%s\n' "$manual_restart_reason"
 	} >"$tmp_file" || {
 		rm -f "$tmp_file"
 		return 1
@@ -672,17 +674,50 @@ subscription_write_auto_update_disabled_state() {
 	}
 }
 
+subscription_existing_manual_restart_state() {
+	local manual_restart_required="" manual_restart_reason=""
+
+	manual_restart_required="$(subscription_state_value manual_restart_required 2>/dev/null || true)"
+	manual_restart_reason="$(subscription_state_value manual_restart_reason 2>/dev/null || true)"
+	case "$manual_restart_required" in
+	1 | true | yes) manual_restart_required=1 ;;
+	*) manual_restart_required=0 ;;
+	esac
+	printf '%s	%s\n' "$manual_restart_required" "$manual_restart_reason"
+}
+
+subscription_detect_or_existing_manual_restart_state() {
+	local detected_restart_state=""
+
+	detected_restart_state="$(subscription_detect_manual_restart_state 2>/dev/null || true)"
+	if [ -n "$detected_restart_state" ]; then
+		printf '%s\n' "$detected_restart_state"
+		return 0
+	fi
+	subscription_existing_manual_restart_state
+}
+
 subscription_store_auto_update_state() {
 	local enabled="$1"
 	local interval="$2"
 	local reason="${3:-}"
 	local reset_next="${4:-1}"
+	local manual_restart_required="${5:-}"
+	local manual_restart_reason="${6:-}"
 	local existing_interval="" existing_next_update=""
+	local existing_manual_restart="" existing_manual_reason=""
+	local manual_restart_state=""
+
+	if [ "$#" -lt 5 ]; then
+		manual_restart_state="$(subscription_existing_manual_restart_state)"
+		manual_restart_required="${manual_restart_state%%	*}"
+		manual_restart_reason="${manual_restart_state#*	}"
+	fi
 
 	if [ "$enabled" != "1" ]; then
 		subscription_sync_auto_update_cron 0 || return 1
 		if [ -n "$reason" ]; then
-			subscription_write_auto_update_disabled_state "$reason" || return 1
+			subscription_write_auto_update_disabled_state "$reason" "$manual_restart_required" "$manual_restart_reason" || return 1
 		else
 			subscription_clear_auto_update_state
 		fi
@@ -692,7 +727,7 @@ subscription_store_auto_update_state() {
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
 		subscription_sync_auto_update_cron 0 || return 1
 		if [ -n "$reason" ]; then
-			subscription_write_auto_update_disabled_state "$reason" || return 1
+			subscription_write_auto_update_disabled_state "$reason" "$manual_restart_required" "$manual_restart_reason" || return 1
 		else
 			subscription_clear_auto_update_state
 		fi
@@ -702,13 +737,22 @@ subscription_store_auto_update_state() {
 	if [ "$reset_next" != "1" ]; then
 		existing_interval="$(subscription_state_value interval 2>/dev/null || true)"
 		existing_next_update="$(subscription_state_value next_update 2>/dev/null || true)"
+		existing_manual_restart="$(subscription_state_value manual_restart_required 2>/dev/null || true)"
+		existing_manual_reason="$(subscription_state_value manual_restart_reason 2>/dev/null || true)"
 		if [ "$existing_interval" = "$interval" ] && [ -n "$existing_next_update" ] && is_uint "$existing_next_update"; then
+			case "$manual_restart_required" in
+			1 | true | yes) manual_restart_required=1 ;;
+			*) manual_restart_required=0 ;;
+			esac
+			if [ "$existing_manual_restart" != "$manual_restart_required" ] || [ "$existing_manual_reason" != "$manual_restart_reason" ]; then
+				subscription_write_auto_update_state "$interval" "scheduled" "$reason" "$manual_restart_required" "$manual_restart_reason" "$existing_next_update" || return 1
+			fi
 			subscription_sync_auto_update_cron 1
 			return $?
 		fi
 	fi
 
-	subscription_write_auto_update_state "$interval" "scheduled" "$reason" || return 1
+	subscription_write_auto_update_state "$interval" "scheduled" "$reason" "$manual_restart_required" "$manual_restart_reason" || return 1
 	subscription_sync_auto_update_cron 1
 }
 
@@ -716,8 +760,31 @@ subscription_hot_reload_supported_for_config_json() {
 	mihomo_hot_reload_supported "$1"
 }
 
+subscription_detect_manual_restart_state() {
+	local current_json="" live_json=""
+
+	command -v read_config_json >/dev/null 2>&1 || return 1
+	command -v mihomo_api_live_state_read >/dev/null 2>&1 || return 1
+	command -v config_requires_service_restart >/dev/null 2>&1 || return 1
+
+	current_json="$(read_config_json 2>/dev/null || true)"
+	live_json="$(mihomo_api_live_state_read 2>/dev/null || true)"
+	[ -n "$current_json" ] && [ -n "$live_json" ] || return 1
+
+	if config_requires_service_restart "$live_json" "$current_json"; then
+		printf '%s\n' "1	Mihomo API/UI settings changed; manual restart is required"
+	else
+		printf '%s\n' "0	"
+	fi
+}
+
+# Called without args from cron/start sync and with explicit manual-restart state
+# from config auto-update apply paths.
+# shellcheck disable=SC2120
 subscription_refresh_auto_update_state() {
 	local subscription_url="" interval_override="" update_interval="" header_interval="" interval=""
+	local manual_restart_required="" manual_restart_reason="" manual_restart_state=""
+	local explicit_manual_restart=0
 
 	require_command uci || return 1
 	subscription_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_url" 2>/dev/null || true)"
@@ -726,23 +793,44 @@ subscription_refresh_auto_update_state() {
 	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
 	interval="$(subscription_effective_update_interval "$interval_override" "$update_interval" "$header_interval")"
 
+	if [ "$#" -ge 1 ]; then
+		explicit_manual_restart=1
+		manual_restart_required="${1:-0}"
+		manual_restart_reason="${2:-}"
+	fi
+
 	if [ -z "$subscription_url" ]; then
+		if [ "$explicit_manual_restart" -eq 1 ]; then
+			subscription_store_auto_update_state 0 "" "subscription URL is empty" 1 "$manual_restart_required" "$manual_restart_reason"
+			return 0
+		fi
 		subscription_store_auto_update_state 0 "" "subscription URL is empty"
 		return 0
 	fi
 
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
+		if [ "$explicit_manual_restart" -eq 1 ]; then
+			subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
+			return 0
+		fi
 		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
 		return 0
 	fi
 
-	subscription_store_auto_update_state 1 "$interval" "" 0
+	if [ "$explicit_manual_restart" -eq 0 ]; then
+		manual_restart_state="$(subscription_detect_or_existing_manual_restart_state)"
+		manual_restart_required="${manual_restart_state%%	*}"
+		manual_restart_reason="${manual_restart_state#*	}"
+	fi
+
+	subscription_store_auto_update_state 1 "$interval" "" 0 "$manual_restart_required" "$manual_restart_reason"
 }
 
 # Emit stored subscription URL for LuCI.
 subscription_url_json() {
 	local subscription_url="" interval_override="" update_interval="" header_interval=""
 	local auto_enabled="0" state_enabled="" last_update="" next_update="" reason="" effective_interval=""
+	local manual_restart_required="" manual_restart_reason=""
 
 	require_command jq || return 1
 	require_command uci || return 1
@@ -755,6 +843,8 @@ subscription_url_json() {
 	last_update="$(subscription_state_value last_update 2>/dev/null || true)"
 	next_update="$(subscription_state_value next_update 2>/dev/null || true)"
 	reason="$(subscription_state_value reason 2>/dev/null || true)"
+	manual_restart_required="$(subscription_state_value manual_restart_required 2>/dev/null || true)"
+	manual_restart_reason="$(subscription_state_value manual_restart_reason 2>/dev/null || true)"
 	if [ -n "$subscription_url" ] && [ -n "$effective_interval" ] && [ "$effective_interval" != "0" ] && [ "$state_enabled" != "0" ]; then
 		auto_enabled=1
 	elif [ -z "$reason" ]; then
@@ -775,6 +865,8 @@ subscription_url_json() {
 		--arg last_update "$last_update" \
 		--arg next_update "$next_update" \
 		--arg reason "$reason" \
+		--arg manual_restart_required "$manual_restart_required" \
+		--arg manual_restart_reason "$manual_restart_reason" \
 		'{
 			subscription_url: $subscription_url,
 			subscription_interval_override: ($interval_override == "1"),
@@ -784,7 +876,9 @@ subscription_url_json() {
 			subscription_auto_update_enabled: ($auto_enabled == "1"),
 			subscription_last_update: $last_update,
 			subscription_next_update: $next_update,
-			subscription_auto_update_reason: $reason
+			subscription_auto_update_reason: $reason,
+			subscription_manual_restart_required: ($manual_restart_required == "1"),
+			subscription_manual_restart_reason: $manual_restart_reason
 		}'
 }
 
@@ -824,7 +918,7 @@ set_subscription_url() {
 
 set_subscription_settings() {
 	local url="" override="" interval="" header_interval="${4:-}" header_provided=0
-	local current_config_json="" current_url="" changed=0 rc=0
+	local current_url="" changed=0 rc=0
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 
 	url="$(trim "${1:-}")"
@@ -910,12 +1004,8 @@ set_subscription_settings() {
 
 	subscription_commit_if_changed "$changed" || return 1
 
-	current_config_json="$(read_config_json 2>/dev/null || true)"
-	if [ -n "$current_config_json" ]; then
-		subscription_refresh_auto_update_state "$current_config_json"
-	else
-		subscription_store_auto_update_state 0 "" "active config metadata is unavailable"
-	fi
+	# shellcheck disable=SC2119
+	subscription_refresh_auto_update_state
 }
 
 # Size limit for subscription config downloads.
@@ -1038,30 +1128,42 @@ subscription_due_for_update() {
 
 subscription_mark_update_success() {
 	local interval=""
+	local manual_restart_required="${1:-0}" manual_restart_reason="${2:-}"
 
 	interval="$(subscription_configured_update_interval)" || {
-		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
+		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
 		return 0
 	}
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		subscription_store_auto_update_state 0 "" "auto-update interval is disabled"
+		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
 		return 0
 	fi
 
-	subscription_write_auto_update_state "$interval" "success" "" || return 1
+	subscription_write_auto_update_state "$interval" "success" "" "$manual_restart_required" "$manual_restart_reason" || return 1
 }
 
 subscription_mark_update_failure() {
 	local interval="" reason="${1:-subscription auto-update failed}"
+	local manual_restart_required="" manual_restart_reason="" detected_restart_state=""
 
 	interval="$(subscription_configured_update_interval)" || return 0
 	[ -n "$interval" ] && [ "$interval" != "0" ] || return 0
-	subscription_write_auto_update_state "$interval" "failure" "$reason"
+
+	detected_restart_state="$(subscription_detect_manual_restart_state 2>/dev/null || true)"
+	if [ -n "$detected_restart_state" ]; then
+		manual_restart_required="${detected_restart_state%%	*}"
+		manual_restart_reason="${detected_restart_state#*	}"
+	else
+		manual_restart_required="$(subscription_state_value manual_restart_required 2>/dev/null || true)"
+		manual_restart_reason="$(subscription_state_value manual_restart_reason 2>/dev/null || true)"
+	fi
+
+	subscription_write_auto_update_state "$interval" "failure" "$reason" "$manual_restart_required" "$manual_restart_reason"
 }
 
 update_subscription_config() {
 	local url="" candidate="" result="" action="" header_interval="" override="" update_interval=""
-	local interval="" rc=0
+	local interval="" rc=0 restart_required="" restart_reason=""
 
 	require_command jq || return 1
 	require_command mktemp || return 1
@@ -1099,6 +1201,8 @@ update_subscription_config() {
 
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?
 	action="$(printf '%s\n' "$result" | jq -r '.action // ""' 2>/dev/null || true)"
+	restart_required="$(printf '%s\n' "$result" | jq -r 'if .restart_required then "1" else "0" end' 2>/dev/null || printf '0')"
+	restart_reason="$(printf '%s\n' "$result" | jq -r '.reason // ""' 2>/dev/null || true)"
 	case "$action" in
 	saved | hot_reloaded | policy_reloaded) ;;
 	*)
@@ -1112,9 +1216,9 @@ update_subscription_config() {
 	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
 	interval="$(subscription_effective_update_interval "$override" "$update_interval" "$header_interval")"
 	if [ -n "$interval" ] && [ "$interval" != "0" ]; then
-		subscription_mark_update_success || true
+		subscription_mark_update_success "$restart_required" "$restart_reason" || true
 	else
-		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" || true
+		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$restart_required" "$restart_reason" || true
 	fi
 	printf '%s\n' "$result"
 }

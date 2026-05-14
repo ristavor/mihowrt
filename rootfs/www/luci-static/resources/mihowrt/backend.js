@@ -108,6 +108,8 @@ function emptySubscriptionState() {
 		subscriptionLastUpdate: '',
 		subscriptionNextUpdate: '',
 		subscriptionAutoUpdateReason: '',
+		subscriptionManualRestartRequired: false,
+		subscriptionManualRestartReason: '',
 		errors: []
 	};
 }
@@ -192,6 +194,8 @@ function assignSubscriptionState(state, payload) {
 	state.subscriptionLastUpdate = String(payload.subscription_last_update || '');
 	state.subscriptionNextUpdate = String(payload.subscription_next_update || '');
 	state.subscriptionAutoUpdateReason = String(payload.subscription_auto_update_reason || '');
+	state.subscriptionManualRestartRequired = !!payload.subscription_manual_restart_required;
+	state.subscriptionManualRestartReason = String(payload.subscription_manual_restart_reason || '');
 	return state;
 }
 
@@ -294,8 +298,14 @@ async function readConfig(configPath) {
 	return readBackendJson(args, emptyConfigState(), assignConfigState);
 }
 
+async function readLiveApiConfig() {
+	// Dashboard must use the controller Mihomo listens on now, not pending config.
+	return readBackendJson([ 'live-api-json' ], emptyConfigState(), assignConfigState);
+}
+
 return baseclass.extend({
 	readConfig: readConfig,
+	readLiveApiConfig: readLiveApiConfig,
 
 	// Write candidate config to /tmp and let the write backend validate/apply it.
 	applyConfig: async function(configContents) {
@@ -378,6 +388,13 @@ return baseclass.extend({
 			throw new Error(execHelper.errorDetail(result));
 
 		return /^updated=1$/m.test(String(result.stdout || ''));
+	},
+
+	syncPolicyRemoteAutoUpdate: async function() {
+		const result = await fs.exec(WRITE_BACKEND, [ 'sync-policy-remote-auto-update' ]);
+
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
 	},
 
 	readServiceState: async function() {

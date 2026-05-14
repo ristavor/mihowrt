@@ -574,7 +574,7 @@ return view.extend({
 			}
 		};
 
-		const page = E([
+		const pageChildren = [
 			E('div', {
 				style: 'margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
 			}, [
@@ -640,14 +640,17 @@ return view.extend({
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (subscriptionState.subscriptionAutoUpdateEnabled ? '#5cb85c' : '#d9534f') + ';'
 				}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled'))
-			]),
-			!subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason
-				? E('p', { class: 'cbi-section-descr' }, subscriptionState.subscriptionAutoUpdateReason)
-				: '',
-			subscriptionState.subscriptionManualRestartRequired
-				? E('p', { class: 'cbi-section-descr', style: 'color: #a94442;' },
-					subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.'))
-				: '',
+			])
+		];
+
+		if (!subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason)
+			pageChildren.push(E('p', { class: 'cbi-section-descr' }, subscriptionState.subscriptionAutoUpdateReason));
+
+		if (subscriptionState.subscriptionManualRestartRequired)
+			pageChildren.push(E('p', { class: 'cbi-section-descr', style: 'color: #a94442;' },
+				subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.')));
+
+		pageChildren.push(
 			editorNode,
 			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
 				(saveApplyButton = E('button', {
@@ -655,7 +658,9 @@ return view.extend({
 					click: saveAndApply
 				}, _('Validate & Apply Config')))
 			])
-		]);
+		);
+
+		const page = E(pageChildren);
 
 		applyServiceState(serviceState.running, serviceState.enabled);
 		updateControlDisabledState();

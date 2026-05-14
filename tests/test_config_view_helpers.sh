@@ -18,6 +18,13 @@ if (!viewSource.includes('./ruleset/') || !viewSource.includes('./proxy_provider
 	throw new Error('config.js should show tmpfs provider paths');
 if (viewSource.includes('cache.db'))
 	throw new Error('config.js should not show cache.db naming guidance');
+if (!viewSource.includes('const pageChildren = [') || !viewSource.includes('const page = E(pageChildren);'))
+	throw new Error('config.js should build page children without empty string placeholders');
+const pageStart = viewSource.indexOf('const pageChildren = [');
+const pageEnd = viewSource.indexOf('const page = E(pageChildren);', pageStart);
+const pageBlock = viewSource.slice(pageStart, pageEnd);
+if (pageBlock.includes(": ''"))
+	throw new Error('config.js should not pass empty string fallbacks into E() children');
 
 const { module: configHelper } = harness.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/config.js');
 

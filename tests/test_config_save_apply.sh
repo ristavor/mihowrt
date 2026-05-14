@@ -13,7 +13,7 @@ const controlsMatch = source.match(/function controlsBusy[\s\S]*?\n}\n\nfunction
 const updateMatch = source.match(/function updateControlDisabledState[\s\S]*?\n}\n\nasync function withServiceActionLock/);
 const restartMatch = source.match(/async function restartRunningService[\s\S]*?\n}\n\nfunction subscriptionUrlInputValue/);
 const saveStart = source.indexOf('const saveAndApply = async function() {');
-const saveEnd = source.indexOf('\n\n\t\tconst page = E([', saveStart);
+const saveEnd = source.indexOf('\n\n\t\tconst pageChildren = [', saveStart);
 
 if (!controlsMatch)
 	throw new Error('controlsBusy() not found');

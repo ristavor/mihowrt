@@ -393,6 +393,17 @@ policy_remote_redacted_url() {
 	http_fetch_redacted_url "$1" 2>/dev/null || printf '<redacted>'
 }
 
+policy_log_safe_value() {
+	case "$1" in
+	http://* | https://*)
+		policy_remote_redacted_url "$1"
+		;;
+	*)
+		printf '%s' "$1"
+		;;
+	esac
+}
+
 # Count remote URLs across all lists in one apply to prevent accidental URL
 # storms from user-maintained lists.
 policy_remote_list_register_url() {
@@ -589,7 +600,7 @@ policy_merge_remote_list_entry() {
 
 	if [ "$allow_urls" -ne 1 ]; then
 		remote_url="$(policy_remote_list_url "$line" 2>/dev/null || true)"
-		warn "Skipping nested remote policy list URL '$(policy_remote_redacted_url "$remote_url")' in $label"
+		warn "Skipping nested remote policy list URL '$(policy_remote_redacted_url "$remote_url")' in $(policy_log_safe_value "$label")"
 		return 0
 	fi
 
@@ -597,7 +608,7 @@ policy_merge_remote_list_entry() {
 	remote_ports="$(policy_remote_list_ports "$line")" || return 1
 	policy_remote_list_register_url "$remote_url" "$label" || return 1
 	remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
-	policy_merge_list_file "$remote_file" "$output" "$remote_url" 0 "$remote_ports" || {
+	policy_merge_list_file "$remote_file" "$output" "$(policy_remote_redacted_url "$remote_url")" 0 "$remote_ports" || {
 		rm -f "$remote_file"
 		return 1
 	}
@@ -614,7 +625,7 @@ policy_merge_local_list_entry() {
 	local entry=""
 
 	if ! is_policy_entry "$line"; then
-		warn "Skipping invalid policy entry '$line' in $label"
+		warn "Skipping invalid policy entry '$(policy_log_safe_value "$line")' in $(policy_log_safe_value "$label")"
 		return 0
 	fi
 

@@ -132,7 +132,7 @@ nft_emit_policy_file_to_set() {
 	local set_count=0
 	local scoped_count=0
 	local invalid_count=0
-	local line addr
+	local line addr safe_line=""
 
 	[ -f "$file" ] || {
 		eval "$total_count_var=0"
@@ -148,7 +148,12 @@ nft_emit_policy_file_to_set() {
 
 		if ! is_policy_entry "$line"; then
 			invalid_count=$((invalid_count + 1))
-			warn "Skipping invalid policy entry '$line' in $file"
+			if command -v policy_log_safe_value >/dev/null 2>&1; then
+				safe_line="$(policy_log_safe_value "$line")"
+			else
+				safe_line="$line"
+			fi
+			warn "Skipping invalid policy entry '$safe_line' in $file"
 			continue
 		fi
 

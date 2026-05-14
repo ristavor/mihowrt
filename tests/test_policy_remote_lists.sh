@@ -71,6 +71,11 @@ LIST
 9.9.9.0/24:0443,443
 LIST
 		;;
+	https://example.com/secret-list.txt?token=abc)
+		cat <<'LIST'
+https://nested.example.com/path-secret.txt?token=nested;0
+LIST
+		;;
 	https://example.com/fail.txt)
 		exit 1
 		;;
@@ -136,6 +141,16 @@ policy_merge_remote_list_entry "https://example.com/nested-secret.txt?token=abc"
 assert_file_contains "$event_log" "https://example.com/<redacted>" "nested URL warning should keep redacted origin"
 assert_file_not_contains "$event_log" "nested-secret" "nested URL warning should not expose URL path"
 assert_file_not_contains "$event_log" "token=abc" "nested URL warning should not expose URL query"
+
+: >"$event_log"
+mkdir -p "$PKG_TMP_DIR"
+policy_merge_remote_list_entry "https://example.com/secret-list.txt?token=abc" "$tmpdir/secret.out" "secret list" 1
+assert_file_contains "$event_log" "https://example.com/<redacted>" "remote invalid entry warning should redact source URL"
+assert_file_contains "$event_log" "https://nested.example.com/<redacted>" "remote invalid entry warning should redact invalid URL entry"
+assert_file_not_contains "$event_log" "secret-list" "remote invalid entry warning should not expose source URL path"
+assert_file_not_contains "$event_log" "token=abc" "remote invalid entry warning should not expose source URL query"
+assert_file_not_contains "$event_log" "path-secret" "remote invalid entry warning should not expose invalid URL path"
+assert_file_not_contains "$event_log" "token=nested" "remote invalid entry warning should not expose invalid URL query"
 unset POLICY_REMOTE_LIST_URL_COUNT
 
 cat > "$DST_LIST_FILE" <<'EOF'

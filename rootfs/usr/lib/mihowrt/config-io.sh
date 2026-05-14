@@ -537,7 +537,7 @@ patch_config_api_defaults() {
 	local reference_json="${2:-}"
 	local config_json="" controller="" controller_unix="" secret=""
 	local router_ip="" generated_secret="" reference_secret=""
-	local default_socket="${MIHOMO_SOCKET_NAME:-mihomo.sock}"
+	local default_socket="${MIHOMO_SOCKET_TMPFS:-/tmp/clash/${MIHOMO_SOCKET_NAME:-mihomo.sock}}"
 	local default_port="${MIHOMO_API_DEFAULT_PORT:-9090}"
 	local need_socket=0 need_controller=0 need_secret=0
 	local patch_socket="" patch_controller="" patch_secret=""
@@ -568,7 +568,7 @@ patch_config_api_defaults() {
 		reference_secret="$(config_json_value "$reference_json" secret 2>/dev/null || true)"
 	fi
 
-	if [ -z "$controller_unix" ]; then
+	if [ -z "$controller_unix" ] || [ "$controller_unix" = "${MIHOMO_SOCKET_NAME:-mihomo.sock}" ]; then
 		need_socket=1
 		patch_socket="$default_socket"
 	fi

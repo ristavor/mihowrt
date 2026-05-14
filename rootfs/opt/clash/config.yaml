@@ -6,7 +6,7 @@ allow-lan: false
 unified-delay: true
 tcp-concurrent: true
 external-controller: 0.0.0.0:9090
-external-controller-unix: mihomo.sock
+external-controller-unix: /tmp/clash/mihomo.sock
 external-ui: ./ui
 external-ui-url: 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip'
 

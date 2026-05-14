@@ -118,7 +118,7 @@ mihomo_api_live_or_config_json() {
 }
 
 subscription_store_auto_update_state() {
-	printf 'subscription_store_auto_update_state:%s:%s:%s\n' "$1" "$2" "$3" >>"$event_log"
+	printf 'subscription_store_auto_update_state:%s:%s:%s:%s:%s:%s\n' "${1:-}" "${2:-}" "${3:-}" "${4:-}" "${5:-}" "${6:-}" >>"$event_log"
 }
 
 subscription_refresh_auto_update_state() {
@@ -279,6 +279,19 @@ result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
 assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "auto-update should keep using persisted live API across pending manual restart"
 assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update should keep manual restart flag while live API differs from saved config"
 assert_file_contains "$event_log" "mihomo_hot_reload_config_api:0.0.0.0:9090:mihomo.sock" "auto-update should call old live API, not updated config API"
+TEST_LIVE_CONFIG_JSON=""
+
+: >"$event_log"
+write_configs
+TEST_LIVE_CONFIG_JSON='{"external_controller":"0.0.0.0:9090","external_controller_unix":"mihomo.sock","secret":"live-secret"}'
+TEST_RELOAD_RUNTIME_RC=1
+old_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"new.sock","secret":"new-secret","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'
+new_json='{"external_controller":"127.0.0.1:9091","external_controller_tls":"","external_controller_unix":"new.sock","secret":"new-secret","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/16"}'
+result="$(apply_config_runtime_auto_update "$tmpdir/candidate.yaml")"
+assert_eq "auto_update_disabled" "$(json_bool "$result" '.action')" "auto-update failure after pending API drift should disable schedule"
+assert_eq "true" "$(json_bool "$result" '.restart_required')" "auto-update failure should keep manual restart flag when restored config still differs from live API"
+assert_file_contains "$event_log" "subscription_store_auto_update_state:0::Policy reload failed after auto-update hot reload:1:1:Mihomo API/UI settings changed; manual restart is required" "auto-update failure should persist manual restart warning in disabled state"
+TEST_RELOAD_RUNTIME_RC=0
 TEST_LIVE_CONFIG_JSON=""
 
 : >"$event_log"

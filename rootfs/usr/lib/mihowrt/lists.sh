@@ -487,7 +487,7 @@ policy_count_matching_lines() {
 		return 0
 	}
 
-	while IFS= read -r line; do
+	while IFS= read -r line || [ -n "$line" ]; do
 		line="$(trim "$line")"
 		case "$line" in
 		'' | '#'*) continue ;;

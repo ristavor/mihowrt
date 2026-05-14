@@ -155,6 +155,9 @@ assert_eq "3600" "$(policy_remote_list_fetch_budget)" "remote list fetch budget 
 assert_eq "1024" "$(policy_remote_list_max_urls)" "remote list URL limit should cap huge overrides"
 unset POLICY_REMOTE_LIST_MAX_BYTES POLICY_EFFECTIVE_LIST_MAX_BYTES POLICY_REMOTE_LIST_FETCH_TIMEOUT POLICY_REMOTE_LIST_FETCH_BUDGET POLICY_REMOTE_LIST_MAX_URLS
 
+printf 'https://example.com/dst-b.txt' > "$DST_LIST_FILE"
+assert_eq "1" "$(count_remote_list_urls "$DST_LIST_FILE")" "count_remote_list_urls should count final URL without trailing newline"
+
 cat > "$DST_LIST_FILE" <<'EOF'
 https://example.com/scoped-url.txt;0443,0053
 11.11.11.11;00080

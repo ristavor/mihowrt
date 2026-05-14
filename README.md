@@ -32,6 +32,7 @@ jq
 nftables
 kmod-nft-tproxy
 wget-any
+curl
 ```
 
 Runtime also expects normal OpenWrt tools and services:

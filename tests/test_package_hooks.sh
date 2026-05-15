@@ -8,7 +8,13 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 backup_path="$tmpdir/luci-app-mihowrt.config.yaml.bak"
+list_backup_dir="$tmpdir/luci-app-mihowrt.policy-lists.bak"
 live_config="$tmpdir/opt/clash/config.yaml"
+live_list_dir="$tmpdir/opt/clash/lst"
+live_dst_list="$live_list_dir/always_proxy_dst.txt"
+live_src_list="$live_list_dir/always_proxy_src.txt"
+live_direct_list="$live_list_dir/direct_dst.txt"
+preinst_path="$tmpdir/preinst.sh"
 script_path="$tmpdir/postinst.sh"
 prerm_path="$tmpdir/prerm.sh"
 hook_log="$tmpdir/hook.log"
@@ -26,16 +32,30 @@ extract_hook() {
 	' hook="$hook" "$ROOT_DIR/Makefile"
 }
 
+rewrite_package_paths() {
+	sed \
+		-e "s|\$(PKG_CONFIG_BACKUP_FILE)|$backup_path|g" \
+		-e "s|\$(PKG_POLICY_LIST_BACKUP_DIR)|$list_backup_dir|g" \
+		-e "s|/opt/clash/config.yaml|$live_config|g" \
+		-e "s|/opt/clash/lst/always_proxy_dst.txt|$live_dst_list|g" \
+		-e "s|/opt/clash/lst/always_proxy_src.txt|$live_src_list|g" \
+		-e "s|/opt/clash/lst/direct_dst.txt|$live_direct_list|g" \
+		-e 's/\$\$/\$/g'
+}
+
+extract_preinst() {
+	extract_hook "preinst" |
+		rewrite_package_paths
+}
+
 extract_postinst() {
 	extract_hook "postinst" |
+		rewrite_package_paths |
 		sed \
-			-e "s|\$(PKG_CONFIG_BACKUP_FILE)|$backup_path|g" \
-			-e "s|/opt/clash/config.yaml|$live_config|g" \
 			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
 			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
-			-e 's|/etc/init.d/rpcd reload|true|g' \
-			-e 's/\$\$/\$/g'
+			-e 's|/etc/init.d/rpcd reload|true|g'
 }
 
 extract_prerm() {
@@ -47,10 +67,18 @@ extract_prerm() {
 			-e 's/\$\$/\$/g'
 }
 
-mkdir -p "$(dirname "$live_config")"
+mkdir -p "$(dirname "$live_config")" "$live_list_dir"
 
+extract_hook "preinst" >"$tmpdir/preinst.raw"
+assert_file_contains "$tmpdir/preinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)' "preinst should stage policy list backups before package payload install"
+assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_dst.txt" "preinst should back up destination policy list"
+assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_src.txt" "preinst should back up source policy list"
+assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/direct_dst.txt" "preinst should back up direct destination policy list"
 extract_hook "postinst" >"$tmpdir/postinst.raw"
 assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "postinst should detect installer transactions"
+assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt' "postinst should restore destination policy list backup"
+assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt' "postinst should restore source policy list backup"
+assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt' "postinst should restore direct destination policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-legacy-settings" "postinst should migrate legacy UCI settings on package upgrade"
 assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-policy-lists" "postinst should migrate legacy policy list syntax on package upgrade"
 
@@ -61,18 +89,54 @@ exit 0
 EOF
 chmod +x "$tmpdir/mihowrt"
 
+extract_preinst >"$preinst_path"
+chmod +x "$preinst_path"
 extract_postinst >"$script_path"
 chmod +x "$script_path"
 
+printf 'user-config\n' >"$live_config"
+printf 'user-dst\n' >"$live_dst_list"
+printf 'user-src\n' >"$live_src_list"
+printf 'user-direct\n' >"$live_direct_list"
+IPKG_INSTROOT="" "$preinst_path"
+assert_file_contains "$backup_path" "user-config" "preinst should back up existing config before fresh package install"
+assert_file_contains "$list_backup_dir/always_proxy_dst.txt" "user-dst" "preinst should back up existing destination policy list"
+assert_file_contains "$list_backup_dir/always_proxy_src.txt" "user-src" "preinst should back up existing source policy list"
+assert_file_contains "$list_backup_dir/direct_dst.txt" "user-direct" "preinst should back up existing direct destination policy list"
+
+printf 'package-config\n' >"$live_config"
+printf 'package-dst\n' >"$live_dst_list"
+printf 'package-src\n' >"$live_src_list"
+printf 'package-direct\n' >"$live_direct_list"
+: >"$hook_log"
+IPKG_INSTROOT="" "$script_path"
+assert_file_contains "$live_config" "user-config" "postinst should restore config preserved across sysupgrade reinstall"
+assert_file_contains "$live_dst_list" "user-dst" "postinst should restore destination policy list preserved across sysupgrade reinstall"
+assert_file_contains "$live_src_list" "user-src" "postinst should restore source policy list preserved across sysupgrade reinstall"
+assert_file_contains "$live_direct_list" "user-direct" "postinst should restore direct destination policy list preserved across sysupgrade reinstall"
+[[ ! -e "$backup_path" ]] || fail "postinst should consume restored config backup"
+[[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should consume restored destination policy list backup"
+[[ ! -e "$list_backup_dir/always_proxy_src.txt" ]] || fail "postinst should consume restored source policy list backup"
+[[ ! -e "$list_backup_dir/direct_dst.txt" ]] || fail "postinst should consume restored direct destination policy list backup"
+[[ ! -d "$list_backup_dir" ]] || fail "postinst should remove empty policy list backup directory"
+
 printf 'same-config\n' >"$backup_path"
 printf 'same-config\n' >"$live_config"
+mkdir -p "$list_backup_dir"
+printf 'same-dst\n' >"$list_backup_dir/always_proxy_dst.txt"
+printf 'same-dst\n' >"$live_dst_list"
 touch -d '2024-01-01 00:00:00' "$live_config"
+touch -d '2024-01-01 00:00:00' "$live_dst_list"
 before_same_mtime="$(stat -c %Y "$live_config")"
+before_same_list_mtime="$(stat -c %Y "$live_dst_list")"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
 after_same_mtime="$(stat -c %Y "$live_config")"
+after_same_list_mtime="$(stat -c %Y "$live_dst_list")"
 assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriting identical config backup"
+assert_eq "$before_same_list_mtime" "$after_same_list_mtime" "postinst should skip rewriting identical policy list backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should remove identical config backup after skip"
+[[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should remove identical policy list backup after skip"
 assert_file_contains "$hook_log" "mihowrt:migrate-legacy-settings" "postinst should migrate legacy settings outside installer transaction"
 assert_file_contains "$hook_log" "mihowrt:migrate-policy-lists" "postinst should migrate policy lists outside installer transaction"
 

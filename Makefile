@@ -3,10 +3,11 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.7.3
+PKG_VERSION:=0.7.4
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
+PKG_POLICY_LIST_BACKUP_DIR:=/tmp/$(PKG_NAME).policy-lists.bak
 
 LUCI_TITLE:=LuCI Support for MihoWRT
 LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy +@wget-any +curl
@@ -92,7 +93,12 @@ define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	rm -f $(PKG_CONFIG_BACKUP_FILE)
+	rm -rf $(PKG_POLICY_LIST_BACKUP_DIR)
 	[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE)
+	mkdir -p $(PKG_POLICY_LIST_BACKUP_DIR)
+	[ -f /opt/clash/lst/always_proxy_dst.txt ] && cp -p /opt/clash/lst/always_proxy_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt
+	[ -f /opt/clash/lst/always_proxy_src.txt ] && cp -p /opt/clash/lst/always_proxy_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt
+	[ -f /opt/clash/lst/direct_dst.txt ] && cp -p /opt/clash/lst/direct_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt
 }
 exit 0
 endef
@@ -100,13 +106,22 @@ endef
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	if [ -f $(PKG_CONFIG_BACKUP_FILE) ]; then
-		if [ ! -f /opt/clash/config.yaml ] || ! cmp -s $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml; then
-			mv $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
+	restore_mihowrt_backup_file() {
+		backup_file="$$1"
+		target_file="$$2"
+		[ -f "$$backup_file" ] || return 0
+		if [ ! -f "$$target_file" ] || ! cmp -s "$$backup_file" "$$target_file"; then
+			mkdir -p "$${target_file%/*}" 2>/dev/null || true
+			mv "$$backup_file" "$$target_file"
 		else
-			rm -f $(PKG_CONFIG_BACKUP_FILE)
+			rm -f "$$backup_file"
 		fi
-	fi
+	}
+	restore_mihowrt_backup_file $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml
+	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt
+	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt
+	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt
+	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	if [ ! -f /tmp/luci-app-mihowrt.skip-start ]; then
 		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1 || true
 		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1 || true

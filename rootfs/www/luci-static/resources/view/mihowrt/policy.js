@@ -4,6 +4,7 @@
 'require uci';
 'require fs';
 'require ui';
+'require rpc';
 'require mihowrt.backend as backendHelper';
 'require mihowrt.ui as mihowrtUi';
 
@@ -13,6 +14,12 @@ const DIRECT_DST_LIST_FILE = '/opt/clash/lst/direct_dst.txt';
 const SETTINGS_SECTION_ID = 'settings';
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
+const commitUciPackage = rpc.declare({
+	object: 'uci',
+	method: 'commit',
+	params: [ 'config' ],
+	reject: true
+});
 
 let dstValueCache = null;
 let srcValueCache = null;
@@ -85,6 +92,19 @@ function policyRemoteAutoUpdateChanged(changes) {
 	const mihowrtChanges = changes?.mihowrt;
 	return Array.isArray(mihowrtChanges) &&
 		mihowrtChanges.some(change => changeMentionsOption(change, 'policy_remote_update_interval'));
+}
+
+function mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes) {
+	const changedPackages = Object.keys(changes || {}).filter(name =>
+		Array.isArray(changes[name]) && changes[name].length > 0);
+	const mihowrtChanges = changes?.mihowrt;
+	return changedPackages.length === 1 &&
+		changedPackages[0] === 'mihowrt' &&
+		Array.isArray(mihowrtChanges) &&
+		mihowrtChanges.length > 0 &&
+		mihowrtChanges.every(change => Array.isArray(change) &&
+			(String(change[0]) === 'set' || String(change[0]) === 'remove') &&
+			String(change[2]) === 'policy_remote_update_interval');
 }
 
 function updateRemoteListsButtonNode() {
@@ -246,6 +266,14 @@ return view.extend({
 			await savePolicyMap();
 
 			const changes = await uci.changes();
+			if (mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes)) {
+				await commitUciPackage('mihowrt');
+				await ui.changes.init();
+				await backendHelper.syncPolicyRemoteAutoUpdate();
+				await reloadPolicyIfNeeded(listChanged, wasRunning);
+				return;
+			}
+
 			if (hasMihowrtUciChanges(changes)) {
 				await ui.changes.apply(mode == '0');
 				if (policyRemoteAutoUpdateChanged(changes))

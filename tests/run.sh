@@ -58,7 +58,7 @@ run_all_tests() {
 	printf '==> shell lint\n'
 	if command -v shellcheck >/dev/null 2>&1; then
 		shellcheck -s ash -e SC1091,SC2034 "${ash_shell_files[@]}"
-		shellcheck -s bash -e SC1091,SC2034,SC2329 "${bash_shell_files[@]}"
+		shellcheck -s bash -e SC1091,SC2016,SC2034,SC2329 "${bash_shell_files[@]}"
 		printf 'ok - shell lint\n'
 	else
 		printf 'skip - shell lint (shellcheck missing)\n'

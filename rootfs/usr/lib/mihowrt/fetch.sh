@@ -163,7 +163,7 @@ device_stored_hwid() {
 }
 
 device_random_hwid() {
-	local hwid_file="" hwid="" hwid_dir=""
+	local hwid=""
 
 	if ! have_command dd || ! have_command hexdump; then
 		return 1
@@ -171,24 +171,32 @@ device_random_hwid() {
 
 	hwid="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null)"
 	device_hwid_valid "$hwid" || return 1
-
-	hwid_file="$(device_hwid_file)"
-	hwid_dir="$(dirname "$hwid_file")"
-	if ensure_dir "$hwid_dir" && printf '%s\n' "$hwid" >"$hwid_file" 2>/dev/null; then
-		:
-	fi
+	device_store_hwid "$hwid" || return 1
 	printf '%s\n' "$hwid"
 }
 
 device_store_hwid() {
 	local hwid="$1"
-	local hwid_file="" hwid_dir=""
+	local hwid_file="" hwid_dir="" stored_hwid="" tmp_file=""
 
 	device_hwid_valid "$hwid" || return 1
 	hwid_file="$(device_hwid_file)"
 	hwid_dir="$(dirname "$hwid_file")"
 	ensure_dir "$hwid_dir" || return 1
-	printf '%s\n' "$hwid" >"$hwid_file"
+	if [ -r "$hwid_file" ]; then
+		stored_hwid="$(head -n 1 "$hwid_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' || true)"
+		[ "$stored_hwid" = "$hwid" ] && return 0
+	fi
+
+	tmp_file="${hwid_file}.tmp.$$"
+	printf '%s\n' "$hwid" >"$tmp_file" 2>/dev/null || {
+		rm -f "$tmp_file" 2>/dev/null || true
+		return 1
+	}
+	mv -f "$tmp_file" "$hwid_file" || {
+		rm -f "$tmp_file" 2>/dev/null || true
+		return 1
+	}
 }
 
 device_hwid() {
@@ -200,7 +208,7 @@ device_hwid() {
 	if [ -n "$material" ]; then
 		hwid="$(printf 'mihowrt-hwid-v1\n%s\n' "$material" | device_sha256 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
 		if device_hwid_valid "$hwid"; then
-			device_store_hwid "$hwid" 2>/dev/null || true
+			device_store_hwid "$hwid" 2>/dev/null || warn "Failed to cache MihoWRT hardware ID"
 			printf '%s\n' "$hwid"
 			return 0
 		fi

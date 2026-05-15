@@ -68,6 +68,8 @@ const context = {
 		notifications: [],
 		uciChanges: {},
 		applyCalls: [],
+		commitCalls: [],
+		initCalls: [],
 		updateChanged: false,
 		updateError: null,
 		syncPolicyRemoteError: null,
@@ -118,7 +120,8 @@ const context = {
 	},
 	ui: {
 		changes: {
-			apply: async(mode) => context.applyCalls.push(mode)
+			apply: async(mode) => context.applyCalls.push(mode),
+			init: async() => context.initCalls.push(true)
 		}
 	},
 		mihowrtUi: {
@@ -143,7 +146,7 @@ const context = {
 	};
 
 	vm.createContext(context);
-	vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setUpdateListsButton = value => { updateListsButton = value; };\nglobalThis.setPolicyActionBusy = setPolicyActionBusy;\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\nconst commitUciPackage = async(config) => { globalThis.commitCalls.push(config); };\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate = mihowrtUciChangesOnlyPolicyRemoteAutoUpdate;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setUpdateListsButton = value => { updateListsButton = value; };\nglobalThis.setPolicyActionBusy = setPolicyActionBusy;\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
 
 (async () => {
 	context.setPolicyMap({ readonly: false, save: async() => {} });
@@ -263,9 +266,19 @@ const context = {
 		throw new Error('policyRemoteAutoUpdateChanged should ignore unrelated mihowrt options');
 	if (!context.policyRemoteAutoUpdateChanged({ mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']] }))
 		throw new Error('policyRemoteAutoUpdateChanged should detect policy remote interval changes');
+	if (!context.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate({ mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']] }))
+		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should accept only policy remote interval changes');
+	if (!context.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate({ mihowrt: [['remove', 'settings', 'policy_remote_update_interval']] }))
+		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should accept policy remote interval removal');
+	if (context.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate({ mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']], network: [['set', 'lan', 'ipaddr', '192.168.1.1']] }))
+		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should reject mixed package changes');
+	if (context.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate({ mihowrt: [['set', 'settings', 'policy_mode', 'proxy-first']] }))
+		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should reject other mihowrt options');
 
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;
+	context.commitCalls.length = 0;
+	context.initCalls.length = 0;
 	context.notifications.length = 0;
 	context.uciChanges = { network: [['set', 'lan']] };
 	context.setPolicyMode('direct-first');
@@ -279,6 +292,8 @@ const context = {
 
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;
+	context.commitCalls.length = 0;
+	context.initCalls.length = 0;
 	context.uciChanges = { mihowrt: [['set', 'settings']] };
 	context.setPolicyMode('direct-first');
 	context.syncListCaches('1.1.1.1\n', '', '');
@@ -293,16 +308,41 @@ const context = {
 
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;
+	context.commitCalls.length = 0;
+	context.initCalls.length = 0;
 	context.uciChanges = { mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']] };
 	context.setPolicyMode('direct-first');
 	context.syncListCaches('1.1.1.1\n', '', '');
 	context.setListOptions({ formvalue: () => '1.1.1.1\n' }, { formvalue: () => '' }, { formvalue: () => '' });
 	await context.handleSaveApply.call({ handleSave: async() => {} }, null, '1');
+	if (context.applyCalls.length !== 0)
+		throw new Error('handleSaveApply should not apply service reload for interval-only changes');
+	if (context.commitCalls.length !== 1 || context.commitCalls[0] !== 'mihowrt')
+		throw new Error('handleSaveApply should commit interval-only changes without applying service reload');
+	if (context.initCalls.length !== 1)
+		throw new Error('handleSaveApply should refresh LuCI change state after interval-only commit');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'sync-policy-remote-auto-update'))
 		throw new Error('handleSaveApply should strictly sync policy remote cron after interval changes');
 
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;
+	context.commitCalls.length = 0;
+	context.initCalls.length = 0;
+	context.uciChanges = {
+		mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']],
+		network: [['set', 'lan', 'ipaddr', '192.168.1.1']]
+	};
+	await context.handleSaveApply.call({ handleSave: async() => {} }, null, '1');
+	if (context.applyCalls.length !== 1)
+		throw new Error('handleSaveApply should fall back to LuCI apply when interval changes are mixed with other packages');
+	if (context.commitCalls.length !== 0)
+		throw new Error('handleSaveApply should not commit mixed package changes without LuCI apply');
+
+	context.execCalls.length = 0;
+	context.applyCalls.length = 0;
+	context.commitCalls.length = 0;
+	context.initCalls.length = 0;
+	context.uciChanges = { mihowrt: [['set', 'settings', 'policy_remote_update_interval', '12']] };
 	context.syncPolicyRemoteError = 'cron write failed';
 	let syncFailed = false;
 	try {

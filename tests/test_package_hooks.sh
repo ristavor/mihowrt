@@ -71,6 +71,7 @@ mkdir -p "$(dirname "$live_config")" "$live_list_dir"
 
 extract_hook "preinst" >"$tmpdir/preinst.raw"
 assert_file_contains "$tmpdir/preinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)' "preinst should stage policy list backups before package payload install"
+assert_file_contains "$tmpdir/preinst.raw" "backup_mihowrt_file" "preinst should use fail-fast backup helper"
 assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_dst.txt" "preinst should back up destination policy list"
 assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_src.txt" "preinst should back up source policy list"
 assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/direct_dst.txt" "preinst should back up direct destination policy list"
@@ -93,6 +94,24 @@ extract_preinst >"$preinst_path"
 chmod +x "$preinst_path"
 extract_postinst >"$script_path"
 chmod +x "$script_path"
+
+failbin="$tmpdir/failbin"
+mkdir -p "$failbin"
+cat >"$failbin/cp" <<'EOF'
+#!/usr/bin/env bash
+exit 1
+EOF
+chmod +x "$failbin/cp"
+
+printf 'backup-fail-config\n' >"$live_config"
+rm -f "$backup_path"
+rm -rf "$list_backup_dir"
+set +e
+PATH="$failbin:$PATH" IPKG_INSTROOT="" "$preinst_path"
+preinst_fail_rc=$?
+set -e
+[[ "$preinst_fail_rc" -ne 0 ]] || fail "preinst should fail when existing config cannot be backed up"
+[[ ! -e "$backup_path" ]] || fail "preinst should not leave partial config backup after failed copy"
 
 printf 'user-config\n' >"$live_config"
 printf 'user-dst\n' >"$live_dst_list"

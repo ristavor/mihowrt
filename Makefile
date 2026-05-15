@@ -92,13 +92,19 @@ endef
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	rm -f $(PKG_CONFIG_BACKUP_FILE)
-	rm -rf $(PKG_POLICY_LIST_BACKUP_DIR)
-	[ -f /opt/clash/config.yaml ] && cp -p /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE)
-	mkdir -p $(PKG_POLICY_LIST_BACKUP_DIR)
-	[ -f /opt/clash/lst/always_proxy_dst.txt ] && cp -p /opt/clash/lst/always_proxy_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt
-	[ -f /opt/clash/lst/always_proxy_src.txt ] && cp -p /opt/clash/lst/always_proxy_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt
-	[ -f /opt/clash/lst/direct_dst.txt ] && cp -p /opt/clash/lst/direct_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt
+	backup_mihowrt_file() {
+		src="$$1"
+		backup_file="$$2"
+		[ -f "$$src" ] || return 0
+		mkdir -p "$${backup_file%/*}" || return 1
+		cp -p "$$src" "$$backup_file" || return 1
+	}
+	rm -f $(PKG_CONFIG_BACKUP_FILE) || exit 1
+	rm -rf $(PKG_POLICY_LIST_BACKUP_DIR) || exit 1
+	backup_mihowrt_file /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE) || exit 1
+	backup_mihowrt_file /opt/clash/lst/always_proxy_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt || exit 1
+	backup_mihowrt_file /opt/clash/lst/always_proxy_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt || exit 1
+	backup_mihowrt_file /opt/clash/lst/direct_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt || exit 1
 }
 exit 0
 endef

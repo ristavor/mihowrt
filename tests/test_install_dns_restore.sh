@@ -306,15 +306,43 @@ TEST_FAIL_UCI_CMD=""
 rm -f "$backup_file"
 : > "$UCI_LOG"
 : > "$DNS_LOG"
-TEST_UCI_NORESOLV="1"
-unset TEST_CURRENT_CACHESIZE TEST_CURRENT_RESOLVFILE TEST_CURRENT_SERVERS
+TEST_CURRENT_CACHESIZE="0"
 TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
 restore_system_dns_defaults 1
 assert_file_contains "$UCI_LOG" "delete dhcp.@dnsmasq[0].server" "restore_system_dns_defaults fallback should clear servers"
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].noresolv=0" "restore_system_dns_defaults fallback should disable noresolv"
 assert_file_contains "$UCI_LOG" "set dhcp.@dnsmasq[0].resolvfile=$DNS_AUTO_RESOLVFILE" "restore_system_dns_defaults fallback should restore auto resolvfile"
 assert_file_contains "$UCI_LOG" "commit dhcp" "restore_system_dns_defaults fallback should commit dhcp config"
 assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults fallback should restart dnsmasq"
+
+CLASH_DIR="$tmpdir/clash"
+mkdir -p "$CLASH_DIR"
+cat > "$CLASH_DIR/config.yaml" <<'EOF'
+dns:
+  listen: 192.168.70.1:7874
+EOF
+rm -f "$backup_file"
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="192.168.70.1#7874"
+restore_system_dns_defaults 1
+assert_file_contains "$UCI_LOG" "delete dhcp.@dnsmasq[0].server" "restore_system_dns_defaults fallback should accept config-bound Mihomo DNS target"
+assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults fallback should restart dnsmasq for config-bound target"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+TEST_CURRENT_CACHESIZE="0"
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS="127.0.0.1#7874"
+restore_system_dns_defaults 1
+assert_file_contains "$UCI_LOG" "delete dhcp.@dnsmasq[0].server" "restore_system_dns_defaults fallback should keep localhost recovery when config target is bound"
+assert_file_contains "$DNS_LOG" "restart" "restore_system_dns_defaults fallback should restart dnsmasq for localhost target with bound config"
 
 : > "$UCI_LOG"
 : > "$DNS_LOG"
@@ -468,5 +496,17 @@ BACKUP_DIR=""
 restore_system_dns_defaults 0
 [[ ! -s "$UCI_LOG" ]] || fail "restore_system_dns_defaults should not touch dhcp config without allow_fallback"
 [[ ! -s "$DNS_LOG" ]] || fail "restore_system_dns_defaults should not restart dnsmasq without allow_fallback"
+
+: > "$UCI_LOG"
+: > "$DNS_LOG"
+rm -f "$backup_file"
+TEST_CURRENT_CACHESIZE=""
+TEST_CURRENT_NORESOLV="1"
+TEST_CURRENT_RESOLVFILE=""
+TEST_CURRENT_SERVERS=""
+BACKUP_DIR=""
+restore_system_dns_defaults 1
+[[ ! -s "$UCI_LOG" ]] || fail "restore_system_dns_defaults fallback should ignore unrelated noresolv-only dnsmasq state"
+[[ ! -s "$DNS_LOG" ]] || fail "restore_system_dns_defaults fallback should not restart dnsmasq for unrelated noresolv-only state"
 
 pass "installer DNS restore paths"

@@ -520,6 +520,38 @@ count_remote_list_urls() {
 	policy_count_matching_lines "$1" is_policy_remote_list_url
 }
 
+policy_list_has_remote_urls() {
+	local file="$1"
+	local line=""
+
+	[ -f "$file" ] || return 1
+
+	while IFS= read -r line || [ -n "$line" ]; do
+		line="$(trim "$line")"
+		case "$line" in
+		'' | '#'*) continue ;;
+		esac
+
+		is_policy_remote_list_url "$line" && return 0
+	done <"$file"
+
+	return 1
+}
+
+policy_active_source_lists_have_remote_urls() {
+	case "${POLICY_MODE:-direct-first}" in
+	direct-first)
+		policy_list_has_remote_urls "${POLICY_SOURCE_DST_LIST_FILE:-$DST_LIST_FILE}" && return 0
+		policy_list_has_remote_urls "${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}" && return 0
+		;;
+	proxy-first)
+		policy_list_has_remote_urls "${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}" && return 0
+		;;
+	esac
+
+	return 1
+}
+
 # Stable, cheap fingerprint for diagnostics/snapshot comparison.
 policy_list_fingerprint() {
 	local file="$1"
@@ -625,6 +657,7 @@ policy_cache_install_text_if_changed() {
 
 policy_cache_save_current() {
 	local cache_dir="" metadata_file="" metadata_json=""
+	local cache_mode="${POLICY_MODE:-direct-first}"
 	local cache_effective_dst="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
 	local cache_effective_src="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
 	local cache_effective_direct="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
@@ -633,19 +666,30 @@ policy_cache_save_current() {
 	local cache_source_direct="${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
 	local dst_source_hash="" src_source_hash="" direct_source_hash=""
 
+	policy_active_source_lists_have_remote_urls || return 0
 	require_command jq || return 1
 
 	cache_dir="$(policy_cache_dir)"
 	metadata_file="$(policy_cache_metadata_file)"
 	ensure_dir "$cache_dir" || return 1
 
-	dst_source_hash="$(policy_list_fingerprint "$cache_source_dst")" || return 1
-	src_source_hash="$(policy_list_fingerprint "$cache_source_src")" || return 1
-	direct_source_hash="$(policy_list_fingerprint "$cache_source_direct")" || return 1
-	[ -n "$dst_source_hash" ] && [ -n "$src_source_hash" ] && [ -n "$direct_source_hash" ] || return 1
+	case "$cache_mode" in
+	direct-first)
+		dst_source_hash="$(policy_list_fingerprint "$cache_source_dst")" || return 1
+		src_source_hash="$(policy_list_fingerprint "$cache_source_src")" || return 1
+		[ -n "$dst_source_hash" ] && [ -n "$src_source_hash" ] || return 1
+		;;
+	proxy-first)
+		direct_source_hash="$(policy_list_fingerprint "$cache_source_direct")" || return 1
+		[ -n "$direct_source_hash" ] || return 1
+		;;
+	*)
+		return 1
+		;;
+	esac
 
 	metadata_json="$(jq -nc \
-		--arg policy_mode "${POLICY_MODE:-direct-first}" \
+		--arg policy_mode "$cache_mode" \
 		--arg dst_source_hash "$dst_source_hash" \
 		--arg src_source_hash "$src_source_hash" \
 		--arg direct_source_hash "$direct_source_hash" \
@@ -656,9 +700,15 @@ policy_cache_save_current() {
 			direct_dst_source_hash: $direct_source_hash
 		}')" || return 1
 
-	policy_cache_install_file_if_changed "$cache_effective_dst" "$(policy_cache_dst_file)" || return 1
-	policy_cache_install_file_if_changed "$cache_effective_src" "$(policy_cache_src_file)" || return 1
-	policy_cache_install_file_if_changed "$cache_effective_direct" "$(policy_cache_direct_file)" || return 1
+	case "$cache_mode" in
+	direct-first)
+		policy_cache_install_file_if_changed "$cache_effective_dst" "$(policy_cache_dst_file)" || return 1
+		policy_cache_install_file_if_changed "$cache_effective_src" "$(policy_cache_src_file)" || return 1
+		;;
+	proxy-first)
+		policy_cache_install_file_if_changed "$cache_effective_direct" "$(policy_cache_direct_file)" || return 1
+		;;
+	esac
 	policy_cache_install_text_if_changed "$metadata_json" "$metadata_file" || return 1
 }
 

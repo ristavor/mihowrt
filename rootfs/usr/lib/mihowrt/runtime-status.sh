@@ -375,8 +375,8 @@ compare_status_runtime_state_json() {
 		--argjson desired "$desired_json" \
 		--argjson runtime "$runtime_json" \
 		'def list_matches($active_count; $desired_count; $active_hash; $desired_hash; $remote_urls):
-			if (($remote_urls // 0) > 0) then
-				(($active_hash // "") != "" and ($desired_hash // "") != "" and ($active_hash == $desired_hash))
+			if (($active_hash // "") != "" and ($desired_hash // "") != "") then
+				($active_hash == $desired_hash)
 			else
 				($active_count == $desired_count)
 			end;

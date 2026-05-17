@@ -284,6 +284,7 @@ quiesce_postinstall_service() {
 }
 
 : > "$event_log"
+: > "$init_log"
 TEST_SERVICE_RUNNING_RC=0
 TEST_APK_SUPPORTS_VIRTUAL_RC=0
 TEST_HOLD_DEPS_RC=0
@@ -294,6 +295,7 @@ assert_eq "1" "$WAS_ENABLED" "prepare_update should remember enabled service"
 assert_eq "1" "$WAS_RUNNING" "prepare_update should remember running service"
 assert_file_contains "$event_log" "backup_user_state" "prepare_update should back up user state"
 assert_file_contains "$event_log" "hold_reinstall_dependencies" "prepare_update should hold reinstall dependencies"
+assert_file_contains "$init_log" "stop" "prepare_update should stop running service before cleanup"
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "prepare_update should clean runtime fallback state"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "prepare_update should restore DNS defaults with fallback"
 
@@ -315,6 +317,7 @@ backup_user_state() {
 }
 
 : > "$event_log"
+: > "$init_log"
 WAS_ENABLED=0
 WAS_RUNNING=0
 cleanup_runtime_fallback() {
@@ -329,6 +332,17 @@ assert_file_contains "$event_log" "err:failed to clean runtime fallback state be
 cleanup_runtime_fallback() {
 	printf 'cleanup_runtime_fallback\n' >>"$event_log"
 }
+
+: > "$event_log"
+: > "$init_log"
+TEST_INIT_STOP_RC=1
+WAS_ENABLED=0
+WAS_RUNNING=0
+assert_false "prepare_update should fail when running service cannot be stopped" prepare_update
+assert_file_contains "$init_log" "stop" "prepare_update should attempt to stop running service before failing"
+assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "prepare_update should not clean runtime while service is still running"
+assert_file_contains "$event_log" "err:failed to stop running MihoWRT service before update" "prepare_update should report stop failure"
+TEST_INIT_STOP_RC=0
 
 : > "$event_log"
 : > "$init_log"

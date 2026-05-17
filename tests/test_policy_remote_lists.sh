@@ -190,6 +190,8 @@ have_command() {
 }
 assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_resolve_runtime_lists should not rewrite persistent destination list"
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
+[[ ! -e "$(policy_cache_direct_file)" ]] || fail "direct-first cache save should not write inactive direct list"
+assert_eq "" "$(jq -r '.direct_dst_source_hash' "$(policy_cache_metadata_file)")" "direct-first cache metadata should not hash inactive direct list"
 assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.5" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "-T 15" "policy_resolve_runtime_lists should use bounded fetch timeout"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "policy_resolve_runtime_lists should not recursively fetch nested URLs"
@@ -250,6 +252,7 @@ https://example.com/direct-a.txt
 8.8.8.8
 EOF
 
+POLICY_CACHE_DIR="$tmpdir/policy-cache-proxy"
 POLICY_MODE="proxy-first"
 : >"$TEST_WGET_LOG"
 policy_resolve_runtime_lists
@@ -257,6 +260,10 @@ assert_eq_file $'8.8.8.8\n9.9.9.0/24:443' "$POLICY_DIRECT_DST_LIST_FILE" "policy
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/direct-a.txt" "proxy-first should fetch direct destination remote lists"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/dst-a.txt" "proxy-first should not fetch inactive proxy destination remote lists"
 policy_cache_save_current
+[[ ! -e "$(policy_cache_dst_file)" ]] || fail "proxy-first cache save should not write inactive proxy destination list"
+[[ ! -e "$(policy_cache_src_file)" ]] || fail "proxy-first cache save should not write inactive proxy source list"
+assert_eq "" "$(jq -r '.always_proxy_dst_source_hash' "$(policy_cache_metadata_file)")" "proxy-first cache metadata should not hash inactive proxy destination list"
+assert_eq "" "$(jq -r '.always_proxy_src_source_hash' "$(policy_cache_metadata_file)")" "proxy-first cache metadata should not hash inactive proxy source list"
 policy_clear_runtime_list_overrides
 
 : >"$event_log"
@@ -336,5 +343,14 @@ apply_runtime_state
 assert_eq $'2.2.2.2\n3.3.3.0/24:15-2000' "$apply_seen_dst" "apply_runtime_state should apply resolved destination list"
 assert_eq "$apply_seen_dst" "$snapshot_seen_dst" "apply_runtime_state should snapshot resolved destination list"
 assert_unset POLICY_DST_LIST_FILE "apply_runtime_state should clear resolved destination override after snapshot"
+
+POLICY_CACHE_DIR="$tmpdir/local-only-cache"
+POLICY_MODE="direct-first"
+cat >"$DST_LIST_FILE" <<'EOF'
+1.1.1.1
+EOF
+: >"$SRC_LIST_FILE"
+policy_cache_save_current
+[[ ! -e "$POLICY_CACHE_DIR" ]] || fail "policy_cache_save_current should not write cache for local-only active lists"
 
 pass "policy remote lists"

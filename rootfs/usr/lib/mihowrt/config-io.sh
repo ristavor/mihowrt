@@ -961,7 +961,7 @@ apply_config_runtime() {
 		cmp -s "$candidate" "$active_config" 2>/dev/null && config_changed=0 || config_changed=1
 	fi
 
-	apply_config_file "$candidate" || return 1
+	apply_patched_config_file "$candidate" || return 1
 
 	if ! service_running_state; then
 		apply_config_result_json "saved" 0 0 0
@@ -1322,6 +1322,16 @@ rollback_auto_update_hot_reload() {
 
 # Validate a temp config with Mihomo and MihoWRT, then atomically replace the
 # live config only after both checks pass.
+apply_patched_config_file() {
+	local candidate="$1"
+
+	validate_config_candidate "$candidate" || {
+		rm -f "$candidate"
+		return 1
+	}
+	install_validated_config_candidate "$candidate"
+}
+
 apply_config_file() {
 	local candidate="$1"
 
@@ -1329,11 +1339,7 @@ apply_config_file() {
 		rm -f "$candidate"
 		return 1
 	}
-	validate_config_candidate "$candidate" || {
-		rm -f "$candidate"
-		return 1
-	}
-	install_validated_config_candidate "$candidate"
+	apply_patched_config_file "$candidate"
 }
 
 # LuCI convenience wrapper for content-based apply. It writes to /tmp first so

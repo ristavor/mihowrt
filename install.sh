@@ -1975,11 +1975,11 @@ restore_dns_defaults_fallback() {
 # Restore system DNS from MihoWRT backup only when current state still looks like
 # MihoWRT owns it. Optional fallback is used during failure/removal paths.
 restore_system_dns_defaults() {
-	local current_noresolv=""
 	local allow_fallback="${1:-0}"
 	local backup_target=""
 	local active_config_path="${CLASH_DIR}/config.yaml"
 	local backup_config_path=""
+	local fallback_target=""
 
 	have_command uci || return 0
 
@@ -2010,8 +2010,9 @@ restore_system_dns_defaults() {
 		return 0
 	fi
 
-	current_noresolv="$(uci -q get dhcp.@dnsmasq[0].noresolv 2>/dev/null || true)"
-	if [ "$current_noresolv" = "1" ]; then
+	fallback_target="$(config_mihomo_dns_target_from_path "$active_config_path" 2>/dev/null || true)"
+	if dns_current_state_looks_hijacked "$fallback_target" ||
+		{ [ -n "$fallback_target" ] && dns_current_state_looks_hijacked ""; }; then
 		restore_dns_defaults_fallback || return 1
 		log "System DNS settings restored using fallback defaults."
 	fi
@@ -2036,6 +2037,24 @@ restore_system_network_defaults() {
 	[ "$rc" -eq 0 ]
 }
 
+stop_running_service_before_update() {
+	[ "${WAS_RUNNING:-0}" = "1" ] || return 0
+
+	log "Stopping running MihoWRT service before update..."
+	if stop_service_cleanly; then
+		return 0
+	fi
+
+	warn "failed to stop running MihoWRT service cleanly before update"
+	stop_service_instance
+	if service_running || run_service_process_running; then
+		err "failed to stop running MihoWRT service before update"
+		return 1
+	fi
+
+	return 0
+}
+
 # Capture service state and user files before reinstall, hold dependencies, and
 # restore network defaults before package/core changes.
 prepare_update() {
@@ -2058,6 +2077,8 @@ prepare_update() {
 	else
 		warn "apk add lacks --virtual; reinstall may refresh dependencies"
 	fi
+
+	stop_running_service_before_update || return 1
 
 	log "Restoring system DNS/routing state before update..."
 	restore_system_network_defaults "before update" || return 1

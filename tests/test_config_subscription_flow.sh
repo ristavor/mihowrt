@@ -42,6 +42,8 @@ function assert(condition, message) {
 	const fetchFnSource = source.slice(fetchStart, fetchEnd);
 	assert(fetchFnSource.includes('stageSubscriptionSettings(value, result)'), 'fetchSubscription should stage subscription settings after fetch');
 	assert(!fetchFnSource.includes('persistSubscriptionSettings(value, result.profileUpdateInterval'), 'fetchSubscription should not persist settings before validate/apply');
+	assert(source.includes('subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked'), 'subscription interval input should be read-only unless override is enabled');
+	assert(source.includes('change: updateSubscriptionIntervalInputState'), 'subscription override checkbox should update interval editability');
 
 	const context = {
 		setValues: [],
@@ -53,7 +55,7 @@ function assert(condition, message) {
 			setValue: (value, cursor) => context.setValues.push({ value, cursor })
 		},
 		subscriptionOverrideInput: { checked: false },
-		subscriptionIntervalInput: { value: '' },
+		subscriptionIntervalInput: { value: '99', dataset: { manualInterval: '99', headerInterval: '' } },
 		editorValue: 'mode: old\n',
 		backendHelper: {
 			saveSubscriptionSettings: async(url, override, interval, header) => {
@@ -115,6 +117,8 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	assert(context.setValues[0].value === 'mode: rule\n', 'loadSubscriptionIntoEditor should preserve fetched contents');
 	assert(context.setValues[0].cursor === -1, 'loadSubscriptionIntoEditor should reset editor cursor');
 	context.stageSubscriptionSettings('https://example.com/sub.yaml', { content: result.content, profileUpdateInterval: '24', hotReloadSupported: true });
+	assert(context.subscriptionIntervalInput.value === '24', 'stageSubscriptionSettings should show fetched interval when override is disabled');
+	assert(context.subscriptionIntervalInput.dataset.headerInterval === '24', 'stageSubscriptionSettings should cache fetched interval');
 	assert(context.saveSettingsCalls.length === 0, 'stageSubscriptionSettings should not persist settings before apply');
 	assert(await context.persistPendingSubscriptionSettings('mode: edited\n') === false, 'persistPendingSubscriptionSettings should ignore changed editor content');
 	assert(context.saveSettingsCalls.length === 0, 'persistPendingSubscriptionSettings should not save stale staged settings');
@@ -124,6 +128,7 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	assert(await context.persistPendingSubscriptionSettings('mode: rule\n') === true, 'persistPendingSubscriptionSettings should save matching staged settings after apply');
 	assert(context.saveSettingsCalls.length === 1, 'persistPendingSubscriptionSettings should save exactly once');
 	assert(context.saveSettingsCalls[0].url === 'https://example.com/sub.yaml', 'persistPendingSubscriptionSettings should save staged URL');
+	assert(context.saveSettingsCalls[0].interval === '', 'persistPendingSubscriptionSettings should not save manual interval when override is disabled');
 	assert(context.saveSettingsCalls[0].header === '24', 'persistPendingSubscriptionSettings should save staged header interval');
 	assert(!('hotReloadSupported' in context.saveSettingsCalls[0]), 'persistPendingSubscriptionSettings should not pass unused hot reload flag');
 	assert(context.getPendingSubscriptionSettings() === null, 'persistPendingSubscriptionSettings should clear staged settings after save');

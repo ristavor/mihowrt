@@ -58,7 +58,7 @@ function updateControlDisabledState() {
 	if (subscriptionOverrideInput)
 		subscriptionOverrideInput.disabled = disabled;
 	if (subscriptionIntervalInput)
-		subscriptionIntervalInput.disabled = disabled;
+		subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked;
 	if (subscriptionSaveButton)
 		subscriptionSaveButton.disabled = disabled;
 	if (subscriptionFetchButton)
@@ -319,20 +319,54 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 
 async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null) {
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
-	const updateInterval = String(subscriptionIntervalInput?.value || '').trim();
+	const updateInterval = overrideInterval ? String(subscriptionIntervalInput?.value || '').trim() : '';
 
 	await backendHelper.saveSubscriptionSettings(subscriptionUrl, overrideInterval, updateInterval, headerInterval);
 	savedSubscriptionUrl = String(subscriptionUrl || '').trim();
 }
 
+function subscriptionDisplayInterval(subscriptionState) {
+	return subscriptionState.subscriptionIntervalOverride
+		? String(subscriptionState.subscriptionUpdateInterval || '')
+		: String(subscriptionState.subscriptionHeaderInterval || subscriptionState.subscriptionEffectiveInterval || '');
+}
+
+function setSubscriptionHeaderInterval(headerInterval) {
+	const value = String(headerInterval || '').trim();
+
+	if (!subscriptionIntervalInput)
+		return;
+
+	subscriptionIntervalInput.dataset.headerInterval = value;
+	if (!subscriptionOverrideInput?.checked)
+		subscriptionIntervalInput.value = value;
+}
+
+function updateSubscriptionIntervalInputState() {
+	if (!subscriptionIntervalInput)
+		return;
+
+	const overrideInterval = !!subscriptionOverrideInput?.checked;
+	if (overrideInterval) {
+		subscriptionIntervalInput.value = subscriptionIntervalInput.dataset.manualInterval || '';
+	}
+	else {
+		subscriptionIntervalInput.dataset.manualInterval = String(subscriptionIntervalInput.value || '').trim();
+		subscriptionIntervalInput.value = subscriptionIntervalInput.dataset.headerInterval || '';
+	}
+	updateControlDisabledState();
+}
+
 function stageSubscriptionSettings(subscriptionUrl, result) {
 	const content = configHelper.editorContentForSave(String(result?.content || ''));
+	const profileUpdateInterval = String(result?.profileUpdateInterval || '');
 
 	pendingSubscriptionSettings = {
 		subscriptionUrl: String(subscriptionUrl || '').trim(),
-		profileUpdateInterval: String(result?.profileUpdateInterval || ''),
+		profileUpdateInterval: profileUpdateInterval,
 		configContent: content
 	};
+	setSubscriptionHeaderInterval(profileUpdateInterval);
 }
 
 async function persistPendingSubscriptionSettings(configContent) {
@@ -634,7 +668,8 @@ return view.extend({
 				}, [
 					(subscriptionOverrideInput = E('input', {
 						type: 'checkbox',
-						checked: !!subscriptionState.subscriptionIntervalOverride
+						checked: !!subscriptionState.subscriptionIntervalOverride,
+						change: updateSubscriptionIntervalInputState
 					})),
 					_('Override interval')
 				]),
@@ -642,9 +677,11 @@ return view.extend({
 					type: 'number',
 					min: '0',
 					step: '1',
-					value: String(subscriptionState.subscriptionUpdateInterval || ''),
+					value: subscriptionDisplayInterval(subscriptionState),
 					placeholder: _('Hours'),
-					style: 'width: 90px;'
+					style: 'width: 90px;',
+					'data-manual-interval': String(subscriptionState.subscriptionUpdateInterval || ''),
+					'data-header-interval': String(subscriptionState.subscriptionHeaderInterval || subscriptionState.subscriptionEffectiveInterval || '')
 				})),
 				(subscriptionSaveButton = E('button', {
 					class: 'btn',

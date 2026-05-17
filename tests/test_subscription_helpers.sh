@@ -288,9 +288,11 @@ assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscr
 : >"$TEST_UCI_LOG"
 export TEST_UCI_SUBSCRIPTION_URL="https://example.com/old.yaml"
 export TEST_UCI_INTERVAL_OVERRIDE="0"
-export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_UPDATE_INTERVAL="12"
 export TEST_UCI_HEADER_INTERVAL="24"
-set_subscription_settings "https://example.com/new.yaml" 0 ""
+set_subscription_settings "https://example.com/new.yaml" 0 "bad"
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_update_interval" "set_subscription_settings should drop manual interval when override is disabled"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_update_interval" "set_subscription_settings should ignore manual interval when override is disabled"
 assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_header_interval" "set_subscription_settings should clear stale fetched interval when URL changes without header"
 
 : >"$TEST_WGET_LOG"
@@ -368,7 +370,7 @@ subscription_store_auto_update_state() {
 }
 
 subscription_mark_update_success() {
-	printf 'mark_update_success\n' >>"$TEST_UCI_LOG"
+	printf 'mark_update_success:%s:%s:%s\n' "${1:-}" "${2:-}" "${3:-}" >>"$TEST_UCI_LOG"
 }
 
 : >"$TEST_UCI_LOG"
@@ -440,6 +442,19 @@ auto_update_no_header_json="$(update_subscription_config)"
 assert_eq "hot_reloaded" "$(printf '%s\n' "$auto_update_no_header_json" | jq -r '.action')" "update_subscription_config should still apply when subscription has no interval header"
 assert_file_contains "$TEST_UCI_LOG" "store_auto_update_state:0::auto-update interval is disabled" "update_subscription_config should disable scheduling when no header interval exists without override"
 assert_file_not_contains "$TEST_UCI_LOG" "mark_update_success" "update_subscription_config should not schedule next update without header interval"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="12"
+export TEST_WGET_MODE=ok
+export TEST_WGET_PROFILE_UPDATE_INTERVAL="24"
+auto_update_changed_header_json="$(update_subscription_config)"
+assert_eq "hot_reloaded" "$(printf '%s\n' "$auto_update_changed_header_json" | jq -r '.action')" "update_subscription_config should apply when subscription interval header changes"
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_header_interval=24" "update_subscription_config should persist changed subscription interval header"
+assert_file_contains "$TEST_UCI_LOG" "mark_update_success:0::24" "update_subscription_config should schedule next update with changed subscription interval"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_update_interval" "update_subscription_config should not persist manual interval without override"
 
 : >"$TEST_UCI_LOG"
 export TEST_UCI_SUBSCRIPTION_URL="https://example.com/auto.yaml"

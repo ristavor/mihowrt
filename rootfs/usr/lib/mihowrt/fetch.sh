@@ -983,7 +983,7 @@ set_subscription_settings() {
 	1 | true | yes | on) override=1 ;;
 	*) override=0 ;;
 	esac
-	if [ -n "$interval" ] && ! subscription_interval_valid "$interval"; then
+	if [ "$override" = "1" ] && [ -n "$interval" ] && ! subscription_interval_valid "$interval"; then
 		err "Invalid subscription update interval: $interval"
 		return 1
 	fi
@@ -1010,13 +1010,22 @@ set_subscription_settings() {
 		rc=$?
 		[ "$rc" -eq 1 ] || return 1
 	fi
-	if [ -n "$interval" ]; then
-		interval="$(normalize_uint "$interval")"
-		if subscription_set_option_if_changed subscription_update_interval "$interval"; then
-			changed=1
+	if [ "$override" = "1" ]; then
+		if [ -n "$interval" ]; then
+			interval="$(normalize_uint "$interval")"
+			if subscription_set_option_if_changed subscription_update_interval "$interval"; then
+				changed=1
+			else
+				rc=$?
+				[ "$rc" -eq 1 ] || return 1
+			fi
 		else
-			rc=$?
-			[ "$rc" -eq 1 ] || return 1
+			if subscription_delete_option_if_present subscription_update_interval; then
+				changed=1
+			else
+				rc=$?
+				[ "$rc" -eq 1 ] || return 1
+			fi
 		fi
 	else
 		if subscription_delete_option_if_present subscription_update_interval; then
@@ -1175,13 +1184,15 @@ subscription_due_for_update() {
 }
 
 subscription_mark_update_success() {
-	local interval=""
 	local manual_restart_required="${1:-0}" manual_restart_reason="${2:-}"
+	local interval="${3:-}"
 
-	interval="$(subscription_configured_update_interval)" || {
-		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
-		return 0
-	}
+	if [ -z "$interval" ]; then
+		interval="$(subscription_configured_update_interval)" || {
+			subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
+			return 0
+		}
+	fi
 	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
 		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$manual_restart_required" "$manual_restart_reason"
 		return 0
@@ -1210,7 +1221,7 @@ subscription_mark_update_failure() {
 }
 
 update_subscription_config() {
-	local url="" candidate="" result="" action="" header_interval="" override="" update_interval=""
+	local url="" candidate="" result="" action="" header_interval="" override="" update_interval="" effective_header_interval=""
 	local interval="" rc=0 restart_required="" restart_reason=""
 	local settings_error=""
 
@@ -1260,9 +1271,12 @@ update_subscription_config() {
 		;;
 	esac
 
+	override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
+	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"
+	effective_header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
 	if [ -z "$header_interval" ] || subscription_interval_valid "$header_interval"; then
 		settings_error="$(
-			set_subscription_settings "$url" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)" "$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)" "$header_interval" 2>&1 >/dev/null
+			set_subscription_settings "$url" "$override" "$update_interval" "$header_interval" 2>&1 >/dev/null
 		)" || {
 			rc=$?
 			err "${settings_error:-Failed to persist subscription update interval}"
@@ -1271,14 +1285,12 @@ update_subscription_config() {
 				'{updated:false,error:{kind:"uci_failed",message:$message,http_code:null}}'
 			return "$rc"
 		}
+		effective_header_interval="$header_interval"
 	fi
 
-	override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
-	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"
-	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
-	interval="$(subscription_effective_update_interval "$override" "$update_interval" "$header_interval")"
+	interval="$(subscription_effective_update_interval "$override" "$update_interval" "$effective_header_interval")"
 	if [ -n "$interval" ] && [ "$interval" != "0" ]; then
-		subscription_mark_update_success "$restart_required" "$restart_reason" || true
+		subscription_mark_update_success "$restart_required" "$restart_reason" "$interval" || true
 	else
 		subscription_store_auto_update_state 0 "" "auto-update interval is disabled" 1 "$restart_required" "$restart_reason" || true
 	fi

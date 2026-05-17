@@ -48,9 +48,20 @@ function assertDisabledState(context, expected, message) {
 		context.subscriptionSaveButton.disabled,
 		context.subscriptionFetchButton.disabled
 	];
+	const expectedValues = [
+		expected,
+		expected,
+		expected,
+		expected,
+		expected,
+		expected,
+		expected || !context.subscriptionOverrideInput.checked,
+		expected,
+		expected
+	];
 
-	if (actual.some(value => value !== expected))
-		throw new Error(`${message}: expected all buttons disabled=${expected}, got ${actual.join(',')}`);
+	if (actual.some((value, index) => value !== expectedValues[index]))
+		throw new Error(`${message}: expected disabled=${expectedValues.join(',')}, got ${actual.join(',')}`);
 }
 
 async function flushMicrotasks() {
@@ -75,7 +86,7 @@ function createContext(initialState) {
 		dashboardButton: { disabled: false },
 		saveApplyButton: { disabled: false },
 		subscriptionUrlInput: { disabled: false },
-		subscriptionOverrideInput: { disabled: false },
+		subscriptionOverrideInput: { disabled: false, checked: false },
 		subscriptionIntervalInput: { disabled: false },
 		subscriptionSaveButton: { disabled: false },
 		subscriptionFetchButton: { disabled: false },

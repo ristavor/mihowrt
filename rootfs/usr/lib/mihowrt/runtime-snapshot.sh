@@ -217,9 +217,6 @@ runtime_snapshot_save() {
 	dst_source_hash="$(policy_list_fingerprint "$source_dst_list_file")" || return 1
 	src_source_hash="$(policy_list_fingerprint "$source_src_list_file")" || return 1
 	direct_source_hash="$(policy_list_fingerprint "$source_direct_list_file")" || return 1
-	dst_count="$(count_valid_list_entries "$dst_list_file")" || return 1
-	src_count="$(count_valid_list_entries "$src_list_file")" || return 1
-	direct_count="$(count_valid_list_entries "$direct_list_file")" || return 1
 
 	ensure_dir "$(dirname "$snapshot_file")" || return 1
 	snapshot_tmp="${snapshot_file}.tmp.$$"
@@ -240,6 +237,18 @@ runtime_snapshot_save() {
 		return 1
 	}
 	runtime_snapshot_copy_file "$direct_list_file" "$direct_tmp" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	dst_count="$(count_valid_list_entries "$dst_tmp")" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	src_count="$(count_valid_list_entries "$src_tmp")" || {
+		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
+		return 1
+	}
+	direct_count="$(count_valid_list_entries "$direct_tmp")" || {
 		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
 		return 1
 	}

@@ -86,6 +86,22 @@ assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save sh
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should snapshot source list contents"
 assert_file_contains "$snapshot_direct_file" "8.8.8.8" "runtime_snapshot_save should snapshot direct destination list contents"
 
+count_valid_list_entries() {
+	[ "$1" != "$DST_LIST_FILE" ] || fail "runtime_snapshot_save should count destination snapshot copy"
+	[ "$1" != "$SRC_LIST_FILE" ] || fail "runtime_snapshot_save should count source snapshot copy"
+	[ "$1" != "$DIRECT_DST_LIST_FILE" ] || fail "runtime_snapshot_save should count direct snapshot copy"
+	policy_count_matching_lines "$1" is_policy_entry
+}
+
+runtime_snapshot_save
+assert_eq "2" "$(jq -r '.always_proxy_dst_count' "$snapshot_file")" "runtime_snapshot_save should count copied destination snapshot"
+assert_eq "1" "$(jq -r '.always_proxy_src_count' "$snapshot_file")" "runtime_snapshot_save should count copied source snapshot"
+assert_eq "1" "$(jq -r '.direct_dst_count' "$snapshot_file")" "runtime_snapshot_save should count copied direct snapshot"
+
+count_valid_list_entries() {
+	policy_count_matching_lines "$1" is_policy_entry
+}
+
 MIHOMO_ROUTE_TABLE_ID="201"
 MIHOMO_ROUTE_RULE_PRIORITY="10001"
 runtime_snapshot_save

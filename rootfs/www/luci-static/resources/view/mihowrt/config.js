@@ -317,11 +317,11 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return configHelper.subscriptionUrlInputValue(input);
 }
 
-async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null, hotReloadSupported = null) {
+async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null) {
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
 	const updateInterval = String(subscriptionIntervalInput?.value || '').trim();
 
-	await backendHelper.saveSubscriptionSettings(subscriptionUrl, overrideInterval, updateInterval, headerInterval, hotReloadSupported);
+	await backendHelper.saveSubscriptionSettings(subscriptionUrl, overrideInterval, updateInterval, headerInterval);
 	savedSubscriptionUrl = String(subscriptionUrl || '').trim();
 }
 
@@ -331,7 +331,6 @@ function stageSubscriptionSettings(subscriptionUrl, result) {
 	pendingSubscriptionSettings = {
 		subscriptionUrl: String(subscriptionUrl || '').trim(),
 		profileUpdateInterval: String(result?.profileUpdateInterval || ''),
-		hotReloadSupported: result?.hotReloadSupported !== false,
 		configContent: content
 	};
 }
@@ -346,7 +345,7 @@ async function persistPendingSubscriptionSettings(configContent) {
 		return false;
 	}
 
-	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval, pending.hotReloadSupported);
+	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval);
 	pendingSubscriptionSettings = null;
 	return true;
 }

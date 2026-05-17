@@ -4,7 +4,7 @@
 # values; stricter than full DNS syntax by design.
 shell_name_chars_valid() {
 	case "$1" in
-	'' | *[!-A-Za-z0-9._:%@]*)
+	'' | *[!A-Za-z0-9._:%@-]*)
 		return 1
 		;;
 	esac
@@ -89,6 +89,8 @@ normalize_dns_server_target() {
 		;;
 	esac
 
+	is_dns_listen_host "$host" || return 1
+
 	printf '%s#%s' "$host" "$port"
 }
 
@@ -149,6 +151,8 @@ normalize_dns_server_target_from_addr() {
 		host="127.0.0.1"
 		;;
 	esac
+
+	is_dns_listen_host "$host" || return 1
 
 	printf '%s#%s' "$host" "$port"
 }

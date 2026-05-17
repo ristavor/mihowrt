@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.7.5
+PKG_VERSION:=0.7.6
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -173,8 +173,8 @@ define Package/$(PKG_NAME)/postrm
 			rm -f "$$cron_tmp"
 		fi
 	fi
-	rm -f /opt/clash/ruleset
-	rm -f /opt/clash/proxy_providers
+	rm -rf /opt/clash/ruleset
+	rm -rf /opt/clash/proxy_providers
 	rm -f /opt/clash/cache.db
 	rm -f /opt/clash/mihomo.sock
 	rm -rf /tmp/clash/ruleset

@@ -28,6 +28,7 @@ assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target '0.0.0.0#7874')" "norm
 assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target '[::]#7874')" "normalize_dns_server_target rewrites wildcard IPv6"
 assert_eq "127.0.0.1#7874" "$(normalize_dns_server_target_from_addr '0.0.0.0:7874')" "normalize_dns_server_target_from_addr rewrites wildcard IPv4"
 assert_eq "192.168.70.1#7874" "$(normalize_dns_server_target_from_addr '192.168.70.1:7874')" "normalize_dns_server_target_from_addr preserves bound IPv4 host"
+assert_false "normalize_dns_server_target_from_addr should reject unsafe host chars" normalize_dns_server_target_from_addr "bad^host:7874"
 assert_eq "value" "$(yaml_cleanup_scalar '  value   # comment')" "yaml_cleanup_scalar trims inline comment"
 assert_eq "quoted value" "$(yaml_cleanup_scalar '"quoted value"')" "yaml_cleanup_scalar strips double quotes"
 assert_eq "single quoted" "$(yaml_cleanup_scalar "'single quoted'")" "yaml_cleanup_scalar strips single quotes"
@@ -177,6 +178,35 @@ bound_json="$(read_config_json)"
 assert_eq "7874" "$(printf '%s\n' "$bound_json" | jq -r '.dns_port')" "read_config_json should keep dns port for bound host"
 assert_eq "192.168.70.1#7874" "$(printf '%s\n' "$bound_json" | jq -r '.mihomo_dns_listen')" "read_config_json should preserve non-loopback dns.listen host"
 assert_eq "0" "$(printf '%s\n' "$bound_json" | jq -r '.errors | length')" "read_config_json should accept valid bound host"
+
+cat >"$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+routing-mark: 2
+
+dns:
+  listen: bad^host:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+EOF
+
+bad_host_json="$(read_config_json)"
+
+assert_eq "true" "$(printf '%s\n' "$bad_host_json" | jq -r 'any(.errors[]; contains("Invalid dns.listen"))')" "read_config_json should reject unsafe dns.listen host chars"
+
+cat >"$CLASH_CONFIG" <<'EOF'
+tproxy-port: 7894
+tproxy-port: 7895
+routing-mark: 2
+
+dns:
+  listen: 0.0.0.0:7874
+  enhanced-mode: fake-ip
+  fake-ip-range: 198.18.0.0/15
+EOF
+
+duplicate_json="$(read_config_json)"
+
+assert_eq "true" "$(printf '%s\n' "$duplicate_json" | jq -r 'any(.errors[]; contains("Duplicate tproxy-port"))')" "read_config_json should reject duplicate managed scalar keys"
 
 cat >"$CLASH_CONFIG" <<'EOF'
 tproxy-port: 7894

@@ -65,6 +65,7 @@ ensure_dir() {
 : >"$cli_log"
 lock_body() {
 	[ -L "$RUNTIME_LOCK_FILE" ] || fail "with_runtime_lock should hold symlink lock while command runs"
+	assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "with_runtime_lock should record current lock owner"
 	printf 'lock_body\n' >>"$cli_log"
 }
 with_runtime_lock lock_body
@@ -72,7 +73,30 @@ assert_file_contains "$cli_log" "lock_body" "with_runtime_lock should execute lo
 [[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should remove lock after command success"
 ln -s 999999 "$RUNTIME_LOCK_FILE"
 with_runtime_lock lock_body
+[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release legacy stale symlink lock"
+printf 'stale\n' >"$RUNTIME_LOCK_FILE"
+with_runtime_lock lock_body
+[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release stale file lock"
+mkdir -p "$RUNTIME_LOCK_FILE"
+: >"$RUNTIME_LOCK_FILE/owner"
+with_runtime_lock lock_body
+[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release stale empty-owner directory lock"
+mkdir -p "$RUNTIME_LOCK_FILE"
+printf '%s\n' 999999 >"$RUNTIME_LOCK_FILE/owner"
+with_runtime_lock lock_body
 [[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release stale lock"
+active_lock_owner="$$"
+ln -s "$active_lock_owner" "$RUNTIME_LOCK_FILE"
+RUNTIME_LOCK_TIMEOUT=0 assert_false "with_runtime_lock should keep active symlink lock owner" with_runtime_lock lock_body
+assert_eq "$active_lock_owner" "$(readlink "$RUNTIME_LOCK_FILE")" "with_runtime_lock should not remove active symlink owner"
+rm -f "$RUNTIME_LOCK_FILE"
+mkdir -p "$RUNTIME_LOCK_FILE"
+printf '%s\n' "$active_lock_owner" >"$RUNTIME_LOCK_FILE/owner"
+RUNTIME_LOCK_TIMEOUT=0 assert_false "with_runtime_lock should keep active legacy directory owner" with_runtime_lock lock_body
+assert_file_contains "$RUNTIME_LOCK_FILE/owner" "$active_lock_owner" "with_runtime_lock should not remove active matching owner"
+rm -f "$RUNTIME_LOCK_FILE/owner"
+rmdir "$RUNTIME_LOCK_FILE"
+unset RUNTIME_LOCK_TIMEOUT
 
 init_runtime_layout() {
 	printf 'init_runtime_layout\n' >>"$cli_log"

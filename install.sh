@@ -1289,6 +1289,7 @@ normalize_dns_server_target_value() {
 		;;
 	esac
 
+	is_dns_listen_host_value "$host" || return 1
 	printf '%s#%s\n' "$host" "$port"
 }
 

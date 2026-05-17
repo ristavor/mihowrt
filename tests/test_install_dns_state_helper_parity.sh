@@ -89,6 +89,7 @@ assert_eq "$(yaml_cleanup_scalar ' "[::]:7874" # comment ')" "$(yaml_cleanup_sca
 assert_eq "abc#123" "$(yaml_cleanup_scalar_value ' "abc#123" # comment ')" "yaml_cleanup_scalar_value should preserve hash inside quoted scalars"
 assert_eq "$(port_from_addr '[::]:7874')" "$(port_from_addr_value '[::]:7874')" "port_from_addr_value should stay in sync with runtime port parser"
 assert_eq "$(normalize_dns_server_target '0.0.0.0#7874')" "$(normalize_dns_server_target_value '0.0.0.0:7874')" "normalize_dns_server_target_value should stay in sync with runtime target normalization"
+assert_false "normalize_dns_server_target_value should reject malformed host chars" normalize_dns_server_target_value "bad^server:53"
 assert_true "runtime is_uint should accept integers" is_uint "123"
 assert_true "installer is_uint_value should accept integers" install_is_uint_value "123"
 assert_false "runtime is_uint should reject non-integers" is_uint "12x"
@@ -137,6 +138,12 @@ dns:
   listen: 192.168.70.1:7874
 EOF
 assert_eq "$(normalize_dns_server_target_from_addr '192.168.70.1:7874')" "$(config_mihomo_dns_target_from_path "$tmpdir/config-bound-host.yaml")" "config_mihomo_dns_target_from_path should preserve bound host like runtime helper"
+
+cat > "$tmpdir/config-bad-host.yaml" <<'EOF'
+dns:
+  listen: bad^host:7874
+EOF
+assert_false "config_mihomo_dns_target_from_path should reject malformed host chars" config_mihomo_dns_target_from_path "$tmpdir/config-bad-host.yaml"
 
 TEST_UCI_CACHESIZE="0"
 TEST_UCI_NORESOLV="1"

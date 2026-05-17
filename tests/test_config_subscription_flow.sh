@@ -56,8 +56,8 @@ function assert(condition, message) {
 		subscriptionIntervalInput: { value: '' },
 		editorValue: 'mode: old\n',
 		backendHelper: {
-			saveSubscriptionSettings: async(url, override, interval, header, hotReloadSupported) => {
-				context.saveSettingsCalls.push({ url, override, interval, header, hotReloadSupported });
+			saveSubscriptionSettings: async(url, override, interval, header) => {
+				context.saveSettingsCalls.push({ url, override, interval, header });
 			},
 			fetchSubscription: async(url) => {
 				context.fetchUrl = url;
@@ -125,7 +125,7 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	assert(context.saveSettingsCalls.length === 1, 'persistPendingSubscriptionSettings should save exactly once');
 	assert(context.saveSettingsCalls[0].url === 'https://example.com/sub.yaml', 'persistPendingSubscriptionSettings should save staged URL');
 	assert(context.saveSettingsCalls[0].header === '24', 'persistPendingSubscriptionSettings should save staged header interval');
-	assert(context.saveSettingsCalls[0].hotReloadSupported === true, 'persistPendingSubscriptionSettings should save staged hot reload flag');
+	assert(!('hotReloadSupported' in context.saveSettingsCalls[0]), 'persistPendingSubscriptionSettings should not pass unused hot reload flag');
 	assert(context.getPendingSubscriptionSettings() === null, 'persistPendingSubscriptionSettings should clear staged settings after save');
 
 	context.setValues.length = 0;

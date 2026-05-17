@@ -38,8 +38,48 @@ runtime_lock_owner_stale() {
 	return 0
 }
 
+# Read the owner token from the current lock. Symlink locks are the normal
+# format; directory locks are accepted so stale locks from older installs can be
+# cleaned up.
+runtime_lock_read_owner() {
+	local lock_file="$1"
+
+	if [ -L "$lock_file" ]; then
+		readlink "$lock_file" 2>/dev/null
+		return $?
+	fi
+	[ -r "$lock_file/owner" ] || return 1
+	cat "$lock_file/owner" 2>/dev/null
+}
+
+# Remove a stale lock without deleting a live replacement. Legacy directory
+# locks are removed only after re-reading their owner.
+runtime_lock_remove_stale() {
+	local lock_file="$1" owner="$2" current_owner=""
+
+	current_owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
+	[ "$current_owner" = "$owner" ] || return 0
+	if [ -L "$lock_file" ]; then
+		runtime_lock_owner_stale "$current_owner" || return 1
+		rm -f "$lock_file"
+		return $?
+	fi
+	if [ ! -d "$lock_file" ]; then
+		rm -f "$lock_file"
+		return $?
+	fi
+	if [ -z "$current_owner" ]; then
+		rm -f "$lock_file/owner" 2>/dev/null || return 1
+		rmdir "$lock_file" 2>/dev/null
+		return $?
+	fi
+	runtime_lock_owner_stale "$current_owner" || return 1
+	rm -f "$lock_file/owner" || return 1
+	rmdir "$lock_file" 2>/dev/null || return 1
+}
+
 # Acquire a symlink lock. ash/openwrt does not guarantee flock everywhere, while
-# ln -s is atomic enough for this single-host runtime state lock.
+# ln -s atomically stores the owner token with the lock path.
 runtime_lock_acquire() {
 	local lock_file="" lock_dir="" owner="" waited=0
 	local timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
@@ -58,11 +98,20 @@ runtime_lock_acquire() {
 		mkdir -p "$lock_dir" || return 1
 	fi
 
-	while ! ln -s "$$" "$lock_file" 2>/dev/null; do
-		owner="$(readlink "$lock_file" 2>/dev/null || true)"
+	while :; do
+		if [ -d "$lock_file" ] && [ ! -L "$lock_file" ]; then
+			# ln would create a link inside a legacy directory lock.
+			owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
+		elif ln -s "$$" "$lock_file" 2>/dev/null; then
+			return 0
+		else
+			owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
+		fi
+
 		if runtime_lock_owner_stale "$owner"; then
-			rm -f "$lock_file"
-			continue
+			if runtime_lock_remove_stale "$lock_file" "$owner"; then
+				continue
+			fi
 		fi
 
 		if [ "$waited" -ge "$timeout" ]; then
@@ -75,14 +124,20 @@ runtime_lock_acquire() {
 	done
 }
 
-# Release only the lock owned by this process; never remove another active
-# operation's lock after a nested command or delayed cleanup.
+# Release only the lock owned by this process.
 runtime_lock_release() {
 	local lock_file="" owner=""
 
 	lock_file="$(runtime_lock_file)"
-	owner="$(readlink "$lock_file" 2>/dev/null || true)"
-	[ "$owner" = "$$" ] && rm -f "$lock_file"
+	owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
+	if [ "$owner" = "$$" ]; then
+		if [ -L "$lock_file" ]; then
+			rm -f "$lock_file"
+			return 0
+		fi
+		rm -f "$lock_file/owner"
+		rmdir "$lock_file" 2>/dev/null || true
+	fi
 }
 
 # Run a mutating command under the runtime lock.
@@ -277,14 +332,13 @@ subscription-json)
 	subscription_url_json
 	;;
 set-subscription-settings)
-	[ "$#" -ge 4 ] && [ "$#" -le 6 ] || {
-		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours] [loaded-hot-reload-supported:0|1]" >&2
+	[ "$#" -ge 4 ] && [ "$#" -le 5 ] || {
+		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours]" >&2
 		exit 1
 	}
 	case "$#" in
 	4) with_runtime_lock set_subscription_settings "$2" "$3" "$4" ;;
 	5) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" ;;
-	6) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" "$6" ;;
 	esac
 	;;
 fetch-subscription)

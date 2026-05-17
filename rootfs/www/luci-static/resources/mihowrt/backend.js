@@ -338,7 +338,7 @@ return baseclass.extend({
 		return readBackendJson([ 'subscription-json' ], emptySubscriptionState(), assignSubscriptionState);
 	},
 
-	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval, hotReloadSupported) {
+	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval) {
 		const args = [
 			'set-subscription-settings',
 			String(subscriptionUrl ?? ''),
@@ -348,11 +348,6 @@ return baseclass.extend({
 
 		if (headerInterval != null)
 			args.push(String(headerInterval));
-		if (hotReloadSupported != null) {
-			if (headerInterval == null)
-				args.push('');
-			args.push(hotReloadSupported ? '1' : '0');
-		}
 
 		const result = await fs.exec(WRITE_BACKEND, args);
 		if (result.code !== 0)

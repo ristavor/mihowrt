@@ -74,9 +74,11 @@ yaml_get_selected_scalars() {
 
 	awk '
 		function emit(key, line) {
-			if (!seen[key]) {
+			seen[key] += 1
+			if (seen[key] == 1) {
 				print key "\t" line
-				seen[key] = 1
+			} else {
+				print "duplicate." key "\t" line
 			}
 		}
 
@@ -252,7 +254,7 @@ read_config_json() {
 	local external_controller_pipe="" external_doh_server="" external_controller_cors="" api_tls=""
 	local secret="" external_ui="" external_ui_name="" external_ui_url=""
 	local ERRORS_RAW=""
-	local key raw value
+	local key raw value duplicate_key
 
 	[ -r "$CLASH_CONFIG" ] || {
 		err "Mihomo config missing at $CLASH_CONFIG"
@@ -265,6 +267,10 @@ read_config_json() {
 		value="$(yaml_cleanup_scalar "$raw")"
 
 		case "$key" in
+		duplicate.*)
+			duplicate_key="${key#duplicate.}"
+			append_error "Duplicate $duplicate_key in $CLASH_CONFIG"
+			;;
 		dns.listen) dns_listen_raw="$value" ;;
 		dns.enhanced-mode) enhanced_mode="$value" ;;
 		dns.fake-ip-range) fake_ip_range="$value" ;;

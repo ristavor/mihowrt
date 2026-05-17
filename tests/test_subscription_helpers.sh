@@ -86,6 +86,11 @@ case "${TEST_WGET_MODE:-ok}" in
 		printf '%s\n' '  HTTP/1.1 404 Not Found' >&2
 		exit 1
 		;;
+	usage-timeout)
+		printf '%s\n' 'Usage: wget [options] <URL>' >&2
+		printf '%s\n' '        --timeout=N | -T N              Set connect/request timeout to N seconds' >&2
+		exit 1
+		;;
 	empty)
 		[ "$output" = "-" ] || : >"$output"
 		;;
@@ -128,7 +133,7 @@ export MIHOWRT_DEVICE_MODEL_FILES="$tmpdir/model"
 export MIHOWRT_HWID_FILE="$tmpdir/hwid"
 expected_hwid="$(printf 'mihowrt-hwid-v1\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }')"
 
-assert_eq "mihowrt/0.7.6" "$(subscription_user_agent)" "subscription_user_agent should include package version"
+assert_eq "mihowrt/0.7.7" "$(subscription_user_agent)" "subscription_user_agent should include package version"
 assert_eq "$expected_hwid" "$(device_hwid)" "device_hwid should hash stable hardware material"
 assert_eq "$expected_hwid" "$(cat "$MIHOWRT_HWID_FILE")" "device_hwid should cache deterministic hardware ID"
 printf '1111111111111111111111111111111111111111111111111111111111111111\n' >"$MIHOWRT_HWID_FILE"
@@ -294,13 +299,14 @@ SUBSCRIPTION_MAX_BYTES=128
 assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor valid override"
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
 assert_file_contains "$TEST_WGET_LOG" "-T 7" "fetch_subscription_config should bound wget timeout"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.6" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.7" "fetch_subscription_config should send MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "x-hwid: $expected_hwid" "fetch_subscription_config should send deterministic hardware ID header"
 assert_file_contains "$TEST_WGET_LOG" "x-device-os: OpenWrt" "fetch_subscription_config should send device OS header"
 assert_file_contains "$TEST_WGET_LOG" "x-ver-os: 25.12.3" "fetch_subscription_config should send OS version header"
 assert_file_contains "$TEST_WGET_LOG" "x-device-model: Test Router AX" "fetch_subscription_config should send device model header"
 assert_file_contains "$TEST_WGET_LOG" "-O -" "fetch_subscription_config should stream wget output through size cap"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to wget"
+assert_file_not_contains "$TEST_WGET_LOG" "-S" "fetch_subscription_config should not pass unsupported wget server-response flag"
 
 SUBSCRIPTION_MAX_BYTES=bad
 assert_eq "1048576" "$(subscription_max_bytes)" "subscription_max_bytes should default to 1 MiB on invalid override"
@@ -322,6 +328,10 @@ assert_false "fetch_subscription_config should fail when wget fails" fetch_subsc
 subscription_error_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
 assert_eq "false" "$(printf '%s\n' "$subscription_error_json" | jq -r '.ok')" "fetch_subscription_json should return ok=false on fetch failure"
 assert_eq "wget_failed" "$(printf '%s\n' "$subscription_error_json" | jq -r '.error.kind')" "fetch_subscription_json should expose wget failure kind"
+export TEST_WGET_MODE=usage-timeout
+subscription_usage_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
+assert_eq "wget_failed" "$(printf '%s\n' "$subscription_usage_json" | jq -r '.error.kind')" "fetch_subscription_json should not classify wget usage text as timeout"
+export TEST_WGET_MODE=fail
 subscription_secret_error_json="$(fetch_subscription_json "https://example.com/secret-token.yaml?token=abc")"
 assert_file_not_contains <(printf '%s\n' "$subscription_secret_error_json") "secret-token" "fetch errors should not expose subscription URL path"
 assert_file_not_contains <(printf '%s\n' "$subscription_secret_error_json") "token=abc" "fetch errors should not expose subscription URL query"

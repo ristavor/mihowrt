@@ -280,6 +280,8 @@ FETCH_HTTP_STATUS=""
 FETCH_HTTP_ERROR_KIND=""
 FETCH_HTTP_ERROR_MESSAGE=""
 FETCH_PROFILE_UPDATE_INTERVAL=""
+FETCH_WGET_SERVER_RESPONSE_ARG_SET=0
+FETCH_WGET_SERVER_RESPONSE_ARG=""
 
 fetch_http_reset_error() {
 	FETCH_HTTP_STATUS=""
@@ -317,7 +319,34 @@ fetch_profile_update_interval() {
 fetch_stderr_looks_timeout() {
 	local stderr_file="$1"
 
-	grep -qiE 'timed?[ -]?out|timeout' "$stderr_file" 2>/dev/null
+	awk '
+		{
+			line = tolower($0)
+			if (line ~ /timed[ -]?out/)
+				found = 1
+			else if (line ~ /(^|[^\/[:alpha:]])(connection|network|read|request|download|operation)[[:space:]-]+timeout/)
+				found = 1
+		}
+		END { exit found ? 0 : 1 }
+	' "$stderr_file" 2>/dev/null
+}
+
+fetch_wget_server_response_arg() {
+	local help=""
+
+	if [ "$FETCH_WGET_SERVER_RESPONSE_ARG_SET" = "0" ]; then
+		help="$(wget --help 2>&1 || true)"
+		if printf '%s\n' "$help" | grep -Eq '(^|[[:space:],])-S([[:space:],]|$)'; then
+			FETCH_WGET_SERVER_RESPONSE_ARG="-S"
+		elif printf '%s\n' "$help" | grep -Eq '(^|[[:space:],])--server-response([[:space:],]|$)'; then
+			FETCH_WGET_SERVER_RESPONSE_ARG="--server-response"
+		else
+			FETCH_WGET_SERVER_RESPONSE_ARG=""
+		fi
+		FETCH_WGET_SERVER_RESPONSE_ARG_SET=1
+	fi
+
+	printf '%s' "$FETCH_WGET_SERVER_RESPONSE_ARG"
 }
 
 fetch_http_body_limited_to_file() {
@@ -327,6 +356,7 @@ fetch_http_body_limited_to_file() {
 	local label="${4:-download}"
 	local include_device_headers="${6:-0}"
 	local header_hwid="" header_device_os="" header_ver_os="" header_device_model=""
+	local wget_server_response_arg=""
 	local safe_url=""
 
 	fetch_http_reset_error
@@ -400,19 +430,33 @@ fetch_http_body_limited_to_file() {
 	read_limit=$((max_bytes + 1))
 	head -c "$read_limit" <"$fifo" >"$output" &
 	reader_pid=$!
+	wget_server_response_arg="$(fetch_wget_server_response_arg)"
 	if [ "$include_device_headers" = "1" ]; then
 		header_hwid="$(device_hwid_header_value)"
 		header_device_os="$(device_os_name)"
 		header_ver_os="$(device_os_version)"
 		header_device_model="$(device_model)"
-		wget -S -T "$timeout" -U "$(http_fetch_user_agent)" \
-			--header "x-hwid: $header_hwid" \
-			--header "x-device-os: $header_device_os" \
-			--header "x-ver-os: $header_ver_os" \
-			--header "x-device-model: $header_device_model" \
-			-O - "$url" >"$fifo" 2>"$stderr_file" &
+		if [ -n "$wget_server_response_arg" ]; then
+			wget "$wget_server_response_arg" -T "$timeout" -U "$(http_fetch_user_agent)" \
+				--header "x-hwid: $header_hwid" \
+				--header "x-device-os: $header_device_os" \
+				--header "x-ver-os: $header_ver_os" \
+				--header "x-device-model: $header_device_model" \
+				-O - "$url" >"$fifo" 2>"$stderr_file" &
+		else
+			wget -T "$timeout" -U "$(http_fetch_user_agent)" \
+				--header "x-hwid: $header_hwid" \
+				--header "x-device-os: $header_device_os" \
+				--header "x-ver-os: $header_ver_os" \
+				--header "x-device-model: $header_device_model" \
+				-O - "$url" >"$fifo" 2>"$stderr_file" &
+		fi
 	else
-		wget -S -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
+		if [ -n "$wget_server_response_arg" ]; then
+			wget "$wget_server_response_arg" -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
+		else
+			wget -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
+		fi
 	fi
 	wget_pid=$!
 

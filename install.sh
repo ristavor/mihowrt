@@ -2254,11 +2254,37 @@ remove_user_trees() {
 	done
 }
 
+remove_cron_markers() {
+	local cron_file="/etc/crontabs/root"
+	local tmp_file=""
+
+	[ -f "$cron_file" ] || return 0
+	grep -qE '# mihowrt (subscription|policy remote) auto-update' "$cron_file" 2>/dev/null || return 0
+
+	tmp_file="${cron_file}.mihowrt.$$"
+	sed \
+		-e '/# mihowrt subscription auto-update/d' \
+		-e '/# mihowrt policy remote auto-update/d' \
+		"$cron_file" >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+
+	if cmp -s "$tmp_file" "$cron_file"; then
+		rm -f "$tmp_file"
+		return 0
+	fi
+
+	mv -f "$tmp_file" "$cron_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+	/etc/init.d/cron restart >/dev/null 2>&1 || true
+}
+
 # Remove package-owned files and user state during uninstall after cleanup.
 remove_user_state() {
-	sed -i '/# mihowrt subscription auto-update/d' /etc/crontabs/root 2>/dev/null || true
-	sed -i '/# mihowrt policy remote auto-update/d' /etc/crontabs/root 2>/dev/null || true
-	/etc/init.d/cron restart >/dev/null 2>&1 || true
+	remove_cron_markers || true
 	remove_user_files \
 		/etc/apk/protected_paths.d/mihowrt.list \
 		/etc/config/mihowrt \

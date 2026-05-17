@@ -156,9 +156,23 @@ define Package/$(PKG_NAME)/postrm
 [ -n "$$IPKG_INSTROOT" ] || {
 	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
 	rm -f /etc/apk/protected_paths.d/mihowrt.list
-	sed -i '/# mihowrt subscription auto-update/d' /etc/crontabs/root 2>/dev/null || true
-	sed -i '/# mihowrt policy remote auto-update/d' /etc/crontabs/root 2>/dev/null || true
-	/etc/init.d/cron restart >/dev/null 2>&1 || true
+	cron_file=/etc/crontabs/root
+	if [ -f "$$cron_file" ] && grep -qE '# mihowrt (subscription|policy remote) auto-update' "$$cron_file" 2>/dev/null; then
+		cron_tmp="$${cron_file}.mihowrt.$$$$"
+		if sed -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' "$$cron_file" >"$$cron_tmp"; then
+			if ! cmp -s "$$cron_tmp" "$$cron_file"; then
+				if mv -f "$$cron_tmp" "$$cron_file"; then
+					/etc/init.d/cron restart >/dev/null 2>&1 || true
+				else
+					rm -f "$$cron_tmp"
+				fi
+			else
+				rm -f "$$cron_tmp"
+			fi
+		else
+			rm -f "$$cron_tmp"
+		fi
+	fi
 	rm -f /opt/clash/ruleset
 	rm -f /opt/clash/proxy_providers
 	rm -f /opt/clash/cache.db

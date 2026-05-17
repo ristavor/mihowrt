@@ -133,6 +133,8 @@ status_default_active_json() {
 		mihomo_routing_mark: "",
 		route_table_id: "",
 		route_rule_priority: "",
+		route_table_id_raw: "",
+		route_rule_priority_raw: "",
 		disable_quic: false,
 		dns_enhanced_mode: "",
 		catch_fakeip: false,
@@ -404,8 +406,8 @@ compare_status_runtime_state_json() {
 						list_matches($runtime.active.always_proxy_dst_count; $desired.always_proxy_dst_count; $runtime.active.always_proxy_dst_source_hash; $desired.always_proxy_dst_source_hash; $desired.always_proxy_dst_remote_url_count) and
 						list_matches($runtime.active.always_proxy_src_count; $desired.always_proxy_src_count; $runtime.active.always_proxy_src_source_hash; $desired.always_proxy_src_source_hash; $desired.always_proxy_src_remote_url_count) and
 						list_matches(($runtime.active.direct_dst_count // 0); ($desired.direct_dst_count // 0); $runtime.active.direct_dst_source_hash; $desired.direct_dst_source_hash; $desired.direct_dst_remote_url_count) and
-						(($desired.route_table_id_raw == "") or ($runtime.active.route_table_id == $desired.route_table_id_raw)) and
-						(($desired.route_rule_priority_raw == "") or ($runtime.active.route_rule_priority == $desired.route_rule_priority_raw)) and
+						(($runtime.active.route_table_id_raw // ($runtime.active.route_table_id // "")) == $desired.route_table_id_raw) and
+						(($runtime.active.route_rule_priority_raw // ($runtime.active.route_rule_priority // "")) == $desired.route_rule_priority_raw) and
 						(($runtime.active.mihomo_dns_listen // "") == ($config.mihomo_dns_listen // "")) and
 						(($runtime.active.mihomo_tproxy_port // "") == ($config.tproxy_port // "")) and
 						(($runtime.active.mihomo_routing_mark // "") == ($config.routing_mark // "")) and

@@ -125,7 +125,7 @@ runtime_snapshot_exists() {
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 
@@ -164,7 +164,16 @@ assert_eq "201" "$(printf '%s\n' "$status_runtime_output" | sed -n 's/^active_ro
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3,"always_proxy_dst_source_hash":"sha256:different"}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"201","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+EOF
+}
+
+status_output_route_raw_drift="$(status_json)"
+assert_eq "false" "$(printf '%s\n' "$status_output_route_raw_drift" | jq -r '.runtime_matches_desired')" "status_json should report drift when route config changes from explicit to auto"
+
+runtime_snapshot_status_json() {
+	cat <<'EOF'
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3,"always_proxy_dst_source_hash":"sha256:different"}
 EOF
 }
 
@@ -173,7 +182,7 @@ assert_eq "false" "$(printf '%s\n' "$status_output_hash_drift" | jq -r '.runtime
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"policy_mode":"proxy-first","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":0,"always_proxy_src_count":0,"direct_dst_count":2}
+{"present":true,"enabled":true,"policy_mode":"proxy-first","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":0,"always_proxy_src_count":0,"direct_dst_count":2}
 EOF
 }
 
@@ -224,7 +233,7 @@ assert_eq "false" "$(printf '%s\n' "$status_output_no_runtime" | jq -r '.runtime
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":true,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":true,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 
@@ -238,7 +247,7 @@ assert_eq "1" "$(printf '%s\n' "$status_runtime_output_drift" | sed -n 's/^runti
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 
@@ -260,7 +269,7 @@ assert_eq "true" "$(printf '%s\n' "$status_output_invalid_snapshot" | jq -r 'any
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 
@@ -308,7 +317,7 @@ config_load() {
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"10010","route_table_id_raw":"","route_rule_priority_raw":"10010","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 

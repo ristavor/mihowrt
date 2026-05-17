@@ -502,7 +502,7 @@ EOF
 
 runtime_snapshot_status_json() {
 	cat <<'EOF'
-{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
+{"present":true,"enabled":true,"dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id":"201","route_rule_priority":"","route_table_id_raw":"","route_rule_priority_raw":"","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan","wg0"],"always_proxy_dst_count":2,"always_proxy_src_count":3}
 EOF
 }
 

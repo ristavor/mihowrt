@@ -203,6 +203,7 @@ runtime_snapshot_save() {
 	local source_src_list_file="${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}"
 	local source_direct_list_file="${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
 	local dst_source_hash="" src_source_hash="" direct_source_hash=""
+	local dst_count=0 src_count=0 direct_count=0
 
 	require_command jq || return 1
 	policy_route_state_read || return 1
@@ -216,6 +217,9 @@ runtime_snapshot_save() {
 	dst_source_hash="$(policy_list_fingerprint "$source_dst_list_file")" || return 1
 	src_source_hash="$(policy_list_fingerprint "$source_src_list_file")" || return 1
 	direct_source_hash="$(policy_list_fingerprint "$source_direct_list_file")" || return 1
+	dst_count="$(count_valid_list_entries "$dst_list_file")" || return 1
+	src_count="$(count_valid_list_entries "$src_list_file")" || return 1
+	direct_count="$(count_valid_list_entries "$direct_list_file")" || return 1
 
 	ensure_dir "$(dirname "$snapshot_file")" || return 1
 	snapshot_tmp="${snapshot_file}.tmp.$$"
@@ -247,6 +251,8 @@ runtime_snapshot_save() {
 		--arg mihomo_dns_listen "$MIHOMO_DNS_LISTEN" \
 		--arg mihomo_tproxy_port "$MIHOMO_TPROXY_PORT" \
 		--arg mihomo_routing_mark "$MIHOMO_ROUTING_MARK" \
+		--arg route_table_id_raw "${MIHOMO_ROUTE_TABLE_ID:-}" \
+		--arg route_rule_priority_raw "${MIHOMO_ROUTE_RULE_PRIORITY:-}" \
 		--arg route_table_id_effective "$route_table_id" \
 		--arg route_rule_priority_effective "$route_rule_priority" \
 		--arg disable_quic "${DISABLE_QUIC:-}" \
@@ -257,6 +263,9 @@ runtime_snapshot_save() {
 		--arg dst_source_hash "$dst_source_hash" \
 		--arg src_source_hash "$src_source_hash" \
 		--arg direct_source_hash "$direct_source_hash" \
+		--arg dst_count "$dst_count" \
+		--arg src_count "$src_count" \
+		--arg direct_count "$direct_count" \
 		'{
 			enabled: true,
 			policy_mode: $policy_mode,
@@ -265,6 +274,8 @@ runtime_snapshot_save() {
 			mihomo_dns_listen: $mihomo_dns_listen,
 			mihomo_tproxy_port: $mihomo_tproxy_port,
 			mihomo_routing_mark: $mihomo_routing_mark,
+			route_table_id_raw: $route_table_id_raw,
+			route_rule_priority_raw: $route_rule_priority_raw,
 			route_table_id_effective: $route_table_id_effective,
 			route_rule_priority_effective: $route_rule_priority_effective,
 			disable_quic: ($disable_quic == "1"),
@@ -274,6 +285,9 @@ runtime_snapshot_save() {
 			always_proxy_dst_source_hash: $dst_source_hash,
 			always_proxy_src_source_hash: $src_source_hash,
 			direct_dst_source_hash: $direct_source_hash,
+			always_proxy_dst_count: ($dst_count | tonumber? // 0),
+			always_proxy_src_count: ($src_count | tonumber? // 0),
+			direct_dst_count: ($direct_count | tonumber? // 0),
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0)))
 		}' >"$snapshot_tmp" || {
 		runtime_snapshot_cleanup_files "$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp"
@@ -345,7 +359,7 @@ runtime_snapshot_load() {
 # Emit shell assignments from snapshot JSON.
 runtime_snapshot_vars_from_json() {
 	jq -r '
-		@sh "snapshot_policy_mode=\(.policy_mode // "direct-first") snapshot_dns_hijack=\(if (.dns_hijack // false) then 1 else 0 end) snapshot_mihomo_dns_port=\(.mihomo_dns_port // "") snapshot_mihomo_dns_listen=\(.mihomo_dns_listen // "") snapshot_mihomo_tproxy_port=\(.mihomo_tproxy_port // "") snapshot_mihomo_routing_mark=\(.mihomo_routing_mark // "") snapshot_route_table_id=\(.route_table_id_effective // "") snapshot_route_rule_priority=\(.route_rule_priority_effective // "") snapshot_disable_quic=\(if (.disable_quic // false) then 1 else 0 end) snapshot_dns_enhanced_mode=\(.dns_enhanced_mode // "") snapshot_catch_fakeip=\(if (.catch_fakeip // false) then 1 else 0 end) snapshot_fakeip_range=\(.fakeip_range // "") snapshot_source_interfaces=\((.source_network_interfaces // []) | join(" "))"
+		@sh "snapshot_policy_mode=\(.policy_mode // "direct-first") snapshot_dns_hijack=\(if (.dns_hijack // false) then 1 else 0 end) snapshot_mihomo_dns_port=\(.mihomo_dns_port // "") snapshot_mihomo_dns_listen=\(.mihomo_dns_listen // "") snapshot_mihomo_tproxy_port=\(.mihomo_tproxy_port // "") snapshot_mihomo_routing_mark=\(.mihomo_routing_mark // "") snapshot_route_table_id=\(.route_table_id_effective // "") snapshot_route_rule_priority=\(.route_rule_priority_effective // "") snapshot_route_table_id_raw=\(.route_table_id_raw // (.route_table_id_effective // "")) snapshot_route_rule_priority_raw=\(.route_rule_priority_raw // (.route_rule_priority_effective // "")) snapshot_disable_quic=\(if (.disable_quic // false) then 1 else 0 end) snapshot_dns_enhanced_mode=\(.dns_enhanced_mode // "") snapshot_catch_fakeip=\(if (.catch_fakeip // false) then 1 else 0 end) snapshot_fakeip_range=\(.fakeip_range // "") snapshot_source_interfaces=\((.source_network_interfaces // []) | join(" "))"
 	'
 }
 
@@ -409,7 +423,8 @@ runtime_snapshot_restore() {
 # Full diagnostic snapshot JSON, including list entry counts.
 runtime_snapshot_status_json() {
 	local snapshot_file dst_snapshot src_snapshot direct_snapshot
-	local dst_count=0 src_count=0 direct_count=0
+	local snapshot_vars=""
+	local snapshot_dst_count="" snapshot_src_count="" snapshot_direct_count=""
 
 	require_command jq || return 1
 	runtime_snapshot_exists || return 1
@@ -418,14 +433,20 @@ runtime_snapshot_status_json() {
 	dst_snapshot="$(runtime_snapshot_dst_file)"
 	src_snapshot="$(runtime_snapshot_src_file)"
 	direct_snapshot="$(runtime_snapshot_direct_file)"
-	dst_count="$(count_valid_list_entries "$dst_snapshot")"
-	src_count="$(count_valid_list_entries "$src_snapshot")"
-	direct_count="$(count_valid_list_entries "$direct_snapshot")"
+	snapshot_vars="$(
+		jq -r '
+			@sh "snapshot_dst_count=\(.always_proxy_dst_count // "") snapshot_src_count=\(.always_proxy_src_count // "") snapshot_direct_count=\(.direct_dst_count // "")"
+		' "$snapshot_file"
+	)" || return 1
+	eval "$snapshot_vars" || return 1
+	[ -n "$snapshot_dst_count" ] || snapshot_dst_count="$(count_valid_list_entries "$dst_snapshot")" || return 1
+	[ -n "$snapshot_src_count" ] || snapshot_src_count="$(count_valid_list_entries "$src_snapshot")" || return 1
+	[ -n "$snapshot_direct_count" ] || snapshot_direct_count="$(count_valid_list_entries "$direct_snapshot")" || return 1
 
 	jq -ec \
-		--arg dst_count "$dst_count" \
-		--arg src_count "$src_count" \
-		--arg direct_count "$direct_count" \
+		--arg dst_count "$snapshot_dst_count" \
+		--arg src_count "$snapshot_src_count" \
+		--arg direct_count "$snapshot_direct_count" \
 		'if ((.enabled // false) != true) then
 			error("runtime snapshot has disabled policy")
 		elif ((((.policy_mode // "direct-first") == "direct-first") or ((.policy_mode // "direct-first") == "proxy-first")) | not) then
@@ -447,6 +468,8 @@ runtime_snapshot_status_json() {
 			mihomo_routing_mark: (.mihomo_routing_mark // ""),
 			route_table_id: (.route_table_id_effective // ""),
 			route_rule_priority: (.route_rule_priority_effective // ""),
+			route_table_id_raw: (.route_table_id_raw // (.route_table_id_effective // "")),
+			route_rule_priority_raw: (.route_rule_priority_raw // (.route_rule_priority_effective // "")),
 			disable_quic: (.disable_quic // false),
 			dns_enhanced_mode: (.dns_enhanced_mode // ""),
 			catch_fakeip: (.catch_fakeip // false),
@@ -510,7 +533,8 @@ runtime_snapshot_mihomo_config_matches_current() {
 runtime_snapshot_policy_config_matches_current() {
 	local snapshot_vars=""
 	local snapshot_policy_mode="" snapshot_dns_hijack="" snapshot_disable_quic=""
-	local snapshot_source_interfaces="" snapshot_route_table_id="" snapshot_route_rule_priority=""
+	local snapshot_source_interfaces=""
+	local snapshot_route_table_id_raw="" snapshot_route_rule_priority_raw=""
 
 	snapshot_vars="$(runtime_snapshot_vars)" || return 1
 	eval "$snapshot_vars" || return 1
@@ -519,12 +543,8 @@ runtime_snapshot_policy_config_matches_current() {
 	[ "$snapshot_dns_hijack" = "$DNS_HIJACK" ] || return 1
 	[ "$snapshot_disable_quic" = "$DISABLE_QUIC" ] || return 1
 	[ "$snapshot_source_interfaces" = "$SOURCE_INTERFACES" ] || return 1
-	if [ -n "$MIHOMO_ROUTE_TABLE_ID" ]; then
-		[ "$snapshot_route_table_id" = "$MIHOMO_ROUTE_TABLE_ID" ] || return 1
-	fi
-	if [ -n "$MIHOMO_ROUTE_RULE_PRIORITY" ]; then
-		[ "$snapshot_route_rule_priority" = "$MIHOMO_ROUTE_RULE_PRIORITY" ] || return 1
-	fi
+	[ "$snapshot_route_table_id_raw" = "${MIHOMO_ROUTE_TABLE_ID:-}" ] || return 1
+	[ "$snapshot_route_rule_priority_raw" = "${MIHOMO_ROUTE_RULE_PRIORITY:-}" ] || return 1
 }
 
 # True when route.state still matches snapshot metadata.

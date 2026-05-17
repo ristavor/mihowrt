@@ -74,12 +74,29 @@ snapshot_src_file="$(runtime_snapshot_src_file)"
 snapshot_direct_file="$(runtime_snapshot_direct_file)"
 
 assert_eq "proxy-first" "$(jq -r '.policy_mode' "$snapshot_file")" "runtime_snapshot_save should persist policy mode"
+assert_eq "" "$(jq -r '.route_table_id_raw' "$snapshot_file")" "runtime_snapshot_save should persist raw auto route table id"
+assert_eq "" "$(jq -r '.route_rule_priority_raw' "$snapshot_file")" "runtime_snapshot_save should persist raw auto route rule priority"
 assert_eq "201" "$(jq -r '.route_table_id_effective' "$snapshot_file")" "runtime_snapshot_save should persist effective route table id"
 assert_eq "10001" "$(jq -r '.route_rule_priority_effective' "$snapshot_file")" "runtime_snapshot_save should persist effective route rule priority"
+assert_eq "2" "$(jq -r '.always_proxy_dst_count' "$snapshot_file")" "runtime_snapshot_save should persist destination list count"
+assert_eq "1" "$(jq -r '.always_proxy_src_count' "$snapshot_file")" "runtime_snapshot_save should persist source list count"
+assert_eq "1" "$(jq -r '.direct_dst_count' "$snapshot_file")" "runtime_snapshot_save should persist direct list count"
 assert_eq "wg0" "$(jq -r '.source_network_interfaces[1]' "$snapshot_file")" "runtime_snapshot_save should persist source interfaces"
 assert_file_contains "$snapshot_dst_file" "2.2.2.0/24" "runtime_snapshot_save should snapshot destination list contents"
 assert_file_contains "$snapshot_src_file" "3.3.3.3" "runtime_snapshot_save should snapshot source list contents"
 assert_file_contains "$snapshot_direct_file" "8.8.8.8" "runtime_snapshot_save should snapshot direct destination list contents"
+
+MIHOMO_ROUTE_TABLE_ID="201"
+MIHOMO_ROUTE_RULE_PRIORITY="10001"
+runtime_snapshot_save
+assert_eq "201" "$(jq -r '.route_table_id_raw' "$snapshot_file")" "runtime_snapshot_save should persist explicit raw route table id"
+assert_eq "10001" "$(jq -r '.route_rule_priority_raw' "$snapshot_file")" "runtime_snapshot_save should persist explicit raw route rule priority"
+assert_true "runtime_snapshot_policy_config_matches_current should accept matching explicit route config" runtime_snapshot_policy_config_matches_current
+MIHOMO_ROUTE_TABLE_ID=""
+MIHOMO_ROUTE_RULE_PRIORITY=""
+assert_false "runtime_snapshot_policy_config_matches_current should reject clearing explicit route config to auto" runtime_snapshot_policy_config_matches_current
+MIHOMO_ROUTE_TABLE_ID="201"
+MIHOMO_ROUTE_RULE_PRIORITY="10001"
 
 direct_snapshot_backup="$tmpdir/direct.snapshot.good"
 cp "$snapshot_direct_file" "$direct_snapshot_backup"

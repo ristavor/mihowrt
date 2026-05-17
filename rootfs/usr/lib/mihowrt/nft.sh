@@ -496,9 +496,9 @@ nft_emit_proxy_first_policy_rules() {
 		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "jump $NFT_CHAIN_DIRECT_DST_PORTS_PREROUTING"
 	fi
 	if [ "$DISABLE_QUIC" = "1" ]; then
-		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "udp dport 443 reject"
+		nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta nfproto ipv4 udp dport 443 reject"
 	fi
-	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
+	nft_emit_rule "$NFT_CHAIN_PREROUTING_POLICY" "meta nfproto ipv4 meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 
 	nft_emit_common_proxy_rules
 	if [ "${NFT_DIRECT_DST_SET_COUNT:-0}" -gt 0 ]; then
@@ -508,9 +508,9 @@ nft_emit_proxy_first_policy_rules() {
 		nft_emit_rule "$NFT_CHAIN_OUTPUT" "jump $NFT_CHAIN_DIRECT_DST_PORTS_OUTPUT"
 	fi
 	if [ "$DISABLE_QUIC" = "1" ]; then
-		nft_emit_rule "$NFT_CHAIN_OUTPUT" "udp dport 443 reject"
+		nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta nfproto ipv4 udp dport 443 reject"
 	fi
-	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
+	nft_emit_rule "$NFT_CHAIN_OUTPUT" "meta nfproto ipv4 meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK"
 }
 
 # Dispatch rules for current policy mode.

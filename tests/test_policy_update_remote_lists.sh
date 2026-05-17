@@ -175,7 +175,7 @@ write_snapshot_lists() {
 	printf '%s\n' "${2:-:53}" >"$(runtime_snapshot_src_file)"
 	printf '%s\n' "${3:-8.8.8.8}" >"$(runtime_snapshot_direct_file)"
 	cat >"$(runtime_snapshot_file)" <<EOF
-{"enabled":true,"policy_mode":"${TEST_SNAPSHOT_POLICY_MODE:-${TEST_POLICY_MODE:-direct-first}}","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id_effective":"${TEST_OLD_ROUTE_TABLE_ID:-200}","route_rule_priority_effective":"${TEST_OLD_ROUTE_RULE_PRIORITY:-10000}","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan"]}
+{"enabled":true,"policy_mode":"${TEST_SNAPSHOT_POLICY_MODE:-${TEST_POLICY_MODE:-direct-first}}","dns_hijack":true,"mihomo_dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","mihomo_tproxy_port":"7894","mihomo_routing_mark":"2","route_table_id_raw":"","route_rule_priority_raw":"","route_table_id_effective":"${TEST_OLD_ROUTE_TABLE_ID:-200}","route_rule_priority_effective":"${TEST_OLD_ROUTE_RULE_PRIORITY:-10000}","disable_quic":false,"dns_enhanced_mode":"fake-ip","catch_fakeip":true,"fakeip_range":"198.18.0.0/15","source_network_interfaces":["br-lan"]}
 EOF
 }
 

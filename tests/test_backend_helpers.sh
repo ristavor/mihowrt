@@ -14,13 +14,15 @@ const source = fs.readFileSync(path.join(rootDir, 'rootfs/www/luci-static/resour
 const emptyConfigMatch = source.match(/function emptyConfigState[\s\S]*?\n}\n\nfunction emptyStatusState/);
 const emptyStatusMatch = source.match(/function emptyStatusState[\s\S]*?\n}\n\nfunction emptyLogState/);
 const emptyLogMatch = source.match(/function emptyLogState[\s\S]*?\n}\n\nfunction emptySubscriptionState/);
-const emptySubscriptionMatch = source.match(/function emptySubscriptionState[\s\S]*?\n}\n\nfunction tempConfigPath/);
+const emptySubscriptionMatch = source.match(/function emptySubscriptionState[\s\S]*?\n}\n\nfunction emptyPackageUpdateState/);
+const emptyPackageUpdateMatch = source.match(/function emptyPackageUpdateState[\s\S]*?\n}\n\nfunction tempConfigPath/);
 const tempConfigMatch = source.match(/function tempConfigPath[\s\S]*?\n}\n\nasync function removeTempFile/);
 const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction assignConfigState/);
 const assignConfigMatch = source.match(/function assignConfigState[\s\S]*?\n}\n\nfunction assignServiceState/);
 const assignServiceMatch = source.match(/function assignServiceState[\s\S]*?\n}\n\nasync function readBackendJson/);
 const readBackendJsonMatch = source.match(/async function readBackendJson[\s\S]*?\n}\n\nfunction assignSubscriptionState/);
-const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignStatusState/);
+const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignPackageUpdateState/);
+const assignPackageUpdateMatch = source.match(/function assignPackageUpdateState[\s\S]*?\n}\n\nfunction assignStatusState/);
 const assignStatusMatch = source.match(/function assignStatusState[\s\S]*?\n}\n\nfunction assignLogState/);
 const assignLogMatch = source.match(/function assignLogState[\s\S]*?\n}\n\nfunction assignApplyResult/);
 const assignApplyResultMatch = source.match(/function assignApplyResult[\s\S]*?\n}\n\nfunction subscriptionFetchErrorDetail/);
@@ -36,6 +38,8 @@ if (!emptyLogMatch)
 	throw new Error('emptyLogState() not found');
 if (!emptySubscriptionMatch)
 	throw new Error('emptySubscriptionState() not found');
+if (!emptyPackageUpdateMatch)
+	throw new Error('emptyPackageUpdateState() not found');
 if (!tempConfigMatch)
 	throw new Error('tempConfigPath() not found');
 if (!removeTempMatch)
@@ -48,6 +52,8 @@ if (!readBackendJsonMatch)
 	throw new Error('readBackendJson() not found');
 if (!assignSubscriptionMatch)
 	throw new Error('assignSubscriptionState() not found');
+if (!assignPackageUpdateMatch)
+	throw new Error('assignPackageUpdateState() not found');
 if (!assignStatusMatch)
 	throw new Error('assignStatusState() not found');
 if (!assignLogMatch)
@@ -64,13 +70,15 @@ if (!exportMatch)
 const emptyConfigFnSource = emptyConfigMatch[0].replace(/\n\nfunction emptyStatusState$/, '');
 const emptyStatusFnSource = emptyStatusMatch[0].replace(/\n\nfunction emptyLogState$/, '');
 const emptyLogFnSource = emptyLogMatch[0].replace(/\n\nfunction emptySubscriptionState$/, '');
-const emptySubscriptionFnSource = emptySubscriptionMatch[0].replace(/\n\nfunction tempConfigPath$/, '');
+const emptySubscriptionFnSource = emptySubscriptionMatch[0].replace(/\n\nfunction emptyPackageUpdateState$/, '');
+const emptyPackageUpdateFnSource = emptyPackageUpdateMatch[0].replace(/\n\nfunction tempConfigPath$/, '');
 const tempConfigFnSource = tempConfigMatch[0].replace(/\n\nasync function removeTempFile$/, '');
 const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction assignConfigState$/, '');
 const assignConfigFnSource = assignConfigMatch[0].replace(/\n\nfunction assignServiceState$/, '');
 const assignServiceFnSource = assignServiceMatch[0].replace(/\n\nasync function readBackendJson$/, '');
 const readBackendJsonFnSource = readBackendJsonMatch[0].replace(/\n\nfunction assignSubscriptionState$/, '');
-const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignStatusState$/, '');
+const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignPackageUpdateState$/, '');
+const assignPackageUpdateFnSource = assignPackageUpdateMatch[0].replace(/\n\nfunction assignStatusState$/, '');
 const assignStatusFnSource = assignStatusMatch[0].replace(/\n\nfunction assignLogState$/, '');
 const assignLogFnSource = assignLogMatch[0].replace(/\n\nfunction assignApplyResult$/, '');
 const assignApplyResultFnSource = assignApplyResultMatch[0].replace(/\n\nfunction subscriptionFetchErrorDetail$/, '');
@@ -125,7 +133,7 @@ const context = {
 };
 context.Math.random = () => 0.5;
 vm.createContext(context);
-vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${assignApplyResultFnSource}\n${subscriptionFetchErrorFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
+vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${emptyPackageUpdateFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignPackageUpdateFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${assignApplyResultFnSource}\n${subscriptionFetchErrorFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
 
 const state = context.emptyStatusState();
 
@@ -237,6 +245,28 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readSubscriptionUrl should parse saved subscription URL');
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'subscription-json'))
 		throw new Error('readSubscriptionUrl should dispatch through read-only backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt-read package-update-status-json'] = {
+		code: 0,
+		stdout: '{"available":true,"running":true,"status":"running","pid":"123","current_version":"0.7.7-r1","latest_version":"0.7.8","asset_url":"https://example.com/luci-app-mihowrt-0.7.8-r1.apk","message":"Installing"}'
+	};
+	const packageUpdateStatus = await context.backend.readPackageUpdateStatus();
+	if (!packageUpdateStatus.available || !packageUpdateStatus.running || packageUpdateStatus.status !== 'running' || packageUpdateStatus.currentVersion !== '0.7.7-r1' || packageUpdateStatus.latestVersion !== '0.7.8' || packageUpdateStatus.message !== 'Installing')
+		throw new Error('readPackageUpdateStatus should map backend package update state');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'package-update-status-json'))
+		throw new Error('readPackageUpdateStatus should dispatch through read-only backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt package-update-json'] = {
+		code: 0,
+		stdout: '{"available":true,"running":false,"status":"already_current","current_version":"0.7.8-r1","latest_version":"0.7.8","message":"Package is already up to date"}'
+	};
+	const packageUpdateStart = await context.backend.startPackageUpdate();
+	if (packageUpdateStart.status !== 'already_current' || packageUpdateStart.running || packageUpdateStart.currentVersion !== '0.7.8-r1')
+		throw new Error('startPackageUpdate should parse backend package update result');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'package-update-json'))
+		throw new Error('startPackageUpdate should dispatch through write backend command');
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read status-json'] = {

@@ -69,6 +69,11 @@ assertEq(configHelper.serviceBadgeText(true), 'MihoWRT is running', 'serviceBadg
 assertEq(configHelper.serviceBadgeText(false), 'MihoWRT stopped', 'serviceBadgeText should render stopped badge');
 assertEq(configHelper.serviceBadgeColor(true), '#5cb85c', 'serviceBadgeColor should use running color');
 assertEq(configHelper.serviceBadgeColor(false), '#d9534f', 'serviceBadgeColor should use stopped color');
+assertEq(configHelper.packageUpdateButtonLabel({ running: true }), 'Updating Package', 'packageUpdateButtonLabel should show running action');
+assertEq(configHelper.packageUpdateBadgeText({ status: 'success', latestVersion: '0.7.8' }), 'Package updated to 0.7.8', 'packageUpdateBadgeText should include updated version');
+assertEq(configHelper.packageUpdateBadgeColor({ status: 'error' }), '#d9534f', 'packageUpdateBadgeColor should mark failures red');
+assertEq(configHelper.packageUpdateBadgeText({ available: false }), 'Package status unavailable', 'packageUpdateBadgeText should show unavailable backend state');
+assertEq(configHelper.packageUpdateBadgeColor({ available: false }), '#d9534f', 'packageUpdateBadgeColor should not show unavailable backend state as OK');
 
 const busyMatch = viewSource.match(/function controlsBusy[\s\S]*?\n}\n\nfunction updateControlDisabledState/);
 if (!busyMatch)
@@ -79,23 +84,31 @@ vm.runInContext(`
 let serviceActionInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
+let packageUpdateInFlight = false;
+let packageUpdateRunning = false;
 ${busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '')}
 globalThis.controlsBusy = controlsBusy;
-globalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy) => {
+globalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy, packageBusy, packageRunning) => {
 	serviceActionInFlight = serviceBusy;
 	saveInFlight = saveBusy;
 	subscriptionInFlight = subscriptionBusy;
+	packageUpdateInFlight = packageBusy;
+	packageUpdateRunning = packageRunning;
 };
 `, context);
 
-context.setBusyFlags(false, false, false);
+context.setBusyFlags(false, false, false, false, false);
 assertEq(String(context.controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
-context.setBusyFlags(true, false, false);
+context.setBusyFlags(true, false, false, false, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
-context.setBusyFlags(false, true, false);
+context.setBusyFlags(false, true, false, false, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when save is running');
-context.setBusyFlags(false, false, true);
+context.setBusyFlags(false, false, true, false, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
+context.setBusyFlags(false, false, false, true, false);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when package update starts');
+context.setBusyFlags(false, false, false, false, true);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true while package update is running');
 
 (async () => {
 	const notifications = [];

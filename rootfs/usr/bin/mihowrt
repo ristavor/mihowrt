@@ -361,6 +361,12 @@ update-subscription)
 auto-update-subscription)
 	with_runtime_lock auto_update_subscription_config
 	;;
+package-update-json)
+	package_update_start_json
+	;;
+package-update-status-json)
+	package_update_status_json
+	;;
 status-json)
 	status_json
 	;;
@@ -371,7 +377,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-config-contents|subscription-json|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-config-contents|subscription-json|set-subscription-settings|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|package-update-json|package-update-status-json|status-json|logs-json|status}" >&2
 	exit 1
 	;;
 esac

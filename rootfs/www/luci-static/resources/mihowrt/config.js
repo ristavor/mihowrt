@@ -34,6 +34,42 @@ function serviceEnabledBadgeColor(enabled) {
 	return enabled ? SERVICE_OK_COLOR : SERVICE_ERROR_COLOR;
 }
 
+function packageUpdateButtonLabel(state) {
+	return state?.running ? _('Updating Package') : _('Update Package');
+}
+
+function packageUpdateBadgeText(state) {
+	if (state?.available === false)
+		return _('Package status unavailable');
+
+	const status = String(state?.status || 'idle');
+	const currentVersion = String(state?.currentVersion || '');
+	const latestVersion = String(state?.latestVersion || '');
+
+	if (status === 'running')
+		return _('Package update running');
+	if (status === 'success')
+		return latestVersion ? _('Package updated to %s').format(latestVersion) : _('Package updated');
+	if (status === 'already_current')
+		return currentVersion ? _('Package %s is current').format(currentVersion) : _('Package is current');
+	if (status === 'error')
+		return _('Package update failed');
+	return currentVersion ? _('Package %s').format(currentVersion) : _('Package status unknown');
+}
+
+function packageUpdateBadgeColor(state) {
+	if (state?.available === false)
+		return SERVICE_ERROR_COLOR;
+
+	const status = String(state?.status || 'idle');
+
+	if (status === 'running')
+		return '#f0ad4e';
+	if (status === 'error')
+		return SERVICE_ERROR_COLOR;
+	return SERVICE_OK_COLOR;
+}
+
 function normalizeHostPortFromAddr(addr, fallbackHost, fallbackPort) {
 	// Keep router hostname as fallback for wildcard/loopback binds.
 	if (!addr)
@@ -170,6 +206,9 @@ return baseclass.extend({
 	editorContentForSave: editorContentForSave,
 	normalizeHostPortFromAddr: normalizeHostPortFromAddr,
 	openDashboard: openDashboard,
+	packageUpdateBadgeColor: packageUpdateBadgeColor,
+	packageUpdateBadgeText: packageUpdateBadgeText,
+	packageUpdateButtonLabel: packageUpdateButtonLabel,
 	restartRunningService: restartRunningService,
 	serviceBadgeColor: serviceBadgeColor,
 	serviceBadgeText: serviceBadgeText,

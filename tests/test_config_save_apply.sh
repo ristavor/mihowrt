@@ -138,6 +138,7 @@ if (!String.prototype.format) {
 let startStopButton = globalThis.startStopButton;
 let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
+let packageUpdateButton = globalThis.packageUpdateButton;
 let saveApplyButton = globalThis.saveApplyButton;
 let subscriptionUrlInput = globalThis.subscriptionUrlInput;
 let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
@@ -148,6 +149,8 @@ let editor = globalThis.editor;
 let serviceActionInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
+let packageUpdateInFlight = false;
+let packageUpdateRunning = false;
 let savedConfigContent = 'mode: old\\n';
 ${controlsFnSource}
 ${updateFnSource}

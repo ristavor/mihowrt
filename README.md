@@ -673,6 +673,7 @@ Main backend:
 /usr/bin/mihowrt auto-update-policy-lists
 /usr/bin/mihowrt sync-policy-remote-auto-update
 /usr/bin/mihowrt sync-subscription-auto-update
+/usr/bin/mihowrt migrate-all
 /usr/bin/mihowrt migrate-legacy-settings
 /usr/bin/mihowrt migrate-policy-lists
 /usr/bin/mihowrt ensure-api-defaults

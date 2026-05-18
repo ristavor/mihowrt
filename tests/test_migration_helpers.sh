@@ -86,3 +86,13 @@ export TEST_UCI_POLICY_MODE=invalid-mode
 migrate_legacy_uci_settings
 assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.policy_mode=direct-first" "legacy migration should force invalid policy mode to direct-first"
 assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "legacy migration should commit invalid mode repair"
+
+: >"$TEST_UCI_LOG"
+unset TEST_UCI_LEGACY_ENABLED
+export TEST_UCI_POLICY_MODE=direct-first
+migrate_policy_list_files() {
+	printf 'policy-list-migrated\n' >>"$TEST_UCI_LOG"
+}
+migrate_all
+assert_file_contains "$TEST_UCI_LOG" "policy-list-migrated" "migrate_all should run policy list migrations after UCI migrations"
+assert_file_not_contains "$TEST_UCI_LOG" "-q commit mihowrt" "migrate_all should not commit UCI config when legacy settings are already current"

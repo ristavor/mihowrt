@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.7.8
+PKG_VERSION:=0.7.9
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -129,8 +129,7 @@ define Package/$(PKG_NAME)/postinst
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	if [ ! -f /tmp/luci-app-mihowrt.skip-start ]; then
-		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-legacy-settings >/dev/null 2>&1 || true
-		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-policy-lists >/dev/null 2>&1 || true
+		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-all >/dev/null 2>&1 || exit 1
 	fi
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true

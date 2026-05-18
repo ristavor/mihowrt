@@ -790,15 +790,10 @@ restore_user_state() {
 	for_each_user_state_file restore_user_state_file
 }
 
-# Run policy list migration after files are restored from backup.
-migrate_restored_policy_lists() {
+# Run package-defined migrations after package hooks restore preserved files.
+migrate_restored_user_state() {
 	[ -x "$ORCHESTRATOR" ] || return 0
-	"$ORCHESTRATOR" migrate-policy-lists >/dev/null 2>&1
-}
-
-migrate_restored_legacy_settings() {
-	[ -x "$ORCHESTRATOR" ] || return 0
-	"$ORCHESTRATOR" migrate-legacy-settings >/dev/null 2>&1
+	"$ORCHESTRATOR" migrate-all >/dev/null 2>&1
 }
 
 service_enabled() {
@@ -2422,19 +2417,11 @@ restore_reinstalled_user_state() {
 		return 1
 	fi
 
-	log "Migrating restored legacy settings..."
-	if ! migrate_restored_legacy_settings; then
+	log "Migrating restored user state..."
+	if ! migrate_restored_user_state; then
 		handle_reinstall_state_failure \
-			"failed to restore previous Mihomo kernel after legacy settings migration failure" \
-			"failed to migrate restored legacy settings"
-		return 1
-	fi
-
-	log "Migrating restored policy lists..."
-	if ! migrate_restored_policy_lists; then
-		handle_reinstall_state_failure \
-			"failed to restore previous Mihomo kernel after policy-list migration failure" \
-			"failed to migrate restored policy list syntax"
+			"failed to restore previous Mihomo kernel after user-state migration failure" \
+			"failed to migrate restored user state"
 		return 1
 	fi
 }
@@ -2506,6 +2493,13 @@ complete_reinstall_after_package() {
 # Complete first install after apk transaction.
 complete_fresh_install_after_package() {
 	clear_kernel_backup
+	log "Migrating installed user state..."
+	if ! migrate_restored_user_state; then
+		err "failed to migrate installed user state"
+		abort_transaction
+		return 1
+	fi
+
 	if ! start_fresh_install_service; then
 		abort_transaction
 		return 1

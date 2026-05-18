@@ -453,6 +453,16 @@ package_update_status_output="$(
 )"
 assert_eq "package-update-status" "$package_update_status_output" "package-update-status-json command should dispatch to package updater status"
 
+migrate_all_output="$(
+	set -- migrate-all
+	migrate_all() {
+		printf 'migrated-all\n'
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "migrated-all" "$migrate_all_output" "migrate-all command should dispatch to package migration helper"
+
 migrate_policy_lists_output="$(
 	set -- migrate-policy-lists
 	migrate_policy_list_files() {

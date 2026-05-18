@@ -80,12 +80,14 @@ assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt' "postinst should restore destination policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt' "postinst should restore source policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt' "postinst should restore direct destination policy list backup"
-assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-legacy-settings" "postinst should migrate legacy UCI settings on package upgrade"
-assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-policy-lists" "postinst should migrate legacy policy list syntax on package upgrade"
+assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-all" "postinst should run package migrations on package upgrade"
 
 cat >"$tmpdir/mihowrt" <<EOF
 #!/usr/bin/env bash
 printf 'mihowrt:%s\n' "\$*" >>"$hook_log"
+if [[ "\${1:-}" == "migrate-all" && "\${TEST_FAIL_MIGRATE:-0}" == "1" ]]; then
+	exit 1
+fi
 exit 0
 EOF
 chmod +x "$tmpdir/mihowrt"
@@ -156,8 +158,16 @@ assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriti
 assert_eq "$before_same_list_mtime" "$after_same_list_mtime" "postinst should skip rewriting identical policy list backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should remove identical config backup after skip"
 [[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should remove identical policy list backup after skip"
-assert_file_contains "$hook_log" "mihowrt:migrate-legacy-settings" "postinst should migrate legacy settings outside installer transaction"
-assert_file_contains "$hook_log" "mihowrt:migrate-policy-lists" "postinst should migrate policy lists outside installer transaction"
+assert_file_contains "$hook_log" "mihowrt:migrate-all" "postinst should run migrations outside installer transaction"
+
+: >"$hook_log"
+set +e
+TEST_FAIL_MIGRATE=1 IPKG_INSTROOT="" "$script_path"
+postinst_migrate_fail_rc=$?
+set -e
+[[ "$postinst_migrate_fail_rc" -ne 0 ]] || fail "postinst should fail when package migration fails"
+assert_file_contains "$hook_log" "mihowrt:migrate-all" "postinst should attempt package migration before failing"
+assert_file_not_contains "$hook_log" "mihowrt:init-layout" "postinst should stop before layout init when package migration fails"
 
 printf 'new-config\n' >"$backup_path"
 printf 'old-config\n' >"$live_config"
@@ -170,8 +180,7 @@ printf 'skip-config\n' >"$live_config"
 : >"$skip_start"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
-assert_file_not_contains "$hook_log" "mihowrt:migrate-legacy-settings" "postinst should defer legacy settings migration during installer transaction"
-assert_file_not_contains "$hook_log" "mihowrt:migrate-policy-lists" "postinst should defer policy list migration during installer transaction"
+assert_file_not_contains "$hook_log" "mihowrt:migrate-all" "postinst should defer package migrations during installer transaction"
 assert_file_contains "$hook_log" "mihowrt:init-layout" "postinst should still initialize layout during installer transaction"
 rm -f "$skip_start"
 

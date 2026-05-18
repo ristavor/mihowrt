@@ -42,3 +42,8 @@ migrate_legacy_uci_settings() {
 	}
 	log "Migrated legacy MihoWRT UCI settings"
 }
+
+migrate_all() {
+	migrate_legacy_uci_settings || return 1
+	migrate_policy_list_files || return 1
+}

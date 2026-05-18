@@ -174,8 +174,8 @@ setup_clash_runtime_dirs() {
 }
 
 # Public layout entrypoint used by package postinst and service start.
+# Package migrations run via migrate-all, not on every service start.
 init_runtime_layout() {
 	ensure_policy_files || return 1
-	migrate_policy_list_files || return 1
 	setup_clash_runtime_dirs
 }

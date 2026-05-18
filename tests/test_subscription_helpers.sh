@@ -111,7 +111,82 @@ case "${TEST_WGET_MODE:-ok}" in
 esac
 EOF
 
-chmod +x "$tmpbin/logger" "$tmpbin/uci" "$tmpbin/wget"
+cat >"$tmpbin/curl" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' "$*" >>"$TEST_WGET_LOG"
+
+headers=""
+output=""
+url=""
+while [[ "$#" -gt 0 ]]; do
+	case "$1" in
+		-D|-o|-A|--connect-timeout|--max-time|-H)
+			if [[ "$1" == "-D" ]]; then
+				headers="$2"
+			elif [[ "$1" == "-o" ]]; then
+				output="$2"
+			fi
+			shift 2
+			;;
+		-f|-L|-s|-S|-sS|-fL)
+			shift
+			;;
+		*)
+			url="$1"
+			shift
+			;;
+	esac
+done
+
+[[ -n "$url" ]] || exit 1
+[[ -n "$output" ]] || exit 1
+
+write_headers() {
+	local status="$1"
+
+	[ -n "$headers" ] || return 0
+	{
+		printf 'HTTP/2 %s\n' "$status"
+		[ -z "${TEST_WGET_PROFILE_UPDATE_INTERVAL:-}" ] || printf 'profile-update-interval: %s\n' "$TEST_WGET_PROFILE_UPDATE_INTERVAL"
+	} >"$headers"
+}
+
+case "${TEST_WGET_MODE:-ok}" in
+	fail)
+		exit 1
+		;;
+	http404)
+		write_headers "404"
+		exit 22
+		;;
+	usage-timeout)
+		printf '%s\n' 'Usage: curl [options] <url>' >&2
+		exit 2
+		;;
+	empty)
+		write_headers "200"
+		[ "$output" = "-" ] || : >"$output"
+		;;
+	large)
+		write_headers "200"
+		if [ "$output" = "-" ]; then
+			printf '1234567890'
+		else
+			printf '1234567890' >"$output"
+		fi
+		;;
+	*)
+		write_headers "200"
+		if [ "$output" = "-" ]; then
+			printf 'mode: rule\n'
+		else
+			printf 'mode: rule\n' >"$output"
+		fi
+		;;
+esac
+EOF
+
+chmod +x "$tmpbin/logger" "$tmpbin/uci" "$tmpbin/wget" "$tmpbin/curl"
 export PATH="$tmpbin:$PATH"
 export TEST_UCI_LOG="$tmpdir/uci.log"
 export TEST_WGET_LOG="$tmpdir/wget.log"
@@ -133,7 +208,7 @@ export MIHOWRT_DEVICE_MODEL_FILES="$tmpdir/model"
 export MIHOWRT_HWID_FILE="$tmpdir/hwid"
 expected_hwid="$(printf 'mihowrt-hwid-v1\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }')"
 
-assert_eq "mihowrt/0.7.9" "$(subscription_user_agent)" "subscription_user_agent should include package version"
+assert_eq "mihowrt/0.7.10" "$(subscription_user_agent)" "subscription_user_agent should include package version"
 assert_eq "$expected_hwid" "$(device_hwid)" "device_hwid should hash stable hardware material"
 assert_eq "$expected_hwid" "$(cat "$MIHOWRT_HWID_FILE")" "device_hwid should cache deterministic hardware ID"
 printf '1111111111111111111111111111111111111111111111111111111111111111\n' >"$MIHOWRT_HWID_FILE"
@@ -300,15 +375,16 @@ SUBSCRIPTION_FETCH_TIMEOUT=7
 SUBSCRIPTION_MAX_BYTES=128
 assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor valid override"
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
-assert_file_contains "$TEST_WGET_LOG" "-T 7" "fetch_subscription_config should bound wget timeout"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.9" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "--connect-timeout 7" "fetch_subscription_config should bound curl connect timeout"
+assert_file_contains "$TEST_WGET_LOG" "--max-time 7" "fetch_subscription_config should bound curl request timeout"
+assert_file_contains "$TEST_WGET_LOG" "-A mihowrt/0.7.10" "fetch_subscription_config should send MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "x-hwid: $expected_hwid" "fetch_subscription_config should send deterministic hardware ID header"
 assert_file_contains "$TEST_WGET_LOG" "x-device-os: OpenWrt" "fetch_subscription_config should send device OS header"
 assert_file_contains "$TEST_WGET_LOG" "x-ver-os: 25.12.3" "fetch_subscription_config should send OS version header"
 assert_file_contains "$TEST_WGET_LOG" "x-device-model: Test Router AX" "fetch_subscription_config should send device model header"
-assert_file_contains "$TEST_WGET_LOG" "-O -" "fetch_subscription_config should stream wget output through size cap"
-assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to wget"
-assert_file_not_contains "$TEST_WGET_LOG" "-S" "fetch_subscription_config should not pass unsupported wget server-response flag"
+assert_file_contains "$TEST_WGET_LOG" "-D /tmp/mihowrt-fetch.err." "fetch_subscription_config should capture response headers"
+assert_file_contains "$TEST_WGET_LOG" "-o -" "fetch_subscription_config should stream curl output through size cap"
+assert_file_contains "$TEST_WGET_LOG" "https://example.com/sub.yaml" "fetch_subscription_config should pass URL to curl"
 
 SUBSCRIPTION_MAX_BYTES=bad
 assert_eq "1048576" "$(subscription_max_bytes)" "subscription_max_bytes should default to 1 MiB on invalid override"
@@ -329,10 +405,10 @@ SUBSCRIPTION_MAX_BYTES=128
 assert_false "fetch_subscription_config should fail when wget fails" fetch_subscription_config "https://example.com/fail.yaml" >/dev/null
 subscription_error_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
 assert_eq "false" "$(printf '%s\n' "$subscription_error_json" | jq -r '.ok')" "fetch_subscription_json should return ok=false on fetch failure"
-assert_eq "wget_failed" "$(printf '%s\n' "$subscription_error_json" | jq -r '.error.kind')" "fetch_subscription_json should expose wget failure kind"
+assert_eq "curl_failed" "$(printf '%s\n' "$subscription_error_json" | jq -r '.error.kind')" "fetch_subscription_json should expose curl failure kind"
 export TEST_WGET_MODE=usage-timeout
 subscription_usage_json="$(fetch_subscription_json "https://example.com/fail.yaml")"
-assert_eq "wget_failed" "$(printf '%s\n' "$subscription_usage_json" | jq -r '.error.kind')" "fetch_subscription_json should not classify wget usage text as timeout"
+assert_eq "curl_failed" "$(printf '%s\n' "$subscription_usage_json" | jq -r '.error.kind')" "fetch_subscription_json should not classify curl usage text as timeout"
 export TEST_WGET_MODE=fail
 subscription_secret_error_json="$(fetch_subscription_json "https://example.com/secret-token.yaml?token=abc")"
 assert_file_not_contains <(printf '%s\n' "$subscription_secret_error_json") "secret-token" "fetch errors should not expose subscription URL path"
@@ -520,6 +596,6 @@ auto_update_fetch_fail_rc=$?
 set -e
 assert_eq "1" "$auto_update_fetch_fail_rc" "update_subscription_config should return non-zero when subscription fetch fails"
 assert_eq "false" "$(printf '%s\n' "$auto_update_fetch_fail_json" | jq -r '.updated')" "update_subscription_config should expose failed update JSON"
-assert_eq "wget_failed" "$(printf '%s\n' "$auto_update_fetch_fail_json" | jq -r '.error.kind')" "update_subscription_config should expose fetch failure kind"
+assert_eq "curl_failed" "$(printf '%s\n' "$auto_update_fetch_fail_json" | jq -r '.error.kind')" "update_subscription_config should expose fetch failure kind"
 
 pass "subscription helpers"

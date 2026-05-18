@@ -225,8 +225,10 @@ package_update_status_json() {
 }
 
 package_update_read_latest_release() {
-	local release_file="" release_json="" release_tag=""
+	local release_file="" release_json="" release_tag="" asset_url="" asset_urls=""
 
+	PACKAGE_UPDATE_LATEST_VERSION=""
+	PACKAGE_UPDATE_ASSET_URL=""
 	release_file="$(mktemp /tmp/mihowrt-package-release.XXXXXX)" || return 1
 	if ! fetch_http_body_limited_to_file "$PACKAGE_UPDATE_RELEASE_URL" "$PACKAGE_UPDATE_RELEASE_MAX_BYTES" "$PACKAGE_UPDATE_FETCH_TIMEOUT" "package release metadata" "$release_file" 0; then
 		rm -f "$release_file"
@@ -235,15 +237,27 @@ package_update_read_latest_release() {
 
 	release_json="$(cat "$release_file" 2>/dev/null || true)"
 	rm -f "$release_file"
-	PACKAGE_UPDATE_ASSET_URL="$(
-		printf '%s' "$release_json" |
-			jq -r --arg pkg "$PACKAGE_UPDATE_NAME" '[ .assets[]?.browser_download_url // empty | select(test("/" + $pkg + "-[^/]*\\.apk$")) ][0] // ""' 2>/dev/null
-	)"
+	asset_urls="$(printf '%s' "$release_json" | jq -r '.assets[]?.browser_download_url // empty' 2>/dev/null || true)"
+	for asset_url in $asset_urls; do
+		case "$asset_url" in
+		*/"$PACKAGE_UPDATE_NAME"-*.apk)
+			PACKAGE_UPDATE_ASSET_URL="$asset_url"
+			break
+			;;
+		esac
+	done
 	release_tag="$(printf '%s' "$release_json" | jq -r '.tag_name // ""' 2>/dev/null || true)"
 	PACKAGE_UPDATE_LATEST_VERSION="$(package_update_asset_version "$PACKAGE_UPDATE_ASSET_URL" 2>/dev/null || true)"
 	[ -n "$PACKAGE_UPDATE_LATEST_VERSION" ] || PACKAGE_UPDATE_LATEST_VERSION="$(normalize_version "$release_tag")"
 	[ -n "$PACKAGE_UPDATE_LATEST_VERSION" ] || PACKAGE_UPDATE_LATEST_VERSION="$(normalize_version "$PACKAGE_UPDATE_ASSET_URL")"
-	[ -n "$PACKAGE_UPDATE_LATEST_VERSION" ] && [ -n "$PACKAGE_UPDATE_ASSET_URL" ]
+	if [ -z "$PACKAGE_UPDATE_ASSET_URL" ]; then
+		fetch_http_set_error "release_asset_missing" "Failed to find latest package APK in GitHub release"
+		return 1
+	fi
+	if [ -z "$PACKAGE_UPDATE_LATEST_VERSION" ]; then
+		fetch_http_set_error "release_version_missing" "Failed to determine latest package version"
+		return 1
+	fi
 }
 
 package_update_needed() {

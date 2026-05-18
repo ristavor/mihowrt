@@ -85,27 +85,28 @@ fetch_http_body_limited_to_file() {
 
 	printf '%s:%s:%s\n' "$label" "$url" "$output" >>"$fetch_log"
 	case "$label" in
-		"package release metadata")
-			if [[ "${TEST_RELEASE_FETCH_RC:-0}" != "0" ]]; then
-				FETCH_HTTP_ERROR_MESSAGE="release failed"
-				return "$TEST_RELEASE_FETCH_RC"
-			fi
-			release_tag="${TEST_RELEASE_TAG_VERSION:-${TEST_RELEASE_VERSION:-0.7.8}}"
-			release_apk="${TEST_RELEASE_APK_VERSION:-${TEST_RELEASE_VERSION:-0.7.8}-r1}"
-			cat >"$output" <<EOF
-{"tag_name":"v${release_tag}","assets":[{"browser_download_url":"https://example.com/luci-app-mihowrt-${release_apk}.apk"}]}
+	"package release metadata")
+		if [[ "${TEST_RELEASE_FETCH_RC:-0}" != "0" ]]; then
+			FETCH_HTTP_ERROR_MESSAGE="release failed"
+			return "$TEST_RELEASE_FETCH_RC"
+		fi
+		release_tag="${TEST_RELEASE_TAG_VERSION:-${TEST_RELEASE_VERSION:-0.7.8}}"
+		release_apk="${TEST_RELEASE_APK_VERSION:-${TEST_RELEASE_VERSION:-0.7.8}-r1}"
+		release_asset_url="${TEST_RELEASE_ASSET_URL:-https://example.com/luci-app-mihowrt-${release_apk}.apk}"
+		cat >"$output" <<EOF
+{"tag_name":"v${release_tag}","assets":[{"browser_download_url":"${release_asset_url}"}]}
 EOF
-			;;
-		"package update")
-			if [[ "${TEST_APK_FETCH_RC:-0}" != "0" ]]; then
-				FETCH_HTTP_ERROR_MESSAGE="apk download failed"
-				return "$TEST_APK_FETCH_RC"
-			fi
-			printf 'apk payload\n' >"$output"
-			;;
-		*)
-			return 1
-			;;
+		;;
+	"package update")
+		if [[ "${TEST_APK_FETCH_RC:-0}" != "0" ]]; then
+			FETCH_HTTP_ERROR_MESSAGE="apk download failed"
+			return "$TEST_APK_FETCH_RC"
+		fi
+		printf 'apk payload\n' >"$output"
+		;;
+	*)
+		return 1
+		;;
 	esac
 }
 
@@ -117,7 +118,7 @@ reset_state() {
 	: >"$init_log"
 	printf '0.7.7-r1\n' >"$version_file"
 	printf 'running\n' >"$service_state_file"
-	unset TEST_RELEASE_FETCH_RC TEST_APK_FETCH_RC TEST_APK_ADD_RC TEST_RELEASE_VERSION TEST_RELEASE_TAG_VERSION TEST_RELEASE_APK_VERSION TEST_APK_NEW_VERSION
+	unset TEST_RELEASE_FETCH_RC TEST_APK_FETCH_RC TEST_APK_ADD_RC TEST_RELEASE_VERSION TEST_RELEASE_TAG_VERSION TEST_RELEASE_APK_VERSION TEST_RELEASE_ASSET_URL TEST_APK_NEW_VERSION
 }
 
 reset_state
@@ -175,6 +176,14 @@ failed_json="$(package_update_status_json)"
 assert_eq "error" "$(printf '%s\n' "$failed_json" | jq -r '.status')" "package_update_worker should persist download failure state"
 assert_eq "apk download failed" "$(printf '%s\n' "$failed_json" | jq -r '.message')" "package_update_worker should expose fetch failure message"
 assert_file_not_contains "$apk_log" "add --allow-untrusted" "package_update_worker should not install after download failure"
+
+reset_state
+TEST_RELEASE_ASSET_URL="https://example.com/other-package-0.7.8-r1.apk"
+assert_false "package_update_worker should fail when package asset is missing" package_update_worker
+missing_asset_json="$(package_update_status_json)"
+assert_eq "error" "$(printf '%s\n' "$missing_asset_json" | jq -r '.status')" "package_update_worker should persist missing asset failure state"
+assert_eq "Failed to find latest package APK in GitHub release" "$(printf '%s\n' "$missing_asset_json" | jq -r '.message')" "package_update_worker should explain missing package asset"
+assert_file_not_contains "$apk_log" "add --allow-untrusted" "package_update_worker should not install when package asset is missing"
 
 reset_state
 package_update_store_state running 999999 "0.7.7-r1" "0.7.8" "https://example.com/pkg.apk" "Installing"

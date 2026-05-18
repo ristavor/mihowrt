@@ -15,7 +15,7 @@ cat >"$tmpbin/logger" <<'EOF'
 exit 0
 EOF
 
-cat >"$tmpbin/wget" <<'EOF'
+cat >"$tmpbin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -26,12 +26,22 @@ if [[ "${TEST_WGET_FAIL_ALL:-0}" == "1" ]]; then
 fi
 
 url=""
+output=""
+headers=""
 while [[ "$#" -gt 0 ]]; do
 	case "$1" in
-		-O|-U|-T)
+		-D)
+			headers="$2"
 			shift 2
 			;;
-		-q)
+		-o)
+			output="$2"
+			shift 2
+			;;
+		-A|--connect-timeout|--max-time|-H)
+			shift 2
+			;;
+		-f|-L|-s|-S|-sS|-fL)
 			shift
 			;;
 		*)
@@ -41,9 +51,20 @@ while [[ "$#" -gt 0 ]]; do
 	esac
 done
 
+[[ -n "$output" ]] || exit 1
+[ -z "$headers" ] || printf 'HTTP/2 200\n' >"$headers"
+
+emit() {
+	if [[ "$output" == "-" ]]; then
+		cat
+	else
+		cat >"$output"
+	fi
+}
+
 case "$url" in
 	https://example.com/dst-a.txt)
-		cat <<'LIST'
+		emit <<'LIST'
 # comment
 2.2.2.2
 3.3.3.0/24:0015-02000
@@ -53,30 +74,30 @@ bad-entry
 LIST
 		;;
 	https://example.com/src-a.txt)
-		cat <<'LIST'
+		emit <<'LIST'
 4.4.4.4
 :0053
 LIST
 		;;
 	https://example.com/dst-b.txt)
-		cat <<'LIST'
+		emit <<'LIST'
 5.5.5.5
 LIST
 		;;
 	https://example.com/scoped-url.txt)
-		cat <<'LIST'
+		emit <<'LIST'
 10.10.10.10
 10.10.20.0/24;0080
 LIST
 		;;
 	https://example.com/direct-a.txt)
-		cat <<'LIST'
+		emit <<'LIST'
 8.8.8.8
 9.9.9.0/24:0443,443
 LIST
 		;;
 	https://example.com/secret-list.txt?token=abc)
-		cat <<'LIST'
+		emit <<'LIST'
 https://nested.example.com/path-secret.txt?token=nested;0
 LIST
 		;;
@@ -84,7 +105,7 @@ LIST
 		exit 1
 		;;
 	https://example.com/large.txt)
-		printf '1234567890\n'
+		printf '1234567890\n' | emit
 		;;
 	*)
 		printf 'unexpected url: %s\n' "$url" >&2
@@ -93,7 +114,7 @@ LIST
 esac
 EOF
 
-chmod +x "$tmpbin/logger" "$tmpbin/wget"
+chmod +x "$tmpbin/logger" "$tmpbin/curl"
 export PATH="$tmpbin:$PATH"
 export TEST_WGET_LOG="$tmpdir/wget.log"
 
@@ -192,8 +213,9 @@ assert_file_contains "$DST_LIST_FILE" "https://example.com/dst-a.txt" "policy_re
 assert_file_not_contains "$DST_LIST_FILE" "2.2.2.2" "policy_resolve_runtime_lists should not expand remote destination list into persistent file"
 [[ ! -e "$(policy_cache_direct_file)" ]] || fail "direct-first cache save should not write inactive direct list"
 assert_eq "" "$(jq -r '.direct_dst_source_hash' "$(policy_cache_metadata_file)")" "direct-first cache metadata should not hash inactive direct list"
-assert_file_contains "$TEST_WGET_LOG" "-U mihowrt/0.7.10" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
-assert_file_contains "$TEST_WGET_LOG" "-T 15" "policy_resolve_runtime_lists should use bounded fetch timeout"
+assert_file_contains "$TEST_WGET_LOG" "-A mihowrt/0.7.11" "policy_resolve_runtime_lists should fetch remote lists with MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "--connect-timeout 15" "policy_resolve_runtime_lists should bound curl connect timeout"
+assert_file_contains "$TEST_WGET_LOG" "--max-time 15" "policy_resolve_runtime_lists should bound curl request timeout"
 assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/nested.txt" "policy_resolve_runtime_lists should not recursively fetch nested URLs"
 policy_clear_runtime_list_overrides
 assert_unset POLICY_DST_LIST_FILE "policy_clear_runtime_list_overrides should unset destination override"
@@ -244,7 +266,7 @@ POLICY_MODE="direct-first"
 policy_resolve_runtime_lists
 assert_eq_file $'10.10.10.10:53,443\n10.10.20.0/24:80\n11.11.11.11:80' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should apply semicolon URL ports to unscoped remote entries"
 assert_file_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt" "URL port suffix should be stripped before fetch"
-assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt;0443" "URL port suffix should not be passed to wget"
+assert_file_not_contains "$TEST_WGET_LOG" "https://example.com/scoped-url.txt;0443" "URL port suffix should not be passed to curl"
 policy_clear_runtime_list_overrides
 
 cat >"$DIRECT_DST_LIST_FILE" <<'EOF'

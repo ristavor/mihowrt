@@ -1,5 +1,5 @@
 PKG_NAME="mihowrt"
-PKG_VERSION="0.7.10"
+PKG_VERSION="0.7.11"
 PKG_CONFIG="mihowrt"
 PKG_TMP_DIR="/tmp/mihowrt"
 PKG_STATE_DIR="/var/run/mihowrt"

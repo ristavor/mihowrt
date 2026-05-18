@@ -34,7 +34,6 @@ luci-base
 jq
 nftables
 kmod-nft-tproxy
-wget-any
 curl
 ```
 

@@ -255,7 +255,7 @@ device_hwid_header_value() {
 }
 
 # Accept only simple http(s) URLs without whitespace. This is intentionally
-# narrow because URLs come from LuCI/user config and are passed to wget.
+# narrow because URLs come from LuCI/user config and are passed to curl.
 is_http_fetch_url() {
 	local url="$1"
 
@@ -280,8 +280,6 @@ FETCH_HTTP_STATUS=""
 FETCH_HTTP_ERROR_KIND=""
 FETCH_HTTP_ERROR_MESSAGE=""
 FETCH_PROFILE_UPDATE_INTERVAL=""
-FETCH_WGET_SERVER_RESPONSE_ARG_SET=0
-FETCH_WGET_SERVER_RESPONSE_ARG=""
 
 fetch_http_reset_error() {
 	FETCH_HTTP_STATUS=""
@@ -331,32 +329,13 @@ fetch_stderr_looks_timeout() {
 	' "$stderr_file" 2>/dev/null
 }
 
-fetch_wget_server_response_arg() {
-	local help=""
-
-	if [ "$FETCH_WGET_SERVER_RESPONSE_ARG_SET" = "0" ]; then
-		help="$(wget --help 2>&1 || true)"
-		if printf '%s\n' "$help" | grep -Eq '(^|[[:space:],])-S([[:space:],]|$)'; then
-			FETCH_WGET_SERVER_RESPONSE_ARG="-S"
-		elif printf '%s\n' "$help" | grep -Eq '(^|[[:space:],])--server-response([[:space:],]|$)'; then
-			FETCH_WGET_SERVER_RESPONSE_ARG="--server-response"
-		else
-			FETCH_WGET_SERVER_RESPONSE_ARG=""
-		fi
-		FETCH_WGET_SERVER_RESPONSE_ARG_SET=1
-	fi
-
-	printf '%s' "$FETCH_WGET_SERVER_RESPONSE_ARG"
-}
-
 fetch_http_body_limited_to_file() {
 	local url="" output="${5:-}" fifo="" size="" max_bytes="" read_limit=0 stderr_file=""
-	local reader_pid="" fetcher_pid="" reader_rc=0 fetcher_rc=0 fetcher_kind="wget"
+	local reader_pid="" fetcher_pid="" reader_rc=0 fetcher_rc=0
 	local timeout="${3:-30}"
 	local label="${4:-download}"
 	local include_device_headers="${6:-0}"
 	local header_hwid="" header_device_os="" header_ver_os="" header_device_model=""
-	local wget_server_response_arg=""
 	local curl_error_file=""
 	local safe_url=""
 
@@ -388,12 +367,8 @@ fetch_http_body_limited_to_file() {
 		return 1
 	}
 
-	if [ "$include_device_headers" = "1" ] && ! have_command curl; then
+	if ! have_command curl; then
 		fetch_http_set_error "command_missing" "Required command missing: curl"
-		err "$FETCH_HTTP_ERROR_MESSAGE"
-		return 1
-	elif [ "$include_device_headers" != "1" ] && ! have_command wget; then
-		fetch_http_set_error "command_missing" "Required command missing: wget"
 		err "$FETCH_HTTP_ERROR_MESSAGE"
 		return 1
 	fi
@@ -431,20 +406,17 @@ fetch_http_body_limited_to_file() {
 		rm -f "$fifo"
 		return 1
 	}
-	if [ "$include_device_headers" = "1" ]; then
-		curl_error_file="$(mktemp /tmp/mihowrt-fetch.curl.err.XXXXXX)" || {
-			fetch_http_set_error "temp_error" "Failed to allocate temporary $label curl error path"
-			err "$FETCH_HTTP_ERROR_MESSAGE"
-			rm -f "$fifo" "$stderr_file"
-			return 1
-		}
-	fi
+	curl_error_file="$(mktemp /tmp/mihowrt-fetch.curl.err.XXXXXX)" || {
+		fetch_http_set_error "temp_error" "Failed to allocate temporary $label curl error path"
+		err "$FETCH_HTTP_ERROR_MESSAGE"
+		rm -f "$fifo" "$stderr_file"
+		return 1
+	}
 
 	read_limit=$((max_bytes + 1))
 	head -c "$read_limit" <"$fifo" >"$output" &
 	reader_pid=$!
 	if [ "$include_device_headers" = "1" ]; then
-		fetcher_kind="curl"
 		header_hwid="$(device_hwid_header_value)"
 		header_device_os="$(device_os_name)"
 		header_ver_os="$(device_os_version)"
@@ -457,12 +429,9 @@ fetch_http_body_limited_to_file() {
 			-H "x-device-model: $header_device_model" \
 			-D "$stderr_file" -o - "$url" >"$fifo" 2>"$curl_error_file" &
 	else
-		wget_server_response_arg="$(fetch_wget_server_response_arg)"
-		if [ -n "$wget_server_response_arg" ]; then
-			wget "$wget_server_response_arg" -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
-		else
-			wget -T "$timeout" -U "$(http_fetch_user_agent)" -O - "$url" >"$fifo" 2>"$stderr_file" &
-		fi
+		curl -fL -sS --connect-timeout "$timeout" --max-time "$timeout" \
+			-A "$(http_fetch_user_agent)" \
+			-D "$stderr_file" -o - "$url" >"$fifo" 2>"$curl_error_file" &
 	fi
 	fetcher_pid=$!
 
@@ -504,7 +473,7 @@ fetch_http_body_limited_to_file() {
 		elif fetch_stderr_looks_timeout "$stderr_file"; then
 			fetch_http_set_error "timeout" "Failed to fetch $label from $safe_url: timeout"
 		else
-			fetch_http_set_error "${fetcher_kind}_failed" "Failed to fetch $label from $safe_url"
+			fetch_http_set_error "curl_failed" "Failed to fetch $label from $safe_url"
 		fi
 		err "$FETCH_HTTP_ERROR_MESSAGE"
 		rm -f "$stderr_file"

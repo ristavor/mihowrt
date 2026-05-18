@@ -353,6 +353,16 @@ set_subscription_settings_minimal_output="$(
 )"
 assert_eq "https://example.com/sub.yaml|0||argc=3|header=" "$set_subscription_settings_minimal_output" "set-subscription-settings command should not synthesize absent header interval"
 
+set_subscription_fetched_interval_output="$(
+	set -- set-subscription-fetched-interval "https://example.com/sub.yaml" 24
+	set_subscription_fetched_interval() {
+		printf '%s|%s\n' "$1" "$2"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "https://example.com/sub.yaml|24" "$set_subscription_fetched_interval_output" "set-subscription-fetched-interval command should forward fetched interval"
+
 fetch_subscription_output="$(
 	set -- fetch-subscription "https://example.com/sub.yaml"
 	fetch_subscription_config() {

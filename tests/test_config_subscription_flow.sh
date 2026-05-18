@@ -41,13 +41,15 @@ function assert(condition, message) {
 (async() => {
 	const fetchFnSource = source.slice(fetchStart, fetchEnd);
 	assert(fetchFnSource.includes('stageSubscriptionSettings(value, result)'), 'fetchSubscription should stage subscription settings after fetch');
-	assert(!fetchFnSource.includes('persistSubscriptionSettings(value, result.profileUpdateInterval'), 'fetchSubscription should not persist settings before validate/apply');
+	assert(fetchFnSource.includes("backendHelper.saveSubscriptionFetchedInterval(value, result.profileUpdateInterval || '')"), 'fetchSubscription should persist fetched interval metadata');
+	assert(!fetchFnSource.includes('persistSubscriptionSettings(value, result.profileUpdateInterval'), 'fetchSubscription should not save manual subscription settings before validate/apply');
 	assert(source.includes('subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked'), 'subscription interval input should be read-only unless override is enabled');
 	assert(source.includes('change: updateSubscriptionIntervalInputState'), 'subscription override checkbox should update interval editability');
 
 	const context = {
 		setValues: [],
 		saveSettingsCalls: [],
+		fetchedIntervalCalls: [],
 		confirmCalls: 0,
 		confirmResult: true,
 		editor: {
@@ -60,6 +62,21 @@ function assert(condition, message) {
 		backendHelper: {
 			saveSubscriptionSettings: async(url, override, interval, header) => {
 				context.saveSettingsCalls.push({ url, override, interval, header });
+			},
+			saveSubscriptionFetchedInterval: async(url, header) => {
+				context.fetchedIntervalCalls.push({ url, header });
+			},
+			readSubscriptionUrl: async() => context.savedSubscriptionState || {
+				subscriptionUrl: 'https://example.com/sub.yaml',
+				subscriptionIntervalOverride: false,
+				subscriptionUpdateInterval: '',
+				subscriptionHeaderInterval: '24',
+				subscriptionEffectiveInterval: '24',
+				subscriptionAutoUpdateEnabled: true,
+				subscriptionAutoUpdateReason: '',
+				subscriptionManualRestartRequired: false,
+				subscriptionManualRestartReason: '',
+				errors: []
 			},
 			fetchSubscription: async(url) => {
 				context.fetchUrl = url;
@@ -81,14 +98,23 @@ function _(value) { return value; }
 let editor = globalThis.editor;
 let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
 let subscriptionIntervalInput = globalThis.subscriptionIntervalInput;
+let subscriptionUrlInput = { value: '' };
+let subscriptionAutoUpdateBadge = null;
+let subscriptionAutoUpdateReasonNode = null;
+let subscriptionManualRestartNode = null;
 let savedConfigContent = 'mode: old\\n';
 let savedSubscriptionUrl = 'https://example.com/same.yaml';
 let pendingSubscriptionSettings = null;
+function subscriptionUrlInputValue(input) {
+	return configHelper.subscriptionUrlInputValue(input);
+}
+function updateControlDisabledState() {}
 ${settingsFnSource}
 ${unsavedFnSource}
 ${confirmFnSource}
 ${loadFnSource}
 globalThis.stageSubscriptionSettings = stageSubscriptionSettings;
+globalThis.persistSubscriptionSettings = persistSubscriptionSettings;
 globalThis.persistPendingSubscriptionSettings = persistPendingSubscriptionSettings;
 globalThis.editorHasUnsavedChanges = editorHasUnsavedChanges;
 globalThis.confirmSubscriptionOverwrite = confirmSubscriptionOverwrite;
@@ -119,6 +145,7 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	context.stageSubscriptionSettings('https://example.com/sub.yaml', { content: result.content, profileUpdateInterval: '24', hotReloadSupported: true });
 	assert(context.subscriptionIntervalInput.value === '24', 'stageSubscriptionSettings should show fetched interval when override is disabled');
 	assert(context.subscriptionIntervalInput.dataset.headerInterval === '24', 'stageSubscriptionSettings should cache fetched interval');
+	assert(context.subscriptionIntervalInput.dataset.headerUrl === 'https://example.com/sub.yaml', 'stageSubscriptionSettings should bind fetched interval to subscription URL');
 	assert(context.saveSettingsCalls.length === 0, 'stageSubscriptionSettings should not persist settings before apply');
 	assert(await context.persistPendingSubscriptionSettings('mode: edited\n') === false, 'persistPendingSubscriptionSettings should ignore changed editor content');
 	assert(context.saveSettingsCalls.length === 0, 'persistPendingSubscriptionSettings should not save stale staged settings');
@@ -129,9 +156,15 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	assert(context.saveSettingsCalls.length === 1, 'persistPendingSubscriptionSettings should save exactly once');
 	assert(context.saveSettingsCalls[0].url === 'https://example.com/sub.yaml', 'persistPendingSubscriptionSettings should save staged URL');
 	assert(context.saveSettingsCalls[0].interval === '', 'persistPendingSubscriptionSettings should not save manual interval when override is disabled');
-	assert(context.saveSettingsCalls[0].header === '24', 'persistPendingSubscriptionSettings should save staged header interval');
+	assert(context.saveSettingsCalls[0].header === undefined, 'persistPendingSubscriptionSettings should not save fetched header interval');
 	assert(!('hotReloadSupported' in context.saveSettingsCalls[0]), 'persistPendingSubscriptionSettings should not pass unused hot reload flag');
 	assert(context.getPendingSubscriptionSettings() === null, 'persistPendingSubscriptionSettings should clear staged settings after save');
+	context.subscriptionIntervalInput.dataset.headerInterval = '24';
+	context.subscriptionIntervalInput.dataset.headerUrl = 'https://example.com/sub.yaml';
+	await context.persistSubscriptionSettings('https://example.com/sub.yaml');
+	assert(context.saveSettingsCalls[context.saveSettingsCalls.length - 1].header === undefined, 'persistSubscriptionSettings should not save fetched header interval for matching URL');
+	await context.persistSubscriptionSettings('https://example.com/other.yaml');
+	assert(context.saveSettingsCalls[context.saveSettingsCalls.length - 1].header === undefined, 'persistSubscriptionSettings should not clear fetched header interval directly');
 
 	context.setValues.length = 0;
 	context.editorValue = 'mode: old\n';

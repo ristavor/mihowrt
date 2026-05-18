@@ -25,6 +25,9 @@ let subscriptionOverrideInput = null;
 let subscriptionIntervalInput = null;
 let subscriptionSaveButton = null;
 let subscriptionFetchButton = null;
+let subscriptionAutoUpdateBadge = null;
+let subscriptionAutoUpdateReasonNode = null;
+let subscriptionManualRestartNode = null;
 let serviceStatusBadge = null;
 let serviceEnabledBadge = null;
 let editor = null;
@@ -407,12 +410,14 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return configHelper.subscriptionUrlInputValue(input);
 }
 
-async function persistSubscriptionSettings(subscriptionUrl, headerInterval = null) {
+async function persistSubscriptionSettings(subscriptionUrl) {
+	const normalizedUrl = String(subscriptionUrl || '').trim();
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
 	const updateInterval = overrideInterval ? String(subscriptionIntervalInput?.value || '').trim() : '';
 
-	await backendHelper.saveSubscriptionSettings(subscriptionUrl, overrideInterval, updateInterval, headerInterval);
-	savedSubscriptionUrl = String(subscriptionUrl || '').trim();
+	await backendHelper.saveSubscriptionSettings(normalizedUrl, overrideInterval, updateInterval);
+	savedSubscriptionUrl = normalizedUrl;
+	await refreshSubscriptionState(true);
 }
 
 function subscriptionDisplayInterval(subscriptionState) {
@@ -421,15 +426,66 @@ function subscriptionDisplayInterval(subscriptionState) {
 		: String(subscriptionState.subscriptionHeaderInterval || subscriptionState.subscriptionEffectiveInterval || '');
 }
 
-function setSubscriptionHeaderInterval(headerInterval) {
+function setSubscriptionHeaderIntervalForUrl(headerInterval, subscriptionUrl) {
 	const value = String(headerInterval || '').trim();
+	const url = String(subscriptionUrl || '').trim();
 
 	if (!subscriptionIntervalInput)
 		return;
 
 	subscriptionIntervalInput.dataset.headerInterval = value;
+	subscriptionIntervalInput.dataset.headerUrl = url;
 	if (!subscriptionOverrideInput?.checked)
 		subscriptionIntervalInput.value = value;
+}
+
+function applySubscriptionState(subscriptionState, updateInputs = false) {
+	const enabled = !!subscriptionState?.subscriptionAutoUpdateEnabled;
+	const reason = !enabled ? String(subscriptionState?.subscriptionAutoUpdateReason || '') : '';
+	const manualRestartRequired = !!subscriptionState?.subscriptionManualRestartRequired;
+	const manualRestartReason = manualRestartRequired
+		? String(subscriptionState?.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.'))
+		: '';
+
+	if (updateInputs) {
+		const url = String(subscriptionState?.subscriptionUrl || '');
+		savedSubscriptionUrl = subscriptionUrlInputValue({ value: url });
+		if (subscriptionUrlInput)
+			subscriptionUrlInput.value = url;
+		if (subscriptionOverrideInput)
+			subscriptionOverrideInput.checked = !!subscriptionState?.subscriptionIntervalOverride;
+		if (subscriptionIntervalInput) {
+			subscriptionIntervalInput.dataset.manualInterval = String(subscriptionState?.subscriptionUpdateInterval || '');
+			subscriptionIntervalInput.dataset.headerInterval = String(subscriptionState?.subscriptionHeaderInterval || subscriptionState?.subscriptionEffectiveInterval || '');
+			subscriptionIntervalInput.dataset.headerUrl = savedSubscriptionUrl;
+			subscriptionIntervalInput.value = subscriptionDisplayInterval(subscriptionState || {});
+		}
+	}
+
+	if (subscriptionAutoUpdateBadge) {
+		subscriptionAutoUpdateBadge.textContent = enabled ? _('Auto-update enabled') : _('Auto-update disabled');
+		subscriptionAutoUpdateBadge.style.backgroundColor = enabled ? '#5cb85c' : '#d9534f';
+	}
+
+	if (subscriptionAutoUpdateReasonNode) {
+		subscriptionAutoUpdateReasonNode.textContent = reason;
+		subscriptionAutoUpdateReasonNode.style.display = reason ? '' : 'none';
+	}
+
+	if (subscriptionManualRestartNode) {
+		subscriptionManualRestartNode.textContent = manualRestartReason;
+		subscriptionManualRestartNode.style.display = manualRestartReason ? '' : 'none';
+	}
+
+	updateControlDisabledState();
+}
+
+async function refreshSubscriptionState(updateInputs = true) {
+	const state = await backendHelper.readSubscriptionUrl();
+	if (state.errors && state.errors.length)
+		throw new Error(configHelper.subscriptionStateErrorDetail(state));
+	applySubscriptionState(state, updateInputs);
+	return state;
 }
 
 function updateSubscriptionIntervalInputState() {
@@ -456,7 +512,7 @@ function stageSubscriptionSettings(subscriptionUrl, result) {
 		profileUpdateInterval: profileUpdateInterval,
 		configContent: content
 	};
-	setSubscriptionHeaderInterval(profileUpdateInterval);
+	setSubscriptionHeaderIntervalForUrl(profileUpdateInterval, subscriptionUrl);
 }
 
 async function persistPendingSubscriptionSettings(configContent) {
@@ -469,7 +525,7 @@ async function persistPendingSubscriptionSettings(configContent) {
 		return false;
 	}
 
-	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval);
+	await persistSubscriptionSettings(pending.subscriptionUrl);
 	pendingSubscriptionSettings = null;
 	return true;
 }
@@ -609,6 +665,8 @@ return view.extend({
 				}
 
 				stageSubscriptionSettings(value, result);
+				await backendHelper.saveSubscriptionFetchedInterval(value, result.profileUpdateInterval || '');
+				await refreshSubscriptionState(false);
 
 				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');
 			}).catch(e => {
@@ -783,7 +841,8 @@ return view.extend({
 					placeholder: _('Hours'),
 					style: 'width: 90px;',
 					'data-manual-interval': String(subscriptionState.subscriptionUpdateInterval || ''),
-					'data-header-interval': String(subscriptionState.subscriptionHeaderInterval || subscriptionState.subscriptionEffectiveInterval || '')
+					'data-header-interval': String(subscriptionState.subscriptionHeaderInterval || subscriptionState.subscriptionEffectiveInterval || ''),
+					'data-header-url': String(subscriptionState.subscriptionUrl || '')
 				})),
 				(subscriptionSaveButton = E('button', {
 					class: 'btn',
@@ -793,19 +852,24 @@ return view.extend({
 					class: 'btn cbi-button-action',
 					click: fetchSubscription
 				}, _('Fetch Subscription'))),
-				E('span', {
+				(subscriptionAutoUpdateBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (subscriptionState.subscriptionAutoUpdateEnabled ? '#5cb85c' : '#d9534f') + ';'
-				}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled'))
+				}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled')))
 			])
 		];
 
-		if (!subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason)
-			pageChildren.push(E('p', { class: 'cbi-section-descr' }, subscriptionState.subscriptionAutoUpdateReason));
+		pageChildren.push(subscriptionAutoUpdateReasonNode = E('p', {
+			class: 'cbi-section-descr',
+			style: !subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason ? '' : 'display:none;'
+		}, !subscriptionState.subscriptionAutoUpdateEnabled ? String(subscriptionState.subscriptionAutoUpdateReason || '') : []));
 
-		if (subscriptionState.subscriptionManualRestartRequired)
-			pageChildren.push(E('p', { class: 'cbi-section-descr', style: 'color: #a94442;' },
-				subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.')));
+		pageChildren.push(subscriptionManualRestartNode = E('p', {
+			class: 'cbi-section-descr',
+			style: 'color: #a94442;' + (subscriptionState.subscriptionManualRestartRequired ? '' : ' display:none;')
+		}, subscriptionState.subscriptionManualRestartRequired
+			? subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.')
+			: []));
 
 		pageChildren.push(
 			editorNode,
@@ -821,6 +885,7 @@ return view.extend({
 
 		applyServiceState(serviceState.running, serviceState.enabled);
 		applyPackageUpdateState(packageUpdateState);
+		applySubscriptionState(subscriptionState);
 		updateControlDisabledState();
 
 		if (packageUpdateState.running)

@@ -323,10 +323,16 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('readLogs should surface backend command failures');
 
 	context.execCalls.length = 0;
-	await context.backend.saveSubscriptionSettings('https://example.com/sub.yaml', true, '12', '24');
+	await context.backend.saveSubscriptionSettings('https://example.com/sub.yaml', true, '12');
 	const saveSubscriptionSettingsExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-settings');
-	if (!saveSubscriptionSettingsExec || saveSubscriptionSettingsExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|1|12|24')
-		throw new Error('saveSubscriptionSettings should pass URL and interval settings to backend command');
+	if (!saveSubscriptionSettingsExec || saveSubscriptionSettingsExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|1|12')
+		throw new Error('saveSubscriptionSettings should pass URL and manual interval settings to backend command');
+
+	context.execCalls.length = 0;
+	await context.backend.saveSubscriptionFetchedInterval('https://example.com/sub.yaml', '24');
+	const saveSubscriptionFetchedIntervalExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-fetched-interval');
+	if (!saveSubscriptionFetchedIntervalExec || saveSubscriptionFetchedIntervalExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|24')
+		throw new Error('saveSubscriptionFetchedInterval should pass URL and fetched interval to backend command');
 
 	context.execCalls.length = 0;
 	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/sub.yaml'] = {

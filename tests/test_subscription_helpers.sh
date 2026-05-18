@@ -208,7 +208,7 @@ export MIHOWRT_DEVICE_MODEL_FILES="$tmpdir/model"
 export MIHOWRT_HWID_FILE="$tmpdir/hwid"
 expected_hwid="$(printf 'mihowrt-hwid-v1\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }')"
 
-assert_eq "mihowrt/0.7.12" "$(subscription_user_agent)" "subscription_user_agent should include package version"
+assert_eq "mihowrt/0.7.13" "$(subscription_user_agent)" "subscription_user_agent should include package version"
 assert_eq "$expected_hwid" "$(device_hwid)" "device_hwid should hash stable hardware material"
 assert_eq "$expected_hwid" "$(cat "$MIHOWRT_HWID_FILE")" "device_hwid should cache deterministic hardware ID"
 printf '1111111111111111111111111111111111111111111111111111111111111111\n' >"$MIHOWRT_HWID_FILE"
@@ -370,6 +370,25 @@ assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_up
 assert_file_not_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_update_interval" "set_subscription_settings should ignore manual interval when override is disabled"
 assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_header_interval" "set_subscription_settings should clear stale fetched interval when URL changes without header"
 
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/old.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="1"
+export TEST_UCI_UPDATE_INTERVAL="12"
+export TEST_UCI_HEADER_INTERVAL=""
+set_subscription_fetched_interval "https://example.com/new.yaml" 24
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_url=https://example.com/new.yaml" "set_subscription_fetched_interval should persist fetched URL"
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_header_interval=24" "set_subscription_fetched_interval should persist fetched interval"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_interval_override" "set_subscription_fetched_interval should not change override flag"
+assert_file_not_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_update_interval" "set_subscription_fetched_interval should not change manual interval"
+
+: >"$TEST_UCI_LOG"
+export TEST_UCI_SUBSCRIPTION_URL="https://example.com/current.yaml"
+export TEST_UCI_INTERVAL_OVERRIDE="0"
+export TEST_UCI_UPDATE_INTERVAL=""
+export TEST_UCI_HEADER_INTERVAL="24"
+set_subscription_fetched_interval "https://example.com/current.yaml" ""
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.subscription_header_interval" "set_subscription_fetched_interval should clear missing fetched interval"
+
 : >"$TEST_WGET_LOG"
 SUBSCRIPTION_FETCH_TIMEOUT=7
 SUBSCRIPTION_MAX_BYTES=128
@@ -377,7 +396,7 @@ assert_eq "128" "$(subscription_max_bytes)" "subscription_max_bytes should honor
 assert_eq "mode: rule" "$(fetch_subscription_config "https://example.com/sub.yaml")" "fetch_subscription_config should print downloaded config"
 assert_file_contains "$TEST_WGET_LOG" "--connect-timeout 7" "fetch_subscription_config should bound curl connect timeout"
 assert_file_contains "$TEST_WGET_LOG" "--max-time 7" "fetch_subscription_config should bound curl request timeout"
-assert_file_contains "$TEST_WGET_LOG" "-A mihowrt/0.7.12" "fetch_subscription_config should send MihoWRT user agent"
+assert_file_contains "$TEST_WGET_LOG" "-A mihowrt/0.7.13" "fetch_subscription_config should send MihoWRT user agent"
 assert_file_contains "$TEST_WGET_LOG" "x-hwid: $expected_hwid" "fetch_subscription_config should send deterministic hardware ID header"
 assert_file_contains "$TEST_WGET_LOG" "x-device-os: OpenWrt" "fetch_subscription_config should send device OS header"
 assert_file_contains "$TEST_WGET_LOG" "x-ver-os: 25.12.3" "fetch_subscription_config should send OS version header"

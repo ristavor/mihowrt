@@ -1044,6 +1044,56 @@ set_subscription_settings() {
 	subscription_refresh_auto_update_state
 }
 
+set_subscription_fetched_interval() {
+	local url="" header_interval="" changed=0 rc=0
+	local pkg_config="${PKG_CONFIG:-mihowrt}"
+
+	url="$(trim "${1:-}")"
+	header_interval="$(trim "${2:-}")"
+
+	if [ -n "$url" ] && ! is_subscription_url "$url"; then
+		err "Invalid subscription URL: use http:// or https:// without whitespace"
+		return 1
+	fi
+	if [ -n "$header_interval" ] && ! subscription_interval_valid "$header_interval"; then
+		header_interval=""
+	fi
+
+	require_command uci || return 1
+	uci -q set "$pkg_config.settings=settings" || {
+		err "Failed to prepare subscription UCI section"
+		return 1
+	}
+
+	if subscription_set_option_if_changed subscription_url "$url"; then
+		changed=1
+	else
+		rc=$?
+		[ "$rc" -eq 1 ] || return 1
+	fi
+	if [ -n "$header_interval" ]; then
+		header_interval="$(normalize_uint "$header_interval")"
+		if subscription_set_option_if_changed subscription_header_interval "$header_interval"; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
+	else
+		if subscription_delete_option_if_present subscription_header_interval; then
+			changed=1
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
+	fi
+
+	subscription_commit_if_changed "$changed" || return 1
+
+	# shellcheck disable=SC2119
+	subscription_refresh_auto_update_state
+}
+
 # Size limit for subscription config downloads.
 subscription_max_bytes() {
 	bounded_positive_uint_or_default "${SUBSCRIPTION_MAX_BYTES:-}" 1048576 2147483646

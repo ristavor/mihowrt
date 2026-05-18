@@ -382,7 +382,7 @@ return baseclass.extend({
 		return assignPackageUpdateState(emptyPackageUpdateState(), JSON.parse(result.stdout || '{}'));
 	},
 
-	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval) {
+	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval) {
 		const args = [
 			'set-subscription-settings',
 			String(subscriptionUrl ?? ''),
@@ -390,10 +390,18 @@ return baseclass.extend({
 			String(updateInterval ?? '')
 		];
 
-		if (headerInterval != null)
-			args.push(String(headerInterval));
-
 		const result = await fs.exec(WRITE_BACKEND, args);
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+	},
+
+	saveSubscriptionFetchedInterval: async function(subscriptionUrl, headerInterval) {
+		const result = await fs.exec(WRITE_BACKEND, [
+			'set-subscription-fetched-interval',
+			String(subscriptionUrl ?? ''),
+			String(headerInterval ?? '')
+		]);
+
 		if (result.code !== 0)
 			throw new Error(execHelper.errorDetail(result));
 	},

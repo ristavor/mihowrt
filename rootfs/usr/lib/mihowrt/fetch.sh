@@ -8,7 +8,7 @@ http_fetch_user_agent() {
 http_fetch_header_value() {
 	local value="$1"
 
-	printf '%s' "$value" | tr '\r\n\t' '   ' | tr -d '[:cntrl:]' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+	printf '%s' "$value" | mihowrt_strip_control_trim
 }
 
 http_fetch_redacted_url() {
@@ -43,13 +43,13 @@ device_read_file_value() {
 	local file="$1"
 
 	[ -r "$file" ] || return 1
-	tr -d '\000\r\n' <"$file" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
+	mihowrt_strip_control_trim <"$file" 2>/dev/null
 }
 
 device_material_value_valid() {
 	local value=""
 
-	value="$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')"
+	value="$(printf '%s' "$1" | mihowrt_lower_ascii)"
 	case "$value" in
 	'' | 0 | unknown | none | unset | '00000000-0000-0000-0000-000000000000')
 		return 1
@@ -105,7 +105,7 @@ device_mac_material() {
 			iface="${address_file%/address}"
 			iface="${iface##*/}"
 			[ "$iface" = "lo" ] && continue
-			mac="$(device_read_file_value "$address_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+			mac="$(device_read_file_value "$address_file" 2>/dev/null | mihowrt_lower_ascii || true)"
 			device_mac_valid "$mac" || continue
 			printf '%s\n' "$mac"
 		done | sort -u | awk 'NF { printf "%s%s", sep, $0; sep = "," }'
@@ -139,6 +139,14 @@ device_hwid_file() {
 
 device_hwid_valid() {
 	case "$1" in
+	????????????????)
+		case "$1" in
+		*[!0123456789abcdef]*)
+			return 1
+			;;
+		esac
+		return 0
+		;;
 	????????????????????????????????????????????????????????????????)
 		case "$1" in
 		*[!0123456789abcdef]*)
@@ -157,7 +165,7 @@ device_stored_hwid() {
 
 	hwid_file="$(device_hwid_file)"
 	[ -r "$hwid_file" ] || return 1
-	hwid="$(head -n 1 "$hwid_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+	hwid="$(head -n 1 "$hwid_file" 2>/dev/null | mihowrt_lower_ascii | mihowrt_strip_space)"
 	device_hwid_valid "$hwid" || return 1
 	printf '%s\n' "$hwid"
 }
@@ -169,7 +177,7 @@ device_random_hwid() {
 		return 1
 	fi
 
-	hwid="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null)"
+	hwid="$(dd if=/dev/urandom bs=8 count=1 2>/dev/null | hexdump -v -e '/1 "%02x"' 2>/dev/null)"
 	device_hwid_valid "$hwid" || return 1
 	device_store_hwid "$hwid" || return 1
 	printf '%s\n' "$hwid"
@@ -184,7 +192,7 @@ device_store_hwid() {
 	hwid_dir="$(dirname "$hwid_file")"
 	ensure_dir "$hwid_dir" || return 1
 	if [ -r "$hwid_file" ]; then
-		stored_hwid="$(head -n 1 "$hwid_file" 2>/dev/null | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]' || true)"
+		stored_hwid="$(head -n 1 "$hwid_file" 2>/dev/null | mihowrt_lower_ascii | mihowrt_strip_space || true)"
 		[ "$stored_hwid" = "$hwid" ] && return 0
 	fi
 
@@ -206,7 +214,7 @@ device_hwid() {
 
 	material="$(device_hwid_material 2>/dev/null || true)"
 	if [ -n "$material" ]; then
-		hwid="$(printf 'mihowrt-hwid-v1\n%s\n' "$material" | device_sha256 2>/dev/null | tr '[:upper:]' '[:lower:]' || true)"
+		hwid="$(printf 'mihowrt-hwid-v2\n%s\n' "$material" | device_sha256 2>/dev/null | cut -c 1-16 | mihowrt_lower_ascii || true)"
 		if device_hwid_valid "$hwid"; then
 			device_store_hwid "$hwid" 2>/dev/null || warn "Failed to cache MihoWRT hardware ID"
 			printf '%s\n' "$hwid"
@@ -445,7 +453,7 @@ fetch_http_body_limited_to_file() {
 	FETCH_HTTP_STATUS="$(fetch_last_http_status "$stderr_file")"
 	FETCH_PROFILE_UPDATE_INTERVAL="$(fetch_profile_update_interval "$stderr_file")"
 
-	size="$(wc -c <"$output" 2>/dev/null | tr -d '[:space:]')"
+	size="$(wc -c <"$output" 2>/dev/null | awk '{ print $1; exit }')"
 	if ! is_uint "$size"; then
 		fetch_http_set_error "io_error" "Failed to measure $label size"
 		err "$FETCH_HTTP_ERROR_MESSAGE"
@@ -670,8 +678,8 @@ subscription_write_auto_update_state() {
 	else
 		next_update="$(subscription_next_update_epoch "$interval")"
 	fi
-	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | tr '\n' ' ')"
+	reason="$(printf '%s' "$reason" | mihowrt_single_line_value)"
+	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | mihowrt_single_line_value)"
 	case "$manual_restart_required" in
 	1 | true | yes) manual_restart_required=1 ;;
 	*) manual_restart_required=0 ;;
@@ -708,8 +716,8 @@ subscription_write_auto_update_disabled_state() {
 	ensure_dir "$state_dir" || return 1
 	tmp_file="${state_file}.tmp.$$"
 	now="$(subscription_now_epoch)"
-	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
-	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | tr '\n' ' ')"
+	reason="$(printf '%s' "$reason" | mihowrt_single_line_value)"
+	manual_restart_reason="$(printf '%s' "$manual_restart_reason" | mihowrt_single_line_value)"
 	case "$manual_restart_required" in
 	1 | true | yes) manual_restart_required=1 ;;
 	*) manual_restart_required=0 ;;

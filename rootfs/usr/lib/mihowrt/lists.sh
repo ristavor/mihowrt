@@ -235,7 +235,7 @@ policy_remote_write_auto_update_state() {
 	tmp_file="${state_file}.tmp.$$"
 	now="$(policy_remote_now_epoch)"
 	next_update="$(policy_remote_next_update_epoch "$interval")"
-	reason="$(printf '%s' "$reason" | tr '\n' ' ')"
+	reason="$(printf '%s' "$reason" | mihowrt_single_line_value)"
 
 	{
 		printf 'interval=%s\n' "$interval"

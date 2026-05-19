@@ -381,7 +381,48 @@ normalize_version() {
 # Keep in sync with rootfs/usr/lib/mihowrt/version.sh. Installer duplicates
 # these helpers so remote bootstrap stays standalone before package install.
 version_ge() {
-	[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+	local left="$1" right="$2" rest=""
+	local l_major="" l_minor="" l_patch=""
+	local r_major="" r_minor="" r_patch=""
+
+	l_major="${left%%.*}"
+	rest="${left#*.}"
+	[ "$rest" != "$left" ] || return 1
+	l_minor="${rest%%.*}"
+	l_patch="${rest#*.}"
+	[ "$l_patch" != "$rest" ] || return 1
+
+	r_major="${right%%.*}"
+	rest="${right#*.}"
+	[ "$rest" != "$right" ] || return 1
+	r_minor="${rest%%.*}"
+	r_patch="${rest#*.}"
+	[ "$r_patch" != "$rest" ] || return 1
+
+	case "$l_major:$l_minor:$l_patch:$r_major:$r_minor:$r_patch" in
+	*[!0123456789:]* | *::* | :* | *:)
+		return 1
+		;;
+	esac
+
+	while [ "${l_major#0}" != "$l_major" ]; do l_major="${l_major#0}"; done
+	while [ "${l_minor#0}" != "$l_minor" ]; do l_minor="${l_minor#0}"; done
+	while [ "${l_patch#0}" != "$l_patch" ]; do l_patch="${l_patch#0}"; done
+	while [ "${r_major#0}" != "$r_major" ]; do r_major="${r_major#0}"; done
+	while [ "${r_minor#0}" != "$r_minor" ]; do r_minor="${r_minor#0}"; done
+	while [ "${r_patch#0}" != "$r_patch" ]; do r_patch="${r_patch#0}"; done
+	[ -n "$l_major" ] || l_major=0
+	[ -n "$l_minor" ] || l_minor=0
+	[ -n "$l_patch" ] || l_patch=0
+	[ -n "$r_major" ] || r_major=0
+	[ -n "$r_minor" ] || r_minor=0
+	[ -n "$r_patch" ] || r_patch=0
+
+	[ "$l_major" -gt "$r_major" ] && return 0
+	[ "$l_major" -lt "$r_major" ] && return 1
+	[ "$l_minor" -gt "$r_minor" ] && return 0
+	[ "$l_minor" -lt "$r_minor" ] && return 1
+	[ "$l_patch" -ge "$r_patch" ]
 }
 
 # Map OpenWrt DISTRIB_ARCH to Mihomo release asset architecture.

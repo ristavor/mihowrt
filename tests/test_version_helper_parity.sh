@@ -32,7 +32,13 @@ cat > "$tmpbin/logger" <<'EOF'
 exit 0
 EOF
 
-chmod +x "$tmpbin/cat" "$tmpdir/clash" "$tmpbin/logger"
+cat > "$tmpbin/sort" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\n' 'sort should not be required for version_ge' >&2
+exit 2
+EOF
+
+chmod +x "$tmpbin/cat" "$tmpdir/clash" "$tmpbin/logger" "$tmpbin/sort"
 
 export PATH="$tmpbin:$PATH"
 export TEST_OPENWRT_RELEASE="DISTRIB_ARCH='aarch64_cortex-a53'"

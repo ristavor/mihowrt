@@ -23,6 +23,29 @@ trim() {
 	printf '%s' "$value"
 }
 
+mihowrt_lower_ascii() {
+	sed 'y/ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdefghijklmnopqrstuvwxyz/'
+}
+
+mihowrt_strip_space() {
+	sed 's/[[:space:]]//g'
+}
+
+mihowrt_strip_control_trim() {
+	sed 's/[[:cntrl:]]//g; s/^[[:space:]]*//; s/[[:space:]]*$//'
+}
+
+mihowrt_single_line_value() {
+	awk '
+		{
+			gsub(/[[:cntrl:]]/, " ")
+			if (NR > 1)
+				printf " "
+			printf "%s", $0
+		}
+	'
+}
+
 ensure_dir() {
 	local dir="$1"
 	[ -d "$dir" ] || mkdir -p "$dir"

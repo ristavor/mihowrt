@@ -9,6 +9,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
+real_tr="$(command -v tr)"
 
 cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
@@ -186,7 +187,18 @@ case "${TEST_WGET_MODE:-ok}" in
 esac
 EOF
 
-chmod +x "$tmpbin/logger" "$tmpbin/uci" "$tmpbin/wget" "$tmpbin/curl"
+cat >"$tmpbin/tr" <<EOF
+#!/usr/bin/env bash
+case " \$* " in
+	*'[:'*)
+		printf '%s\n' 'tr: character classes unavailable in this test' >&2
+		exit 2
+		;;
+esac
+exec "$real_tr" "\$@"
+EOF
+
+chmod +x "$tmpbin/logger" "$tmpbin/uci" "$tmpbin/wget" "$tmpbin/curl" "$tmpbin/tr"
 export PATH="$tmpbin:$PATH"
 export TEST_UCI_LOG="$tmpdir/uci.log"
 export TEST_WGET_LOG="$tmpdir/wget.log"
@@ -206,16 +218,18 @@ export MIHOWRT_NET_CLASS_DIR="$tmpdir/net"
 export MIHOWRT_OPENWRT_RELEASE_FILE="$tmpdir/openwrt_release"
 export MIHOWRT_DEVICE_MODEL_FILES="$tmpdir/model"
 export MIHOWRT_HWID_FILE="$tmpdir/hwid"
-expected_hwid="$(printf 'mihowrt-hwid-v1\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }')"
+expected_hwid="$(printf 'mihowrt-hwid-v2\nserial:router-serial-001\n' | sha256sum | awk '{ print $1; exit }' | cut -c 1-16)"
+old_hwid="1111111111111111111111111111111111111111111111111111111111111111"
 
 assert_eq "mihowrt/0.7.14" "$(subscription_user_agent)" "subscription_user_agent should include package version"
 assert_eq "$expected_hwid" "$(device_hwid)" "device_hwid should hash stable hardware material"
 assert_eq "$expected_hwid" "$(cat "$MIHOWRT_HWID_FILE")" "device_hwid should cache deterministic hardware ID"
-printf '1111111111111111111111111111111111111111111111111111111111111111\n' >"$MIHOWRT_HWID_FILE"
-assert_eq "1111111111111111111111111111111111111111111111111111111111111111" "$(device_hwid)" "device_hwid should reuse stored hardware ID"
+assert_eq "Xiaomi Mi Router AX3000T (OpenWrt U-Boot layout)" "$(http_fetch_header_value "Xiaomi Mi Router AX3000T (OpenWrt U-Boot layout)")" "http_fetch_header_value should preserve model letters"
+printf '%s\n' "$old_hwid" >"$MIHOWRT_HWID_FILE"
+assert_eq "$old_hwid" "$(device_hwid)" "device_hwid should reuse stored legacy hardware ID"
 rm -f "$MIHOWRT_HWID_FILE"
 MIHOWRT_DEVICE_SERIAL_FILES="$tmpdir/missing-serial"
-expected_mac_hwid="$(printf 'mihowrt-hwid-v1\nmacs:aa:bb:cc:00:00:01,aa:bb:cc:00:00:02\n' | sha256sum | awk '{ print $1; exit }')"
+expected_mac_hwid="$(printf 'mihowrt-hwid-v2\nmacs:aa:bb:cc:00:00:01,aa:bb:cc:00:00:02\n' | sha256sum | awk '{ print $1; exit }' | cut -c 1-16)"
 assert_eq "$expected_mac_hwid" "$(device_hwid)" "device_hwid should fall back to sorted MAC material"
 rm -f "$MIHOWRT_HWID_FILE"
 MIHOWRT_DEVICE_SERIAL_FILES="$tmpdir/missing-serial"

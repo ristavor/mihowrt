@@ -55,12 +55,12 @@ fetch_url() {
 }
 
 download_file() {
-	fail "kernel_install_or_update should not download when kernel already current"
+	fail "kernel_stage_update should not download when kernel already current"
 }
 
 : > "$KERNEL_LOG"
-kernel_install_or_update
-assert_file_contains "$KERNEL_LOG" "Mihomo kernel already up to date (1.19.4)" "kernel_install_or_update should skip download for current kernel"
+kernel_stage_update
+assert_file_contains "$KERNEL_LOG" "Mihomo kernel already up to date (1.19.4)" "kernel_stage_update should skip download for current kernel"
 
 write_kernel_script "$CLASH_BIN" "1.19.3"
 
@@ -113,18 +113,20 @@ write_kernel_script "$asset_script" "1.19.3"
 gzip -c "$asset_script" > "$asset_gz"
 
 : > "$KERNEL_LOG"
-kernel_install_or_update
-assert_file_contains "$KERNEL_LOG" "Downloaded Mihomo kernel is identical to installed binary" "kernel_install_or_update should skip replacing identical downloaded kernel"
-assert_eq "v1.19.3" "$(current_mihomo_version)" "kernel_install_or_update should keep installed kernel when downloaded binary is identical"
-[[ ! -e "$kernel_backup_path" ]] || fail "kernel_install_or_update should not stage tmpfs backup when downloaded binary is identical"
+kernel_stage_update
+kernel_apply_staged_update
+assert_file_contains "$KERNEL_LOG" "Downloaded Mihomo kernel is identical to installed binary" "kernel_stage_update should skip replacing identical downloaded kernel"
+assert_eq "v1.19.3" "$(current_mihomo_version)" "kernel_apply_staged_update should keep installed kernel when downloaded binary is identical"
+[[ ! -e "$kernel_backup_path" ]] || fail "kernel_apply_staged_update should not stage tmpfs backup when downloaded binary is identical"
 
 write_kernel_script "$asset_script" "1.19.4"
 gzip -c "$asset_script" > "$asset_gz"
 write_kernel_script "$CLASH_BIN" "1.19.3"
 
 : > "$KERNEL_LOG"
-kernel_install_or_update
-assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_install_or_update should still install newer kernel when backup already matches current"
-assert_eq "v1.19.3" "$("$kernel_backup_path" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_install_or_update should refresh tmpfs backup to current pre-upgrade kernel"
+kernel_stage_update
+kernel_apply_staged_update
+assert_eq "v1.19.4" "$(current_mihomo_version)" "kernel_apply_staged_update should still install newer kernel when backup already matches current"
+assert_eq "v1.19.3" "$("$kernel_backup_path" -v | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1)" "kernel_apply_staged_update should refresh tmpfs backup to current pre-upgrade kernel"
 
 pass "installer kernel update branches"

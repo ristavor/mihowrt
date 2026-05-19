@@ -147,12 +147,18 @@ REQUIRED_APK_PACKAGES="pkg1 pkg2 pkg3"
 assert_false "verify_required_packages should fail when packages are missing" verify_required_packages
 assert_eq "pkg2 pkg3" "$MISSING_PACKAGES" "verify_required_packages should list missing packages"
 
-MIHOWRT_ACTION="kernel"
-assert_eq "kernel" "$(resolve_action)" "resolve_action should honor explicit env action"
+MIHOWRT_ACTION="install"
+assert_eq "package" "$(resolve_action)" "resolve_action should honor install env action"
 MIHOWRT_ACTION="remove"
 assert_eq "remove" "$(resolve_action)" "resolve_action should map remove action"
+MIHOWRT_ACTION="1"
+assert_false "resolve_action should reject numeric package action outside tty prompt" resolve_action >/dev/null 2>&1
+MIHOWRT_ACTION="2"
+assert_false "resolve_action should reject numeric remove action outside tty prompt" resolve_action >/dev/null 2>&1
+MIHOWRT_ACTION="kernel"
+assert_false "resolve_action should reject removed kernel-only action" resolve_action >/dev/null 2>&1
 MIHOWRT_ACTION="stop"
-assert_eq "stop" "$(resolve_action)" "resolve_action should map stop action"
+assert_false "resolve_action should reject removed stop action" resolve_action >/dev/null 2>&1
 
 unset MIHOWRT_ACTION
 MIHOWRT_FORCE_REINSTALL="1"
@@ -181,6 +187,8 @@ remove_user_state
 assert_file_contains "$rm_log" "-f /opt/clash/lst/direct_dst.txt" "remove_user_state should remove direct destination list"
 assert_file_contains "$rm_log" "-rf /opt/clash/ruleset" "remove_user_state should remove ruleset directory safely"
 assert_file_contains "$rm_log" "-rf /opt/clash/proxy_providers" "remove_user_state should remove provider directory safely"
+assert_file_contains "$rm_log" "-rf /opt/clash" "remove_user_state should remove the full MihoWRT data tree"
+assert_file_contains "$rm_log" "-f /lib/upgrade/keep.d/mihowrt" "remove_user_state should remove upgrade keep marker"
 assert_file_not_contains "$rm_log" "-f /opt/clash/ruleset" "remove_user_state should not use rm -f for ruleset directory"
 assert_file_not_contains "$rm_log" "-f /opt/clash/proxy_providers" "remove_user_state should not use rm -f for provider directory"
 

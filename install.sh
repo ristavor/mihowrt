@@ -416,6 +416,13 @@ current_mihomo_version() {
 	"$CLASH_BIN" -v 2>/dev/null | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1
 }
 
+mihomo_kernel_installed() {
+	local version=""
+
+	version="$(current_mihomo_version 2>/dev/null || true)"
+	[ -n "$version" ]
+}
+
 # Extract the requested asset URL from GitHub release JSON.
 kernel_asset_url() {
 	local release_json="$1"
@@ -568,11 +575,6 @@ kernel_apply_staged_update() {
 	KERNEL_STAGED_TAG=""
 	KERNEL_STAGED_ARCH=""
 	return 0
-}
-
-kernel_install_or_update() {
-	kernel_stage_update || return 1
-	kernel_apply_staged_update
 }
 
 # Undo a core update during failed package transaction.
@@ -2286,6 +2288,7 @@ remove_user_state() {
 		/etc/config/mihowrt \
 		/etc/init.d/mihowrt \
 		/etc/init.d/mihowrt-recover \
+		/lib/upgrade/keep.d/mihowrt \
 		/opt/clash/config.yaml \
 		/opt/clash/lst/always_proxy_dst.txt \
 		/opt/clash/lst/always_proxy_src.txt \
@@ -2299,6 +2302,7 @@ remove_user_state() {
 	remove_user_trees \
 		/opt/clash/ruleset \
 		/opt/clash/proxy_providers \
+		/opt/clash \
 		/usr/lib/mihowrt \
 		/www/luci-static/resources/view/mihowrt \
 		/www/luci-static/resources/mihowrt \
@@ -2328,7 +2332,6 @@ prepare_package_removal() {
 # Full uninstall path for package, core binary, user state, and runtime state.
 remove_package_and_kernel() {
 	prepare_package_removal || return 1
-	kernel_remove
 
 	if package_installed; then
 		log "Removing ${PKG_NAME} and unused dependencies..."
@@ -2338,6 +2341,7 @@ remove_package_and_kernel() {
 		}
 	fi
 
+	kernel_remove
 	remove_user_state
 	log "Removed MihoWRT package and kernel"
 	return 0
@@ -2457,12 +2461,17 @@ abort_transaction() {
 	return 1
 }
 
-# Download APK and stage Mihomo core before touching installed package.
+# Download APK and stage Mihomo core only when no usable core is installed.
 prepare_package_payload() {
 	local asset_url=""
 
 	asset_url="$(latest_package_asset_url_or_error)" || return 1
 	download_package_payload "$asset_url" || return 1
+
+	if mihomo_kernel_installed; then
+		log "Mihomo kernel already installed; keeping existing core"
+		return 0
+	fi
 
 	log "Preparing Mihomo kernel..."
 	kernel_stage_update || {
@@ -2524,16 +2533,18 @@ begin_package_transaction() {
 	fi
 }
 
-# Apply staged core and set skip-start before apk mutation.
+# Apply staged core when missing-core install prepared one, then set skip-start.
 prepare_package_install_mutation() {
 	local reinstall="$1"
 
-	log "Installing/updating Mihomo kernel..."
-	if ! kernel_apply_staged_update; then
-		rollback_reinstall_state "$reinstall"
-		err "kernel install/update failed"
-		abort_transaction
-		return 1
+	if [ -n "$KERNEL_STAGED_BIN" ]; then
+		log "Installing Mihomo kernel..."
+		if ! kernel_apply_staged_update; then
+			rollback_reinstall_state "$reinstall"
+			err "kernel install failed"
+			abort_transaction
+			return 1
+		fi
 	fi
 
 	if ! set_skip_start; then
@@ -2586,30 +2597,16 @@ perform_package_action() {
 	complete_fresh_install_after_package
 }
 
-# Core-only update workflow.
-perform_kernel_action() {
-	log "Installing/updating Mihomo kernel..."
-	kernel_install_or_update
-}
-
 # Resolve interactive or environment-selected action.
 resolve_action() {
 	case "${MIHOWRT_ACTION:-}" in
 	'') ;;
-	1 | package | pkg | install | update)
+	package | pkg | install | update)
 		printf '%s' "package"
 		return 0
 		;;
-	2 | kernel | core)
-		printf '%s' "kernel"
-		return 0
-		;;
-	3 | remove | delete | uninstall)
+	remove | delete | uninstall)
 		printf '%s' "remove"
-		return 0
-		;;
-	4 | stop | cancel)
-		printf '%s' "stop"
 		return 0
 		;;
 	*)
@@ -2624,18 +2621,16 @@ resolve_action() {
 	fi
 
 	if ! can_prompt; then
-		err "no tty. Set MIHOWRT_ACTION=package|kernel|remove|stop"
+		err "no tty. Set MIHOWRT_ACTION=package|remove"
 		return 1
 	fi
 
 	printf '%s\n' "MihoWRT installer" >/dev/tty
-	printf '%s\n' "1. Install/update package + kernel" >/dev/tty
-	printf '%s\n' "2. Install/update kernel only" >/dev/tty
-	printf '%s\n' "3. Remove package + kernel" >/dev/tty
-	printf '%s\n' "4. Stop" >/dev/tty
+	printf '%s\n' "1. Install/update package" >/dev/tty
+	printf '%s\n' "2. Remove everything" >/dev/tty
 
 	while :; do
-		printf 'Choose [1-4] (default 1): ' >/dev/tty
+		printf 'Choose [1-2] (default 1): ' >/dev/tty
 		IFS= read -r choice </dev/tty || {
 			err "failed to read answer from tty"
 			return 1
@@ -2646,18 +2641,10 @@ resolve_action() {
 			return 0
 			;;
 		2)
-			printf '%s' "kernel"
-			return 0
-			;;
-		3)
 			printf '%s' "remove"
 			return 0
 			;;
-		4)
-			printf '%s' "stop"
-			return 0
-			;;
-		*) printf '%s\n' "Enter 1, 2, 3, or 4." >/dev/tty ;;
+		*) printf '%s\n' "Enter 1 or 2." >/dev/tty ;;
 		esac
 	done
 }
@@ -2694,15 +2681,8 @@ main() {
 	package)
 		perform_package_action
 		;;
-	kernel)
-		perform_kernel_action
-		;;
 	remove)
 		remove_package_and_kernel
-		;;
-	stop)
-		log "Stopped."
-		return 0
 		;;
 	esac
 }

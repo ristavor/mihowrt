@@ -18,7 +18,7 @@ router integration:
 - subscription fetch/apply/auto-update with bounded downloads and device headers.
 - remote policy list auto-update with nft component updates when possible.
 - runtime snapshots, rollback, boot recovery, and cleanup.
-- installer flow for package update, Mihomo core update, rollback, and user-state preservation.
+- installer flow for package update, missing Mihomo core install, rollback, and user-state preservation.
 
 Current scope is intentionally IPv4 and fake-ip focused. The bundled
 Mihomo config has IPv6 disabled, and MihoWRT nftables policy matches
@@ -70,31 +70,25 @@ curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | 
 Interactive actions:
 
 ```text
-1. Install/update package + kernel
-2. Install/update kernel only
-3. Remove package + kernel
-4. Stop
+1. Install/update package
+2. Remove everything
 ```
 
-In installer text, "kernel" means the Mihomo core binary at
-`/opt/clash/bin/clash`, not the Linux/OpenWrt kernel.
+Install/update refreshes only the MihoWRT package. It installs latest Mihomo
+core at `/opt/clash/bin/clash` only when no usable core exists yet.
 
 Non-interactive mode:
 
 ```sh
 wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=package sh
-wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=kernel sh
 wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=remove sh
-wget -O - https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | MIHOWRT_ACTION=stop sh
 ```
 
 Accepted action aliases:
 
 ```text
-package: package, pkg, install, update, 1
-kernel:  kernel, core, 2
-remove:  remove, delete, uninstall, 3
-stop:    stop, cancel, 4
+package: package, pkg, install, update
+remove:  remove, delete, uninstall
 ```
 
 Useful installer variables:
@@ -114,8 +108,8 @@ middle of the transaction, restores user files, then restores previous
 enabled/running state.
 
 Package mode downloads the latest `luci-app-mihowrt-*.apk` from this
-project release and the latest Mihomo binary from `MetaCubeX/mihomo`.
-Kernel-only mode updates only `/opt/clash/bin/clash`.
+project release. It downloads the latest Mihomo binary from
+`MetaCubeX/mihomo` only when `/opt/clash/bin/clash` is missing or unusable.
 
 ## Installed Files
 

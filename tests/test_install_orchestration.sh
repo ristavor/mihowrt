@@ -169,6 +169,10 @@ CLASH_BIN="$tmpdir/mihomo-child"
 mkdir -p "$CLASH_DIR"
 cat > "$CLASH_BIN" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${1:-}" == "-v" ]]; then
+	printf 'Mihomo Meta v1.19.4\n'
+	exit 0
+fi
 sleep 30
 EOF
 chmod +x "$CLASH_BIN"
@@ -429,6 +433,7 @@ preserve_backup_dir() {
 }
 clear_kernel_backup() {
 	printf 'clear_kernel_backup\n' >>"$event_log"
+	KERNEL_STAGED_BIN=""
 }
 release_reinstall_dependencies() {
 	printf 'release_reinstall_dependencies\n' >>"$event_log"
@@ -637,6 +642,7 @@ prepare_update() {
 
 kernel_stage_update() {
 	printf 'kernel_stage_update\n' >>"$event_log"
+	KERNEL_STAGED_BIN="$tmpdir/staged-mihomo"
 	return 0
 }
 
@@ -704,8 +710,8 @@ start_fresh_install_service() {
 TEST_PACKAGE_INSTALLED_RC=0
 perform_package_action
 assert_file_contains "$event_log" "prepare_update" "perform_package_action should prepare reinstall state"
-assert_file_contains "$event_log" "kernel_stage_update" "perform_package_action should prepare kernel before reinstall state changes"
-assert_file_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should install prepared kernel inside transaction"
+assert_file_not_contains "$event_log" "kernel_stage_update" "perform_package_action should keep existing Mihomo core on reinstall"
+assert_file_not_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should not reinstall existing Mihomo core"
 assert_file_contains "$event_log" "set_skip_start" "perform_package_action should set skip-start before package install"
 assert_file_contains "$event_log" "create_tmp_apk" "perform_package_action should allocate temporary APK path"
 assert_file_contains "$event_log" "download_file:https://example.com/luci-app-mihowrt.apk:$tmpdir/downloaded.apk" "perform_package_action should download latest package asset"
@@ -722,6 +728,7 @@ assert_file_not_contains "$event_log" "start_fresh_install_service" "perform_pac
 TEST_PACKAGE_INSTALLED_RC=1
 perform_package_action
 assert_file_not_contains "$event_log" "prepare_update" "fresh package action should not prepare reinstall state"
+assert_file_not_contains "$event_log" "kernel_stage_update" "fresh package action should keep existing Mihomo core"
 assert_file_contains "$event_log" "install_package:0:$tmpdir/downloaded.apk" "fresh package action should install package as fresh install"
 assert_file_contains "$event_log" "migrate_restored_user_state" "fresh package action should run package migrations skipped by postinst transaction"
 assert_file_contains "$event_log" "start_fresh_install_service" "fresh package action should start service after migrations"
@@ -747,6 +754,14 @@ migrate_restored_user_state() {
 }
 
 : > "$event_log"
+TEST_PACKAGE_INSTALLED_RC=0
+CLASH_BIN="$tmpdir/missing-mihomo-core"
+perform_package_action
+assert_file_contains "$event_log" "kernel_stage_update" "perform_package_action should prepare latest Mihomo core when none is installed"
+assert_file_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should install prepared Mihomo core before package mutation"
+CLASH_BIN="$tmpdir/mihomo-child"
+
+: > "$event_log"
 quiesce_postinstall_service() {
 	printf 'quiesce_postinstall_service\n' >>"$event_log"
 	return 1
@@ -770,7 +785,7 @@ prepare_update() {
 : > "$event_log"
 assert_false "perform_package_action should fail when prepare_update fails" perform_package_action
 assert_file_contains "$event_log" "prepare_update" "perform_package_action should attempt prepare_update on reinstall"
-assert_file_contains "$event_log" "kernel_stage_update" "perform_package_action should prepare kernel before prepare_update"
+assert_file_not_contains "$event_log" "kernel_stage_update" "perform_package_action should not prepare Mihomo core when existing core is installed"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after prepare_update failure"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after prepare_update failure"
 assert_file_not_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should not mutate kernel after prepare_update failure"
@@ -787,7 +802,7 @@ set_skip_start() {
 	return 1
 }
 assert_false "perform_package_action should fail when skip-start marker setup fails" perform_package_action
-assert_file_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should apply prepared kernel before skip-start marker"
+assert_file_not_contains "$event_log" "kernel_apply_staged_update" "perform_package_action should not mutate existing Mihomo core before skip-start marker"
 assert_file_contains "$event_log" "set_skip_start" "perform_package_action should try setting skip-start marker"
 assert_file_contains "$event_log" "restore_runtime_state" "perform_package_action should restore runtime state after skip-start failure"
 assert_file_contains "$event_log" "release_reinstall_dependencies" "perform_package_action should release held dependencies after skip-start failure"
@@ -799,11 +814,13 @@ rollback_kernel_update() {
 
 : > "$event_log"
 TEST_PACKAGE_INSTALLED_RC=1
+CLASH_BIN="$tmpdir/missing-mihomo-core"
 assert_false "perform_package_action should roll back fresh kernel when skip-start marker setup fails" perform_package_action
 assert_file_contains "$event_log" "kernel_apply_staged_update" "fresh install skip-start failure should happen after kernel apply"
 assert_file_contains "$event_log" "set_skip_start" "fresh install should try setting skip-start marker"
 assert_file_contains "$event_log" "rollback_kernel_update" "fresh install should roll back applied kernel after skip-start failure"
 assert_file_not_contains "$event_log" "restore_runtime_state" "fresh install skip-start failure should not use reinstall runtime rollback"
+CLASH_BIN="$tmpdir/mihomo-child"
 TEST_PACKAGE_INSTALLED_RC=0
 
 set_skip_start() {
@@ -1014,6 +1031,23 @@ assert_file_contains "$event_log" "restore_system_dns_defaults:1" "remove_packag
 assert_file_contains "$event_log" "kernel_remove" "remove_package_and_kernel should remove Mihomo kernel"
 assert_file_contains "$event_log" "apk:del $PKG_NAME" "remove_package_and_kernel should remove installed package"
 assert_file_contains "$event_log" "remove_user_state" "remove_package_and_kernel should remove user state files"
+apk_remove_line="$(grep -nF "apk:del $PKG_NAME" "$event_log" | head -n1 | cut -d: -f1)"
+kernel_remove_line="$(grep -nF "kernel_remove" "$event_log" | head -n1 | cut -d: -f1)"
+[[ "$apk_remove_line" -lt "$kernel_remove_line" ]] || fail "remove_package_and_kernel should remove package before deleting Mihomo kernel"
+
+apk() {
+	printf 'apk:%s\n' "$*" >>"$event_log"
+	return 1
+}
+
+: > "$event_log"
+: > "$init_log"
+: > "$orch_log"
+assert_false "remove_package_and_kernel should fail without deleting core/state when apk del fails" remove_package_and_kernel
+assert_file_contains "$event_log" "apk:del $PKG_NAME" "remove_package_and_kernel should try package removal first"
+assert_file_contains "$event_log" "err:failed to remove $PKG_NAME" "remove_package_and_kernel should report package removal failure"
+assert_file_not_contains "$event_log" "kernel_remove" "remove_package_and_kernel should keep Mihomo kernel if package removal fails"
+assert_file_not_contains "$event_log" "remove_user_state" "remove_package_and_kernel should keep user state if package removal fails"
 
 : > "$event_log"
 : > "$init_log"

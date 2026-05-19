@@ -11,14 +11,10 @@ const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 const CLASH_CONFIG = '/opt/clash/config.yaml';
 const SERVICE_STATE_POLL_INTERVAL_MS = 1000;
 const SERVICE_STATE_TIMEOUT_MS = 35000;
-const PACKAGE_UPDATE_POLL_INTERVAL_MS = 2000;
-const PACKAGE_UPDATE_TIMEOUT_MS = 300000;
 
 let startStopButton = null;
 let enableDisableButton = null;
 let dashboardButton = null;
-let packageUpdateButton = null;
-let packageUpdateBadge = null;
 let saveApplyButton = null;
 let subscriptionUrlInput = null;
 let subscriptionOverrideInput = null;
@@ -34,8 +30,6 @@ let editor = null;
 let serviceActionInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
-let packageUpdateInFlight = false;
-let packageUpdateRunning = false;
 let savedConfigContent = '';
 let savedSubscriptionUrl = null;
 let pendingSubscriptionSettings = null;
@@ -47,7 +41,7 @@ let lastServiceState = {
 
 function controlsBusy() {
 	// Any active backend operation disables controls to prevent overlap.
-	return serviceActionInFlight || saveInFlight || subscriptionInFlight || packageUpdateInFlight || packageUpdateRunning;
+	return serviceActionInFlight || saveInFlight || subscriptionInFlight;
 }
 
 function updateControlDisabledState() {
@@ -60,8 +54,6 @@ function updateControlDisabledState() {
 		enableDisableButton.disabled = disabled;
 	if (dashboardButton)
 		dashboardButton.disabled = disabled;
-	if (packageUpdateButton)
-		packageUpdateButton.disabled = disabled;
 	if (saveApplyButton)
 		saveApplyButton.disabled = disabled;
 	if (subscriptionUrlInput)
@@ -194,18 +186,6 @@ function applyServiceState(running, enabled) {
 	}
 }
 
-function applyPackageUpdateState(state) {
-	packageUpdateRunning = !!state?.running;
-
-	if (packageUpdateButton)
-		packageUpdateButton.textContent = configHelper.packageUpdateButtonLabel(state);
-
-	if (packageUpdateBadge) {
-		packageUpdateBadge.textContent = configHelper.packageUpdateBadgeText(state);
-		packageUpdateBadge.style.backgroundColor = configHelper.packageUpdateBadgeColor(state);
-	}
-}
-
 async function readServiceState() {
 	// Read compact service-state JSON through read-only backend.
 	const status = await backendHelper.readServiceState();
@@ -323,76 +303,6 @@ async function openDashboard() {
 		uiHelper: mihowrtUi,
 		windowObject: window
 	});
-}
-
-async function pollPackageUpdateStatus(timeout = PACKAGE_UPDATE_TIMEOUT_MS) {
-	const startTime = Date.now();
-	let lastState = null;
-
-	while (Date.now() - startTime < timeout) {
-		try {
-			lastState = await backendHelper.readPackageUpdateStatus();
-			applyPackageUpdateState(lastState);
-			updateControlDisabledState();
-			if (!lastState.running)
-				return lastState;
-		}
-		catch (e) {
-			// rpcd may reload during package install; keep polling until timeout.
-		}
-
-		await new Promise(resolve => setTimeout(resolve, PACKAGE_UPDATE_POLL_INTERVAL_MS));
-	}
-
-	return lastState;
-}
-
-async function updatePackage() {
-	if (controlsBusy())
-		return;
-
-	let finalState = null;
-	packageUpdateInFlight = true;
-	updateControlDisabledState();
-
-	try {
-		const startedState = await backendHelper.startPackageUpdate();
-		applyPackageUpdateState(startedState);
-		updateControlDisabledState();
-
-		if (!startedState.running) {
-			finalState = startedState;
-		}
-		else {
-			mihowrtUi.notify(_('Package update started.'), 'info');
-			finalState = await pollPackageUpdateStatus();
-		}
-
-		if (!finalState || finalState.running) {
-			mihowrtUi.notify(_('Package update is still running. Refresh the page later.'), 'warning');
-			return;
-		}
-
-		applyPackageUpdateState(finalState);
-		if (finalState.status === 'success') {
-			mihowrtUi.notify(finalState.message || _('Package updated successfully. Reload this page.'), 'info');
-		}
-		else if (finalState.status === 'already_current') {
-			mihowrtUi.notify(finalState.message || _('Package is already up to date.'), 'info');
-		}
-		else {
-			mihowrtUi.notify(_('Unable to update package: %s').format(finalState.message || _('unknown error')), 'error');
-		}
-	}
-	catch (e) {
-		mihowrtUi.notify(_('Unable to update package: %s').format(e.message), 'error');
-	}
-	finally {
-		packageUpdateInFlight = false;
-		if (finalState)
-			packageUpdateRunning = !!finalState.running;
-		updateControlDisabledState();
-	}
 }
 
 async function initializeAceEditor(node, content) {
@@ -596,15 +506,13 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(fs.read(CLASH_CONFIG), ''),
-			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] }),
-			L.resolveDefault(backendHelper.readPackageUpdateStatus(), { available: false, running: false, status: 'idle', errors: [ _('Unable to read package update status') ] })
+			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] })
 		]);
 	},
 
 	render: async function(data) {
 		const config = data?.[0] ?? '';
 		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
-		const packageUpdateState = data?.[2] || { available: false, running: false, status: 'idle', errors: [] };
 		let serviceState = lastServiceState;
 
 		// Cache loaded values as the baseline for dirty checks and no-op saves.
@@ -616,8 +524,6 @@ return view.extend({
 		}
 		if (subscriptionState.errors && subscriptionState.errors.length)
 			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
-		if (packageUpdateState.errors && packageUpdateState.errors.length)
-			mihowrtUi.notify(_('Unable to read package update status: %s').format(configHelper.serviceStateErrorDetail(packageUpdateState)), 'warning');
 		savedConfigContent = configHelper.editorContentForSave(config);
 		savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
 			? null
@@ -794,10 +700,6 @@ return view.extend({
 					class: 'btn',
 					click: openDashboard
 				}, _('Open Mihomo Dashboard'))),
-				(packageUpdateButton = E('button', {
-					class: 'btn cbi-button-action',
-					click: updatePackage
-				}, configHelper.packageUpdateButtonLabel(packageUpdateState))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceBadgeColor(serviceState.running) + ';'
@@ -805,11 +707,7 @@ return view.extend({
 				(serviceEnabledBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceEnabledBadgeColor(serviceState.enabled) + ';'
-				}, configHelper.serviceEnabledBadgeText(serviceState.enabled))),
-				(packageUpdateBadge = E('span', {
-					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.packageUpdateBadgeColor(packageUpdateState) + ';'
-				}, configHelper.packageUpdateBadgeText(packageUpdateState)))
+				}, configHelper.serviceEnabledBadgeText(serviceState.enabled)))
 			]),
 			E('h2', _('Mihomo YAML Configuration')),
 			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
@@ -884,12 +782,8 @@ return view.extend({
 		const page = E(pageChildren);
 
 		applyServiceState(serviceState.running, serviceState.enabled);
-		applyPackageUpdateState(packageUpdateState);
 		applySubscriptionState(subscriptionState);
 		updateControlDisabledState();
-
-		if (packageUpdateState.running)
-			window.setTimeout(() => pollPackageUpdateStatus().finally(updateControlDisabledState), 0);
 
 		window.requestAnimationFrame(() => {
 			initializeAceEditor(editorNode, config).catch(e => {

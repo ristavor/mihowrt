@@ -11,7 +11,7 @@ backend="$tmpdir/mihowrt"
 call_log="$tmpdir/backend.log"
 wrapper="$ROOT_DIR/rootfs/usr/bin/mihowrt-read"
 
-cat > "$backend" <<'EOF'
+cat >"$backend" <<'EOF'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$TEST_BACKEND_LOG"
 printf 'ok\n'
@@ -22,19 +22,15 @@ export TEST_BACKEND_LOG="$call_log"
 MIHOWRT_BACKEND="$backend" sh "$wrapper" status-json >/dev/null
 assert_file_contains "$call_log" "status-json" "read wrapper should forward status-json"
 
-: > "$call_log"
+: >"$call_log"
 MIHOWRT_BACKEND="$backend" sh "$wrapper" live-api-json >/dev/null
 assert_file_contains "$call_log" "live-api-json" "read wrapper should forward live-api-json"
 
-: > "$call_log"
-MIHOWRT_BACKEND="$backend" sh "$wrapper" package-update-status-json >/dev/null
-assert_file_contains "$call_log" "package-update-status-json" "read wrapper should forward package update status"
-
-: > "$call_log"
+: >"$call_log"
 MIHOWRT_BACKEND="$backend" sh "$wrapper" read-config /tmp/mihowrt-config.test >/dev/null
 assert_file_contains "$call_log" "read-config /tmp/mihowrt-config.test" "read wrapper should allow MihoWRT temp config previews"
 
-: > "$call_log"
+: >"$call_log"
 if MIHOWRT_BACKEND="$backend" sh "$wrapper" apply-config /tmp/mihowrt-config.test >/dev/null 2>&1; then
 	fail "read wrapper should reject mutating backend commands"
 fi

@@ -114,22 +114,6 @@ function emptySubscriptionState() {
 	};
 }
 
-function emptyPackageUpdateState() {
-	return {
-		available: false,
-		running: false,
-		status: 'idle',
-		pid: '',
-		startedAt: '',
-		finishedAt: '',
-		currentVersion: '',
-		latestVersion: '',
-		assetUrl: '',
-		message: '',
-		errors: []
-	};
-}
-
 function tempConfigPath() {
 	// Candidate configs live under /tmp until backend validation moves them.
 	const suffix = '%s-%s'.format(Date.now(), Math.floor(Math.random() * 0x100000000).toString(16));
@@ -212,21 +196,6 @@ function assignSubscriptionState(state, payload) {
 	state.subscriptionAutoUpdateReason = String(payload.subscription_auto_update_reason || '');
 	state.subscriptionManualRestartRequired = !!payload.subscription_manual_restart_required;
 	state.subscriptionManualRestartReason = String(payload.subscription_manual_restart_reason || '');
-	return state;
-}
-
-function assignPackageUpdateState(state, payload) {
-	state.available = payload?.available !== false;
-	state.running = !!payload?.running;
-	state.status = String(payload?.status || (state.running ? 'running' : 'idle'));
-	state.pid = String(payload?.pid || '');
-	state.startedAt = String(payload?.started_at || '');
-	state.finishedAt = String(payload?.finished_at || '');
-	state.currentVersion = String(payload?.current_version || '');
-	state.latestVersion = String(payload?.latest_version || '');
-	state.assetUrl = String(payload?.asset_url || '');
-	state.message = String(payload?.message || '');
-	state.errors = Array.isArray(payload?.errors) ? payload.errors.map(String) : [];
 	return state;
 }
 
@@ -367,19 +336,6 @@ return baseclass.extend({
 
 	readSubscriptionUrl: async function() {
 		return readBackendJson([ 'subscription-json' ], emptySubscriptionState(), assignSubscriptionState);
-	},
-
-	readPackageUpdateStatus: async function() {
-		return readBackendJson([ 'package-update-status-json' ], emptyPackageUpdateState(), assignPackageUpdateState);
-	},
-
-	startPackageUpdate: async function() {
-		const result = await fs.exec(WRITE_BACKEND, [ 'package-update-json' ]);
-
-		if (result.code !== 0)
-			throw new Error(execHelper.errorDetail(result));
-
-		return assignPackageUpdateState(emptyPackageUpdateState(), JSON.parse(result.stdout || '{}'));
 	},
 
 	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval) {

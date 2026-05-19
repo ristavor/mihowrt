@@ -443,26 +443,6 @@ auto_update_subscription_output="$(
 )"
 assert_eq "subscription-auto-updated" "$auto_update_subscription_output" "auto-update-subscription command should dispatch to subscription auto updater"
 
-package_update_output="$(
-	set -- package-update-json
-	package_update_start_json() {
-		printf 'package-update-started\n'
-	}
-	# shellcheck disable=SC1090
-	source <(strip_mihowrt_cli_bootstrap)
-)"
-assert_eq "package-update-started" "$package_update_output" "package-update-json command should dispatch to package updater"
-
-package_update_status_output="$(
-	set -- package-update-status-json
-	package_update_status_json() {
-		printf 'package-update-status\n'
-	}
-	# shellcheck disable=SC1090
-	source <(strip_mihowrt_cli_bootstrap)
-)"
-assert_eq "package-update-status" "$package_update_status_output" "package-update-status-json command should dispatch to package updater status"
-
 migrate_all_output="$(
 	set -- migrate-all
 	migrate_all() {

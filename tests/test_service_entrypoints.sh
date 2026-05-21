@@ -21,6 +21,7 @@ CLASH_CONFIG="$tmpdir/config.yaml"
 PKG_STATE_DIR="$tmpdir/run"
 SERVICE_PID_FILE="$PKG_STATE_DIR/mihomo.pid"
 RUNTIME_LOCK_FILE="$tmpdir/runtime.lock"
+PKG_TMP_DIR="$tmpdir/tmp"
 mkdir -p "$CLASH_DIR"
 
 cat >"$CLASH_BIN" <<'EOF'
@@ -68,9 +69,20 @@ lock_body() {
 	assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "with_runtime_lock should record current lock owner"
 	printf 'lock_body\n' >>"$cli_log"
 }
+mkdir -p "$PKG_TMP_DIR"
+: >"$PKG_TMP_DIR/nft.leak"
+: >"$PKG_TMP_DIR/nft-fast.leak"
+: >"$PKG_TMP_DIR/policy-effective.leak"
+: >"$PKG_TMP_DIR/policy-remote.leak"
+: >"$PKG_TMP_DIR/keep"
 with_runtime_lock lock_body
 assert_file_contains "$cli_log" "lock_body" "with_runtime_lock should execute locked command"
 [[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should remove lock after command success"
+[[ ! -e "$PKG_TMP_DIR/nft.leak" ]] || fail "with_runtime_lock should remove stale nft tmp file"
+[[ ! -e "$PKG_TMP_DIR/nft-fast.leak" ]] || fail "with_runtime_lock should remove stale fast nft tmp file"
+[[ ! -e "$PKG_TMP_DIR/policy-effective.leak" ]] || fail "with_runtime_lock should remove stale policy effective tmp file"
+[[ ! -e "$PKG_TMP_DIR/policy-remote.leak" ]] || fail "with_runtime_lock should remove stale policy remote tmp file"
+[[ -e "$PKG_TMP_DIR/keep" ]] || fail "with_runtime_lock should not remove unrelated tmp file"
 ln -s 999999 "$RUNTIME_LOCK_FILE"
 with_runtime_lock lock_body
 [[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "with_runtime_lock should replace and release legacy stale symlink lock"

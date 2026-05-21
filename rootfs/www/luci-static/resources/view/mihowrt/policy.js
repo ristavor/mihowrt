@@ -31,6 +31,7 @@ let srcListOption = null;
 let directDstListOption = null;
 let updateListsButton = null;
 let policyActionInFlight = false;
+let policyListWriteTransaction = null;
 
 function validateNumericRange(value, label, min, max) {
 	// Empty value means backend auto-select.
@@ -127,6 +128,118 @@ function setPolicyActionBusy(busy) {
 		buttonNode.disabled = busy || !!(policyMap && policyMap.readonly);
 }
 
+function policyListCacheValue(cacheName) {
+	if (cacheName === 'dst')
+		return dstValueCache || '';
+	if (cacheName === 'src')
+		return srcValueCache || '';
+	return directDstValueCache || '';
+}
+
+function setPolicyListCacheValue(cacheName, value) {
+	if (cacheName === 'dst')
+		dstValueCache = value;
+	else if (cacheName === 'src')
+		srcValueCache = value;
+	else
+		directDstValueCache = value;
+}
+
+function objectHasOwn(object, key) {
+	return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+function beginPolicyListWriteTransaction() {
+	policyListWriteTransaction = {
+		snapshots: {},
+		pending: {},
+		flushStarted: false,
+		flushed: false
+	};
+}
+
+function clearPolicyListWriteTransaction() {
+	policyListWriteTransaction = null;
+}
+
+function stagePolicyListWrite(cacheName, filePath, value) {
+	const transaction = policyListWriteTransaction;
+	const key = filePath;
+
+	if (!objectHasOwn(transaction.snapshots, key)) {
+		transaction.snapshots[key] = {
+			cacheName,
+			filePath,
+			value: policyListCacheValue(cacheName)
+		};
+	}
+
+	if (value === transaction.snapshots[key].value)
+		delete transaction.pending[key];
+	else
+		transaction.pending[key] = { cacheName, filePath, value };
+}
+
+async function applyPolicyListFileWrite(filePath, value) {
+	if (value)
+		await fs.write(filePath, value);
+	else
+		await removeListFileIfPresent(filePath);
+}
+
+async function writePolicyListFile(cacheName, filePath, value) {
+	if (policyListWriteTransaction) {
+		if (!objectHasOwn(policyListWriteTransaction.snapshots, filePath) && value === policyListCacheValue(cacheName))
+			return;
+		stagePolicyListWrite(cacheName, filePath, value);
+		return;
+	}
+
+	if (value === policyListCacheValue(cacheName))
+		return;
+
+	await applyPolicyListFileWrite(filePath, value);
+	setPolicyListCacheValue(cacheName, value);
+}
+
+async function rollbackPolicyListWrites() {
+	const transaction = policyListWriteTransaction;
+	if (!transaction || !transaction.flushStarted)
+		return;
+
+	const keys = Object.keys(transaction.snapshots).reverse();
+	for (const key of keys) {
+		const snapshot = transaction.snapshots[key];
+		await applyPolicyListFileWrite(snapshot.filePath, snapshot.value);
+		setPolicyListCacheValue(snapshot.cacheName, snapshot.value);
+	}
+}
+
+async function flushPolicyListWrites() {
+	const transaction = policyListWriteTransaction;
+	if (!transaction || transaction.flushed)
+		return;
+
+	const writes = Object.keys(transaction.pending).map(key => transaction.pending[key]);
+	if (writes.length === 0) {
+		transaction.flushed = true;
+		return;
+	}
+	transaction.flushStarted = true;
+
+	try {
+		for (const write of writes) {
+			await applyPolicyListFileWrite(write.filePath, write.value);
+			setPolicyListCacheValue(write.cacheName, write.value);
+		}
+		transaction.flushed = true;
+	}
+	catch (e) {
+		await rollbackPolicyListWrites();
+		throw e;
+	}
+}
+
 async function savePolicyMap() {
 	return policyMap ? policyMap.save() : Promise.resolve();
 }
@@ -195,33 +308,17 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 	option.write = async function(section_id, value) {
 		const normalized = normalizeBlock(value);
 		const current = this.cfgvalue(section_id);
-		if (normalized === current)
+		if (!policyListWriteTransaction && normalized === current)
 			return;
 
-		if (normalized)
-			await fs.write(filePath, normalized);
-		else
-			await removeListFileIfPresent(filePath);
-
-		if (cacheName === 'dst')
-			dstValueCache = normalized;
-		else if (cacheName === 'src')
-			srcValueCache = normalized;
-		else
-			directDstValueCache = normalized;
+		await writePolicyListFile(cacheName, filePath, normalized);
 	};
 	option.remove = async function() {
 		const current = this.cfgvalue(SETTINGS_SECTION_ID);
-		if (!current)
+		if (!policyListWriteTransaction && !current)
 			return;
 
-		await removeListFileIfPresent(filePath);
-		if (cacheName === 'dst')
-			dstValueCache = '';
-		else if (cacheName === 'src')
-			srcValueCache = '';
-		else
-			directDstValueCache = '';
+		await writePolicyListFile(cacheName, filePath, '');
 	};
 }
 
@@ -233,10 +330,13 @@ return view.extend({
 		}
 
 		setPolicyActionBusy(true);
+		beginPolicyListWriteTransaction();
 		try {
 			await savePolicyMap();
+			await flushPolicyListWrites();
 		}
 		finally {
+			clearPolicyListWriteTransaction();
 			setPolicyActionBusy(false);
 		}
 	},
@@ -248,6 +348,7 @@ return view.extend({
 		}
 
 		setPolicyActionBusy(true);
+		beginPolicyListWriteTransaction();
 
 		try {
 			const listChanged = hasListValueChanges();
@@ -267,7 +368,14 @@ return view.extend({
 
 			const changes = await uci.changes();
 			if (mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes)) {
-				await commitUciPackage('mihowrt');
+				await flushPolicyListWrites();
+				try {
+					await commitUciPackage('mihowrt');
+				}
+				catch (e) {
+					await rollbackPolicyListWrites();
+					throw e;
+				}
 				await ui.changes.init();
 				await backendHelper.syncPolicyRemoteAutoUpdate();
 				await reloadPolicyIfNeeded(listChanged, wasRunning);
@@ -275,15 +383,24 @@ return view.extend({
 			}
 
 			if (hasMihowrtUciChanges(changes)) {
-				await ui.changes.apply(mode == '0');
+				await flushPolicyListWrites();
+				try {
+					await ui.changes.apply(mode == '0');
+				}
+				catch (e) {
+					await rollbackPolicyListWrites();
+					throw e;
+				}
 				if (policyRemoteAutoUpdateChanged(changes))
 					await backendHelper.syncPolicyRemoteAutoUpdate();
 				return;
 			}
 
+			await flushPolicyListWrites();
 			await reloadPolicyIfNeeded(listChanged, wasRunning);
 		}
 		finally {
+			clearPolicyListWriteTransaction();
 			setPolicyActionBusy(false);
 		}
 	},

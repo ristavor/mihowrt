@@ -264,7 +264,7 @@ run_service_action_with_liveness() {
 	fi
 
 	warn "$async_warning"
-	return 0
+	return 1
 }
 
 # wget fallback with explicit retry loop because OpenWrt wget variants do not

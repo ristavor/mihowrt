@@ -1313,6 +1313,7 @@ rollback_auto_update_hot_reload() {
 	local reason="$5"
 
 	if ! restore_active_config_from_rollback "$rollback_config"; then
+		rm -f "$rollback_config"
 		err "Failed to restore active config after failed auto-update hot reload"
 		return 1
 	fi

@@ -277,6 +277,21 @@ TEST_API_REASON=""
 TEST_API_HTTP_CODE=""
 
 : >"$event_log"
+rollback_config="$tmpdir/rollback-config.yaml"
+saved_clash_config="$CLASH_CONFIG"
+saved_ensure_dir="$(declare -f ensure_dir)"
+printf 'old\n' >"$rollback_config"
+CLASH_CONFIG="$tmpdir/rollback-blocked/config.yaml"
+ensure_dir() {
+	printf 'ensure_dir:%s\n' "$1" >>"$event_log"
+	return 1
+}
+assert_false "rollback_auto_update_hot_reload should fail when active config directory cannot be prepared" rollback_auto_update_hot_reload "$rollback_config" "$old_json" "$CLASH_CONFIG" 0 "rollback restore failed"
+[[ ! -e "$rollback_config" ]] || fail "rollback_auto_update_hot_reload should remove temp rollback config after restore failure"
+CLASH_CONFIG="$saved_clash_config"
+eval "$saved_ensure_dir"
+
+: >"$event_log"
 write_configs
 TEST_WAIT_LISTENERS_RC=1
 old_json='{"external_controller":"0.0.0.0:9090","external_controller_tls":"","external_controller_unix":"mihomo.sock","secret":"0123456789abcdef0123456789abcdef0123456789abcdef","external_ui":"","external_ui_name":"","dns_port":"7874","mihomo_dns_listen":"127.0.0.1#7874","tproxy_port":"7894","routing_mark":"2","enhanced_mode":"fake-ip","catch_fakeip":true,"fake_ip_range":"198.18.0.0/15"}'

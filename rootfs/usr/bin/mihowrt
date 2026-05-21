@@ -140,13 +140,26 @@ runtime_lock_release() {
 	fi
 }
 
+runtime_tmp_cleanup_stale() {
+	local tmp_dir="${PKG_TMP_DIR:-/tmp/mihowrt}"
+	local path=""
+
+	[ -d "$tmp_dir" ] || return 0
+	for path in "$tmp_dir"/nft.* "$tmp_dir"/nft-fast.* "$tmp_dir"/policy-effective.* "$tmp_dir"/policy-remote.*; do
+		[ -e "$path" ] || continue
+		rm -f "$path" 2>/dev/null || true
+	done
+}
+
 # Run a mutating command under the runtime lock.
 with_runtime_lock() {
 	local rc=0
 
 	runtime_lock_acquire || return 1
+	runtime_tmp_cleanup_stale
 	"$@"
 	rc=$?
+	runtime_tmp_cleanup_stale
 	runtime_lock_release
 	return "$rc"
 }

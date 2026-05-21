@@ -120,7 +120,11 @@ const context = {
 	},
 	ui: {
 		changes: {
-			apply: async(mode) => context.applyCalls.push(mode),
+			apply: async(mode) => {
+				context.applyCalls.push(mode);
+				if (context.applyError)
+					throw new Error(context.applyError);
+			},
 			init: async() => context.initCalls.push(true)
 		}
 	},
@@ -146,7 +150,7 @@ const context = {
 	};
 
 	vm.createContext(context);
-vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\nconst commitUciPackage = async(config) => { globalThis.commitCalls.push(config); };\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate = mihowrtUciChangesOnlyPolicyRemoteAutoUpdate;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setUpdateListsButton = value => { updateListsButton = value; };\nglobalThis.setPolicyActionBusy = setPolicyActionBusy;\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
+vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nlet dstValueCache = null; let srcValueCache = null; let directDstValueCache = null; let policyMap = null; let policyModeOption = null; let dstListOption = null; let srcListOption = null; let directDstListOption = null; let updateListsButton = null; let policyActionInFlight = false; let policyListWriteTransaction = null;\nconst SETTINGS_SECTION_ID = 'settings';\nconst SERVICE_NAME = 'mihowrt';\nconst SERVICE_SCRIPT = '/etc/init.d/mihowrt';\nconst commitUciPackage = async(config) => { globalThis.commitCalls.push(config); };\n${normalizeFnSource}\nfunction currentNormalizedListValue(option) { return option ? normalizeBlock(option.formvalue(SETTINGS_SECTION_ID)) : ''; }\n${syncFnSource}\n${listChangesFnSource}\n${mihowrtChangesFnSource}\n${policyRemoteChangeFnSource}\n${reloadFnSource}\n${updateFnSource}\n${removeFnSource}\n${bindFnSource}\nglobalThis.bindTextFileOption = bindTextFileOption;\nglobalThis.syncListCaches = syncListCaches;\nglobalThis.hasListValueChanges = hasListValueChanges;\nglobalThis.hasMihowrtUciChanges = hasMihowrtUciChanges;\nglobalThis.policyRemoteAutoUpdateChanged = policyRemoteAutoUpdateChanged;\nglobalThis.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate = mihowrtUciChangesOnlyPolicyRemoteAutoUpdate;\nglobalThis.reloadPolicyIfNeeded = reloadPolicyIfNeeded;\nglobalThis.updateRemoteLists = updateRemoteLists;\nglobalThis.beginPolicyListWriteTransaction = beginPolicyListWriteTransaction;\nglobalThis.flushPolicyListWrites = flushPolicyListWrites;\nglobalThis.rollbackPolicyListWrites = rollbackPolicyListWrites;\nglobalThis.clearPolicyListWriteTransaction = clearPolicyListWriteTransaction;\nglobalThis.isPolicyListWriteTransactionActive = () => !!policyListWriteTransaction;\nglobalThis.getDstCache = () => dstValueCache;\nglobalThis.getSrcCache = () => srcValueCache;\nglobalThis.getDirectDstCache = () => directDstValueCache;\nglobalThis.getPolicyActionInFlight = () => policyActionInFlight;\nglobalThis.setDstCache = value => { dstValueCache = value; };\nglobalThis.setSrcCache = value => { srcValueCache = value; };\nglobalThis.setDirectDstCache = value => { directDstValueCache = value; };\nglobalThis.setPolicyMap = value => { policyMap = value; };\nglobalThis.setUpdateListsButton = value => { updateListsButton = value; };\nglobalThis.setPolicyActionBusy = setPolicyActionBusy;\nglobalThis.setPolicyMode = value => { policyModeOption = { formvalue: () => value }; };\nglobalThis.setListOptions = (dst, src, directDst) => { dstListOption = dst; srcListOption = src; directDstListOption = directDst; };\nglobalThis.handleSaveApply = ${handleSaveApplySource};`, context);
 
 (async () => {
 	context.setPolicyMap({ readonly: false, save: async() => {} });
@@ -174,6 +178,47 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 		throw new Error('bindTextFileOption.write should normalize changed content');
 	if (context.getDstCache() !== '2.2.2.2\n')
 		throw new Error('bindTextFileOption.write should update cache after changed content');
+
+	context.fs.writeCalls.length = 0;
+	context.setDstCache('2.2.2.2\n');
+	context.beginPolicyListWriteTransaction();
+	await option.write('settings', '3.3.3.3');
+	if (context.fs.writeCalls.length !== 0)
+		throw new Error('bindTextFileOption.write should stage list writes inside transaction');
+	if (context.getDstCache() !== '2.2.2.2\n')
+		throw new Error('bindTextFileOption.write should keep cache unchanged until transaction flush');
+	await context.flushPolicyListWrites();
+	if (context.fs.writeCalls.length !== 1 || context.fs.writeCalls[0].value !== '3.3.3.3\n')
+		throw new Error('flushPolicyListWrites should persist staged list writes');
+	if (context.getDstCache() !== '3.3.3.3\n')
+		throw new Error('flushPolicyListWrites should update cache after staged write');
+	await context.rollbackPolicyListWrites();
+	if (context.fs.writeCalls.length !== 2 || context.fs.writeCalls[1].value !== '2.2.2.2\n')
+		throw new Error('rollbackPolicyListWrites should restore previous list content');
+	if (context.getDstCache() !== '2.2.2.2\n')
+		throw new Error('rollbackPolicyListWrites should restore cache');
+	context.clearPolicyListWriteTransaction();
+
+	context.fs.writeCalls.length = 0;
+	context.setDstCache('2.2.2.2\n');
+	context.beginPolicyListWriteTransaction();
+	await option.write('settings', '2.2.2.2');
+	await context.flushPolicyListWrites();
+	await context.rollbackPolicyListWrites();
+	if (context.fs.writeCalls.length !== 0)
+		throw new Error('policy list transaction should not write unchanged files during flush or rollback');
+	context.clearPolicyListWriteTransaction();
+
+	context.fs.writeCalls.length = 0;
+	context.setDstCache('2.2.2.2\n');
+	context.beginPolicyListWriteTransaction();
+	await option.write('settings', '3.3.3.3');
+	await option.write('settings', '2.2.2.2');
+	await context.flushPolicyListWrites();
+	await context.rollbackPolicyListWrites();
+	if (context.fs.writeCalls.length !== 0)
+		throw new Error('policy list transaction should not write when staged content returns to original value');
+	context.clearPolicyListWriteTransaction();
 
 	context.writeError = 'disk full';
 	let writeFailed = false;
@@ -274,6 +319,36 @@ vm.runInContext(`function _(value) { return value; }\nif (!String.prototype.form
 		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should reject mixed package changes');
 	if (context.mihowrtUciChangesOnlyPolicyRemoteAutoUpdate({ mihowrt: [['set', 'settings', 'policy_mode', 'proxy-first']] }))
 		throw new Error('mihowrtUciChangesOnlyPolicyRemoteAutoUpdate should reject other mihowrt options');
+
+	context.execCalls.length = 0;
+	context.fs.writeCalls.length = 0;
+	context.applyCalls.length = 0;
+	context.notifications.length = 0;
+	context.uciChanges = { mihowrt: [['set', 'settings', 'policy_mode', 'proxy-first']] };
+	context.applyError = 'apply failed';
+	context.setPolicyMode('direct-first');
+	context.syncListCaches('1.1.1.1\n', '', '');
+	context.setListOptions({ formvalue: () => '2.2.2.2\n' }, { formvalue: () => '' }, { formvalue: () => '' });
+	context.setPolicyMap({ readonly: false, save: async() => option.write('settings', '2.2.2.2') });
+	let applyFailed = false;
+	try {
+		await context.handleSaveApply.call({ handleSave: async() => {} }, null, '1');
+	}
+	catch (e) {
+		applyFailed = e.message === 'apply failed';
+	}
+	if (!applyFailed)
+		throw new Error('handleSaveApply should surface LuCI apply failure');
+	if (context.fs.writeCalls.length !== 2 ||
+		context.fs.writeCalls[0].value !== '2.2.2.2\n' ||
+		context.fs.writeCalls[1].value !== '1.1.1.1\n')
+		throw new Error('handleSaveApply should roll back staged list files after LuCI apply failure');
+	if (context.getDstCache() !== '1.1.1.1\n')
+		throw new Error('handleSaveApply should restore list cache after LuCI apply failure');
+	if (context.isPolicyListWriteTransactionActive())
+		throw new Error('handleSaveApply should clear list write transaction after failure');
+	context.applyError = null;
+	context.setPolicyMap({ readonly: false, save: async() => {} });
 
 	context.execCalls.length = 0;
 	context.applyCalls.length = 0;

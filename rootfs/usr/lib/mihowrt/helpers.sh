@@ -158,6 +158,32 @@ mihowrt_source_module() {
 MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh mihomo-api.sh migration.sh fetch.sh diagnostics.sh version.sh}"
 MIHOWRT_RUNTIME_MODULES="${MIHOWRT_RUNTIME_MODULES:-dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh runtime.sh}"
 
+# Track sourced modules so lazy command dispatch can compose small groups without
+# re-parsing shared dependencies.
+mihowrt_module_key() {
+	printf '%s/%s' "$(mihowrt_lib_dir)" "$1"
+}
+
+mihowrt_module_loaded() {
+	local module_key="$1"
+
+	case " ${MIHOWRT_LOADED_MODULES:-} " in
+	*" $module_key "*)
+		return 0
+		;;
+	esac
+	return 1
+}
+
+mihowrt_source_module_once() {
+	local module="$1" module_key=""
+
+	module_key="$(mihowrt_module_key "$module")"
+	mihowrt_module_loaded "$module_key" && return 0
+	mihowrt_source_module "$module" || return 1
+	MIHOWRT_LOADED_MODULES="${MIHOWRT_LOADED_MODULES:+$MIHOWRT_LOADED_MODULES }$module_key"
+}
+
 # Load modules in caller-provided order; later modules may depend on functions
 # defined by earlier ones.
 mihowrt_source_module_list() {
@@ -165,7 +191,7 @@ mihowrt_source_module_list() {
 
 	# shellcheck disable=SC2086
 	for module in $modules; do
-		mihowrt_source_module "$module" || return 1
+		mihowrt_source_module_once "$module" || return 1
 	done
 }
 
@@ -177,4 +203,6 @@ mihowrt_load_runtime_modules() {
 	mihowrt_source_module_list "$MIHOWRT_RUNTIME_MODULES"
 }
 
-mihowrt_load_helper_modules || return 1 2>/dev/null || exit 1
+if [ "${MIHOWRT_HELPERS_AUTOLOAD:-1}" != "0" ]; then
+	mihowrt_load_helper_modules || return 1 2>/dev/null || exit 1
+fi

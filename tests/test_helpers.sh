@@ -56,13 +56,26 @@ saved_mihowrt_lib_dir="$MIHOWRT_LIB_DIR"
 MIHOWRT_LIB_DIR="$module_dir"
 loaded_modules=""
 mihowrt_source_module_list "one.sh two.sh"
+mihowrt_source_module_list "one.sh two.sh"
 missing_module_stderr="$tmpdir/missing-module.stderr"
 if mihowrt_source_module "missing.sh" 2>"$missing_module_stderr"; then
 	fail "mihowrt_source_module should fail for missing modules"
 fi
 MIHOWRT_LIB_DIR="$saved_mihowrt_lib_dir"
-assert_eq "one two" "$loaded_modules" "mihowrt_source_module_list should source modules from shared manifest order"
+assert_eq "one two" "$loaded_modules" "mihowrt_source_module_list should source modules once from shared manifest order"
 assert_file_contains "$missing_module_stderr" "Error: Required MihoWRT module missing: $module_dir/missing.sh" "mihowrt_source_module should report missing modules on stderr"
+
+autoload_disabled_output="$(
+	MIHOWRT_HELPERS_AUTOLOAD=0 bash -c '
+		source "$1"
+		if command -v read_config_json >/dev/null 2>&1; then
+			printf loaded
+		else
+			printf lazy
+		fi
+	' _ "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
+)"
+assert_eq "lazy" "$autoload_disabled_output" "helpers autoload opt-out should leave helper modules unloaded"
 
 assert_true "uint_lte should accept equal values" uint_lte "4294967295" "4294967295"
 assert_true "uint_lte should accept leading zero values below max" uint_lte "00065535" "65535"

@@ -79,7 +79,7 @@ source_install_lib() {
 }
 
 strip_mihowrt_cli_bootstrap() {
-	sed '/^check_required_file \/lib\/functions\.sh$/,/^mihowrt_load_runtime_modules || exit 1$/d' \
+	sed '/^check_required_file \/lib\/functions\.sh$/,/^unset MIHOWRT_HELPERS_AUTOLOAD$/d' \
 		"$ROOT_DIR/rootfs/usr/bin/mihowrt"
 }
 

@@ -13,10 +13,39 @@ check_required_file /usr/lib/mihowrt/helpers.sh
 
 . /lib/functions.sh
 . /usr/lib/mihowrt/constants.sh
+MIHOWRT_HELPERS_AUTOLOAD=0
 . /usr/lib/mihowrt/helpers.sh
-# Load only runtime modules in the write-capable dispatcher. The read-only
-# wrapper still reaches this binary, but ACL decides which commands can run.
-mihowrt_load_runtime_modules || exit 1
+unset MIHOWRT_HELPERS_AUTOLOAD
+
+MIHOWRT_CONFIG_MODULES="${MIHOWRT_CONFIG_MODULES:-validation.sh config-io.sh}"
+MIHOWRT_API_MODULES="${MIHOWRT_API_MODULES:-validation.sh config-io.sh mihomo-api.sh}"
+MIHOWRT_SUBSCRIPTION_MODULES="${MIHOWRT_SUBSCRIPTION_MODULES:-validation.sh config-io.sh mihomo-api.sh fetch.sh}"
+MIHOWRT_STATUS_MODULES="${MIHOWRT_STATUS_MODULES:-validation.sh runtime-probe.sh config-io.sh dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh}"
+MIHOWRT_POLICY_LIST_MODULES="${MIHOWRT_POLICY_LIST_MODULES:-validation.sh lists.sh}"
+MIHOWRT_MIGRATION_MODULES="${MIHOWRT_MIGRATION_MODULES:-validation.sh lists.sh migration.sh}"
+MIHOWRT_RUNTIME_CONFIG_MODULES="${MIHOWRT_RUNTIME_CONFIG_MODULES:-validation.sh config-io.sh runtime-config.sh}"
+MIHOWRT_INIT_LAYOUT_MODULES="${MIHOWRT_INIT_LAYOUT_MODULES:-runtime.sh}"
+MIHOWRT_DIAGNOSTICS_MODULES="${MIHOWRT_DIAGNOSTICS_MODULES:-validation.sh diagnostics.sh}"
+
+mihowrt_cli_load_module_group() {
+	local sentinel="$1"
+	local modules="$2"
+
+	if [ -n "$sentinel" ] && command -v "$sentinel" >/dev/null 2>&1; then
+		return 0
+	fi
+	mihowrt_source_module_list "$modules"
+}
+
+mihowrt_cli_load_full_modules() {
+	local sentinel="$1"
+
+	if [ -n "$sentinel" ] && command -v "$sentinel" >/dev/null 2>&1; then
+		return 0
+	fi
+	mihowrt_load_helper_modules || return 1
+	mihowrt_load_runtime_modules
+}
 
 # Return the lock path used to serialize nft, route, DNS, and snapshot changes.
 runtime_lock_file() {
@@ -258,51 +287,67 @@ run_service() {
 
 case "$1" in
 prepare | start)
+	mihowrt_cli_load_full_modules prepare_runtime_state || exit 1
 	with_runtime_lock prepare_runtime_state
 	;;
 cleanup | stop)
+	mihowrt_cli_load_full_modules cleanup_runtime_state || exit 1
 	with_runtime_lock cleanup_runtime_state
 	;;
 recover)
+	mihowrt_cli_load_full_modules recover_runtime_state || exit 1
 	with_runtime_lock recover_runtime_state
 	;;
 reload | reload-policy)
+	mihowrt_cli_load_full_modules reload_runtime_state || exit 1
 	with_runtime_lock reload_runtime_state
 	;;
 update-policy-lists)
+	mihowrt_cli_load_full_modules update_runtime_policy_lists || exit 1
 	with_runtime_lock update_runtime_policy_lists
 	;;
 auto-update-policy-lists)
+	mihowrt_cli_load_full_modules auto_update_policy_remote_lists || exit 1
 	with_runtime_lock auto_update_policy_remote_lists
 	;;
 sync-policy-remote-auto-update)
+	mihowrt_cli_load_module_group policy_remote_refresh_auto_update_state "$MIHOWRT_POLICY_LIST_MODULES" || exit 1
 	with_runtime_lock policy_remote_refresh_auto_update_state
 	;;
 sync-subscription-auto-update)
+	mihowrt_cli_load_module_group subscription_refresh_auto_update_state "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	with_runtime_lock subscription_refresh_auto_update_state
 	;;
 migrate-all)
+	mihowrt_cli_load_module_group migrate_all "$MIHOWRT_MIGRATION_MODULES" || exit 1
 	migrate_all
 	;;
 migrate-legacy-settings)
+	mihowrt_cli_load_module_group migrate_legacy_uci_settings "$MIHOWRT_MIGRATION_MODULES" || exit 1
 	migrate_legacy_uci_settings
 	;;
 migrate-policy-lists)
+	mihowrt_cli_load_module_group migrate_policy_list_files "$MIHOWRT_MIGRATION_MODULES" || exit 1
 	migrate_policy_list_files
 	;;
 ensure-api-defaults)
+	mihowrt_cli_load_module_group ensure_active_config_api_defaults "$MIHOWRT_CONFIG_MODULES" || exit 1
 	with_runtime_lock ensure_active_config_api_defaults
 	;;
 service-running)
+	mihowrt_cli_load_module_group service_running_state "runtime-probe.sh" || exit 1
 	service_running_state
 	;;
 service-ready)
+	mihowrt_cli_load_module_group service_ready_runtime_state "$MIHOWRT_STATUS_MODULES" || exit 1
 	service_ready_runtime_state
 	;;
 service-state-json)
+	mihowrt_cli_load_module_group service_state_json "$MIHOWRT_STATUS_MODULES" || exit 1
 	service_state_json
 	;;
 restart-validated-service)
+	mihowrt_cli_load_module_group current_config_has_validated_stamp "$MIHOWRT_CONFIG_MODULES" || exit 1
 	init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
 	[ -x "$init_script" ] || {
 		echo "Error: init script '$init_script' is missing or not executable" >&2
@@ -315,19 +360,24 @@ restart-validated-service)
 	fi
 	;;
 validate)
+	mihowrt_cli_load_module_group validate_runtime_config "$MIHOWRT_RUNTIME_CONFIG_MODULES" || exit 1
 	load_runtime_config && validate_runtime_config
 	;;
 run-service)
+	mihowrt_cli_load_full_modules load_runtime_config || exit 1
 	run_service
 	;;
 init-layout)
+	mihowrt_cli_load_module_group init_runtime_layout "$MIHOWRT_INIT_LAYOUT_MODULES" || exit 1
 	init_runtime_layout
 	;;
 read-config)
+	mihowrt_cli_load_module_group read_config_json "$MIHOWRT_CONFIG_MODULES" || exit 1
 	[ -n "${2:-}" ] && CLASH_CONFIG="$2"
 	read_config_json
 	;;
 live-api-json)
+	mihowrt_cli_load_module_group mihomo_api_live_state_read "$MIHOWRT_API_MODULES" || exit 1
 	mihomo_api_live_state_read
 	;;
 apply-config)
@@ -335,6 +385,7 @@ apply-config)
 		echo "Usage: $0 apply-config <temp-config-path>" >&2
 		exit 1
 	}
+	mihowrt_cli_load_full_modules apply_config_runtime || exit 1
 	with_runtime_lock apply_config_runtime "$2"
 	;;
 apply-config-contents)
@@ -342,9 +393,11 @@ apply-config-contents)
 		echo "Usage: $0 apply-config-contents <config-contents>" >&2
 		exit 1
 	}
+	mihowrt_cli_load_full_modules apply_config_contents || exit 1
 	with_runtime_lock apply_config_contents "$2"
 	;;
 subscription-json)
+	mihowrt_cli_load_module_group subscription_url_json "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	subscription_url_json
 	;;
 set-subscription-settings)
@@ -352,6 +405,7 @@ set-subscription-settings)
 		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours]" >&2
 		exit 1
 	}
+	mihowrt_cli_load_module_group set_subscription_settings "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	case "$#" in
 	4) with_runtime_lock set_subscription_settings "$2" "$3" "$4" ;;
 	5) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" ;;
@@ -362,6 +416,7 @@ set-subscription-fetched-interval)
 		echo "Usage: $0 set-subscription-fetched-interval <url> <header-interval-hours>" >&2
 		exit 1
 	}
+	mihowrt_cli_load_module_group set_subscription_fetched_interval "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	with_runtime_lock set_subscription_fetched_interval "$2" "$3"
 	;;
 fetch-subscription)
@@ -369,6 +424,7 @@ fetch-subscription)
 		echo "Usage: $0 fetch-subscription <url>" >&2
 		exit 1
 	}
+	mihowrt_cli_load_module_group fetch_subscription_config "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	fetch_subscription_config "$2"
 	;;
 fetch-subscription-json)
@@ -376,21 +432,27 @@ fetch-subscription-json)
 		echo "Usage: $0 fetch-subscription-json <url>" >&2
 		exit 1
 	}
+	mihowrt_cli_load_module_group fetch_subscription_json "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
 	fetch_subscription_json "$2"
 	;;
 update-subscription)
+	mihowrt_cli_load_full_modules update_subscription_config || exit 1
 	with_runtime_lock update_subscription_config
 	;;
 auto-update-subscription)
+	mihowrt_cli_load_full_modules auto_update_subscription_config || exit 1
 	with_runtime_lock auto_update_subscription_config
 	;;
 status-json)
+	mihowrt_cli_load_module_group status_json "$MIHOWRT_STATUS_MODULES" || exit 1
 	status_json
 	;;
 logs-json)
+	mihowrt_cli_load_module_group logs_json "$MIHOWRT_DIAGNOSTICS_MODULES" || exit 1
 	logs_json "${2:-200}"
 	;;
 status)
+	mihowrt_cli_load_module_group status_runtime_state "$MIHOWRT_STATUS_MODULES" || exit 1
 	status_runtime_state
 	;;
 *)

@@ -41,7 +41,7 @@ function assert(condition, message) {
 (async() => {
 	const fetchFnSource = source.slice(fetchStart, fetchEnd);
 	assert(fetchFnSource.includes('stageSubscriptionSettings(value, result)'), 'fetchSubscription should stage subscription settings after fetch');
-	assert(fetchFnSource.includes("backendHelper.saveSubscriptionFetchedInterval(value, result.profileUpdateInterval || '')"), 'fetchSubscription should persist fetched interval metadata');
+	assert(!fetchFnSource.includes('backendHelper.saveSubscriptionFetchedInterval'), 'fetchSubscription should not persist fetched interval before validate/apply');
 	assert(!fetchFnSource.includes('persistSubscriptionSettings(value, result.profileUpdateInterval'), 'fetchSubscription should not save manual subscription settings before validate/apply');
 	assert(source.includes('subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked'), 'subscription interval input should be read-only unless override is enabled');
 	assert(source.includes('change: updateSubscriptionIntervalInputState'), 'subscription override checkbox should update interval editability');
@@ -156,7 +156,7 @@ globalThis.loadSubscriptionIntoEditor = loadSubscriptionIntoEditor;
 	assert(context.saveSettingsCalls.length === 1, 'persistPendingSubscriptionSettings should save exactly once');
 	assert(context.saveSettingsCalls[0].url === 'https://example.com/sub.yaml', 'persistPendingSubscriptionSettings should save staged URL');
 	assert(context.saveSettingsCalls[0].interval === '', 'persistPendingSubscriptionSettings should not save manual interval when override is disabled');
-	assert(context.saveSettingsCalls[0].header === undefined, 'persistPendingSubscriptionSettings should not save fetched header interval');
+	assert(context.saveSettingsCalls[0].header === '24', 'persistPendingSubscriptionSettings should persist fetched header interval only after apply');
 	assert(!('hotReloadSupported' in context.saveSettingsCalls[0]), 'persistPendingSubscriptionSettings should not pass unused hot reload flag');
 	assert(context.getPendingSubscriptionSettings() === null, 'persistPendingSubscriptionSettings should clear staged settings after save');
 	context.subscriptionIntervalInput.dataset.headerInterval = '24';

@@ -122,10 +122,24 @@ policy_route_priority_conflicts() {
 	mark_dec="$((NFT_INTERCEPT_MARK))"
 	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
+		function managed_rule(table, mark, mark_hex, mark_dec, i, table_match, mark_match) {
+			table_match = 0
+			mark_match = 0
+			for (i = 1; i < NF; i++) {
+				if (($i == "lookup" || $i == "table") && $(i + 1) == table) {
+					table_match = 1
+				}
+				if ($i == "fwmark" &&
+				    ($(i + 1) == mark "/" mark ||
+				     $(i + 1) == mark_hex "/" mark_hex ||
+				     $(i + 1) == mark_dec "/" mark_dec)) {
+					mark_match = 1
+				}
+			}
+			return table_match && mark_match
+		}
 		$1 == priority ":" {
-			table_match = (index($0, " lookup " table) || index($0, " table " table))
-			mark_match = (index($0, " fwmark " mark "/" mark) || index($0, " fwmark " mark_hex "/" mark_hex) || index($0, " fwmark " mark_dec "/" mark_dec))
-			if (table_match && mark_match) {
+			if (managed_rule(table, mark, mark_hex, mark_dec)) {
 				next
 			}
 			conflict=1
@@ -340,9 +354,23 @@ policy_route_rule_exists() {
 	mark_dec="$((NFT_INTERCEPT_MARK))"
 	rules_output="$(policy_route_rules_output)" || return 2
 	printf '%s\n' "$rules_output" | awk -v priority="$route_rule_priority" -v table="$route_table_id" -v mark="$mark" -v mark_hex="$mark_hex" -v mark_dec="$mark_dec" '
-		$1 == priority ":" &&
-		(index($0, " lookup " table) || index($0, " table " table)) &&
-		(index($0, " fwmark " mark "/" mark) || index($0, " fwmark " mark_hex "/" mark_hex) || index($0, " fwmark " mark_dec "/" mark_dec)) { found=1 }
+		function managed_rule(table, mark, mark_hex, mark_dec, i, table_match, mark_match) {
+			table_match = 0
+			mark_match = 0
+			for (i = 1; i < NF; i++) {
+				if (($i == "lookup" || $i == "table") && $(i + 1) == table) {
+					table_match = 1
+				}
+				if ($i == "fwmark" &&
+				    ($(i + 1) == mark "/" mark ||
+				     $(i + 1) == mark_hex "/" mark_hex ||
+				     $(i + 1) == mark_dec "/" mark_dec)) {
+					mark_match = 1
+				}
+			}
+			return table_match && mark_match
+		}
+		$1 == priority ":" && managed_rule(table, mark, mark_hex, mark_dec) { found=1 }
 		END { exit(found ? 0 : 1) }
 	'
 }

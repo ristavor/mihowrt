@@ -94,16 +94,18 @@ hex_port() {
 port_listening_tcp() {
 	local port_hex
 	port_hex="$(hex_port "$1")"
+	[ -r /proc/net/tcp ] || return 1
 	awk -v port=":$port_hex" '$2 ~ port && $4 == "0A" { found=1 } END { exit(found ? 0 : 1) }' \
-		/proc/net/tcp /proc/net/tcp6 2>/dev/null
+		/proc/net/tcp 2>/dev/null
 }
 
 # True when UDP port is present.
 port_listening_udp() {
 	local port_hex
 	port_hex="$(hex_port "$1")"
+	[ -r /proc/net/udp ] || return 1
 	awk -v port=":$port_hex" '$2 ~ port { found=1 } END { exit(found ? 0 : 1) }' \
-		/proc/net/udp /proc/net/udp6 2>/dev/null
+		/proc/net/udp 2>/dev/null
 }
 
 # Startup wait loop. Polling is acceptable here because it runs only while

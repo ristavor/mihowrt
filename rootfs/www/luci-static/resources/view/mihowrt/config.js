@@ -320,12 +320,12 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return configHelper.subscriptionUrlInputValue(input);
 }
 
-async function persistSubscriptionSettings(subscriptionUrl) {
+async function persistSubscriptionSettings(subscriptionUrl, headerInterval) {
 	const normalizedUrl = String(subscriptionUrl || '').trim();
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
 	const updateInterval = overrideInterval ? String(subscriptionIntervalInput?.value || '').trim() : '';
 
-	await backendHelper.saveSubscriptionSettings(normalizedUrl, overrideInterval, updateInterval);
+	await backendHelper.saveSubscriptionSettings(normalizedUrl, overrideInterval, updateInterval, headerInterval);
 	savedSubscriptionUrl = normalizedUrl;
 	await refreshSubscriptionState(true);
 }
@@ -435,7 +435,7 @@ async function persistPendingSubscriptionSettings(configContent) {
 		return false;
 	}
 
-	await persistSubscriptionSettings(pending.subscriptionUrl);
+	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval);
 	pendingSubscriptionSettings = null;
 	return true;
 }
@@ -571,8 +571,6 @@ return view.extend({
 				}
 
 				stageSubscriptionSettings(value, result);
-				await backendHelper.saveSubscriptionFetchedInterval(value, result.profileUpdateInterval || '');
-				await refreshSubscriptionState(false);
 
 				mihowrtUi.notify(_('Subscription loaded into editor. Validate & apply to save.'), 'info');
 			}).catch(e => {

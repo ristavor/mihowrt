@@ -338,13 +338,15 @@ return baseclass.extend({
 		return readBackendJson([ 'subscription-json' ], emptySubscriptionState(), assignSubscriptionState);
 	},
 
-	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval) {
+	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval) {
 		const args = [
 			'set-subscription-settings',
 			String(subscriptionUrl ?? ''),
 			overrideInterval ? '1' : '0',
 			String(updateInterval ?? '')
 		];
+		if (headerInterval !== undefined)
+			args.push(String(headerInterval ?? ''));
 
 		const result = await fs.exec(WRITE_BACKEND, args);
 		if (result.code !== 0)

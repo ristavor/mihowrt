@@ -748,6 +748,10 @@ migrate_restored_user_state() {
 assert_false "fresh package action should fail when package migrations fail" perform_package_action
 assert_file_contains "$event_log" "migrate_restored_user_state" "fresh package action should attempt migrations after package install"
 assert_file_contains "$event_log" "err:failed to migrate installed user state" "fresh package action should report migration failure"
+assert_file_contains "$event_log" "release_reinstall_dependencies" "fresh package action should release held dependencies after migration failure"
+assert_file_contains "$event_log" "quiesce_postinstall_service" "fresh package action should quiesce after migration failure"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "fresh package action should restore DNS defaults after migration failure"
+assert_file_contains "$event_log" "rollback_kernel_update" "fresh package action should roll back fresh kernel after migration failure"
 assert_file_not_contains "$event_log" "start_fresh_install_service" "fresh package action should not start service after migration failure"
 TEST_PACKAGE_INSTALLED_RC=0
 migrate_restored_user_state() {

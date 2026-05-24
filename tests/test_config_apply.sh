@@ -5,7 +5,30 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 tmpdir="$(make_temp_dir)"
-trap 'rm -rf "$tmpdir"' EXIT
+tmp_candidates=""
+
+cleanup() {
+	local candidate
+
+	rm -rf "$tmpdir"
+	for candidate in $tmp_candidates; do
+		rm -f "$candidate"
+	done
+}
+trap cleanup EXIT
+
+new_tmp_candidate() {
+	local template="$1"
+	local path
+
+	path="$(mktemp "$template")" || exit 1
+	tmp_candidates="${tmp_candidates:+$tmp_candidates }$path"
+	printf '%s\n' "$path"
+}
+
+new_config_candidate() {
+	new_tmp_candidate /tmp/mihowrt-config.XXXXXX
+}
 
 tmpbin="$tmpdir/bin"
 mkdir -p "$tmpbin"
@@ -122,7 +145,7 @@ ensure_active_config_api_defaults
 after_mtime="$(stat -c %Y "$CLASH_CONFIG")"
 assert_eq "$before_mtime" "$after_mtime" "ensure_active_config_api_defaults should avoid rewriting already patched config"
 
-candidate_valid="$tmpdir/candidate-valid.yaml"
+candidate_valid="$(new_config_candidate)"
 cp "$tmpdir/expected.yaml" "$candidate_valid"
 apply_config_file "$candidate_valid"
 cmp -s "$CLASH_CONFIG" "$tmpdir/expected-patched.yaml" || fail "apply_config_file should patch and install validated config"
@@ -143,7 +166,7 @@ cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_co
 assert_eq "$tmp_candidates_before" "$tmp_candidates_after" "apply_config_contents should clean up staged /tmp config file"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_contents should not leave flash-side temp config after success"
 
-candidate_same="$tmpdir/candidate-same.yaml"
+candidate_same="$(new_config_candidate)"
 cp "$CLASH_CONFIG" "$candidate_same"
 before_mtime="$(stat -c %Y "$CLASH_CONFIG")"
 sleep 1
@@ -153,7 +176,7 @@ assert_eq "$before_mtime" "$after_mtime" "apply_config_file should skip replacin
 cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should keep validated config marker after identical-config no-op"
 [[ ! -e "$candidate_same" ]] || fail "apply_config_file should remove temp candidate after identical-config no-op"
 
-candidate_custom_api="$tmpdir/candidate-custom-api.yaml"
+candidate_custom_api="$(new_config_candidate)"
 cat >"$candidate_custom_api" <<'EOF'
 mode: rule
 tproxy-port: 7894
@@ -175,7 +198,7 @@ assert_file_contains "$CLASH_CONFIG" "secret: user-secret" "apply_config_file sh
 assert_file_not_contains "$CLASH_CONFIG" "external-controller-unix: /tmp/clash/mihomo.sock" "apply_config_file should not force default socket over a custom socket"
 assert_file_not_contains "$CLASH_CONFIG" "0123456789abcdef0123456789abcdef0123456789abcdef" "apply_config_file should not overwrite existing secret"
 
-candidate_missing_secret="$tmpdir/candidate-missing-secret.yaml"
+candidate_missing_secret="$(new_config_candidate)"
 cat >"$candidate_missing_secret" <<'EOF'
 mode: rule
 tproxy-port: 7894
@@ -195,7 +218,7 @@ assert_file_contains "$CLASH_CONFIG" "external-controller: 127.0.0.1:19090" "app
 assert_file_contains "$CLASH_CONFIG" "secret: user-secret" "apply_config_file should reuse active secret when candidate secret is missing"
 assert_file_not_contains "$CLASH_CONFIG" "0123456789abcdef0123456789abcdef0123456789abcdef" "apply_config_file should not regenerate secret while active secret exists"
 
-candidate_legacy_socket="$tmpdir/candidate-legacy-socket.yaml"
+candidate_legacy_socket="$(new_config_candidate)"
 cat >"$candidate_legacy_socket" <<'EOF'
 mode: rule
 tproxy-port: 7894
@@ -216,7 +239,7 @@ assert_file_not_contains "$CLASH_CONFIG" "external-controller-unix: mihomo.sock"
 assert_file_contains "$CLASH_CONFIG" "secret: user-secret" "apply_config_file should preserve secret while migrating legacy socket"
 
 cp "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml"
-candidate_parse="$tmpdir/candidate-parse.yaml"
+candidate_parse="$(new_config_candidate)"
 cat >"$candidate_parse" <<'EOF'
 mode: rule
 tproxy-port: 7894
@@ -231,7 +254,7 @@ cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_fi
 [[ ! -e "$candidate_parse" ]] || fail "apply_config_file should remove temp candidate after policy validation failure"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after policy validation failure"
 
-candidate_mark_conflict="$tmpdir/candidate-mark-conflict.yaml"
+candidate_mark_conflict="$(new_config_candidate)"
 cat >"$candidate_mark_conflict" <<'EOF'
 mode: rule
 tproxy-port: 7894
@@ -249,7 +272,7 @@ cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_fi
 [[ ! -e "$candidate_mark_conflict" ]] || fail "apply_config_file should remove temp candidate after routing mark conflict"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after routing mark conflict"
 
-candidate_syntax="$tmpdir/candidate-syntax.yaml"
+candidate_syntax="$(new_config_candidate)"
 cat >"$candidate_syntax" <<'EOF'
 mode: rule
 bad-syntax: yes
@@ -265,6 +288,20 @@ cmp -s "$CLASH_CONFIG" "$tmpdir/live-before-invalid.yaml" || fail "apply_config_
 cmp -s "$CLASH_CONFIG" "$(validated_config_stamp_file)" || fail "apply_config_file should preserve previous validated marker after syntax validation failure"
 [[ ! -e "$candidate_syntax" ]] || fail "apply_config_file should remove temp candidate after syntax validation failure"
 compgen -G "$CLASH_CONFIG.tmp.*" >/dev/null && fail "apply_config_file should not leave flash-side temp config after syntax validation failure"
+
+allowed_config_path="$(new_config_candidate)"
+allowed_subscription_path="$(new_tmp_candidate /tmp/mihowrt-subscription.XXXXXX)"
+allowed_subscription_config_path="$(new_tmp_candidate /tmp/mihowrt-subscription-config.XXXXXX)"
+assert_true "config_candidate_path_allowed should allow config temp basename" config_candidate_path_allowed "$allowed_config_path"
+assert_true "config_candidate_path_allowed should allow subscription preview temp basename" config_candidate_path_allowed "$allowed_subscription_path"
+assert_true "config_candidate_path_allowed should allow subscription apply temp basename" config_candidate_path_allowed "$allowed_subscription_config_path"
+assert_false "config_candidate_path_allowed should reject /tmp traversal" config_candidate_path_allowed "/tmp/../etc/passwd"
+assert_false "config_candidate_path_allowed should reject nested temp paths" config_candidate_path_allowed "/tmp/mihowrt-config.bad/evil"
+symlink_candidate="/tmp/mihowrt-config.symlink.$$"
+tmp_candidates="${tmp_candidates:+$tmp_candidates }$symlink_candidate"
+rm -f "$symlink_candidate"
+ln -s /etc/passwd "$symlink_candidate"
+assert_false "config_candidate_path_allowed should reject symlink candidates" config_candidate_path_allowed "$symlink_candidate"
 
 assert_true "current_config_has_validated_stamp should accept unchanged validated config" current_config_has_validated_stamp
 printf '%s\n' '# external edit' >>"$CLASH_CONFIG"

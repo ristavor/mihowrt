@@ -2542,19 +2542,20 @@ complete_reinstall_after_package() {
 
 # Complete first install after apk transaction.
 complete_fresh_install_after_package() {
-	clear_kernel_backup
 	log "Migrating installed user state..."
 	if ! migrate_restored_user_state; then
-		err "failed to migrate installed user state"
+		handle_install_failure 0 "failed to migrate installed user state"
 		abort_transaction
 		return 1
 	fi
 
 	if ! start_fresh_install_service; then
+		handle_install_failure 0 "failed to start MihoWRT service after install"
 		abort_transaction
 		return 1
 	fi
 
+	clear_kernel_backup
 	end_install_transaction
 	return 0
 }

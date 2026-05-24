@@ -19,6 +19,28 @@ backend_exec() {
 	exec "$BACKEND" "$@"
 }
 
+temp_config_path_allowed() {
+	local candidate="$1"
+	local base=""
+
+	case "$candidate" in
+	/tmp/mihowrt-config.*)
+		;;
+	*)
+		return 1
+		;;
+	esac
+
+	base="${candidate#/tmp/}"
+	case "$base" in
+	'' | */*)
+		return 1
+		;;
+	esac
+
+	[ ! -L "$candidate" ]
+}
+
 case "${1:-}" in
 read-config)
 	case "$#" in
@@ -26,15 +48,12 @@ read-config)
 		backend_exec read-config
 		;;
 	2)
-		case "$2" in
-		/tmp/mihowrt-config.*)
+		if temp_config_path_allowed "$2"; then
 			backend_exec read-config "$2"
-			;;
-		*)
+		else
 			echo "Error: read-config path must be a MihoWRT temp config" >&2
 			exit 1
-			;;
-		esac
+		fi
 		;;
 	*)
 		usage

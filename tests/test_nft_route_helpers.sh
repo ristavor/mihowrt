@@ -402,6 +402,16 @@ assert_false "policy_route_rule_exists should ignore foreign rule with same prio
 assert_true "policy_route_priority_conflicts should catch foreign rule with same priority" policy_route_priority_conflicts 200 10000
 TEST_FOREIGN_RULE_PRESENT=0
 
+: >"$net_log"
+TEST_RULE_PRESENT=1
+TEST_ROUTE_TABLE_ID=2000
+TEST_ROUTE_RULE_PRIORITY=10000
+TEST_RULE_SHOW_RC=0
+assert_false "policy_route_rule_exists should not prefix-match route table ids" policy_route_rule_exists 200 10000
+assert_true "policy_route_priority_conflicts should treat same-priority different-table rule as conflict" policy_route_priority_conflicts 200 10000
+TEST_RULE_PRESENT=0
+TEST_ROUTE_TABLE_ID=200
+
 cat >"$ROUTE_STATE_FILE" <<'EOF'
 ROUTE_TABLE_ID=200
 ROUTE_RULE_PRIORITY=10000

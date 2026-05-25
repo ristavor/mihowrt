@@ -21,6 +21,7 @@ export TEST_INIT_RESTART_RC=0
 export TEST_INIT_START_RC=0
 export TEST_INIT_STOP_RC=0
 export TEST_WAIT_RUNNING_RC=0
+export TEST_WAIT_READY_RC=0
 export TEST_PGREP_RC=1
 export PATH="$tmpbin:$PATH"
 
@@ -144,6 +145,11 @@ wait_for_service_stop() {
 wait_for_service_running() {
 	printf 'wait_for_service_running\n' >>"$event_log"
 	return "${TEST_WAIT_RUNNING_RC:-0}"
+}
+
+wait_for_service_ready() {
+	printf 'wait_for_service_ready\n' >>"$event_log"
+	return "${TEST_WAIT_READY_RC:-0}"
 }
 
 kernel_remove() {
@@ -346,6 +352,7 @@ assert_file_contains "$init_log" "enable" "restore_runtime_state should re-enabl
 assert_file_contains "$init_log" "restart" "restore_runtime_state should restart running service"
 assert_eq "0" "$(grep -c '^start$' "$init_log" || true)" "restore_runtime_state should not start when restart succeeds"
 assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should confirm liveness after restart"
+assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should confirm readiness after restart"
 assert_file_not_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should not tear down state after successful restart"
 
 : > "$event_log"
@@ -360,6 +367,7 @@ assert_file_contains "$init_log" "disable" "restore_runtime_state should disable
 assert_file_contains "$init_log" "start" "restore_runtime_state should start stopped service"
 assert_file_not_contains "$init_log" "restart" "restore_runtime_state should skip restart when service is no longer running"
 assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should confirm liveness after fresh start"
+assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should confirm readiness after fresh start"
 
 : > "$event_log"
 : > "$init_log"
@@ -372,6 +380,7 @@ assert_false "restore_runtime_state should fail when restart fails" restore_runt
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback after failed restart"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults after failed restart"
 assert_file_not_contains "$event_log" "wait_for_service_running" "restore_runtime_state should not wait for liveness when start itself fails"
+assert_file_not_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should not wait for readiness when start itself fails"
 
 : > "$event_log"
 : > "$init_log"
@@ -382,11 +391,28 @@ WAS_ENABLED=1
 WAS_RUNNING=1
 assert_false "restore_runtime_state should fail when started service never becomes observable" restore_runtime_state
 assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should wait for liveness before failing"
+assert_file_not_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should not wait for readiness when service is unobservable"
 assert_file_contains "$event_log" "warn:MihoWRT start returned success; service start is asynchronous and was not observed within timeout" "restore_runtime_state should warn on unobserved async startup"
 assert_file_contains "$event_log" "warn:failed to start MihoWRT service after update" "restore_runtime_state should report failed unobserved startup"
 assert_file_contains "$init_log" "stop" "restore_runtime_state should stop unobservable service start"
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback after unobservable startup"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults after unobservable startup"
+
+: > "$event_log"
+: > "$init_log"
+TEST_WAIT_RUNNING_RC=0
+TEST_WAIT_READY_RC=1
+WAS_ENABLED=1
+WAS_RUNNING=1
+assert_false "restore_runtime_state should fail when started service never becomes ready" restore_runtime_state
+assert_file_contains "$event_log" "wait_for_service_running" "restore_runtime_state should confirm liveness before readiness"
+assert_file_contains "$event_log" "wait_for_service_ready" "restore_runtime_state should wait for readiness before succeeding"
+assert_file_contains "$event_log" "warn:MihoWRT start became observable but service did not become ready within timeout" "restore_runtime_state should warn on readiness timeout"
+assert_file_contains "$event_log" "warn:failed to start MihoWRT service after update" "restore_runtime_state should report failed readiness"
+assert_file_contains "$init_log" "stop" "restore_runtime_state should stop unready service start"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "restore_runtime_state should clean runtime fallback after unready startup"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "restore_runtime_state should restore DNS defaults after unready startup"
+TEST_WAIT_READY_RC=0
 
 : > "$event_log"
 : > "$init_log"
@@ -603,6 +629,7 @@ start_fresh_install_service
 assert_file_contains "$init_log" "enable" "start_fresh_install_service should enable service"
 assert_file_contains "$init_log" "start" "start_fresh_install_service should start service"
 assert_file_contains "$event_log" "wait_for_service_running" "start_fresh_install_service should confirm liveness before succeeding"
+assert_file_contains "$event_log" "wait_for_service_ready" "start_fresh_install_service should confirm readiness before succeeding"
 
 : > "$event_log"
 : > "$init_log"
@@ -615,6 +642,7 @@ assert_file_contains "$init_log" "disable" "failed fresh start should disable se
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "failed fresh start should clean runtime fallback"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "failed fresh start should restore DNS defaults"
 assert_file_not_contains "$event_log" "wait_for_service_running" "failed fresh start should not wait when init start already failed"
+assert_file_not_contains "$event_log" "wait_for_service_ready" "failed fresh start should not wait for readiness when init start already failed"
 
 : > "$event_log"
 : > "$init_log"
@@ -622,12 +650,28 @@ TEST_INIT_START_RC=0
 TEST_WAIT_RUNNING_RC=1
 assert_false "start_fresh_install_service should fail when service never becomes observable" start_fresh_install_service
 assert_file_contains "$event_log" "wait_for_service_running" "fresh start should wait for liveness before succeeding"
+assert_file_not_contains "$event_log" "wait_for_service_ready" "fresh start should not wait for readiness when service is unobservable"
 assert_file_contains "$event_log" "warn:MihoWRT start returned success; service start is asynchronous and was not observed within timeout" "fresh start should warn on unobserved async startup"
 assert_file_contains "$event_log" "warn:failed to start MihoWRT service after install" "fresh start should report failed unobserved startup"
 assert_file_contains "$init_log" "stop" "fresh start should stop unobservable service start"
 assert_file_contains "$init_log" "disable" "fresh start should disable service after unobservable startup"
 assert_file_contains "$event_log" "cleanup_runtime_fallback" "fresh start should clean runtime fallback after unobservable startup"
 assert_file_contains "$event_log" "restore_system_dns_defaults:1" "fresh start should restore DNS defaults after unobservable startup"
+
+: > "$event_log"
+: > "$init_log"
+TEST_WAIT_RUNNING_RC=0
+TEST_WAIT_READY_RC=1
+assert_false "start_fresh_install_service should fail when service never becomes ready" start_fresh_install_service
+assert_file_contains "$event_log" "wait_for_service_running" "fresh start should confirm liveness before readiness"
+assert_file_contains "$event_log" "wait_for_service_ready" "fresh start should wait for readiness before succeeding"
+assert_file_contains "$event_log" "warn:MihoWRT start became observable but service did not become ready within timeout" "fresh start should warn on readiness timeout"
+assert_file_contains "$event_log" "warn:failed to start MihoWRT service after install" "fresh start should report failed readiness"
+assert_file_contains "$init_log" "stop" "fresh start should stop unready service start"
+assert_file_contains "$init_log" "disable" "fresh start should disable service after unready startup"
+assert_file_contains "$event_log" "cleanup_runtime_fallback" "fresh start should clean runtime fallback after unready startup"
+assert_file_contains "$event_log" "restore_system_dns_defaults:1" "fresh start should restore DNS defaults after unready startup"
+TEST_WAIT_READY_RC=0
 
 latest_asset_url() {
 	printf '%s\n' "https://example.com/luci-app-mihowrt.apk"

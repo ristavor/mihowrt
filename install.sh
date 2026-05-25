@@ -25,6 +25,7 @@ INSTALL_TRANSACTION_ACTIVE=0
 INSTALL_TRANSACTION_REINSTALL=0
 INSTALL_TRANSACTION_PACKAGE_STARTED=0
 SERVICE_START_TIMEOUT="${SERVICE_START_TIMEOUT:-5}"
+SERVICE_READY_TIMEOUT="${SERVICE_READY_TIMEOUT:-30}"
 FETCH_RETRIES="${FETCH_RETRIES:-3}"
 FETCH_CONNECT_TIMEOUT="${FETCH_CONNECT_TIMEOUT:-10}"
 FETCH_MAX_TIME="${FETCH_MAX_TIME:-60}"
@@ -228,6 +229,24 @@ wait_for_service_running() {
 	return 1
 }
 
+wait_for_service_ready() {
+	local waited=0
+	local timeout="$SERVICE_READY_TIMEOUT"
+
+	while [ "$waited" -lt "$timeout" ]; do
+		"$ORCHESTRATOR" service-ready >/dev/null 2>&1 && return 0
+
+		if ! service_running && ! run_service_process_running; then
+			return 1
+		fi
+
+		sleep 1
+		waited=$((waited + 1))
+	done
+
+	return 1
+}
+
 stop_service_command() {
 	[ -x "$INIT_SCRIPT" ] || return 1
 	"$INIT_SCRIPT" stop >/dev/null 2>&1
@@ -254,16 +273,22 @@ set_service_enabled_state() {
 	fi
 }
 
-run_service_action_with_liveness() {
+run_service_action_with_readiness() {
 	local action="$1"
 	local async_warning="$2"
+	local readiness_warning="$3"
 
 	"$INIT_SCRIPT" "$action" >/dev/null 2>&1 || return 1
-	if wait_for_service_running; then
+	if ! wait_for_service_running; then
+		warn "$async_warning"
+		return 1
+	fi
+
+	if wait_for_service_ready; then
 		return 0
 	fi
 
-	warn "$async_warning"
+	warn "$readiness_warning"
 	return 1
 }
 
@@ -2153,7 +2178,9 @@ restore_runtime_state() {
 	if [ "$WAS_RUNNING" = "1" ] && [ -x "$INIT_SCRIPT" ]; then
 		if service_running; then
 			log "Restarting MihoWRT service..."
-			if run_service_action_with_liveness restart "MihoWRT restart returned success; service start is asynchronous and was not observed within timeout"; then
+			if run_service_action_with_readiness restart \
+				"MihoWRT restart returned success; service start is asynchronous and was not observed within timeout" \
+				"MihoWRT restart became observable but service did not become ready within timeout"; then
 				return 0
 			fi
 			warn "failed to restart MihoWRT service after update"
@@ -2161,7 +2188,9 @@ restore_runtime_state() {
 		fi
 
 		log "Starting MihoWRT service..."
-		if run_service_action_with_liveness start "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"; then
+		if run_service_action_with_readiness start \
+			"MihoWRT start returned success; service start is asynchronous and was not observed within timeout" \
+			"MihoWRT start became observable but service did not become ready within timeout"; then
 			return 0
 		fi
 		warn "failed to start MihoWRT service after update"
@@ -2395,7 +2424,9 @@ start_fresh_install_service() {
 
 	log "Starting MihoWRT service..."
 	set_service_enabled_state 1
-	if run_service_action_with_liveness start "MihoWRT start returned success; service start is asynchronous and was not observed within timeout"; then
+	if run_service_action_with_readiness start \
+		"MihoWRT start returned success; service start is asynchronous and was not observed within timeout" \
+		"MihoWRT start became observable but service did not become ready within timeout"; then
 		return 0
 	fi
 

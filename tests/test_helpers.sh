@@ -142,6 +142,30 @@ assert_true "service_running_state should fall back to pgrep when pid file is mi
 export TEST_PGREP_RC=1
 assert_false "service_running_state should fail when neither pid nor pgrep match exists" service_running_state
 
+proc_tcp4="$tmpdir/proc-tcp4"
+proc_tcp6="$tmpdir/proc-tcp6"
+proc_udp4="$tmpdir/proc-udp4"
+proc_udp6="$tmpdir/proc-udp6"
+: >"$proc_tcp4"
+: >"$proc_udp4"
+cat >"$proc_tcp6" <<'EOF'
+  sl  local_address                         rem_address                         st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode
+   0: 00000000000000000000000000000000:1ED6 00000000000000000000000000000000:0000 0A 00000000:00000000 00:00000000 00000000     0        0 0
+EOF
+cat >"$proc_udp6" <<'EOF'
+  sl  local_address                         rem_address                         st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode ref pointer drops
+   0: 00000000000000000000000000000000:1EC2 00000000000000000000000000000000:0000 07 00000000:00000000 00:00000000 00000000     0        0 0 2 0 0
+EOF
+MIHOWRT_PROC_NET_TCP_FILES="$proc_tcp4 $proc_tcp6"
+MIHOWRT_PROC_NET_UDP_FILES="$proc_udp4 $proc_udp6"
+assert_true "port_listening_tcp should inspect tcp6 fallback" port_listening_tcp "7894"
+assert_true "port_listening_udp should inspect udp6 fallback" port_listening_udp "7874"
+MIHOWRT_PROC_NET_TCP_FILES="$proc_tcp4 $tmpdir/missing-tcp6"
+MIHOWRT_PROC_NET_UDP_FILES="$proc_udp4 $tmpdir/missing-udp6"
+assert_false "port_listening_tcp should ignore missing proc files without false positive" port_listening_tcp "7894"
+assert_false "port_listening_udp should ignore missing proc files without false positive" port_listening_udp "7874"
+unset MIHOWRT_PROC_NET_TCP_FILES MIHOWRT_PROC_NET_UDP_FILES
+
 service_running_state() {
 	return "${TEST_SERVICE_RUNNING_RC:-0}"
 }

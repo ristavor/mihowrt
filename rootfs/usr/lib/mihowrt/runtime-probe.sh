@@ -92,20 +92,32 @@ hex_port() {
 
 # True when TCP port is listening.
 port_listening_tcp() {
-	local port_hex
+	local file=""
+	local port_hex=""
+
 	port_hex="$(hex_port "$1")"
-	[ -r /proc/net/tcp ] || return 1
-	awk -v port=":$port_hex" '$2 ~ port && $4 == "0A" { found=1 } END { exit(found ? 0 : 1) }' \
-		/proc/net/tcp 2>/dev/null
+	for file in ${MIHOWRT_PROC_NET_TCP_FILES:-/proc/net/tcp /proc/net/tcp6}; do
+		[ -r "$file" ] || continue
+		awk -v port=":$port_hex" '$2 ~ port && $4 == "0A" { found=1 } END { exit(found ? 0 : 1) }' \
+			"$file" 2>/dev/null && return 0
+	done
+
+	return 1
 }
 
 # True when UDP port is present.
 port_listening_udp() {
-	local port_hex
+	local file=""
+	local port_hex=""
+
 	port_hex="$(hex_port "$1")"
-	[ -r /proc/net/udp ] || return 1
-	awk -v port=":$port_hex" '$2 ~ port { found=1 } END { exit(found ? 0 : 1) }' \
-		/proc/net/udp 2>/dev/null
+	for file in ${MIHOWRT_PROC_NET_UDP_FILES:-/proc/net/udp /proc/net/udp6}; do
+		[ -r "$file" ] || continue
+		awk -v port=":$port_hex" '$2 ~ port { found=1 } END { exit(found ? 0 : 1) }' \
+			"$file" 2>/dev/null && return 0
+	done
+
+	return 1
 }
 
 # Startup wait loop. Polling is acceptable here because it runs only while

@@ -15,6 +15,7 @@ const SERVICE_STATE_TIMEOUT_MS = 35000;
 let startStopButton = null;
 let enableDisableButton = null;
 let dashboardButton = null;
+let updateKernelButton = null;
 let saveApplyButton = null;
 let subscriptionUrlInput = null;
 let subscriptionOverrideInput = null;
@@ -28,6 +29,7 @@ let serviceStatusBadge = null;
 let serviceEnabledBadge = null;
 let editor = null;
 let serviceActionInFlight = false;
+let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 let savedConfigContent = '';
@@ -41,7 +43,7 @@ let lastServiceState = {
 
 function controlsBusy() {
 	// Any active backend operation disables controls to prevent overlap.
-	return serviceActionInFlight || saveInFlight || subscriptionInFlight;
+	return serviceActionInFlight || kernelUpdateInFlight || saveInFlight || subscriptionInFlight;
 }
 
 function updateControlDisabledState() {
@@ -54,6 +56,8 @@ function updateControlDisabledState() {
 		enableDisableButton.disabled = disabled;
 	if (dashboardButton)
 		dashboardButton.disabled = disabled;
+	if (updateKernelButton)
+		updateKernelButton.disabled = disabled;
 	if (saveApplyButton)
 		saveApplyButton.disabled = disabled;
 	if (subscriptionUrlInput)
@@ -303,6 +307,69 @@ async function openDashboard() {
 		uiHelper: mihowrtUi,
 		windowObject: window
 	});
+}
+
+async function updateKernel() {
+	if (controlsBusy())
+		return;
+
+	kernelUpdateInFlight = true;
+	updateControlDisabledState();
+
+	try {
+		const result = await backendHelper.updateKernel();
+		const latest = result.latestVersion || result.currentVersion || _('latest');
+
+		if (result.updated) {
+			if (result.restartRequired) {
+				try {
+					await runServiceAction('restart');
+				}
+				catch (e) {
+					await refreshServiceState(false);
+					mihowrtUi.notify(_('Mihomo kernel updated to %s, but service restart failed: %s').format(latest, e.message), 'error');
+					return;
+				}
+
+				let restartSettled = null;
+				try {
+					restartSettled = await pollServiceState(state => state.ready);
+				}
+				catch (e) {
+					await refreshServiceState(false);
+					mihowrtUi.notify(_('Mihomo kernel updated to %s, but unable to confirm service restart: %s').format(latest, e.message), 'warning');
+					return;
+				}
+
+				if (!restartSettled) {
+					await refreshServiceState(false);
+					mihowrtUi.notify(_('Mihomo kernel updated to %s, but service restart is still in progress. Check diagnostics if it does not recover soon.').format(latest), 'warning');
+					return;
+				}
+
+				applyServiceState(restartSettled.running, restartSettled.enabled);
+				mihowrtUi.notify(_('Mihomo kernel updated to %s and service restarted.').format(latest), 'info');
+				return;
+			}
+
+			mihowrtUi.notify(_('Mihomo kernel updated to %s.').format(latest), 'info');
+			return;
+		}
+
+		if (result.action === 'up_to_date') {
+			mihowrtUi.notify(_('Mihomo kernel is up to date (%s).').format(result.currentVersion || latest), 'info');
+			return;
+		}
+
+		mihowrtUi.notify(result.reason || _('Mihomo kernel update is not required.'), 'info');
+	}
+	catch (e) {
+		mihowrtUi.notify(_('Unable to update Mihomo kernel: %s').format(e.message), 'error');
+	}
+	finally {
+		kernelUpdateInFlight = false;
+		updateControlDisabledState();
+	}
 }
 
 async function initializeAceEditor(node, content) {
@@ -698,6 +765,10 @@ return view.extend({
 					class: 'btn',
 					click: openDashboard
 				}, _('Open Mihomo Dashboard'))),
+				(updateKernelButton = E('button', {
+					class: 'btn cbi-button-action',
+					click: updateKernel
+				}, _('Update Kernel'))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceBadgeColor(serviceState.running) + ';'

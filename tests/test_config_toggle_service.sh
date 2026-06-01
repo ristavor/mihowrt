@@ -41,6 +41,7 @@ function assertDisabledState(context, expected, message) {
 		context.startStopButton.disabled,
 		context.enableDisableButton.disabled,
 		context.dashboardButton.disabled,
+		context.updateKernelButton.disabled,
 		context.saveApplyButton.disabled,
 		context.subscriptionUrlInput.disabled,
 		context.subscriptionOverrideInput.disabled,
@@ -49,6 +50,7 @@ function assertDisabledState(context, expected, message) {
 		context.subscriptionFetchButton.disabled
 	];
 	const expectedValues = [
+		expected,
 		expected,
 		expected,
 		expected,
@@ -84,6 +86,7 @@ function createContext(initialState) {
 		startStopButton: { disabled: false },
 		enableDisableButton: { disabled: false },
 		dashboardButton: { disabled: false },
+		updateKernelButton: { disabled: false },
 		saveApplyButton: { disabled: false },
 		subscriptionUrlInput: { disabled: false },
 		subscriptionOverrideInput: { disabled: false, checked: false },
@@ -129,6 +132,7 @@ if (!String.prototype.format) {
 let startStopButton = globalThis.startStopButton;
 let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
+let updateKernelButton = globalThis.updateKernelButton;
 let saveApplyButton = globalThis.saveApplyButton;
 let subscriptionUrlInput = globalThis.subscriptionUrlInput;
 let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
@@ -136,6 +140,7 @@ let subscriptionIntervalInput = globalThis.subscriptionIntervalInput;
 let subscriptionSaveButton = globalThis.subscriptionSaveButton;
 let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let serviceActionInFlight = false;
+let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 ${controlsFnSource}

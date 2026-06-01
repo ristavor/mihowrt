@@ -22,6 +22,8 @@ if (!viewSource.includes('Save Subscription Settings'))
 	throw new Error('config.js should label subscription save button as settings save');
 if (viewSource.includes('Save Subscription URL'))
 	throw new Error('config.js should not label subscription settings button as URL-only save');
+if (!viewSource.includes('Update Kernel'))
+	throw new Error('config.js should expose a kernel update action');
 if (!viewSource.includes('const pageChildren = [') || !viewSource.includes('const page = E(pageChildren);'))
 	throw new Error('config.js should build page children without empty string placeholders');
 const pageStart = viewSource.indexOf('const pageChildren = [');
@@ -77,24 +79,28 @@ if (!busyMatch)
 const context = harness.createContext();
 vm.runInContext(`
 let serviceActionInFlight = false;
+let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 ${busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '')}
 globalThis.controlsBusy = controlsBusy;
-globalThis.setBusyFlags = (serviceBusy, saveBusy, subscriptionBusy) => {
+globalThis.setBusyFlags = (serviceBusy, kernelBusy, saveBusy, subscriptionBusy) => {
 	serviceActionInFlight = serviceBusy;
+	kernelUpdateInFlight = kernelBusy;
 	saveInFlight = saveBusy;
 	subscriptionInFlight = subscriptionBusy;
 };
 `, context);
 
-context.setBusyFlags(false, false, false);
+context.setBusyFlags(false, false, false, false);
 assertEq(String(context.controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
-context.setBusyFlags(true, false, false);
+context.setBusyFlags(true, false, false, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
-context.setBusyFlags(false, true, false);
+context.setBusyFlags(false, true, false, false);
+assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when kernel update is running');
+context.setBusyFlags(false, false, true, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when save is running');
-context.setBusyFlags(false, false, true);
+context.setBusyFlags(false, false, false, true);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
 
 (async () => {

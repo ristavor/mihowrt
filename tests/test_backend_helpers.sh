@@ -352,6 +352,32 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('syncPolicyRemoteAutoUpdate should dispatch through backend command');
 
 	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt kernel-update-json'] = {
+		code: 0,
+		stdout: '{"action":"updated","updated":true,"restart_required":true,"arch":"arm64","current_version":"v1.19.24","latest_version":"v1.19.26","asset":"mihomo-linux-arm64-v1.19.26.gz","reason":"Mihomo kernel updated"}'
+	};
+	const kernelUpdate = await context.backend.updateKernel();
+	if (!kernelUpdate.updated || !kernelUpdate.restartRequired || kernelUpdate.arch !== 'arm64' || kernelUpdate.latestVersion !== 'v1.19.26')
+		throw new Error('updateKernel should map backend kernel update result');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'kernel-update-json'))
+		throw new Error('updateKernel should dispatch through backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt kernel-update-json'] = {
+		code: 1,
+		stderr: 'kernel failed'
+	};
+	let kernelUpdateFailed = false;
+	try {
+		await context.backend.updateKernel();
+	}
+	catch (e) {
+		kernelUpdateFailed = e.message === 'kernel failed';
+	}
+	if (!kernelUpdateFailed)
+		throw new Error('updateKernel should surface backend command failures');
+
+	context.execCalls.length = 0;
 	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/bad.yaml'] = {
 		ok: false,
 		error: {

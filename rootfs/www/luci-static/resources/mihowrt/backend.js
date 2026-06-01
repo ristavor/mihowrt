@@ -395,6 +395,25 @@ return baseclass.extend({
 			throw new Error(execHelper.errorDetail(result));
 	},
 
+	updateKernel: async function() {
+		const result = await fs.exec(WRITE_BACKEND, [ 'kernel-update-json' ]);
+
+		if (result.code !== 0)
+			throw new Error(execHelper.errorDetail(result));
+
+		const payload = JSON.parse(result.stdout || '{}');
+		return {
+			action: String(payload.action || ''),
+			updated: !!payload.updated,
+			restartRequired: !!payload.restart_required,
+			arch: String(payload.arch || ''),
+			currentVersion: String(payload.current_version || ''),
+			latestVersion: String(payload.latest_version || ''),
+			asset: String(payload.asset || ''),
+			reason: String(payload.reason || '')
+		};
+	},
+
 	readServiceState: async function() {
 		return readBackendJson([ 'service-state-json' ], {
 			available: false,

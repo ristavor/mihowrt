@@ -51,6 +51,7 @@ function createContext(overrides = {}) {
 		startStopButton: { disabled: false },
 		enableDisableButton: { disabled: false },
 		dashboardButton: { disabled: false },
+		updateKernelButton: { disabled: false },
 		saveApplyButton: { disabled: false },
 		subscriptionUrlInput: { disabled: false },
 		subscriptionOverrideInput: { disabled: false },
@@ -138,6 +139,7 @@ if (!String.prototype.format) {
 let startStopButton = globalThis.startStopButton;
 let enableDisableButton = globalThis.enableDisableButton;
 let dashboardButton = globalThis.dashboardButton;
+let updateKernelButton = globalThis.updateKernelButton;
 let saveApplyButton = globalThis.saveApplyButton;
 let subscriptionUrlInput = globalThis.subscriptionUrlInput;
 let subscriptionOverrideInput = globalThis.subscriptionOverrideInput;
@@ -146,6 +148,7 @@ let subscriptionSaveButton = globalThis.subscriptionSaveButton;
 let subscriptionFetchButton = globalThis.subscriptionFetchButton;
 let editor = globalThis.editor;
 let serviceActionInFlight = false;
+let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 let savedConfigContent = 'mode: old\\n';

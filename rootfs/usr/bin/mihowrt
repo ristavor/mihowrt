@@ -20,7 +20,7 @@ unset MIHOWRT_HELPERS_AUTOLOAD
 MIHOWRT_CONFIG_MODULES="${MIHOWRT_CONFIG_MODULES:-validation.sh config-io.sh}"
 MIHOWRT_API_MODULES="${MIHOWRT_API_MODULES:-validation.sh config-io.sh mihomo-api.sh}"
 MIHOWRT_SUBSCRIPTION_MODULES="${MIHOWRT_SUBSCRIPTION_MODULES:-validation.sh config-io.sh mihomo-api.sh fetch.sh}"
-MIHOWRT_STATUS_MODULES="${MIHOWRT_STATUS_MODULES:-validation.sh runtime-probe.sh config-io.sh dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh}"
+MIHOWRT_STATUS_MODULES="${MIHOWRT_STATUS_MODULES:-validation.sh runtime-probe.sh config-io.sh dns-state.sh lists.sh fetch.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh}"
 MIHOWRT_SERVICE_STATE_MODULES="${MIHOWRT_SERVICE_STATE_MODULES:-validation.sh runtime-probe.sh runtime-snapshot.sh runtime-status.sh}"
 MIHOWRT_POLICY_LIST_MODULES="${MIHOWRT_POLICY_LIST_MODULES:-validation.sh lists.sh}"
 MIHOWRT_MIGRATION_MODULES="${MIHOWRT_MIGRATION_MODULES:-validation.sh lists.sh migration.sh}"

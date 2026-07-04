@@ -13,4 +13,11 @@ case " $MIHOWRT_STATUS_MODULES " in
 	;;
 esac
 
+case " $MIHOWRT_RUNTIME_CONFIG_MODULES " in
+*" lists.sh "*) ;;
+*)
+	fail "runtime config module group should load lists.sh for policy file validation"
+	;;
+esac
+
 pass "cli module groups"

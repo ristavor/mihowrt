@@ -16,14 +16,16 @@ const emptyStatusMatch = source.match(/function emptyStatusState[\s\S]*?\n}\n\nf
 const emptyLogMatch = source.match(/function emptyLogState[\s\S]*?\n}\n\nfunction emptySubscriptionState/);
 const emptySubscriptionMatch = source.match(/function emptySubscriptionState[\s\S]*?\n}\n\nfunction tempConfigPath/);
 const tempConfigMatch = source.match(/function tempConfigPath[\s\S]*?\n}\n\nasync function removeTempFile/);
-const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction assignConfigState/);
+const removeTempMatch = source.match(/async function removeTempFile[\s\S]*?\n}\n\nfunction tempPolicyListPath/);
+const tempPolicyListMatch = source.match(/function tempPolicyListPath[\s\S]*?\n}\n\nfunction assignConfigState/);
 const assignConfigMatch = source.match(/function assignConfigState[\s\S]*?\n}\n\nfunction assignServiceState/);
 const assignServiceMatch = source.match(/function assignServiceState[\s\S]*?\n}\n\nasync function readBackendJson/);
 const readBackendJsonMatch = source.match(/async function readBackendJson[\s\S]*?\n}\n\nfunction assignSubscriptionState/);
 const assignSubscriptionMatch = source.match(/function assignSubscriptionState[\s\S]*?\n}\n\nfunction assignStatusState/);
 const assignStatusMatch = source.match(/function assignStatusState[\s\S]*?\n}\n\nfunction assignLogState/);
 const assignLogMatch = source.match(/function assignLogState[\s\S]*?\n}\n\nfunction assignApplyResult/);
-const assignApplyResultMatch = source.match(/function assignApplyResult[\s\S]*?\n}\n\nfunction subscriptionFetchErrorDetail/);
+const assignApplyResultMatch = source.match(/function assignApplyResult[\s\S]*?\n}\n\nfunction assignPolicyListApplyResult/);
+const assignPolicyListApplyResultMatch = source.match(/function assignPolicyListApplyResult[\s\S]*?\n}\n\nfunction subscriptionFetchErrorDetail/);
 const subscriptionFetchErrorMatch = source.match(/function subscriptionFetchErrorDetail[\s\S]*?\n}\n\nasync function readConfig/);
 const readConfigMatch = source.match(/async function readConfig[\s\S]*?\n}\n\nreturn baseclass\.extend/);
 const exportMatch = source.match(/return baseclass\.extend\(\{[\s\S]*?\n\}\);/);
@@ -40,6 +42,8 @@ if (!tempConfigMatch)
 	throw new Error('tempConfigPath() not found');
 if (!removeTempMatch)
 	throw new Error('removeTempFile() not found');
+if (!tempPolicyListMatch)
+	throw new Error('tempPolicyListPath() not found');
 if (!assignConfigMatch)
 	throw new Error('assignConfigState() not found');
 if (!assignServiceMatch)
@@ -54,6 +58,8 @@ if (!assignLogMatch)
 	throw new Error('assignLogState() not found');
 if (!assignApplyResultMatch)
 	throw new Error('assignApplyResult() not found');
+if (!assignPolicyListApplyResultMatch)
+	throw new Error('assignPolicyListApplyResult() not found');
 if (!subscriptionFetchErrorMatch)
 	throw new Error('subscriptionFetchErrorDetail() not found');
 if (!readConfigMatch)
@@ -66,14 +72,16 @@ const emptyStatusFnSource = emptyStatusMatch[0].replace(/\n\nfunction emptyLogSt
 const emptyLogFnSource = emptyLogMatch[0].replace(/\n\nfunction emptySubscriptionState$/, '');
 const emptySubscriptionFnSource = emptySubscriptionMatch[0].replace(/\n\nfunction tempConfigPath$/, '');
 const tempConfigFnSource = tempConfigMatch[0].replace(/\n\nasync function removeTempFile$/, '');
-const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction assignConfigState$/, '');
+const removeTempFnSource = removeTempMatch[0].replace(/\n\nfunction tempPolicyListPath$/, '');
+const tempPolicyListFnSource = tempPolicyListMatch[0].replace(/\n\nfunction assignConfigState$/, '');
 const assignConfigFnSource = assignConfigMatch[0].replace(/\n\nfunction assignServiceState$/, '');
 const assignServiceFnSource = assignServiceMatch[0].replace(/\n\nasync function readBackendJson$/, '');
 const readBackendJsonFnSource = readBackendJsonMatch[0].replace(/\n\nfunction assignSubscriptionState$/, '');
 const assignSubscriptionFnSource = assignSubscriptionMatch[0].replace(/\n\nfunction assignStatusState$/, '');
 const assignStatusFnSource = assignStatusMatch[0].replace(/\n\nfunction assignLogState$/, '');
 const assignLogFnSource = assignLogMatch[0].replace(/\n\nfunction assignApplyResult$/, '');
-const assignApplyResultFnSource = assignApplyResultMatch[0].replace(/\n\nfunction subscriptionFetchErrorDetail$/, '');
+const assignApplyResultFnSource = assignApplyResultMatch[0].replace(/\n\nfunction assignPolicyListApplyResult$/, '');
+const assignPolicyListApplyResultFnSource = assignPolicyListApplyResultMatch[0].replace(/\n\nfunction subscriptionFetchErrorDetail$/, '');
 const subscriptionFetchErrorFnSource = subscriptionFetchErrorMatch[0].replace(/\n\nasync function readConfig$/, '');
 const readConfigFnSource = readConfigMatch[0].replace(/\n\nreturn baseclass\.extend$/, '');
 const exportObjectSource = exportMatch[0].replace(/^return baseclass\.extend\(/, '').replace(/\);$/, '');
@@ -86,10 +94,12 @@ const context = {
 	writeCalls: [],
 	removeCalls: [],
 	execCalls: [],
-	fs: {
-		write: async(path, value) => {
-			context.writeCalls.push({ path, value });
-		},
+		fs: {
+			write: async(path, value) => {
+				if (context.writeErrorForPath && path.includes(context.writeErrorForPath))
+					throw new Error(context.writeErrorMessage || 'write failed');
+				context.writeCalls.push({ path, value });
+			},
 		remove: async(path) => {
 			context.removeCalls.push(path);
 			if (context.removeNotFound) {
@@ -121,11 +131,41 @@ const context = {
 	execResults: {},
 	execDirectCalls: [],
 	execDirectResults: {},
-	removeNotFound: false
+	removeNotFound: false,
+	writeErrorForPath: '',
+	writeErrorMessage: ''
 };
 context.Math.random = () => 0.5;
 vm.createContext(context);
-vm.runInContext(`if (!String.prototype.format) { String.prototype.format = function() { let i = 0; const args = arguments; return this.replace(/%s/g, () => String(args[i++])); }; }\nfunction _(value) { return value; }\n${emptyConfigFnSource}\n${emptyStatusFnSource}\n${emptyLogFnSource}\n${emptySubscriptionFnSource}\n${tempConfigFnSource}\n${removeTempFnSource}\n${assignConfigFnSource}\n${assignServiceFnSource}\n${readBackendJsonFnSource}\n${assignSubscriptionFnSource}\n${assignStatusFnSource}\n${assignLogFnSource}\n${assignApplyResultFnSource}\n${subscriptionFetchErrorFnSource}\n${readConfigFnSource}\nconst backend = ${exportObjectSource};\nglobalThis.emptyStatusState = emptyStatusState;\nglobalThis.backend = backend;`, context);
+vm.runInContext(`
+if (!String.prototype.format) {
+	String.prototype.format = function() {
+		let i = 0;
+		const args = arguments;
+		return this.replace(/%s/g, () => String(args[i++]));
+	};
+}
+function _(value) { return value; }
+${emptyConfigFnSource}
+${emptyStatusFnSource}
+${emptyLogFnSource}
+${emptySubscriptionFnSource}
+${tempConfigFnSource}
+${removeTempFnSource}
+${tempPolicyListFnSource}
+${assignConfigFnSource}
+${assignServiceFnSource}
+${readBackendJsonFnSource}
+${assignSubscriptionFnSource}
+${assignStatusFnSource}
+${assignLogFnSource}
+${assignApplyResultFnSource}
+${assignPolicyListApplyResultFnSource}
+${subscriptionFetchErrorFnSource}
+${readConfigFnSource}
+const backend = ${exportObjectSource};
+globalThis.emptyStatusState = emptyStatusState;
+globalThis.backend = backend;`, context);
 
 const state = context.emptyStatusState();
 
@@ -341,6 +381,59 @@ if (state.directDstRemoteUrlCount !== 0)
 	const policyListsUnchanged = await context.backend.updatePolicyLists();
 	if (policyListsUnchanged)
 		throw new Error('updatePolicyLists should report unchanged lists from backend stdout');
+
+	context.writeCalls.length = 0;
+	context.removeCalls.length = 0;
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt apply-policy-lists 1 /tmp/mihowrt-policy-list.dst.1700000000000-80000000 /tmp/mihowrt-policy-list.src.1700000000000-80000000 /tmp/mihowrt-policy-list.direct.1700000000000-80000000'] = {
+		code: 0,
+		stdout: '{"saved":true,"changed":true,"reloaded":true}'
+	};
+	const policyListApply = await context.backend.applyPolicyLists({
+		dst: '2.2.2.2\n',
+		src: '',
+		direct: '9.9.9.9\n'
+	}, true);
+	if (!policyListApply.changed || !policyListApply.reloaded)
+		throw new Error('applyPolicyLists should parse backend apply result');
+	if (context.writeCalls.length !== 3)
+		throw new Error('applyPolicyLists should stage all policy list files');
+	if (context.writeCalls[0].path !== '/tmp/mihowrt-policy-list.dst.1700000000000-80000000' ||
+		context.writeCalls[0].value !== '2.2.2.2\n' ||
+		context.writeCalls[1].path !== '/tmp/mihowrt-policy-list.src.1700000000000-80000000' ||
+		context.writeCalls[1].value !== '' ||
+		context.writeCalls[2].path !== '/tmp/mihowrt-policy-list.direct.1700000000000-80000000' ||
+		context.writeCalls[2].value !== '9.9.9.9\n')
+		throw new Error('applyPolicyLists should write normalized values to named temp paths');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args.join(' ') === 'apply-policy-lists 1 /tmp/mihowrt-policy-list.dst.1700000000000-80000000 /tmp/mihowrt-policy-list.src.1700000000000-80000000 /tmp/mihowrt-policy-list.direct.1700000000000-80000000'))
+		throw new Error('applyPolicyLists should dispatch locked backend apply command');
+	if (!context.removeCalls.includes('/tmp/mihowrt-policy-list.dst.1700000000000-80000000') ||
+		!context.removeCalls.includes('/tmp/mihowrt-policy-list.src.1700000000000-80000000') ||
+		!context.removeCalls.includes('/tmp/mihowrt-policy-list.direct.1700000000000-80000000'))
+		throw new Error('applyPolicyLists should remove staged temp files after backend call');
+
+	context.writeCalls.length = 0;
+	context.removeCalls.length = 0;
+	context.execCalls.length = 0;
+	context.writeErrorForPath = '.src.';
+	context.writeErrorMessage = 'tmp write failed';
+	let policyListWriteFailed = false;
+	try {
+		await context.backend.applyPolicyLists({ dst: '2.2.2.2\n', src: '1.1.1.1\n', direct: '' }, true);
+	}
+	catch (e) {
+		policyListWriteFailed = e.message === 'tmp write failed';
+	}
+	if (!policyListWriteFailed)
+		throw new Error('applyPolicyLists should surface temp write failures');
+	if (context.execCalls.length !== 0)
+		throw new Error('applyPolicyLists should not call backend after temp write failure');
+	if (!context.removeCalls.includes('/tmp/mihowrt-policy-list.dst.1700000000000-80000000') ||
+		!context.removeCalls.includes('/tmp/mihowrt-policy-list.src.1700000000000-80000000') ||
+		!context.removeCalls.includes('/tmp/mihowrt-policy-list.direct.1700000000000-80000000'))
+		throw new Error('applyPolicyLists should cleanup temp paths after partial write failure');
+	context.writeErrorForPath = '';
+	context.writeErrorMessage = '';
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt sync-policy-remote-auto-update'] = {

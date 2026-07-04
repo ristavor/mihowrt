@@ -21,9 +21,7 @@
 			"file": {
 				"/usr/bin/mihowrt": [ "exec" ],
 				"/tmp/mihowrt-config.*": [ "write" ],
-				"/opt/clash/lst/always_proxy_dst.txt": [ "write" ],
-				"/opt/clash/lst/always_proxy_src.txt": [ "write" ],
-				"/opt/clash/lst/direct_dst.txt": [ "write" ],
+				"/tmp/mihowrt-policy-list.*": [ "write" ],
 				"/etc/init.d/mihowrt": [ "exec" ]
 			},
 			"ubus": {

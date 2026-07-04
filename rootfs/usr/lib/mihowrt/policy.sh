@@ -319,6 +319,262 @@ reload_runtime_state() {
 	return 0
 }
 
+policy_list_candidate_path_allowed() {
+	local candidate="$1" base=""
+
+	case "$candidate" in
+	/tmp/mihowrt-policy-list.*) ;;
+	*)
+		err "policy list candidate must be stored under /tmp"
+		return 1
+		;;
+	esac
+
+	base="${candidate#/tmp/}"
+	case "$base" in
+	'' | */*)
+		err "policy list candidate path must not contain subdirectories"
+		return 1
+		;;
+	esac
+
+	[ ! -L "$candidate" ] || {
+		err "policy list candidate must not be a symlink"
+		return 1
+	}
+	[ -f "$candidate" ] || {
+		err "policy list candidate missing: $candidate"
+		return 1
+	}
+}
+
+policy_list_result_json() {
+	local changed="$1"
+	local reloaded="$2"
+
+	require_command jq || return 1
+	jq -nc \
+		--arg changed "$changed" \
+		--arg reloaded "$reloaded" \
+		'{
+			saved: true,
+			changed: ($changed == "1"),
+			reloaded: ($reloaded == "1")
+		}'
+}
+
+policy_list_backup_path() {
+	mktemp "${PKG_TMP_DIR:-/tmp/mihowrt}/policy-list-backup.XXXXXX"
+}
+
+policy_list_backup_file() {
+	local target="$1"
+	local backup="$2"
+
+	if [ -f "$target" ]; then
+		cp -f "$target" "$backup" || return 1
+		printf '%s' 1
+		return 0
+	fi
+
+	: >"$backup" || return 1
+	printf '%s' 0
+}
+
+policy_list_restore_file() {
+	local backup="$1"
+	local present="$2"
+	local target="$3"
+	local tmp="${target}.rollback.$$"
+
+	ensure_dir "$(dirname "$target")" || return 1
+	if [ "$present" = "1" ]; then
+		cp -f "$backup" "$tmp" || {
+			rm -f "$tmp"
+			return 1
+		}
+		mv -f "$tmp" "$target" || {
+			rm -f "$tmp"
+			return 1
+		}
+		return 0
+	fi
+
+	rm -f "$target"
+}
+
+policy_list_install_if_changed() {
+	local source="$1"
+	local target="$2"
+	local tmp="${target}.tmp.$$"
+
+	POLICY_LIST_FILE_CHANGED=0
+	ensure_dir "$(dirname "$target")" || return 1
+
+	if [ ! -s "$source" ]; then
+		[ -e "$target" ] || return 0
+		rm -f "$target" || return 1
+		POLICY_LIST_FILE_CHANGED=1
+		return 0
+	fi
+
+	if [ -f "$target" ] && cmp -s "$source" "$target" 2>/dev/null; then
+		return 0
+	fi
+
+	cp -f "$source" "$tmp" || {
+		rm -f "$tmp"
+		return 1
+	}
+	mv -f "$tmp" "$target" || {
+		rm -f "$tmp"
+		return 1
+	}
+	POLICY_LIST_FILE_CHANGED=1
+}
+
+policy_lists_validate_candidates_for_reload() {
+	local dst_candidate="$1"
+	local src_candidate="$2"
+	local direct_candidate="$3"
+	local rc=0
+	local prev_dst_set=0 prev_src_set=0 prev_direct_set=0
+	local prev_dst="" prev_src="" prev_direct=""
+
+	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
+		prev_dst_set=1
+		prev_dst="$POLICY_DST_LIST_FILE"
+	}
+	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
+		prev_src_set=1
+		prev_src="$POLICY_SRC_LIST_FILE"
+	}
+	[ "${POLICY_DIRECT_DST_LIST_FILE+x}" = x ] && {
+		prev_direct_set=1
+		prev_direct="$POLICY_DIRECT_DST_LIST_FILE"
+	}
+
+	load_runtime_config || return 1
+	POLICY_DST_LIST_FILE="$dst_candidate"
+	POLICY_SRC_LIST_FILE="$src_candidate"
+	POLICY_DIRECT_DST_LIST_FILE="$direct_candidate"
+
+	if policy_resolve_runtime_lists_without_cache; then
+		rc=0
+	else
+		rc=$?
+	fi
+
+	[ -z "${POLICY_EFFECTIVE_LIST_FILES:-}" ] || policy_clear_runtime_list_overrides
+
+	if [ "$prev_dst_set" -eq 1 ]; then
+		POLICY_DST_LIST_FILE="$prev_dst"
+	else
+		unset POLICY_DST_LIST_FILE
+	fi
+	if [ "$prev_src_set" -eq 1 ]; then
+		POLICY_SRC_LIST_FILE="$prev_src"
+	else
+		unset POLICY_SRC_LIST_FILE
+	fi
+	if [ "$prev_direct_set" -eq 1 ]; then
+		POLICY_DIRECT_DST_LIST_FILE="$prev_direct"
+	else
+		unset POLICY_DIRECT_DST_LIST_FILE
+	fi
+
+	return "$rc"
+}
+
+apply_policy_lists_runtime() {
+	local reload_requested="$1"
+	local dst_candidate="$2"
+	local src_candidate="$3"
+	local direct_candidate="$4"
+	local reload_needed=0 changed=0 reloaded=0
+	local dst_backup="" src_backup="" direct_backup=""
+	local dst_present=0 src_present=0 direct_present=0
+	local rc=0
+
+	case "$reload_requested" in
+	1 | true | yes) reload_requested=1 ;;
+	*) reload_requested=0 ;;
+	esac
+
+	policy_list_candidate_path_allowed "$dst_candidate" || return 1
+	policy_list_candidate_path_allowed "$src_candidate" || return 1
+	policy_list_candidate_path_allowed "$direct_candidate" || return 1
+	ensure_dir "${PKG_TMP_DIR:-/tmp/mihowrt}" || return 1
+
+	if [ "$reload_requested" -eq 1 ] && service_running_state; then
+		reload_needed=1
+		policy_lists_validate_candidates_for_reload "$dst_candidate" "$src_candidate" "$direct_candidate" || {
+			rm -f "$dst_candidate" "$src_candidate" "$direct_candidate"
+			return 1
+		}
+	fi
+
+	dst_backup="$(policy_list_backup_path)" || return 1
+	src_backup="$(policy_list_backup_path)" || {
+		rm -f "$dst_backup"
+		return 1
+	}
+	direct_backup="$(policy_list_backup_path)" || {
+		rm -f "$dst_backup" "$src_backup"
+		return 1
+	}
+
+	if ! dst_present="$(policy_list_backup_file "$DST_LIST_FILE" "$dst_backup")" ||
+		! src_present="$(policy_list_backup_file "$SRC_LIST_FILE" "$src_backup")" ||
+		! direct_present="$(policy_list_backup_file "$DIRECT_DST_LIST_FILE" "$direct_backup")"; then
+		rm -f "$dst_backup" "$src_backup" "$direct_backup" "$dst_candidate" "$src_candidate" "$direct_candidate"
+		return 1
+	fi
+
+	if policy_list_install_if_changed "$dst_candidate" "$DST_LIST_FILE"; then
+		[ "$POLICY_LIST_FILE_CHANGED" -eq 1 ] && changed=1
+	else
+		rc=1
+	fi
+	if [ "$rc" -eq 0 ]; then
+		if policy_list_install_if_changed "$src_candidate" "$SRC_LIST_FILE"; then
+			[ "$POLICY_LIST_FILE_CHANGED" -eq 1 ] && changed=1
+		else
+			rc=1
+		fi
+	fi
+	if [ "$rc" -eq 0 ]; then
+		if policy_list_install_if_changed "$direct_candidate" "$DIRECT_DST_LIST_FILE"; then
+			[ "$POLICY_LIST_FILE_CHANGED" -eq 1 ] && changed=1
+		else
+			rc=1
+		fi
+	fi
+	if [ "$rc" -ne 0 ]; then
+		policy_list_restore_file "$direct_backup" "$direct_present" "$DIRECT_DST_LIST_FILE" || true
+		policy_list_restore_file "$src_backup" "$src_present" "$SRC_LIST_FILE" || true
+		policy_list_restore_file "$dst_backup" "$dst_present" "$DST_LIST_FILE" || true
+		rm -f "$dst_backup" "$src_backup" "$direct_backup" "$dst_candidate" "$src_candidate" "$direct_candidate"
+		return 1
+	fi
+
+	if [ "$changed" -eq 1 ] && [ "$reload_needed" -eq 1 ]; then
+		if reload_runtime_state; then
+			reloaded=1
+		else
+			err "Policy reload failed after list save; restoring previous policy list files"
+			policy_list_restore_file "$direct_backup" "$direct_present" "$DIRECT_DST_LIST_FILE" || true
+			policy_list_restore_file "$src_backup" "$src_present" "$SRC_LIST_FILE" || true
+			policy_list_restore_file "$dst_backup" "$dst_present" "$DST_LIST_FILE" || true
+			rm -f "$dst_backup" "$src_backup" "$direct_backup" "$dst_candidate" "$src_candidate" "$direct_candidate"
+			return 1
+		fi
+	fi
+
+	rm -f "$dst_backup" "$src_backup" "$direct_backup" "$dst_candidate" "$src_candidate" "$direct_candidate"
+	policy_list_result_json "$changed" "$reloaded"
+}
+
 policy_resolve_runtime_lists_without_cache() {
 	local previous_cache_fallback="" previous_cache_fallback_set=0 rc=0
 

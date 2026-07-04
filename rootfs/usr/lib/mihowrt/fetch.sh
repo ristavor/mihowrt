@@ -1257,10 +1257,18 @@ subscription_mark_update_failure() {
 	subscription_write_auto_update_state "$interval" "failure" "$reason" "$manual_restart_required" "$manual_restart_reason"
 }
 
+subscription_apply_result_vars() {
+	local result="$1"
+
+	printf '%s\n' "$result" | jq -r '
+		@sh "action=\(.action // "") restart_required=\(if .restart_required then 1 else 0 end) restart_reason=\(.reason // "")"
+	' 2>/dev/null
+}
+
 update_subscription_config() {
 	local url="" candidate="" result="" action="" header_interval="" override="" update_interval="" effective_header_interval=""
 	local interval="" rc=0 restart_required="" restart_reason=""
-	local settings_error=""
+	local settings_error="" result_vars=""
 
 	require_command jq || return 1
 	require_command mktemp || return 1
@@ -1293,9 +1301,13 @@ update_subscription_config() {
 
 	header_interval="${FETCH_PROFILE_UPDATE_INTERVAL:-}"
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?
-	action="$(printf '%s\n' "$result" | jq -r '.action // ""' 2>/dev/null || true)"
-	restart_required="$(printf '%s\n' "$result" | jq -r 'if .restart_required then "1" else "0" end' 2>/dev/null || printf '0')"
-	restart_reason="$(printf '%s\n' "$result" | jq -r '.reason // ""' 2>/dev/null || true)"
+	if result_vars="$(subscription_apply_result_vars "$result")"; then
+		eval "$result_vars"
+	else
+		action=""
+		restart_required=0
+		restart_reason=""
+	fi
 	case "$action" in
 	saved | hot_reloaded | policy_reloaded) ;;
 	auto_update_disabled)

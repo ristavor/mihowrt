@@ -21,6 +21,7 @@ MIHOWRT_CONFIG_MODULES="${MIHOWRT_CONFIG_MODULES:-validation.sh config-io.sh}"
 MIHOWRT_API_MODULES="${MIHOWRT_API_MODULES:-validation.sh config-io.sh mihomo-api.sh}"
 MIHOWRT_SUBSCRIPTION_MODULES="${MIHOWRT_SUBSCRIPTION_MODULES:-validation.sh config-io.sh mihomo-api.sh fetch.sh}"
 MIHOWRT_STATUS_MODULES="${MIHOWRT_STATUS_MODULES:-validation.sh runtime-probe.sh config-io.sh dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh}"
+MIHOWRT_SERVICE_STATE_MODULES="${MIHOWRT_SERVICE_STATE_MODULES:-validation.sh runtime-probe.sh runtime-snapshot.sh runtime-status.sh}"
 MIHOWRT_POLICY_LIST_MODULES="${MIHOWRT_POLICY_LIST_MODULES:-validation.sh lists.sh}"
 MIHOWRT_MIGRATION_MODULES="${MIHOWRT_MIGRATION_MODULES:-validation.sh lists.sh migration.sh}"
 MIHOWRT_RUNTIME_CONFIG_MODULES="${MIHOWRT_RUNTIME_CONFIG_MODULES:-validation.sh config-io.sh runtime-config.sh}"
@@ -307,6 +308,14 @@ update-policy-lists)
 	mihowrt_cli_load_full_modules update_runtime_policy_lists || exit 1
 	with_runtime_lock update_runtime_policy_lists
 	;;
+apply-policy-lists)
+	[ "$#" -eq 5 ] || {
+		echo "Usage: $0 apply-policy-lists <reload:0|1> <dst-temp-path> <src-temp-path> <direct-temp-path>" >&2
+		exit 1
+	}
+	mihowrt_cli_load_full_modules apply_policy_lists_runtime || exit 1
+	with_runtime_lock apply_policy_lists_runtime "$2" "$3" "$4" "$5"
+	;;
 auto-update-policy-lists)
 	mihowrt_cli_load_full_modules auto_update_policy_remote_lists || exit 1
 	with_runtime_lock auto_update_policy_remote_lists
@@ -340,11 +349,11 @@ service-running)
 	service_running_state
 	;;
 service-ready)
-	mihowrt_cli_load_module_group service_ready_runtime_state "$MIHOWRT_STATUS_MODULES" || exit 1
+	mihowrt_cli_load_module_group service_ready_runtime_state "$MIHOWRT_SERVICE_STATE_MODULES" || exit 1
 	service_ready_runtime_state
 	;;
 service-state-json)
-	mihowrt_cli_load_module_group service_state_json "$MIHOWRT_STATUS_MODULES" || exit 1
+	mihowrt_cli_load_module_group service_state_json "$MIHOWRT_SERVICE_STATE_MODULES" || exit 1
 	service_state_json
 	;;
 restart-validated-service)
@@ -388,6 +397,10 @@ apply-config)
 	}
 	mihowrt_cli_load_full_modules apply_config_runtime || exit 1
 	with_runtime_lock apply_config_runtime "$2"
+	;;
+apply-active-config)
+	mihowrt_cli_load_full_modules apply_active_config_runtime || exit 1
+	with_runtime_lock apply_active_config_runtime
 	;;
 apply-config-contents)
 	[ "${2+x}" = x ] || {
@@ -461,7 +474,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-all|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-config-contents|subscription-json|set-subscription-settings|set-subscription-fetched-interval|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|kernel-update-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|apply-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-all|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-active-config|apply-config-contents|subscription-json|set-subscription-settings|set-subscription-fetched-interval|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|kernel-update-json|status}" >&2
 	exit 1
 	;;
 esac

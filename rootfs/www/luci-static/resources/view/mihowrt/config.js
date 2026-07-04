@@ -573,21 +573,28 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(fs.read(CLASH_CONFIG), ''),
-			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] })
+			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] }),
+			L.resolveDefault(backendHelper.readServiceState(), { available: false, errors: [ _('Unable to read service state') ] })
 		]);
 	},
 
 	render: async function(data) {
 		const config = data?.[0] ?? '';
 		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
+		const loadedServiceState = data?.[2] || { available: false, errors: [] };
 		let serviceState = lastServiceState;
 
 		// Cache loaded values as the baseline for dirty checks and no-op saves.
-		try {
-			serviceState = await readServiceState();
+		if (loadedServiceState.available) {
+			serviceState = {
+				running: !!loadedServiceState.serviceRunning,
+				enabled: !!loadedServiceState.serviceEnabled,
+				ready: !!loadedServiceState.serviceReady
+			};
+			lastServiceState = serviceState;
 		}
-		catch (e) {
-			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
+		else {
+			mihowrtUi.notify(_('Unable to read service state: %s').format(configHelper.serviceStateErrorDetail(loadedServiceState)), 'warning');
 		}
 		if (subscriptionState.errors && subscriptionState.errors.length)
 			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
@@ -768,7 +775,7 @@ return view.extend({
 				(updateKernelButton = E('button', {
 					class: 'btn cbi-button-action',
 					click: updateKernel
-				}, _('Update Kernel'))),
+				}, _('Update Core'))),
 				(serviceStatusBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceBadgeColor(serviceState.running) + ';'
@@ -778,9 +785,9 @@ return view.extend({
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceEnabledBadgeColor(serviceState.enabled) + ';'
 				}, configHelper.serviceEnabledBadgeText(serviceState.enabled)))
 			]),
-			E('h2', _('Mihomo YAML Configuration')),
-			E('p', { class: 'cbi-section-descr' }, _('Raw Mihomo YAML config. Save validates Mihomo syntax and required policy values before apply. Direct shell edits should use "service mihowrt apply".')),
-			E('p', { class: 'cbi-section-descr' }, _('If you want Mihomo runtime files to stay on tmpfs, use the managed paths: external-controller-unix: /tmp/clash/mihomo.sock, rule-provider files under ./ruleset/, and proxy-provider files under ./proxy_providers/.')),
+			E('h2', _('Mihomo Config')),
+			E('p', { class: 'cbi-section-descr' }, _('YAML is validated before save. Direct shell edits can be applied with "service mihowrt apply".')),
+			E('p', { class: 'cbi-section-descr' }, _('Managed tmpfs paths: external-controller-unix: /tmp/clash/mihomo.sock, rule providers under ./ruleset/, proxy providers under ./proxy_providers/.')),
 			E('div', {
 				style: 'margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
 			}, [
@@ -814,11 +821,11 @@ return view.extend({
 				(subscriptionSaveButton = E('button', {
 					class: 'btn',
 					click: saveSubscription
-				}, _('Save Subscription Settings'))),
+				}, _('Save Settings'))),
 				(subscriptionFetchButton = E('button', {
 					class: 'btn cbi-button-action',
 					click: fetchSubscription
-				}, _('Fetch Subscription'))),
+				}, _('Fetch'))),
 				(subscriptionAutoUpdateBadge = E('span', {
 					class: 'label',
 					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (subscriptionState.subscriptionAutoUpdateEnabled ? '#5cb85c' : '#d9534f') + ';'
@@ -844,7 +851,7 @@ return view.extend({
 				(saveApplyButton = E('button', {
 					class: 'btn cbi-button-apply',
 					click: saveAndApply
-				}, _('Validate & Apply Config')))
+				}, _('Validate & Apply')))
 			])
 		);
 

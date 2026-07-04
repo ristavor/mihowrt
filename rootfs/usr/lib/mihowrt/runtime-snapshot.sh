@@ -18,6 +18,10 @@ runtime_snapshot_direct_file() {
 	printf '%s\n' "${RUNTIME_SNAPSHOT_DIRECT_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/direct_dst.snapshot}"
 }
 
+runtime_snapshot_vars_cache_clear() {
+	unset RUNTIME_SNAPSHOT_VARS_CACHE_FILE RUNTIME_SNAPSHOT_VARS_CACHE
+}
+
 # Snapshot is complete only when metadata and all list copies are present.
 runtime_snapshot_exists() {
 	[ -f "$(runtime_snapshot_file)" ] || return 1
@@ -35,6 +39,7 @@ runtime_snapshot_valid() {
 # Remove all snapshot files after successful cleanup.
 runtime_snapshot_clear() {
 	rm -f "$(runtime_snapshot_file)" "$(runtime_snapshot_dst_file)" "$(runtime_snapshot_src_file)" "$(runtime_snapshot_direct_file)"
+	runtime_snapshot_vars_cache_clear
 }
 
 runtime_snapshot_cleanup_files() {
@@ -314,6 +319,7 @@ runtime_snapshot_save() {
 		"$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup" \
 		"$snapshot_tmp" "$dst_tmp" "$src_tmp" "$direct_tmp" || return 1
 
+	runtime_snapshot_vars_cache_clear
 	runtime_snapshot_cleanup_files "$snapshot_backup" "$dst_backup" "$src_backup" "$direct_backup"
 	if command -v policy_cache_save_current >/dev/null 2>&1; then
 		policy_cache_save_current || warn "Failed to update persistent policy cache"
@@ -375,12 +381,21 @@ runtime_snapshot_vars_from_json() {
 # Read shell assignments from the selected snapshot file.
 runtime_snapshot_vars() {
 	local snapshot_file="${1:-}"
+	local snapshot_vars=""
 
 	require_command jq || return 1
 	[ -n "$snapshot_file" ] || snapshot_file="$(runtime_snapshot_file)"
 	[ -f "$snapshot_file" ] || return 1
 
-	runtime_snapshot_vars_from_json <"$snapshot_file"
+	if [ "${RUNTIME_SNAPSHOT_VARS_CACHE_FILE:-}" = "$snapshot_file" ] && [ -n "${RUNTIME_SNAPSHOT_VARS_CACHE:-}" ]; then
+		printf '%s\n' "$RUNTIME_SNAPSHOT_VARS_CACHE"
+		return 0
+	fi
+
+	snapshot_vars="$(runtime_snapshot_vars_from_json <"$snapshot_file")" || return 1
+	RUNTIME_SNAPSHOT_VARS_CACHE_FILE="$snapshot_file"
+	RUNTIME_SNAPSHOT_VARS_CACHE="$snapshot_vars"
+	printf '%s\n' "$snapshot_vars"
 }
 
 # Reapply the previous snapshot while preserving caller list path overrides.
@@ -516,7 +531,31 @@ runtime_snapshot_readiness_json() {
 			mihomo_dns_port: (.mihomo_dns_port // ""),
 			mihomo_dns_listen: (.mihomo_dns_listen // ""),
 			mihomo_tproxy_port: (.mihomo_tproxy_port // "")
-	} end' "$snapshot_file"
+		} end' "$snapshot_file"
+}
+
+# Shell assignments for readiness probes; avoids JSON re-parsing on hot paths.
+runtime_snapshot_readiness_vars() {
+	local snapshot_file=""
+
+	require_command jq || return 1
+	runtime_snapshot_exists || return 1
+
+	snapshot_file="$(runtime_snapshot_file)"
+	jq -er \
+		'if ((.enabled // false) != true) then
+			error("runtime snapshot has disabled policy")
+		elif ((((.policy_mode // "direct-first") == "direct-first") or ((.policy_mode // "direct-first") == "proxy-first")) | not) then
+			error("runtime snapshot has invalid policy mode")
+		elif ((.dns_enhanced_mode // "") != "fake-ip") then
+			error("runtime snapshot is not fake-ip policy")
+		elif ((.catch_fakeip // false) != true) then
+			error("runtime snapshot does not catch fake-ip")
+		elif ((.fakeip_range // "") == "") then
+			error("runtime snapshot has empty fake-ip range")
+		else
+			@sh "STATUS_READY_DNS_PORT=\(.mihomo_dns_port // "") STATUS_READY_TPROXY_PORT=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
+		end' "$snapshot_file"
 }
 
 # True when current Mihomo-derived runtime fields match the active snapshot.

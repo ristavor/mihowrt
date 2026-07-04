@@ -320,6 +320,20 @@ apply_config_output="$(
 )"
 assert_eq "runtime:$tmpdir/candidate.yaml" "$apply_config_output" "apply-config command should forward temp config path to runtime apply helper"
 
+apply_active_config_output="$(
+	set -- apply-active-config
+	apply_active_config_runtime() {
+		printf 'active-runtime\n'
+	}
+	with_runtime_lock() {
+		shift 0
+		"$@"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "active-runtime" "$apply_active_config_output" "apply-active-config command should dispatch active config hot apply helper"
+
 apply_config_contents_output="$(
 	set -- apply-config-contents 'mode: direct
 dns:
@@ -404,6 +418,16 @@ update_policy_lists_output="$(
 	source <(strip_mihowrt_cli_bootstrap)
 )"
 assert_eq "updated=0" "$update_policy_lists_output" "update-policy-lists command should dispatch to remote list updater"
+
+apply_policy_lists_output="$(
+	set -- apply-policy-lists 1 /tmp/mihowrt-policy-list.dst.test /tmp/mihowrt-policy-list.src.test /tmp/mihowrt-policy-list.direct.test
+	apply_policy_lists_runtime() {
+		printf '%s|%s|%s|%s\n' "$1" "$2" "$3" "$4"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "1|/tmp/mihowrt-policy-list.dst.test|/tmp/mihowrt-policy-list.src.test|/tmp/mihowrt-policy-list.direct.test" "$apply_policy_lists_output" "apply-policy-lists command should dispatch temp list apply helper"
 
 auto_update_policy_lists_output="$(
 	set -- auto-update-policy-lists
@@ -571,6 +595,9 @@ export TEST_ORCH_LOG="$orch_log"
 export TEST_ORCH_VALIDATE_RC=0
 export TEST_ORCH_CLEANUP_RC=0
 export TEST_ORCH_RUNNING_RC=0
+export TEST_ORCH_APPLY_RC=0
+export TEST_ORCH_APPLY_RESTART_REQUIRED=false
+export TEST_ORCH_APPLY_ACTION=hot_reloaded
 export TEST_CLASH_TEST_RC=0
 export TEST_SERVICE_PID_FILE="$SERVICE_PID_FILE"
 
@@ -587,6 +614,10 @@ case "${1:-}" in
 		;;
 	validate)
 		exit "${TEST_ORCH_VALIDATE_RC:-0}"
+		;;
+	apply-active-config)
+		printf '{"action":"%s","restart_required":%s,"hot_reloaded":true,"policy_reloaded":false}\n' "${TEST_ORCH_APPLY_ACTION:-hot_reloaded}" "${TEST_ORCH_APPLY_RESTART_REQUIRED:-false}"
+		exit "${TEST_ORCH_APPLY_RC:-0}"
 		;;
 	cleanup)
 			exit "${TEST_ORCH_CLEANUP_RC:-0}"
@@ -737,14 +768,28 @@ assert_file_contains "$msg_log" "MihoWRT subscription update finished" "update_s
 printf '%s\n' "$$" >"$SERVICE_PID_FILE"
 apply
 assert_file_contains "$msg_log" "Applying MihoWRT on-disk config..." "apply should announce on-disk apply flow"
-assert_file_contains "$msg_log" "MihoWRT service is running; restarting to apply on-disk changes" "apply should restart running service after validation"
-assert_file_contains "$msg_log" "stop" "apply should stop running service before restart"
-assert_file_contains "$msg_log" "start" "apply should start service after stop during apply"
-assert_file_contains "$msg_log" "MihoWRT on-disk changes applied" "apply should confirm successful on-disk apply"
+assert_file_contains "$msg_log" "MihoWRT on-disk changes hot-applied" "apply should hot-apply running service without restart when backend can reload"
+assert_file_not_contains "$msg_log" "stop" "apply should not stop service after successful hot apply"
+assert_eq "0" "$(grep -c '^start$' "$msg_log" || true)" "apply should not start service after successful hot apply"
 assert_file_contains "$orch_log" "validate" "apply should validate policy before restart"
 assert_file_contains "$orch_log" "sync-policy-remote-auto-update" "apply should sync remote policy auto-update schedule"
 assert_file_contains "$orch_log" "sync-subscription-auto-update" "apply should sync subscription auto-update schedule"
 assert_file_contains "$orch_log" "service-running" "apply should check service state before restart"
+assert_file_contains "$orch_log" "apply-active-config" "apply should ask backend to hot-apply active on-disk config"
+
+: >"$msg_log"
+: >"$orch_log"
+printf '%s\n' "$$" >"$SERVICE_PID_FILE"
+export TEST_ORCH_APPLY_RESTART_REQUIRED=true
+export TEST_ORCH_APPLY_ACTION=restart_required
+apply
+assert_file_contains "$msg_log" "MihoWRT service is running; restarting to fully apply on-disk changes" "apply should restart when backend reports restart_required"
+assert_file_contains "$msg_log" "stop" "apply should stop service before restart fallback"
+assert_file_contains "$msg_log" "start" "apply should start service after restart fallback"
+assert_file_contains "$msg_log" "MihoWRT on-disk changes applied" "apply should confirm restart fallback success"
+assert_file_contains "$orch_log" "apply-active-config" "apply restart fallback should still try hot apply first"
+export TEST_ORCH_APPLY_RESTART_REQUIRED=false
+export TEST_ORCH_APPLY_ACTION=hot_reloaded
 
 : >"$msg_log"
 : >"$orch_log"

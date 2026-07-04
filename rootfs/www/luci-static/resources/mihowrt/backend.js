@@ -132,6 +132,11 @@ async function removeTempFile(path) {
 	}
 }
 
+function tempPolicyListPath(name) {
+	const suffix = '%s-%s'.format(Date.now(), Math.floor(Math.random() * 0x100000000).toString(16));
+	return `/tmp/mihowrt-policy-list.${name}.${suffix}`;
+}
+
 function assignConfigState(state, payload) {
 	// Convert backend snake_case fields into LuCI camelCase state.
 	state.configPath = String(payload?.config_path || state.configPath);
@@ -276,6 +281,14 @@ function assignApplyResult(payload) {
 	};
 }
 
+function assignPolicyListApplyResult(payload) {
+	return {
+		saved: payload?.saved !== false,
+		changed: !!payload?.changed,
+		reloaded: !!payload?.reloaded
+	};
+}
+
 function subscriptionFetchErrorDetail(error) {
 	const kind = String(error?.kind || '');
 	const message = String(error?.message || '').trim();
@@ -376,6 +389,40 @@ return baseclass.extend({
 			hotReloadSupported: payload.hot_reload_supported !== false,
 			hotReloadReason: String(payload.hot_reload_reason || '')
 		};
+	},
+
+	applyPolicyLists: async function(values, reload) {
+		const paths = {
+			dst: tempPolicyListPath('dst'),
+			src: tempPolicyListPath('src'),
+			direct: tempPolicyListPath('direct')
+		};
+
+		try {
+			await fs.write(paths.dst, String(values?.dst ?? ''));
+			await fs.write(paths.src, String(values?.src ?? ''));
+			await fs.write(paths.direct, String(values?.direct ?? ''));
+
+			const result = await fs.exec(WRITE_BACKEND, [
+				'apply-policy-lists',
+				reload ? '1' : '0',
+				paths.dst,
+				paths.src,
+				paths.direct
+			]);
+
+			if (result.code !== 0)
+				throw new Error(execHelper.errorDetail(result));
+
+			return assignPolicyListApplyResult(JSON.parse(result.stdout || '{}'));
+		}
+		finally {
+			await Promise.all([
+				removeTempFile(paths.dst),
+				removeTempFile(paths.src),
+				removeTempFile(paths.direct)
+			]);
+		}
 	},
 
 	// Backend prints updated=1 only when effective remote list content changed.

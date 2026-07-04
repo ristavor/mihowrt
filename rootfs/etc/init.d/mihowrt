@@ -67,6 +67,14 @@ sync_auto_update_schedules() {
 	return 0
 }
 
+apply_result_vars() {
+	local result="$1"
+
+	printf '%s\n' "$result" | jq -r '
+		@sh "apply_restart_required=\(if .restart_required == false then 0 else 1 end) apply_action=\(.action // "")"
+	' 2>/dev/null
+}
+
 # Start path cleans stale state first, then lets run-service own Mihomo lifetime
 # and stop-time cleanup.
 start_service() {
@@ -152,9 +160,12 @@ update_subscription() {
 	msg "MihoWRT subscription update finished"
 }
 
-# Apply on-disk config safely: validate first, then restart only if service is
-# running. A stopped service keeps validated config for next start.
+# Apply on-disk config safely: validate first, then try Mihomo hot reload and
+# policy reload. Restart remains the fallback for API/UI changes or failed hot
+# reloads.
 apply() {
+	local apply_result="" apply_action="" apply_restart_required=1 apply_vars=""
+
 	msg "Applying MihoWRT on-disk config..."
 
 	[ -f "$SKIP_START_FILE" ] && {
@@ -172,7 +183,34 @@ apply() {
 		return 0
 	fi
 
-	msg "MihoWRT service is running; restarting to apply on-disk changes"
+	if ! apply_result="$("$ORCHESTRATOR" apply-active-config 2>&1)"; then
+		msg "ERROR: Failed to hot-apply on-disk config: $apply_result"
+		return 1
+	fi
+
+	if apply_vars="$(apply_result_vars "$apply_result")"; then
+		eval "$apply_vars"
+	else
+		apply_restart_required=1
+		apply_action=""
+	fi
+
+	if [ "$apply_restart_required" -eq 0 ]; then
+		case "$apply_action" in
+		policy_reloaded)
+			msg "MihoWRT on-disk changes hot-applied; policy reloaded"
+			;;
+		hot_reloaded)
+			msg "MihoWRT on-disk changes hot-applied"
+			;;
+		*)
+			msg "MihoWRT on-disk config already active"
+			;;
+		esac
+		return 0
+	fi
+
+	msg "MihoWRT service is running; restarting to fully apply on-disk changes"
 
 	if ! stop; then
 		msg "ERROR: Failed to stop MihoWRT service for apply"

@@ -26,12 +26,15 @@ let srcValueCache = null;
 let directDstValueCache = null;
 let policyMap = null;
 let policyModeOption = null;
+let policySettingOptions = {};
+let policySettingsCache = {};
 let dstListOption = null;
 let srcListOption = null;
 let directDstListOption = null;
 let updateListsButton = null;
 let policyActionInFlight = false;
 let policyListWriteTransaction = null;
+let policyModeCache = 'direct-first';
 
 function validateNumericRange(value, label, min, max) {
 	// Empty value means backend auto-select.
@@ -61,11 +64,63 @@ function syncListCaches(dstValue, srcValue, directDstValue) {
 	dstValueCache = normalizeBlock(dstValue || '');
 	srcValueCache = normalizeBlock(srcValue || '');
 	directDstValueCache = normalizeBlock(directDstValue || '');
+	syncPolicySettingsCacheFromUci();
+}
+
+function policySettingOptionNames() {
+	return [
+		'policy_mode',
+		'source_network_interfaces',
+		'dns_hijack',
+		'route_table_id',
+		'route_rule_priority',
+		'disable_quic',
+		'policy_remote_update_interval'
+	];
+}
+
+function normalizePolicySettingValue(value) {
+	if (Array.isArray(value))
+		return value.map(String).join('\n');
+
+	return String(value ?? '');
+}
+
+function savedPolicySettingValue(optionName) {
+	return normalizePolicySettingValue(uci.get('mihowrt', SETTINGS_SECTION_ID, optionName));
+}
+
+function currentPolicySettingValue(optionName) {
+	const option = policySettingOptions[optionName] ||
+		(optionName === 'policy_mode' ? policyModeOption : null);
+
+	if (!option)
+		return policySettingsCache[optionName] || '';
+
+	return normalizePolicySettingValue(option.formvalue(SETTINGS_SECTION_ID));
+}
+
+function syncPolicySettingsCacheFromUci() {
+	policySettingOptionNames().forEach(optionName => {
+		policySettingsCache[optionName] = savedPolicySettingValue(optionName);
+	});
+	policyModeCache = uci.get('mihowrt', SETTINGS_SECTION_ID, 'policy_mode') || 'direct-first';
+}
+
+function syncPolicySettingsCacheFromForm() {
+	policySettingOptionNames().forEach(optionName => {
+		policySettingsCache[optionName] = currentPolicySettingValue(optionName);
+	});
+	policyModeCache = policySettingsCache.policy_mode || 'direct-first';
+}
+
+function bindPolicySettingOption(optionName, option) {
+	policySettingOptions[optionName] = option;
 }
 
 function currentPolicyMode() {
 	// Current mode controls which list files matter for dirty-check.
-	return policyModeOption ? (policyModeOption.formvalue(SETTINGS_SECTION_ID) || 'direct-first') : 'direct-first';
+	return currentPolicySettingValue('policy_mode') || 'direct-first';
 }
 
 function hasListValueChanges() {
@@ -81,6 +136,16 @@ function hasMihowrtUciChanges(changes) {
 	// LuCI UCI changes and raw list file changes have different apply paths.
 	const mihowrtChanges = changes?.mihowrt;
 	return Array.isArray(mihowrtChanges) && mihowrtChanges.length > 0;
+}
+
+function hasUnsavedPolicyModeChange() {
+	return currentPolicyMode() !== policyModeCache;
+}
+
+function hasUnsavedPolicySettingsChange() {
+	return hasUnsavedPolicyModeChange() ||
+		policySettingOptionNames().some(optionName =>
+			currentPolicySettingValue(optionName) !== (policySettingsCache[optionName] || ''));
 }
 
 function changeMentionsOption(change, optionName) {
@@ -145,6 +210,33 @@ function setPolicyListCacheValue(cacheName, value) {
 		directDstValueCache = value;
 }
 
+function policyListTransactionValue(cacheName, filePath, snapshots) {
+	const transaction = policyListWriteTransaction;
+
+	if (transaction) {
+		if (snapshots && objectHasOwn(transaction.snapshots, filePath))
+			return transaction.snapshots[filePath].value;
+		if (!snapshots && objectHasOwn(transaction.pending, filePath))
+			return transaction.pending[filePath].value;
+	}
+
+	return policyListCacheValue(cacheName);
+}
+
+function policyListTransactionValues(snapshots = false) {
+	return {
+		dst: policyListTransactionValue('dst', DST_LIST_FILE, snapshots),
+		src: policyListTransactionValue('src', SRC_LIST_FILE, snapshots),
+		direct: policyListTransactionValue('direct-dst', DIRECT_DST_LIST_FILE, snapshots)
+	};
+}
+
+function syncListCachesFromValues(values) {
+	dstValueCache = normalizeBlock(values?.dst || '');
+	srcValueCache = normalizeBlock(values?.src || '');
+	directDstValueCache = normalizeBlock(values?.direct || '');
+}
+
 function objectHasOwn(object, key) {
 	return Object.prototype.hasOwnProperty.call(object, key);
 }
@@ -180,13 +272,6 @@ function stagePolicyListWrite(cacheName, filePath, value) {
 		transaction.pending[key] = { cacheName, filePath, value };
 }
 
-async function applyPolicyListFileWrite(filePath, value) {
-	if (value)
-		await fs.write(filePath, value);
-	else
-		await removeListFileIfPresent(filePath);
-}
-
 async function writePolicyListFile(cacheName, filePath, value) {
 	if (policyListWriteTransaction) {
 		if (!objectHasOwn(policyListWriteTransaction.snapshots, filePath) && value === policyListCacheValue(cacheName))
@@ -198,8 +283,14 @@ async function writePolicyListFile(cacheName, filePath, value) {
 	if (value === policyListCacheValue(cacheName))
 		return;
 
-	await applyPolicyListFileWrite(filePath, value);
-	setPolicyListCacheValue(cacheName, value);
+	beginPolicyListWriteTransaction();
+	try {
+		stagePolicyListWrite(cacheName, filePath, value);
+		await flushPolicyListWrites(false);
+	}
+	finally {
+		clearPolicyListWriteTransaction();
+	}
 }
 
 async function rollbackPolicyListWrites() {
@@ -207,37 +298,28 @@ async function rollbackPolicyListWrites() {
 	if (!transaction || !transaction.flushStarted)
 		return;
 
-	const keys = Object.keys(transaction.snapshots).reverse();
-	for (const key of keys) {
-		const snapshot = transaction.snapshots[key];
-		await applyPolicyListFileWrite(snapshot.filePath, snapshot.value);
-		setPolicyListCacheValue(snapshot.cacheName, snapshot.value);
-	}
+	const values = policyListTransactionValues(true);
+	await backendHelper.applyPolicyLists(values, false);
+	syncListCachesFromValues(values);
 }
 
-async function flushPolicyListWrites() {
+async function flushPolicyListWrites(reload = false) {
 	const transaction = policyListWriteTransaction;
 	if (!transaction || transaction.flushed)
-		return;
+		return { changed: false, reloaded: false };
 
 	const writes = Object.keys(transaction.pending).map(key => transaction.pending[key]);
 	if (writes.length === 0) {
 		transaction.flushed = true;
-		return;
+		return { changed: false, reloaded: false };
 	}
 	transaction.flushStarted = true;
 
-	try {
-		for (const write of writes) {
-			await applyPolicyListFileWrite(write.filePath, write.value);
-			setPolicyListCacheValue(write.cacheName, write.value);
-		}
-		transaction.flushed = true;
-	}
-	catch (e) {
-		await rollbackPolicyListWrites();
-		throw e;
-	}
+	const values = policyListTransactionValues(false);
+	const result = await backendHelper.applyPolicyLists(values, reload);
+	syncListCachesFromValues(values);
+	transaction.flushed = true;
+	return result;
 }
 
 async function savePolicyMap() {
@@ -245,13 +327,11 @@ async function savePolicyMap() {
 }
 
 async function reloadPolicyIfNeeded(listChanged, wasRunning) {
-	// Reload nft policy only after list-only save and only when service is running.
-	if (!listChanged || !wasRunning)
-		return;
+	// Backend applies list files under runtime lock and rolls back on reload failure.
+	if (!listChanged)
+		return { changed: false, reloaded: false };
 
-	const reloadResult = await fs.exec(SERVICE_SCRIPT, ['reload']);
-	if (reloadResult.code !== 0)
-		mihowrtUi.notify(_('Saved, but failed to reload policy: %s').format(mihowrtUi.execErrorDetail(reloadResult)), 'error');
+	return flushPolicyListWrites(wasRunning);
 }
 
 async function updateRemoteLists() {
@@ -259,8 +339,19 @@ async function updateRemoteLists() {
 	if (policyActionInFlight)
 		return;
 
+	if (hasUnsavedPolicySettingsChange()) {
+		mihowrtUi.notify(_('Save policy settings before updating remote lists.'), 'warning');
+		return;
+	}
+
 	if (hasListValueChanges()) {
 		mihowrtUi.notify(_('Save policy list changes before updating remote lists.'), 'warning');
+		return;
+	}
+
+	const changes = await uci.changes();
+	if (hasMihowrtUciChanges(changes)) {
+		mihowrtUi.notify(_('Save policy settings before updating remote lists.'), 'warning');
 		return;
 	}
 
@@ -277,18 +368,6 @@ async function updateRemoteLists() {
 	}
 	finally {
 		setPolicyActionBusy(false);
-	}
-}
-
-async function removeListFileIfPresent(filePath) {
-	// Missing list files are valid because empty list means disabled policy file.
-	try {
-		await fs.remove(filePath);
-	}
-	catch (e) {
-		if (e && (e.name === 'NotFoundError' || /not found/i.test(e.message || '')))
-			return;
-		throw e;
 	}
 }
 
@@ -314,11 +393,7 @@ function bindTextFileOption(option, cacheName, filePath, description) {
 		await writePolicyListFile(cacheName, filePath, normalized);
 	};
 	option.remove = async function() {
-		const current = this.cfgvalue(SETTINGS_SECTION_ID);
-		if (!policyListWriteTransaction && !current)
-			return;
-
-		await writePolicyListFile(cacheName, filePath, '');
+		// LuCI calls remove() for inactive depends() options; keep hidden mode lists.
 	};
 }
 
@@ -332,8 +407,10 @@ return view.extend({
 		setPolicyActionBusy(true);
 		beginPolicyListWriteTransaction();
 		try {
+			const listChanged = hasListValueChanges();
+			const wasRunning = listChanged ? await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT) : false;
 			await savePolicyMap();
-			await flushPolicyListWrites();
+			await reloadPolicyIfNeeded(listChanged, wasRunning);
 		}
 		finally {
 			clearPolicyListWriteTransaction();
@@ -368,22 +445,16 @@ return view.extend({
 
 			const changes = await uci.changes();
 			if (mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes)) {
-				await flushPolicyListWrites();
-				try {
-					await commitUciPackage('mihowrt');
-				}
-				catch (e) {
-					await rollbackPolicyListWrites();
-					throw e;
-				}
+				await commitUciPackage('mihowrt');
 				await ui.changes.init();
 				await backendHelper.syncPolicyRemoteAutoUpdate();
 				await reloadPolicyIfNeeded(listChanged, wasRunning);
+				syncPolicySettingsCacheFromForm();
 				return;
 			}
 
 			if (hasMihowrtUciChanges(changes)) {
-				await flushPolicyListWrites();
+				await flushPolicyListWrites(false);
 				try {
 					await ui.changes.apply(mode == '0');
 				}
@@ -393,10 +464,10 @@ return view.extend({
 				}
 				if (policyRemoteAutoUpdateChanged(changes))
 					await backendHelper.syncPolicyRemoteAutoUpdate();
+				syncPolicySettingsCacheFromForm();
 				return;
 			}
 
-			await flushPolicyListWrites();
 			await reloadPolicyIfNeeded(listChanged, wasRunning);
 		}
 		finally {
@@ -417,23 +488,25 @@ return view.extend({
 	render: function(data) {
 		syncListCaches(data[1], data[2], data[3]);
 
-		const m = new form.Map('mihowrt', _('MihoWRT Traffic Policy'), _('Fake-IP policy layer. Direct-first proxies selected traffic; proxy-first proxies non-local traffic except direct destinations. DNS/53 hijack, when enabled, is always handled by Mihomo DNS before proxy policy.'));
+		const m = new form.Map('mihowrt', _('MihoWRT Policy'), _('Direct-first proxies selected traffic. Proxy-first proxies non-local traffic except direct destinations.'));
 		policyMap = m;
-		const s = m.section(form.NamedSection, 'settings', 'settings', _('Traffic Policy Settings'));
+		const s = m.section(form.NamedSection, 'settings', 'settings', _('Routing'));
 
 		s.anonymous = true;
 		s.addremove = false;
 
 		let o = s.option(form.ListValue, 'policy_mode', _('Policy Mode'));
 		policyModeOption = o;
+		bindPolicySettingOption('policy_mode', o);
 		o.default = 'direct-first';
 		o.rmempty = false;
 		o.value('direct-first', _('Direct-first'));
 		o.value('proxy-first', _('Proxy-first'));
 
 		o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
+		bindPolicySettingOption('source_network_interfaces', o);
 		o.placeholder = 'br-lan';
-		o.description = _('Interfaces from which prerouting traffic may enter the Mihomo policy path.');
+		o.description = _('Ingress interfaces for client traffic.');
 		o.validate = function(section_id, value) {
 			if (!value)
 				return true;
@@ -441,34 +514,39 @@ return view.extend({
 		};
 
 		o = s.option(form.Flag, 'dns_hijack', _('Redirect DNS/53 to Mihomo'));
+		bindPolicySettingOption('dns_hijack', o);
 		o.default = '1';
 		o.rmempty = false;
-		o.description = _('Redirect client TCP/UDP DNS requests from selected interfaces to Mihomo DNS listener.');
+		o.description = _('Redirect client TCP/UDP DNS requests before policy routing.');
 
 		o = s.option(form.Value, 'route_table_id', _('Route Table ID'));
+		bindPolicySettingOption('route_table_id', o);
 		o.placeholder = _('auto');
-		o.description = _('Optional. Empty value auto-selects free route table id.');
+		o.description = _('Empty value auto-selects a free table.');
 		o.validate = function(section_id, value) {
 			return validateNumericRange(value, _('Route table id'), 1, 252);
 		};
 
 		o = s.option(form.Value, 'route_rule_priority', _('Route Rule Priority'));
+		bindPolicySettingOption('route_rule_priority', o);
 		o.placeholder = _('auto');
-		o.description = _('Optional. Empty value auto-selects free route rule priority.');
+		o.description = _('Empty value auto-selects a free priority.');
 		o.validate = function(section_id, value) {
 			return validateNumericRange(value, _('Route rule priority'), 1, 32765);
 		};
 
 		o = s.option(form.Flag, 'disable_quic', _('Block QUIC for Proxied Traffic'));
+		bindPolicySettingOption('disable_quic', o);
 		o.default = '1';
 		o.rmempty = false;
-		o.description = _('Reject UDP/443 only for traffic selected into Mihomo by these nft policy blocks. DNS/53 hijack is not affected.');
+		o.description = _('Reject UDP/443 only for traffic selected into Mihomo.');
 
 		o = s.option(form.Value, 'policy_remote_update_interval', _('Remote List Auto-update (hours)'));
+		bindPolicySettingOption('policy_remote_update_interval', o);
 		o.placeholder = '0';
 		o.default = '0';
 		o.rmempty = false;
-		o.description = _('0 disables automatic remote list updates. Positive values refetch URL entries on that interval.');
+		o.description = _('0 disables auto-update.');
 		o.validate = function(section_id, value) {
 			return validateNumericRange(value, _('Remote list auto-update interval'), 0, 8760);
 		};
@@ -476,23 +554,23 @@ return view.extend({
 		o = s.option(form.Button, '_update_remote_lists', _('Update Remote Lists'));
 		updateListsButton = o;
 		o.inputstyle = 'action';
-		o.description = _('Fetch remote URL entries now. Save policy list or interval changes before updating.');
+		o.description = _('Save changes before updating.');
 		o.onclick = updateRemoteLists;
 
-		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations (IP/CIDR[;Port], ;Port, or URL[;Port])'));
+		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations'));
 		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;
-		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Use ; before ports, including URL;port. Remote lists are fetched on apply/start and merged with manual entries without changing this file.'));
+		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
 
-		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients (IP/CIDR[;Port], ;Port, or URL[;Port])'));
+		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients'));
 		o.depends('policy_mode', 'direct-first');
 		srcListOption = o;
-		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Use ; before ports, including URL;port. Remote lists are fetched on apply/start and merged with manual entries without changing this file.'));
+		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
 
-		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations (IP/CIDR[;Port], ;Port, or URL[;Port])'));
+		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations'));
 		o.depends('policy_mode', 'proxy-first');
 		directDstListOption = o;
-		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('One IPv4, CIDR, port-scoped entry, or http(s) URL per line. Use ; before ports, including URL;port. Remote lists are fetched on apply/start and merged with manual entries without changing this file. Matching traffic bypasses Mihomo in proxy-first mode. DNS/53 hijack still goes to Mihomo DNS.'));
+		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
 
 		return m.render();
 	}

@@ -13,12 +13,16 @@ load_snapshot_readiness_ports() {
 	STATUS_READY_DNS_PORT=""
 	STATUS_READY_TPROXY_PORT=""
 
-	active_json="$(runtime_snapshot_readiness_json 2>/dev/null || true)"
-	[ -n "$active_json" ] || return 1
-
-	snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
-		@sh "STATUS_READY_DNS_PORT=\(.mihomo_dns_port // "") STATUS_READY_TPROXY_PORT=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
-	' 2>/dev/null)" || return 1
+	if command -v runtime_snapshot_readiness_vars >/dev/null 2>&1; then
+		snapshot_vars="$(runtime_snapshot_readiness_vars 2>/dev/null || true)"
+	else
+		active_json="$(runtime_snapshot_readiness_json 2>/dev/null || true)"
+		[ -n "$active_json" ] || return 1
+		snapshot_vars="$(printf '%s\n' "$active_json" | jq -r '
+			@sh "STATUS_READY_DNS_PORT=\(.mihomo_dns_port // "") STATUS_READY_TPROXY_PORT=\(.mihomo_tproxy_port // "") snapshot_dns_listen=\(.mihomo_dns_listen // "")"
+		' 2>/dev/null)" || return 1
+	fi
+	[ -n "$snapshot_vars" ] || return 1
 	eval "$snapshot_vars" || return 1
 	if [ -z "$STATUS_READY_DNS_PORT" ]; then
 		[ -n "$snapshot_dns_listen" ] && STATUS_READY_DNS_PORT="$(dns_listen_port "$snapshot_dns_listen" 2>/dev/null || true)"
@@ -29,6 +33,11 @@ load_snapshot_readiness_ports() {
 load_config_readiness_ports() {
 	STATUS_READY_DNS_PORT=""
 	STATUS_READY_TPROXY_PORT=""
+
+	if ! command -v load_runtime_config >/dev/null 2>&1; then
+		command -v mihowrt_source_module_list >/dev/null 2>&1 || return 1
+		mihowrt_source_module_list "config-io.sh runtime-config.sh" || return 1
+	fi
 
 	load_runtime_config || return 1
 	STATUS_READY_DNS_PORT="$(dns_listen_port "$MIHOMO_DNS_LISTEN" 2>/dev/null || true)"
@@ -64,8 +73,7 @@ service_enabled_state() {
 # Small JSON used by LuCI config page polling.
 service_state_json() {
 	local service_enabled=0 service_running=0 service_ready=0
-
-	require_command jq || return 1
+	local service_enabled_json=false service_running_json=false service_ready_json=false
 
 	service_enabled_state && service_enabled=1 || service_enabled=0
 	service_running_state && service_running=1 || service_running=0
@@ -73,16 +81,12 @@ service_state_json() {
 		service_ready_runtime_state_for_running_service && service_ready=1 || service_ready=0
 	fi
 
-	jq -nc \
-		--arg service_enabled "$service_enabled" \
-		--arg service_running "$service_running" \
-		--arg service_ready "$service_ready" \
-		'{
-			service_enabled: ($service_enabled == "1"),
-			service_running: ($service_running == "1"),
-			service_ready: ($service_ready == "1"),
-			errors: []
-		}'
+	[ "$service_enabled" -eq 1 ] && service_enabled_json=true
+	[ "$service_running" -eq 1 ] && service_running_json=true
+	[ "$service_ready" -eq 1 ] && service_ready_json=true
+
+	printf '{"service_enabled":%s,"service_running":%s,"service_ready":%s,"errors":[]}\n' \
+		"$service_enabled_json" "$service_running_json" "$service_ready_json"
 }
 
 # Fallback config object when config parsing cannot run.

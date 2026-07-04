@@ -199,6 +199,53 @@ nft() {
 	return 0
 }
 
+src_policy_dst_file="$tmpdir/direct-first-dst.txt"
+src_policy_src_file="$tmpdir/direct-first-src.txt"
+src_policy_direct_file="$tmpdir/direct-first-direct.txt"
+cat >"$src_policy_dst_file" <<'EOF'
+1.1.1.1
+EOF
+cat >"$src_policy_src_file" <<'EOF'
+10.0.0.2
+10.0.0.3;443
+EOF
+: >"$src_policy_direct_file"
+
+: >"$net_log"
+NFT_BATCH_FILE="$tmpdir/direct-first-src.batch"
+NFT_PROXY_DST_SET="${NFT_PROXY_DST_SET:-proxy_dst}"
+NFT_PROXY_SRC_SET="${NFT_PROXY_SRC_SET:-proxy_src}"
+NFT_DIRECT_DST_SET="${NFT_DIRECT_DST_SET:-direct_dst}"
+NFT_LOCALV4_SET="${NFT_LOCALV4_SET:-localv4}"
+NFT_IFACE_SET="${NFT_IFACE_SET:-source_ifaces}"
+NFT_CHAIN_DNS_HIJACK="${NFT_CHAIN_DNS_HIJACK:-dns_hijack}"
+NFT_CHAIN_PREROUTING="${NFT_CHAIN_PREROUTING:-mangle_prerouting}"
+NFT_CHAIN_PREROUTING_POLICY="${NFT_CHAIN_PREROUTING_POLICY:-prerouting_policy}"
+NFT_CHAIN_OUTPUT="${NFT_CHAIN_OUTPUT:-mangle_output}"
+NFT_CHAIN_PROXY="${NFT_CHAIN_PROXY:-proxy_redirect}"
+NFT_CHAIN_PROXY_DST_PORTS_PREROUTING="${NFT_CHAIN_PROXY_DST_PORTS_PREROUTING:-proxy_dst_ports_prerouting}"
+NFT_CHAIN_PROXY_DST_PORTS_OUTPUT="${NFT_CHAIN_PROXY_DST_PORTS_OUTPUT:-proxy_dst_ports_output}"
+NFT_CHAIN_PROXY_SRC_PORTS_PREROUTING="${NFT_CHAIN_PROXY_SRC_PORTS_PREROUTING:-proxy_src_ports_prerouting}"
+NFT_CHAIN_DIRECT_DST_PORTS_PREROUTING="${NFT_CHAIN_DIRECT_DST_PORTS_PREROUTING:-direct_dst_ports_prerouting}"
+NFT_CHAIN_DIRECT_DST_PORTS_OUTPUT="${NFT_CHAIN_DIRECT_DST_PORTS_OUTPUT:-direct_dst_ports_output}"
+POLICY_MODE=direct-first
+DST_LIST_FILE="$src_policy_dst_file"
+SRC_LIST_FILE="$src_policy_src_file"
+DIRECT_DST_LIST_FILE="$src_policy_direct_file"
+SOURCE_INTERFACES=br-lan
+DNS_HIJACK=0
+DISABLE_QUIC=0
+CATCH_FAKEIP=0
+MIHOMO_TPROXY_PORT=7894
+MIHOMO_ROUTING_MARK=2
+TEST_NFT_TABLE_PRESENT=0
+TEST_NFT_LEGACY_TABLE_PRESENT=0
+assert_true "nft_apply_policy_batch should build direct-first source proxy rules" \
+	nft_apply_policy_batch "$src_policy_dst_file" "$src_policy_src_file" "$src_policy_direct_file"
+assert_file_contains "$NFT_BATCH_FILE" "add element inet $NFT_TABLE_NAME $NFT_PROXY_SRC_SET { 10.0.0.2 }" "direct-first should load proxy source set"
+assert_file_contains "$NFT_BATCH_FILE" "ip saddr @$NFT_PROXY_SRC_SET meta l4proto { tcp, udp } meta mark set $NFT_INTERCEPT_MARK" "direct-first should mark proxy source clients"
+assert_file_contains "$NFT_BATCH_FILE" "ip saddr 10.0.0.3 meta l4proto { tcp, udp } th dport 443 meta mark set $NFT_INTERCEPT_MARK" "direct-first should mark port-scoped proxy source clients"
+
 table_list_has() {
 	case " ${1:-} " in
 		*" $2 "*) return 0 ;;

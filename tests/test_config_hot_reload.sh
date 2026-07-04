@@ -76,6 +76,16 @@ runtime_snapshot_policy_config_matches_current() {
 	return "${TEST_POLICY_CONFIG_MATCH_RC:-0}"
 }
 
+runtime_snapshot_mihomo_config_matches_current() {
+	printf 'runtime_snapshot_mihomo_config_matches_current\n' >>"$event_log"
+	return "${TEST_MIHOMO_CONFIG_MATCH_RC:-0}"
+}
+
+runtime_live_state_present() {
+	printf 'runtime_live_state_present\n' >>"$event_log"
+	return "${TEST_RUNTIME_LIVE_STATE_RC:-0}"
+}
+
 load_runtime_config() {
 	printf 'load_runtime_config\n' >>"$event_log"
 	return "${TEST_LOAD_RUNTIME_CONFIG_RC:-0}"
@@ -163,6 +173,43 @@ assert_eq "false" "$(json_bool "$result" '.policy_reloaded')" "non-policy config
 assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=0" "non-port config change should hot reload without force"
 assert_file_not_contains "$event_log" "reload_runtime_state" "non-policy config should not reload policy"
 assert_file_contains "$event_log" "subscription_refresh_auto_update_state:0::" "manual apply should let subscription refresh detect live API drift itself"
+
+: >"$event_log"
+write_configs
+TEST_SERVICE_RUNNING_RC=0
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_POLICY_CONFIG_MATCH_RC=0
+TEST_MIHOMO_CONFIG_MATCH_RC=0
+new_json="$old_json"
+result="$(apply_active_config_runtime)"
+assert_eq "hot_reloaded" "$(json_bool "$result" '.action')" "active apply should hot reload unchanged on-disk config"
+assert_eq "false" "$(json_bool "$result" '.restart_required')" "active apply should avoid restart when live API and policy snapshot match"
+assert_file_contains "$event_log" "mihomo_hot_reload_config:$CLASH_CONFIG:force=1" "active apply should force Mihomo to re-read on-disk config"
+assert_file_not_contains "$event_log" "reload_runtime_state" "active apply should skip policy reload when snapshot matches"
+unset TEST_RUNTIME_SNAPSHOT_VALID_RC TEST_POLICY_CONFIG_MATCH_RC TEST_MIHOMO_CONFIG_MATCH_RC
+
+: >"$event_log"
+write_configs
+TEST_RUNTIME_SNAPSHOT_VALID_RC=0
+TEST_POLICY_CONFIG_MATCH_RC=0
+TEST_MIHOMO_CONFIG_MATCH_RC=1
+new_json="$old_json"
+result="$(apply_active_config_runtime)"
+assert_eq "policy_reloaded" "$(json_bool "$result" '.action')" "active apply should reload policy when on-disk Mihomo policy fields drift from snapshot"
+assert_file_contains "$event_log" "runtime_snapshot_mihomo_config_matches_current" "active apply should compare active snapshot with current Mihomo-derived policy fields"
+assert_file_contains "$event_log" "reload_runtime_state:allow=1" "active apply should allow policy reload after successful Mihomo hot reload"
+unset TEST_RUNTIME_SNAPSHOT_VALID_RC TEST_POLICY_CONFIG_MATCH_RC TEST_MIHOMO_CONFIG_MATCH_RC
+
+: >"$event_log"
+write_configs
+TEST_RUNTIME_SNAPSHOT_VALID_RC=1
+TEST_RUNTIME_LIVE_STATE_RC=0
+new_json="$old_json"
+result="$(apply_active_config_runtime)"
+assert_eq "restart_required" "$(json_bool "$result" '.action')" "active apply should request restart when live policy exists without a valid snapshot"
+assert_file_contains "$event_log" "runtime_live_state_present" "active apply should distinguish missing snapshot from clean runtime state"
+assert_file_not_contains "$event_log" "mihomo_hot_reload_config" "active apply should not hot reload when rollback-safe policy state is unknown"
+unset TEST_RUNTIME_SNAPSHOT_VALID_RC TEST_RUNTIME_LIVE_STATE_RC
 
 : >"$event_log"
 write_configs

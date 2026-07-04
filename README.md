@@ -181,7 +181,7 @@ preservation.
 
 MihoWRT has three main persistent user inputs.
 
-### Mihomo Config
+### Config
 
 Path:
 
@@ -281,21 +281,21 @@ cleanup.
 
 MihoWRT adds pages under `Services -> MihoWRT`.
 
-### Mihomo Config
+### Config
 
 Edits raw `/opt/clash/config.yaml`.
 
 Important actions:
 
-- `Validate & Apply Config` validates through Mihomo, validates MihoWRT
+- `Validate & Apply` validates through Mihomo, validates MihoWRT
   runtime fields, writes the config only after both checks pass, then hot
   reloads Mihomo when possible. It restarts only when the live API cannot
   be used or API/UI server fields changed during manual apply.
-- `Fetch Subscription` downloads subscription text into the editor but
+- `Fetch` downloads subscription text into the editor but
   does not save it until validation/apply. The backend reads
   `profile-update-interval` as hours and sends `x-hwid`,
   `x-device-os`, `x-ver-os`, and `x-device-model` headers.
-- `Save Subscription URL` writes the URL and auto-update settings.
+- `Save Settings` writes the subscription URL and auto-update settings.
 - service start/stop/autostart buttons call the init script.
 - dashboard button opens the configured Mihomo external UI.
 
@@ -316,18 +316,34 @@ API even when a downloaded config changes API/UI fields; the UI then
 shows that a manual restart is required before those API/UI fields take
 effect.
 
-### Traffic Policy
+Direct shell edits should use:
 
-Edits `/etc/config/mihowrt` and policy list files.
+```sh
+service mihowrt apply
+```
 
-`Save` writes values to disk. `Save & Apply` follows normal LuCI apply
-flow. If only policy list files changed and service is running, MihoWRT
-reloads policy after saving. If service is stopped, changes apply on
-next start.
+That path validates the on-disk config, hot-reloads Mihomo through the
+live API when safe, reloads policy only when the active snapshot differs
+from disk, and restarts only as fallback or when API/UI server settings
+need a full process restart.
+
+### Policy
+
+Edits `/etc/config/mihowrt` and policy lists.
+
+Policy list edits are staged in `/tmp` first. The backend writes the
+persistent list files only when content changed, holds the runtime lock,
+and rolls back the old list files if a requested policy reload fails.
+
+`Save` writes values to disk without reloading policy. `Save & Apply`
+follows normal LuCI apply flow. If only policy list files changed and
+the service is running, MihoWRT reloads policy after saving. If the
+service is stopped, changes apply on next start.
 
 `Update Remote Lists` fetches remote list URLs and compares the resolved
-effective lists with the active snapshot. nftables is reloaded only when
-effective content changed.
+effective lists with the active snapshot. It is blocked while policy
+form/list changes are unsaved. nftables is reloaded only when effective
+content changed.
 
 `Remote List Auto-update (hours)` enables cron-based refetch. A value of
 `0` disables the cron entry. When effective content changes, MihoWRT
@@ -335,11 +351,14 @@ updates only the affected nft sets/chains when safe; full policy reload
 is kept for structural changes such as first/last port-scoped rules or
 policy mode changes.
 
-### Diagnostics
+### Status
 
-Reads service state, active snapshot, desired config, parse errors, DNS
-backup state, route state, and MihoWRT logs. There is no background
-diagnostic polling; refresh is explicit.
+The first page load reads only cheap service state. Runtime snapshot,
+desired config, parse errors, DNS backup state, and route state load
+when the runtime details section is opened. Log reading is also lazy, so
+opening the status page does not block on `logread`; logs load only when
+the log section is opened. There is no background diagnostic polling;
+refresh is explicit.
 
 ## Backend Security Model
 
@@ -367,11 +386,13 @@ Mutating operations use `/usr/bin/mihowrt` and require LuCI write ACL:
 
 ```text
 apply-config
+apply-active-config
 set-subscription-settings
 fetch-subscription
 fetch-subscription-json
 update-subscription
 auto-update-subscription
+apply-policy-lists
 update-policy-lists
 auto-update-policy-lists
 sync-policy-remote-auto-update
@@ -382,6 +403,11 @@ init script actions
 
 This split keeps ordinary read refreshes away from the write-capable
 orchestrator surface.
+
+LuCI write ACL allows temp staging under `/tmp/mihowrt-config.*` and
+`/tmp/mihowrt-policy-list.*`. Persistent config and policy list paths are
+written by the backend after validation/locking, not directly by browser
+RPC calls.
 
 ## Service Lifecycle
 
@@ -638,6 +664,9 @@ Reload behavior:
   list content changed and no table shape change is needed.
 - Mihomo config apply uses `PUT /configs` hot reload when the live API is
   available; legacy listener port changes request `force=true`.
+- `service mihowrt apply` uses the same live API path for direct shell
+  edits and falls back to restart only when hot apply cannot fully apply
+  the on-disk state.
 
 This is rollback-capable orchestration across nftables, policy routing,
 and dnsmasq. It is not a single kernel-atomic transaction.
@@ -662,6 +691,7 @@ Main backend:
 /usr/bin/mihowrt recover
 /usr/bin/mihowrt reload
 /usr/bin/mihowrt reload-policy
+/usr/bin/mihowrt apply-policy-lists 1 /tmp/mihowrt-policy-list.dst.test /tmp/mihowrt-policy-list.src.test /tmp/mihowrt-policy-list.direct.test
 /usr/bin/mihowrt update-policy-lists
 /usr/bin/mihowrt auto-update-policy-lists
 /usr/bin/mihowrt sync-policy-remote-auto-update
@@ -680,6 +710,7 @@ Main backend:
 /usr/bin/mihowrt read-config
 /usr/bin/mihowrt live-api-json
 /usr/bin/mihowrt apply-config /tmp/candidate.yaml
+/usr/bin/mihowrt apply-active-config
 /usr/bin/mihowrt apply-config-contents '<yaml>'
 /usr/bin/mihowrt subscription-json
 /usr/bin/mihowrt set-subscription-settings '<url>' 0 ''
@@ -733,7 +764,7 @@ bash tests/run.sh
 ```
 
 The test suite covers shell syntax, shell lint, JavaScript syntax, and
-42 runtime/helper tests for installer, backend wrappers, config parse
+46 runtime/helper tests for installer, backend wrappers, config parse
 and apply, hot reload, subscription fetch/auto-update, policy remote
 auto-update, remote list merge/fetch/cache behavior, nft component
 updates, route helpers, DNS state, snapshots, LuCI helpers, package
@@ -752,14 +783,29 @@ and nft/ip commands only at orchestration boundaries.
 With the OpenWrt SDK next to this repository:
 
 ```sh
-cd ../openwrt-sdk-25.12.3-x86-64_gcc-14.3.0_musl.Linux-x86_64
+cd ../openwrt-sdk-25.12.5-x86-64_gcc-14.3.0_musl.Linux-x86_64
+./scripts/feeds update -a
+./scripts/feeds install luci-base jq nftables curl
 rm -rf package/luci-app-mihowrt
 mkdir -p package/luci-app-mihowrt
 rsync -a --delete --exclude='.git' ../mihowrt/ package/luci-app-mihowrt/
-./scripts/config -m PACKAGE_luci-app-mihowrt
+printf '%s\n' \
+  '# CONFIG_ALL_NONSHARED is not set' \
+  '# CONFIG_ALL_KMODS is not set' \
+  '# CONFIG_ALL is not set' \
+  'CONFIG_IN_SDK=y' \
+  'CONFIG_MODULES=y' \
+  'CONFIG_HAVE_DOT_CONFIG=y' \
+  'CONFIG_TARGET_x86=y' \
+  'CONFIG_TARGET_x86_64=y' \
+  'CONFIG_TARGET_BOARD="x86"' \
+  'CONFIG_TARGET_SUBTARGET="64"' \
+  'CONFIG_TARGET_ARCH_PACKAGES="x86_64"' \
+  'CONFIG_PACKAGE_luci-app-mihowrt=m' > .config
 make defconfig
 make package/luci-app-mihowrt/clean
 make package/luci-app-mihowrt/compile V=s -j"$(nproc)"
+find bin -name 'luci-app-mihowrt-*-r1.apk' -print
 ```
 
 Example APK path for x86/64 SDK:
@@ -857,7 +903,7 @@ rootfs/www/luci-static/resources/mihowrt/
   shared LuCI backend, exec, config, UI, and Ace helpers.
 
 rootfs/www/luci-static/resources/view/mihowrt/
-  LuCI pages: config, policy, diagnostics.
+  LuCI pages: config, policy, status.
 
 tests/
   shell and Node tests.

@@ -423,8 +423,7 @@ config_candidate_path_allowed() {
 	local base=""
 
 	case "$candidate" in
-	/tmp/*)
-		;;
+	/tmp/*) ;;
 	*)
 		err "temporary config must be stored under /tmp"
 		return 1
@@ -440,8 +439,7 @@ config_candidate_path_allowed() {
 	esac
 
 	case "$base" in
-	mihowrt-config.* | mihowrt-subscription.* | mihowrt-subscription-config.*)
-		;;
+	mihowrt-config.* | mihowrt-subscription.* | mihowrt-subscription-config.*) ;;
 	*)
 		err "temporary config path must use a MihoWRT temp prefix"
 		return 1
@@ -923,6 +921,29 @@ config_requires_mihomo_force_reload() {
 	return 1
 }
 
+config_active_requires_policy_reload() {
+	local snapshot_state=1
+
+	runtime_snapshot_valid 2>/dev/null
+	snapshot_state=$?
+	case "$snapshot_state" in
+	0) ;;
+	*)
+		if runtime_live_state_present 2>/dev/null; then
+			return 2
+		fi
+		return 0
+		;;
+	esac
+
+	if command -v load_runtime_config >/dev/null 2>&1; then
+		load_runtime_config || return 2
+	fi
+	runtime_snapshot_mihomo_config_matches_current 2>/dev/null || return 0
+	runtime_snapshot_policy_config_matches_current 2>/dev/null || return 0
+	return 1
+}
+
 config_refresh_subscription_auto_update_state() {
 	local config_json="${1:-}"
 
@@ -967,6 +988,87 @@ wait_for_current_mihomo_listeners() {
 	done
 
 	return 1
+}
+
+apply_active_config_runtime() {
+	local active_config="$CLASH_CONFIG"
+	local current_config_json="" live_config_json=""
+	local policy_reload_needed=0 policy_state=0
+	local reason="" http_code=""
+
+	current_config_json="$(read_config_json 2>/dev/null || true)"
+	[ -n "$current_config_json" ] || {
+		apply_config_result_json "restart_required" 1 0 0 "active config metadata is unavailable"
+		return $?
+	}
+
+	if ! service_running_state; then
+		config_refresh_subscription_auto_update_state "$current_config_json"
+		apply_config_result_json "saved" 0 0 0
+		return $?
+	fi
+
+	if command -v mihomo_api_live_or_config_json >/dev/null 2>&1; then
+		live_config_json="$(mihomo_api_live_or_config_json "$current_config_json" 2>/dev/null || true)"
+	fi
+	[ -n "$live_config_json" ] || live_config_json="$current_config_json"
+
+	if config_requires_service_restart "$live_config_json" "$current_config_json"; then
+		reason="Mihomo API/UI settings changed"
+		config_refresh_subscription_auto_update_state "$current_config_json" 1 "$reason"
+		apply_config_result_json "restart_required" 1 0 0 "$reason"
+		return $?
+	fi
+
+	if ! mihomo_hot_reload_supported "$live_config_json"; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in live config}"
+		apply_config_result_json "restart_required" 1 0 0 "$reason"
+		return $?
+	fi
+
+	config_active_requires_policy_reload
+	policy_state=$?
+	case "$policy_state" in
+	0)
+		policy_reload_needed=1
+		;;
+	1)
+		policy_reload_needed=0
+		;;
+	*)
+		reason="Runtime snapshot unavailable; restart required"
+		apply_config_result_json "restart_required" 1 0 0 "$reason"
+		return $?
+		;;
+	esac
+
+	config_refresh_subscription_auto_update_state "$current_config_json"
+
+	if ! mihomo_hot_reload_config "$live_config_json" "$active_config" 1; then
+		reason="${MIHOMO_API_REASON:-Mihomo API hot reload unavailable}"
+		http_code="${MIHOMO_API_HTTP_CODE:-}"
+		apply_config_result_json "restart_required" 1 0 0 "$reason" "$http_code"
+		return $?
+	fi
+
+	log "Hot reloaded on-disk Mihomo config through external controller"
+
+	if [ "$policy_reload_needed" -eq 0 ]; then
+		apply_config_result_json "hot_reloaded" 0 1 0
+		return $?
+	fi
+
+	if ! wait_for_current_mihomo_listeners; then
+		apply_config_result_json "restart_required" 1 1 0 "Mihomo listeners were not ready after hot reload"
+		return $?
+	fi
+
+	if ! MIHOWRT_ALLOW_MIHOMO_CONFIG_RELOAD=1 reload_runtime_state; then
+		apply_config_result_json "restart_required" 1 1 0 "Policy reload failed after Mihomo hot reload"
+		return $?
+	fi
+
+	apply_config_result_json "policy_reloaded" 0 1 1
 }
 
 apply_config_runtime() {

@@ -11,7 +11,7 @@
 		}
 	},
 	"admin/services/mihowrt/config": {
-		"title": "Mihomo Config",
+		"title": "Config",
 		"order": 10,
 		"action": {
 			"type": "view",
@@ -19,7 +19,7 @@
 		}
 	},
 	"admin/services/mihowrt/policy": {
-		"title": "Traffic Policy",
+		"title": "Policy",
 		"order": 20,
 		"action": {
 			"type": "view",
@@ -27,7 +27,7 @@
 		}
 	},
 	"admin/services/mihowrt/diagnostics": {
-		"title": "Diagnostics",
+		"title": "Status",
 		"order": 30,
 		"action": {
 			"type": "view",

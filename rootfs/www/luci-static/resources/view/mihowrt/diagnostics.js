@@ -4,56 +4,78 @@
 'require mihowrt.backend as backendHelper';
 
 const LOG_LINE_LIMIT = 200;
-const DIAGNOSTICS_THEME_CSS = `
-	.mihowrt-diag-summary {
+const DIAGNOSTICS_CSS = `
+	.mihowrt-status-head {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		gap: 12px;
+		flex-wrap: wrap;
+		margin-bottom: 16px;
+	}
+
+	.mihowrt-status-badges {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 10px;
-		align-items: center;
+		gap: 8px;
 		margin-bottom: 14px;
 	}
 
-	.mihowrt-diag-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-		gap: 12px;
+	.mihowrt-status-badge {
+		display: inline-block;
+		padding: 4px 9px;
+		border-radius: 3px;
+		font-size: 12px;
+		color: #fff;
 	}
 
-	.mihowrt-diag-grid--spaced {
+	.mihowrt-status-table {
+		width: 100%;
+		border-collapse: collapse;
 		margin-bottom: 12px;
 	}
 
-	.mihowrt-diag-card {
-		padding: 10px 12px;
-		border: 1px solid rgba(127, 127, 127, 0.22);
-		border-radius: 6px;
-		background: rgba(127, 127, 127, 0.06);
-		color: inherit;
+	.mihowrt-status-table td {
+		padding: 7px 8px;
+		border-bottom: 1px solid rgba(127, 127, 127, 0.18);
+		vertical-align: top;
 	}
 
-	.mihowrt-diag-card-label,
-	.mihowrt-diag-muted {
-		color: inherit;
+	.mihowrt-status-table td:first-child {
+		width: 210px;
 		opacity: 0.72;
 	}
 
-	.mihowrt-diag-card-label {
-		font-size: 12px;
-		margin-bottom: 4px;
+	.mihowrt-status-mono {
+		font-family: monospace;
+		word-break: break-word;
 	}
 
-	.mihowrt-diag-error {
+	.mihowrt-status-error {
 		color: #d9534f;
 	}
 
-	.mihowrt-diag-log {
+	.mihowrt-status-muted {
+		opacity: 0.72;
+	}
+
+	.mihowrt-status-details {
+		margin-top: 10px;
+	}
+
+	.mihowrt-status-details summary {
+		cursor: pointer;
+		font-weight: 600;
+		margin-bottom: 8px;
+	}
+
+	.mihowrt-status-log {
 		margin: 0;
-		max-height: 480px;
+		max-height: 420px;
 		overflow: auto;
-		padding: 14px;
-		border: 1px solid rgba(127, 127, 127, 0.22);
-		border-radius: 6px;
-		background: rgba(127, 127, 127, 0.08);
+		padding: 10px;
+		border: 1px solid rgba(127, 127, 127, 0.2);
+		background: rgba(127, 127, 127, 0.06);
 		color: inherit;
 		white-space: pre-wrap;
 		word-break: break-word;
@@ -61,95 +83,57 @@ const DIAGNOSTICS_THEME_CSS = `
 `;
 
 function badge(text, ok) {
-	// Compact colored status marker.
 	return E('span', {
-		class: 'label',
-		style: 'display:inline-block;padding:4px 10px;border-radius:999px;font-size:12px;color:white;background-color:' + (ok ? '#5cb85c' : '#d9534f') + ';'
+		class: 'mihowrt-status-badge',
+		style: 'background-color:' + (ok ? '#5cb85c' : '#d9534f') + ';'
 	}, text);
 }
 
-function renderField(label, value) {
-	// Render one key/value diagnostics card.
-	return E('div', {
-		class: 'mihowrt-diag-card'
-	}, [
-		E('div', {
-			class: 'mihowrt-diag-card-label'
-		}, label),
-		E('div', {
-			style: 'font-family:monospace;word-break:break-word;'
-		}, value)
-	]);
-}
-
 function setChildren(node, children) {
-	// Replace children without rebuilding outer section nodes.
 	while (node.firstChild)
 		node.removeChild(node.firstChild);
 
 	children.forEach(child => node.appendChild(child));
 }
 
-function renderErrorList(errors) {
-	// Render backend error array in a stable block.
+function textOrNone(value) {
+	if (value == null || value === '')
+		return _('none');
+	if (Array.isArray(value))
+		return value.length ? value.join(', ') : _('none');
+	return String(value);
+}
+
+function row(label, value, error = false) {
+	return E('tr', [
+		E('td', label),
+		E('td', {
+			class: 'mihowrt-status-mono' + (error ? ' mihowrt-status-error' : '')
+		}, textOrNone(value))
+	]);
+}
+
+function renderErrors(errors) {
 	if (!errors || !errors.length)
-		return E('div', { class: 'mihowrt-diag-muted' }, _('No errors reported.'));
+		return E('div', { class: 'mihowrt-status-muted' }, _('No errors reported.'));
 
 	return E('ul', { style: 'margin:0;padding-left:20px;' }, errors.map(error =>
-		E('li', { class: 'mihowrt-diag-error' }, error)
+		E('li', { class: 'mihowrt-status-error' }, String(error))
 	));
 }
 
-function renderLogLines(logs) {
-	// Render bounded log output from logs-json.
+function renderLogs(logs) {
 	if (logs.errors && logs.errors.length)
-		return E('div', { class: 'mihowrt-diag-error' }, logs.errors.join('; '));
-
+		return E('div', { class: 'mihowrt-status-error' }, logs.errors.join('; '));
 	if (!logs.available)
-		return E('div', { class: 'mihowrt-diag-muted' }, _('System log reader is not available on this device.'));
-
+		return E('div', { class: 'mihowrt-status-muted' }, _('System log reader is unavailable.'));
 	if (!logs.lines.length)
-		return E('div', { class: 'mihowrt-diag-muted' }, _('No MihoWRT-related log lines found.'));
+		return E('div', { class: 'mihowrt-status-muted' }, _('No MihoWRT log lines found.'));
 
-	return E('pre', {
-		class: 'mihowrt-diag-log'
-	}, logs.lines.join('\n'));
+	return E('pre', { class: 'mihowrt-status-log' }, logs.lines.join('\n'));
 }
 
-function renderAppliedPolicyBadge(status, active) {
-	// Derive the applied-policy badge from snapshot/live state.
-	if (status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
-		return badge(_('Applied Runtime Snapshot Invalid'), false);
-
-	if (status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
-		return badge(_('Applied Runtime Untracked'), false);
-
-	if (!active.present)
-		return badge(_('Applied Runtime Not Active'), false);
-
-	return badge(active.enabled ? _('Applied Policy Enabled') : _('Applied Policy Disabled'), active.enabled);
-}
-
-function renderAppliedBoolean(value) {
-	if (value == null)
-		return _('not active');
-
-	return value ? _('enabled') : _('disabled');
-}
-
-function renderAppliedList(values) {
-	if (!values)
-		return _('not active');
-
-	return values.length ? values.join(', ') : _('none');
-}
-
-function renderAppliedCount(value) {
-	return value == null ? _('not active') : String(value);
-}
-
-function deriveAppliedState(status) {
-	// Provide null/default active values when snapshot is absent.
+function activeState(status) {
 	if (status.active && status.active.present)
 		return status.active;
 
@@ -158,183 +142,238 @@ function deriveAppliedState(status) {
 		enabled: false,
 		routeTableId: '',
 		routeRulePriority: '',
-		dnsHijack: null,
-		disableQuic: null,
-		policyMode: null,
-		sourceNetworkInterfaces: null,
+		policyMode: '',
+		sourceNetworkInterfaces: [],
 		alwaysProxyDstCount: null,
 		alwaysProxySrcCount: null,
 		directDstCount: null
 	};
 }
 
+function statusFromServiceState(state) {
+	return {
+		summaryOnly: true,
+		serviceEnabled: !!state?.serviceEnabled,
+		serviceRunning: !!state?.serviceRunning,
+		serviceReady: !!state?.serviceReady,
+		runtimeSafeReloadReady: false,
+		runtimeMatchesDesired: false,
+		errors: Array.isArray(state?.errors) ? state.errors.map(String) : []
+	};
+}
+
+function policyLabel(status, active) {
+	if (status.summaryOnly)
+		return { text: _('Details not loaded'), ok: status.serviceReady };
+	if (status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
+		return { text: _('Snapshot invalid'), ok: false };
+	if (status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
+		return { text: _('Runtime untracked'), ok: false };
+	if (!active.present)
+		return { text: _('Policy inactive'), ok: false };
+	if (!status.runtimeMatchesDesired)
+		return { text: _('Config drift'), ok: false };
+	return { text: _('Policy active'), ok: true };
+}
+
+function renderSummary(status, active) {
+	const policy = policyLabel(status, active);
+	const badges = [
+		badge(status.serviceRunning ? _('Running') : _('Stopped'), status.serviceRunning),
+		badge(status.serviceEnabled ? _('Autostart on') : _('Autostart off'), status.serviceEnabled),
+		badge(status.serviceReady ? _('Ready') : _('Not ready'), status.serviceReady)
+	];
+
+	if (status.summaryOnly)
+		badges.push(badge(policy.text, policy.ok));
+	else {
+		badges.push(badge(policy.text, policy.ok));
+		badges.push(badge(status.runtimeSafeReloadReady ? _('Reload safe') : _('Reload blocked'), status.runtimeSafeReloadReady));
+	}
+
+	return [
+		E('div', { class: 'mihowrt-status-badges' }, badges),
+		(status.errors && status.errors.length)
+			? E('div', { class: 'mihowrt-status-error' }, status.errors.join('; '))
+			: E('div', { class: 'mihowrt-status-muted' }, status.summaryOnly
+				? _('Open runtime details to load policy state.')
+				: status.runtimeMatchesDesired
+					? _('Runtime matches current config.')
+					: _('Runtime differs from current config. Apply or restart service.'))
+	];
+}
+
+function renderRuntimeTable(status, active) {
+	return E('table', { class: 'mihowrt-status-table' }, [
+		row(_('Applied mode'), active.policyMode || _('not active')),
+		row(_('Configured mode'), status.policyMode || 'direct-first'),
+		row(_('Route table'), active.routeTableId || status.routeTableIdEffective || _('not active')),
+		row(_('Rule priority'), active.routeRulePriority || status.routeRulePriorityEffective || _('not active')),
+		row(_('Source interfaces'), active.sourceNetworkInterfaces),
+		row(_('Proxy lists'), [
+			_('dst %d').format(active.alwaysProxyDstCount || 0),
+			_('src %d').format(active.alwaysProxySrcCount || 0),
+			_('direct %d').format(active.directDstCount || 0)
+		].join(', ')),
+		row(_('Remote URLs'), [
+			_('dst %d').format(status.alwaysProxyDstRemoteUrlCount || 0),
+			_('src %d').format(status.alwaysProxySrcRemoteUrlCount || 0),
+			_('direct %d').format(status.directDstRemoteUrlCount || 0)
+		].join(', ')),
+		row(_('DNS backup'), status.dnsBackupValid ? _('valid') : _('missing/invalid'), !status.dnsBackupValid),
+		row(_('Snapshot'), status.runtimeSnapshotValid ? _('valid') : (status.runtimeSnapshotPresent ? _('invalid') : _('missing')), !status.runtimeSnapshotValid)
+	]);
+}
+
+function renderConfigTable(status) {
+	const config = status.config || {};
+
+	return E('table', { class: 'mihowrt-status-table' }, [
+		row(_('DNS listen'), config.mihomoDnsListen || _('missing'), !config.mihomoDnsListen),
+		row(_('DNS port'), config.dnsPort || _('missing'), !config.dnsPort),
+		row(_('TPROXY port'), config.tproxyPort || _('missing'), !config.tproxyPort),
+		row(_('Routing mark'), config.routingMark || _('missing'), !config.routingMark),
+		row(_('Fake-IP range'), config.fakeIpRange || _('missing'), !config.fakeIpRange),
+		row(_('Controller'), config.externalController || config.externalControllerUnix || _('none')),
+		row(_('Dashboard'), config.externalUiName || config.externalUi || _('none'))
+	]);
+}
+
 return view.extend({
 	load: function() {
-		return Promise.all([
-			backendHelper.readStatus(),
-			backendHelper.readLogs(LOG_LINE_LIMIT)
-		]);
+		return backendHelper.readServiceState().then(statusFromServiceState);
 	},
 
-	render: function(data) {
+	render: function(status) {
 		const summaryNode = E('div');
 		const runtimeNode = E('div');
 		const configNode = E('div');
-		const logsNode = E('div');
+		const errorNode = E('div');
+		const logsNode = E('div', { class: 'mihowrt-status-muted' }, _('Open logs to load them.'));
 		const refreshButton = E('button', {
 			class: 'btn cbi-button-action'
-		}, _('Refresh Diagnostics'));
+		}, _('Refresh'));
+		const logsRefreshButton = E('button', {
+			class: 'btn'
+		}, _('Reload logs'));
+		const runtimeDetailsNode = E('details', {
+			class: 'mihowrt-status-details'
+		});
+		let logsLoaded = false;
+		let detailsLoaded = !status.summaryOnly;
 
-		const renderState = function(status, logs) {
-			const active = deriveAppliedState(status);
+		const renderStatus = function(nextStatus) {
+			status = nextStatus || status;
+			const active = activeState(status);
 
-			setChildren(summaryNode, [
-				E('div', {
-					class: 'mihowrt-diag-summary'
-				}, [
-					badge(status.serviceRunning ? _('Service Running') : _('Service Stopped'), status.serviceRunning),
-					badge(status.serviceEnabled ? _('Enabled At Boot') : _('Disabled At Boot'), status.serviceEnabled),
-					badge(status.serviceReady ? _('Service Ready') : _('Service Not Ready'), status.serviceReady),
-					renderAppliedPolicyBadge(status, active),
-					badge(status.dnsBackupValid ? _('DNS Backup Cache Valid') : _('DNS Backup Cache Invalid/Missing'), status.dnsBackupValid),
-					badge(status.runtimeSafeReloadReady ? _('Safe Reload Ready') : _('Safe Reload Blocked'), status.runtimeSafeReloadReady),
-					badge(
-						status.runtimeSnapshotValid
-							? _('Runtime Snapshot Valid')
-							: (status.runtimeSnapshotPresent ? _('Runtime Snapshot Invalid') : _('Runtime Snapshot Missing')),
-						status.runtimeSnapshotValid
-					),
-					badge(
-						(status.runtimeSnapshotPresent && !status.runtimeSnapshotValid)
-							? _('Runtime Snapshot Invalid')
-							: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
-							? _('Runtime State Untracked')
-							: (active.present
-							? (status.runtimeMatchesDesired ? _('Runtime Matches Config') : _('Runtime Rolled Back/Drifted'))
-							: _('Runtime Not Active'))),
-						active.present && status.runtimeMatchesDesired && status.runtimeSnapshotValid
-					)
-					]),
-					(status.errors && status.errors.length)
-						? E('div', { class: 'mihowrt-diag-error' }, status.errors.join('; '))
-						: ((status.runtimeLiveStatePresent && !status.runtimeSnapshotPresent)
-							? E('div', { class: 'mihowrt-diag-error' }, _('Live runtime state exists, but runtime snapshot is missing. Diagnostics are partial and safe reload stays blocked.'))
-						: (!active.present
-							? E('div', { class: 'mihowrt-diag-muted' }, _('No applied runtime snapshot is active right now.'))
-						: (!status.runtimeMatchesDesired
-							? E('div', { class: 'mihowrt-diag-error' }, _('Applied runtime state differs from current config on disk. Run "service mihowrt apply" or restart service after direct file edits.'))
-							: (!status.runtimeSafeReloadReady
-								? E('div', { class: 'mihowrt-diag-error' }, _('Safe in-place reload is blocked because live state exists without runtime snapshot.'))
-								: E('div', { class: 'mihowrt-diag-muted' }, _('Runtime snapshot from MihoWRT backend.'))))))
-			]);
+			setChildren(summaryNode, renderSummary(status, active));
+			if (status.summaryOnly) {
+				setChildren(runtimeNode, [ E('div', { class: 'mihowrt-status-muted' }, _('Open details to load runtime state.')) ]);
+				setChildren(configNode, []);
+				setChildren(errorNode, []);
+				return;
+			}
 
-			setChildren(runtimeNode, [
-				E('div', {
-					class: 'mihowrt-diag-grid'
-				}, [
-					renderField(_('Applied Route Table'), active.routeTableId || _('not active')),
-					renderField(_('Applied Route Rule Priority'), active.routeRulePriority || _('not active')),
-					renderField(_('Configured Route Table'), status.routeTableId),
-					renderField(_('Configured Route Rule Priority'), status.routeRulePriority),
-					renderField(_('Configured Policy Mode'), status.policyMode || _('direct-first')),
-					renderField(_('Applied Policy Mode'), active.policyMode || _('not active')),
-					renderField(_('Applied DNS Hijack'), renderAppliedBoolean(active.dnsHijack)),
-					renderField(_('Applied Disable QUIC'), renderAppliedBoolean(active.disableQuic)),
-					renderField(_('Applied Source Interfaces'), renderAppliedList(active.sourceNetworkInterfaces)),
-					renderField(_('Applied Always Proxy Dst Count'), renderAppliedCount(active.alwaysProxyDstCount)),
-					renderField(_('Applied Always Proxy Src Count'), renderAppliedCount(active.alwaysProxySrcCount)),
-					renderField(_('Applied Direct Dst Count'), renderAppliedCount(active.directDstCount)),
-					renderField(_('Configured Remote List URLs'), [
-						_('dst: %d').format(status.alwaysProxyDstRemoteUrlCount || 0),
-						_('src: %d').format(status.alwaysProxySrcRemoteUrlCount || 0),
-						_('direct: %d').format(status.directDstRemoteUrlCount || 0)
-					].join(', ')),
-					renderField(_('Service Ready'), status.serviceReady ? _('yes') : _('no')),
-					renderField(_('Runtime Snapshot Present'), status.runtimeSnapshotPresent ? _('yes') : _('no')),
-					renderField(_('Runtime Snapshot Valid'), status.runtimeSnapshotValid ? _('yes') : _('no')),
-					renderField(_('Safe Reload Ready'), status.runtimeSafeReloadReady ? _('yes') : _('no')),
-					renderField(_('DNS Backup Cached'), status.dnsBackupExists ? _('yes') : _('no')),
-					renderField(_('DNS Recovery Backup Active'), status.dnsRecoveryBackupActive ? _('yes') : _('no')),
-					renderField(_('DNS Recovery Backup Valid'), status.dnsRecoveryBackupValid ? _('yes') : _('no')),
-					renderField(_('Route State Present'), status.routeStatePresent ? _('yes') : _('no'))
-				])
-			]);
-
-			setChildren(configNode, [
-				E('div', {
-					class: 'mihowrt-diag-grid mihowrt-diag-grid--spaced'
-				}, [
-					renderField(_('dns.listen -> local'), status.config.mihomoDnsListen || _('missing')),
-					renderField(_('DNS Port'), status.config.dnsPort || _('missing')),
-					renderField(_('TPROXY Port'), status.config.tproxyPort || _('missing')),
-					renderField(_('Routing Mark'), status.config.routingMark || _('missing')),
-					renderField(_('Enhanced Mode'), status.config.enhancedMode || _('none')),
-					renderField(_('Fake-IP Range'), status.config.fakeIpRange || _('none')),
-					renderField(_('External Controller'), status.config.externalController || _('none')),
-					renderField(_('External Controller TLS'), status.config.externalControllerTls || _('none')),
-					renderField(_('External Controller Unix'), status.config.externalControllerUnix || _('none')),
-					renderField(_('External UI Name'), status.config.externalUiName || _('none'))
-				]),
-				E('h3', { style: 'margin:0 0 8px 0;' }, _('Config Parse Errors')),
-				renderErrorList(status.config.errors)
-			]);
-
-			setChildren(logsNode, [
-				E('div', {
-					class: 'mihowrt-diag-muted',
-					style: 'margin-bottom:10px;'
-				}, _('Last %d MihoWRT-related system log lines.').format(logs.limit || LOG_LINE_LIMIT)),
-				renderLogLines(logs)
-			]);
+			setChildren(runtimeNode, [ renderRuntimeTable(status, active) ]);
+			setChildren(configNode, [ renderConfigTable(status) ]);
+			setChildren(errorNode, [ renderErrors((status.config && status.config.errors) || []) ]);
 		};
 
-		const updateView = async function() {
-			refreshButton.disabled = true;
+		const refreshSummary = async function() {
+			renderStatus(statusFromServiceState(await backendHelper.readServiceState()));
+			detailsLoaded = false;
+		};
 
+		const loadDetails = async function(force = false) {
+			if (detailsLoaded && !force)
+				return;
+
+			setChildren(runtimeNode, [ E('div', { class: 'mihowrt-status-muted' }, _('Loading details...')) ]);
 			try {
-				const [status, logs] = await Promise.all([
-					backendHelper.readStatus(),
-					backendHelper.readLogs(LOG_LINE_LIMIT)
-				]);
-				renderState(status, logs);
+				renderStatus(await backendHelper.readStatus());
+				detailsLoaded = true;
 			}
 			catch (e) {
-				ui.addNotification(null, E('p', _('Failed to refresh diagnostics: %s').format(e.message)), 'error');
+				detailsLoaded = false;
+				setChildren(runtimeNode, [ E('div', { class: 'mihowrt-status-error' }, _('Failed to load details: %s').format(e.message)) ]);
+			}
+		};
+
+		const refreshStatus = async function() {
+			refreshButton.disabled = true;
+			try {
+				if (runtimeDetailsNode.open)
+					await loadDetails(true);
+				else
+					await refreshSummary();
+			}
+			catch (e) {
+				ui.addNotification(null, E('p', _('Failed to refresh status: %s').format(e.message)), 'error');
 			}
 			finally {
 				refreshButton.disabled = false;
 			}
 		};
 
-		refreshButton.addEventListener('click', updateView);
-		renderState(data[0], data[1]);
+		const loadLogs = async function(force = false) {
+			if (logsLoaded && !force)
+				return;
+
+			logsRefreshButton.disabled = true;
+			setChildren(logsNode, [ E('div', { class: 'mihowrt-status-muted' }, _('Loading logs...')) ]);
+			try {
+				setChildren(logsNode, [ renderLogs(await backendHelper.readLogs(LOG_LINE_LIMIT)) ]);
+				logsLoaded = true;
+			}
+			catch (e) {
+				setChildren(logsNode, [ E('div', { class: 'mihowrt-status-error' }, _('Failed to load logs: %s').format(e.message)) ]);
+			}
+			finally {
+				logsRefreshButton.disabled = false;
+			}
+		};
+
+		const logsDetails = E('details', {
+			class: 'mihowrt-status-details'
+		}, [
+			E('summary', _('Logs')),
+			E('div', { style: 'margin-bottom:8px;' }, [ logsRefreshButton ]),
+			logsNode
+		]);
+
+		refreshButton.addEventListener('click', refreshStatus);
+		logsRefreshButton.addEventListener('click', () => loadLogs(true));
+		logsDetails.addEventListener('toggle', () => {
+			if (logsDetails.open)
+				loadLogs(false);
+		});
+		runtimeDetailsNode.addEventListener('toggle', () => {
+			if (runtimeDetailsNode.open)
+				loadDetails(false);
+		});
+
+		renderStatus(status);
+		setChildren(runtimeDetailsNode, [
+			E('summary', _('Runtime details')),
+			runtimeNode,
+			E('details', { class: 'mihowrt-status-details' }, [
+				E('summary', _('Parsed config')),
+				configNode,
+				E('h4', _('Config errors')),
+				errorNode
+			])
+		]);
 
 		return E([
-			E('style', DIAGNOSTICS_THEME_CSS),
-			E('div', {
-				style: 'margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;'
-			}, [
-				E('div', [
-					E('h2', { style: 'margin:0 0 6px 0;' }, _('MihoWRT Diagnostics')),
-					E('p', { class: 'cbi-section-descr', style: 'margin:0;' }, _('Runtime state, parsed config view, and system logs filtered for MihoWRT.'))
-				]),
+			E('style', DIAGNOSTICS_CSS),
+			E('div', { class: 'mihowrt-status-head' }, [
+				E('h2', { style: 'margin:0;' }, _('MihoWRT Status')),
 				refreshButton
 			]),
 			E('div', { class: 'cbi-section' }, [
-				E('h3', { style: 'margin-top:0;' }, _('Summary')),
-				summaryNode
-			]),
-			E('div', { class: 'cbi-section' }, [
-				E('h3', { style: 'margin-top:0;' }, _('Runtime')),
-				runtimeNode
-			]),
-			E('div', { class: 'cbi-section' }, [
-				E('h3', { style: 'margin-top:0;' }, _('Parsed Config')),
-				configNode
-			]),
-			E('div', { class: 'cbi-section' }, [
-				E('h3', { style: 'margin-top:0;' }, _('Logs')),
-				logsNode
+				summaryNode,
+				runtimeDetailsNode,
+				logsDetails
 			])
 		]);
 	},

@@ -50,6 +50,7 @@ function createContext(overrides = {}) {
 		subscriptionSaveButton: { disabled: false },
 		subscriptionFetchButton: { disabled: false },
 		execCalls: [],
+		restartValidatedCalls: 0,
 		notifications: [],
 		appliedStates: [],
 		refreshCalls: 0,
@@ -62,6 +63,11 @@ function createContext(overrides = {}) {
 					restartRequired: true,
 					latestVersion: 'v1.19.26'
 				};
+			},
+			restartValidatedService: async() => {
+				context.restartValidatedCalls += 1;
+				if (context.restartResult && context.restartResult.code !== 0)
+					throw new Error(String(context.restartResult.stderr || context.restartResult.stdout || '').trim() || 'restart failed');
 			}
 		},
 		fs: {
@@ -129,9 +135,7 @@ globalThis.getKernelUpdateInFlight = () => kernelUpdateInFlight;
 	const success = createContext();
 	await success.updateKernel();
 	assert(success.updateDisabledDuringCall === true, 'updateKernel should lock controls during backend call');
-	assert(success.execCalls.length === 1, 'updateKernel should restart service after updating a running kernel');
-	assert(success.execCalls[0].cmd === '/etc/init.d/mihowrt', 'updateKernel should restart through init script');
-	assert(success.execCalls[0].args[0] === 'restart', 'updateKernel should call restart action');
+	assert(success.restartValidatedCalls === 1, 'updateKernel should restart service after updating a running kernel');
 	assert(success.pollPredicateResult === true, 'updateKernel should wait for service readiness after restart');
 	assert(success.appliedStates.length === 1 && success.appliedStates[0].running === true, 'updateKernel should apply settled restarted state');
 	assert(success.getKernelUpdateInFlight() === false, 'updateKernel should clear busy flag after success');
@@ -146,7 +150,7 @@ globalThis.getKernelUpdateInFlight = () => kernelUpdateInFlight;
 		}
 	});
 	await stopped.updateKernel();
-	assert(stopped.execCalls.length === 0, 'updateKernel should not start stopped service after kernel update');
+	assert(stopped.restartValidatedCalls === 0, 'updateKernel should not start stopped service after kernel update');
 	assert(stopped.notifications.some(item => item.level === 'info' && String(item.message).includes('updated to v1.19.26')), 'updateKernel should report update without restart');
 
 	const current = createContext({
@@ -159,7 +163,7 @@ globalThis.getKernelUpdateInFlight = () => kernelUpdateInFlight;
 		}
 	});
 	await current.updateKernel();
-	assert(current.execCalls.length === 0, 'updateKernel should not restart when kernel is current');
+	assert(current.restartValidatedCalls === 0, 'updateKernel should not restart when kernel is current');
 	assert(current.notifications.some(item => item.level === 'info' && String(item.message).includes('up to date')), 'updateKernel should report current kernel');
 
 	const restartFail = createContext({

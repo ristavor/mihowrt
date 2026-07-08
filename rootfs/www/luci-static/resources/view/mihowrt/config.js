@@ -323,7 +323,7 @@ async function updateKernel() {
 		if (result.updated) {
 			if (result.restartRequired) {
 				try {
-					await runServiceAction('restart');
+					await backendHelper.restartValidatedService();
 				}
 				catch (e) {
 					await refreshServiceState(false);

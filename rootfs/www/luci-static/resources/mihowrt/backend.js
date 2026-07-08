@@ -341,10 +341,7 @@ return baseclass.extend({
 	// Restart via backend helper that can skip duplicate Mihomo validation only
 	// for the exact config already validated by applyConfig.
 	restartValidatedService: async function() {
-		const result = await fs.exec(WRITE_BACKEND, [ 'restart-validated-service' ]);
-
-		if (result.code !== 0)
-			throw new Error(execHelper.errorDetail(result));
+		await fs.exec_direct(WRITE_BACKEND, [ 'restart-validated-service' ], 'text', false, true);
 	},
 
 	readSubscriptionUrl: async function() {
@@ -443,12 +440,7 @@ return baseclass.extend({
 	},
 
 	updateKernel: async function() {
-		const result = await fs.exec(WRITE_BACKEND, [ 'kernel-update-json' ]);
-
-		if (result.code !== 0)
-			throw new Error(execHelper.errorDetail(result));
-
-		const payload = JSON.parse(result.stdout || '{}');
+		const payload = await fs.exec_direct(WRITE_BACKEND, [ 'kernel-update-json' ], 'json');
 		return {
 			action: String(payload.action || ''),
 			updated: !!payload.updated,

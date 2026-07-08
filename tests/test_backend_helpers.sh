@@ -227,10 +227,11 @@ if (state.directDstRemoteUrlCount !== 0)
 	if (!context.removeCalls.includes('/tmp/mihowrt-config.1700000000000-80000000'))
 		throw new Error('applyConfig should remove temp file after backend failure');
 	context.execResults = {};
+	context.execDirectCalls.length = 0;
 
 	await context.backend.restartValidatedService();
-	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'restart-validated-service'))
-		throw new Error('restartValidatedService should dispatch through backend command');
+	if (!context.execDirectCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'restart-validated-service' && call.type === 'text'))
+		throw new Error('restartValidatedService should dispatch through direct backend command');
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt-read read-config /tmp/mihowrt-config.test'] = {
@@ -444,22 +445,25 @@ if (state.directDstRemoteUrlCount !== 0)
 	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'sync-policy-remote-auto-update'))
 		throw new Error('syncPolicyRemoteAutoUpdate should dispatch through backend command');
 
-	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt kernel-update-json'] = {
-		code: 0,
-		stdout: '{"action":"updated","updated":true,"restart_required":true,"arch":"arm64","current_version":"v1.19.24","latest_version":"v1.19.26","asset":"mihomo-linux-arm64-v1.19.26.gz","reason":"Mihomo kernel updated"}'
+	context.execDirectCalls.length = 0;
+	context.execDirectResults['/usr/bin/mihowrt kernel-update-json'] = {
+		action: 'updated',
+		updated: true,
+		restart_required: true,
+		arch: 'arm64',
+		current_version: 'v1.19.24',
+		latest_version: 'v1.19.26',
+		asset: 'mihomo-linux-arm64-v1.19.26.gz',
+		reason: 'Mihomo kernel updated'
 	};
 	const kernelUpdate = await context.backend.updateKernel();
 	if (!kernelUpdate.updated || !kernelUpdate.restartRequired || kernelUpdate.arch !== 'arm64' || kernelUpdate.latestVersion !== 'v1.19.26')
 		throw new Error('updateKernel should map backend kernel update result');
-	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'kernel-update-json'))
-		throw new Error('updateKernel should dispatch through backend command');
+	if (!context.execDirectCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'kernel-update-json' && call.type === 'json'))
+		throw new Error('updateKernel should dispatch through direct backend command');
 
-	context.execCalls.length = 0;
-	context.execResults['/usr/bin/mihowrt kernel-update-json'] = {
-		code: 1,
-		stderr: 'kernel failed'
-	};
+	context.execDirectCalls.length = 0;
+	context.execDirectResults['/usr/bin/mihowrt kernel-update-json'] = new Error('kernel failed');
 	let kernelUpdateFailed = false;
 	try {
 		await context.backend.updateKernel();

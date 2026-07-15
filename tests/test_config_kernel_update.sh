@@ -21,6 +21,8 @@ assert(source.includes('result.updated && result.restartRequired && serviceState
 assert(source.includes('backendHelper.restartValidatedService()'), 'overview should use the validated restart path');
 assert(source.includes("_('Mihomo core updated to %s.')"), 'overview should report successful core updates');
 assert(source.includes("_('Mihomo core is up to date (%s).')"), 'overview should report an already-current core');
+assert(source.includes("result.action === 'up_to_date'"), 'overview should show the current-core notice only for an explicit up-to-date result');
+assert(source.includes("result.reason || _('Mihomo core update is not required.')"), 'overview should explain non-update outcomes');
 assert(source.includes("_('Unable to update Mihomo core: %s')"), 'overview should report update failures');
 EOF
 

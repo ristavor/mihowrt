@@ -274,9 +274,12 @@ return view.extend({
 				}
 				core = await backendHelper.readCoreVersion();
 				versionNode.textContent = core.version || result.latestVersion || _('Not installed');
-				mihowrtUi.notify(result.updated
-					? _('Mihomo core updated to %s.').format(versionNode.textContent)
-					: _('Mihomo core is up to date (%s).').format(versionNode.textContent), 'info');
+				if (result.updated)
+					mihowrtUi.notify(_('Mihomo core updated to %s.').format(versionNode.textContent), 'info');
+				else if (result.action === 'up_to_date')
+					mihowrtUi.notify(_('Mihomo core is up to date (%s).').format(versionNode.textContent), 'info');
+				else
+					mihowrtUi.notify(result.reason || _('Mihomo core update is not required.'), 'warning');
 			}
 			catch (e) {
 				mihowrtUi.notify(_('Unable to update Mihomo core: %s').format(e.message), 'error');

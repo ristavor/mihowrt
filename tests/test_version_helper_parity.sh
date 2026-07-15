@@ -45,6 +45,7 @@ export TEST_OPENWRT_RELEASE="DISTRIB_ARCH='aarch64_cortex-a53'"
 export CLASH_BIN="$tmpdir/clash"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/version.sh"
 
 extract_installer_function() {
 	local function_name="$1"
@@ -60,6 +61,8 @@ eval "$(extract_installer_function current_mihomo_version)"
 assert_eq "$(normalize_version 'release-v1.2.3-alpha')" "$(installer_normalize_version 'release-v1.2.3-alpha')" "normalize_version should stay in sync between runtime and installer helpers"
 assert_eq "$(detect_mihomo_arch)" "$(installer_detect_mihomo_arch)" "detect_mihomo_arch should stay in sync between runtime and installer helpers"
 assert_eq "$(current_mihomo_version)" "$(installer_current_mihomo_version)" "current_mihomo_version should stay in sync between runtime and installer helpers"
+assert_eq "v1.18.7" "$(core_version_json | jq -r '.version')" "core_version_json should report the installed core version"
+assert_eq "true" "$(core_version_json | jq -r '.installed')" "core_version_json should report an installed core"
 
 assert_true "runtime version_ge should accept newer version" version_ge "1.2.4" "1.2.3"
 assert_true "installer version_ge should accept newer version" installer_version_ge "1.2.4" "1.2.3"

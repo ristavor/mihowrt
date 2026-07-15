@@ -17,10 +17,15 @@ EOF
 
 cat > "$tmpbin/logread" <<'EOF'
 #!/usr/bin/env bash
+if [[ "${TEST_LOGREAD_FAIL:-0}" == "1" ]]; then
+	printf '%s\n' 'logread socket unavailable' >&2
+	exit 1
+fi
 cat <<'LOGS'
 Mon Jan  1 00:00:00 2026 daemon.info dnsmasq: startup
 Mon Jan  1 00:00:01 2026 daemon.info mihowrt: prepared policy state
-Mon Jan  1 00:00:02 2026 daemon.warn mihowrt[321]: warning line
+Mon Jan  1 00:00:02 2026 daemon.warn mihomo[321]: core warning line
+Mon Jan  1 00:00:03 2026 daemon.info clash[987]: legacy core line
 Mon Jan  1 00:00:03 2026 daemon.info unrelated: skip me
 Mon Jan  1 00:00:04 2026 daemon.info mihowrt: last line
 LOGS
@@ -198,10 +203,16 @@ logs_output="$(logs_json 2)"
 assert_eq "true" "$(printf '%s\n' "$logs_output" | jq -r '.available')" "logs_json should report available logread command"
 assert_eq "2" "$(printf '%s\n' "$logs_output" | jq -r '.limit')" "logs_json should preserve limit"
 assert_eq "2" "$(printf '%s\n' "$logs_output" | jq -r '.lines | length')" "logs_json should keep only requested number of lines"
-assert_eq "Mon Jan  1 00:00:02 2026 daemon.warn mihowrt[321]: warning line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[0]')" "logs_json should keep earlier matching line within limit window"
+assert_eq "Mon Jan  1 00:00:03 2026 daemon.info clash[987]: legacy core line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[0]')" "logs_json should include legacy clash-tagged core lines"
 assert_eq "Mon Jan  1 00:00:04 2026 daemon.info mihowrt: last line" "$(printf '%s\n' "$logs_output" | jq -r '.lines[1]')" "logs_json should keep latest matching line"
 assert_eq "1000" "$(logs_json 999999999999999999999 | jq -r '.limit')" "logs_json should cap huge limits without shell arithmetic overflow"
 assert_eq "200" "$(logs_json 0 | jq -r '.limit')" "logs_json should default zero limits"
+assert_eq "true" "$(logs_json 10 | jq -r 'any(.lines[]; contains("mihomo[321]"))')" "logs_json should include Mihomo-tagged core lines"
+export TEST_LOGREAD_FAIL=1
+failed_logs_output="$(logs_json 10)"
+assert_eq "false" "$(printf '%s\n' "$failed_logs_output" | jq -r '.available')" "logs_json should mark logread failures unavailable"
+assert_eq "logread socket unavailable" "$(printf '%s\n' "$failed_logs_output" | jq -r '.errors[0]')" "logs_json should expose logread failure details"
+unset TEST_LOGREAD_FAIL
 
 runtime_live_state_present() {
 	return "${TEST_RUNTIME_LIVE_STATE_PRESENT_RC:-0}"

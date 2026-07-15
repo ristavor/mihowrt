@@ -14,7 +14,7 @@ const unsavedMatch = source.match(/function editorHasUnsavedChanges[\s\S]*?\n}\n
 const confirmMatch = source.match(/function confirmSubscriptionOverwrite[\s\S]*?\n}\n\nasync function withSubscriptionLock/);
 const loadMatch = source.match(/async function loadSubscriptionIntoEditor[\s\S]*?\n}\n\nreturn view\.extend/);
 const fetchStart = source.indexOf('const fetchSubscription = async function() {');
-const fetchEnd = source.indexOf('\n\n\t\tconst saveAndApply = async function() {', fetchStart);
+const fetchEnd = source.indexOf('\n\n\t\t\tconst saveConfig = async function() {', fetchStart);
 
 if (!settingsMatch)
 	throw new Error('persistSubscriptionSettings() not found');
@@ -43,7 +43,7 @@ function assert(condition, message) {
 	assert(fetchFnSource.includes('stageSubscriptionSettings(value, result)'), 'fetchSubscription should stage subscription settings after fetch');
 	assert(!fetchFnSource.includes('backendHelper.saveSubscriptionFetchedInterval'), 'fetchSubscription should not persist fetched interval before validate/apply');
 	assert(!fetchFnSource.includes('persistSubscriptionSettings(value, result.profileUpdateInterval'), 'fetchSubscription should not save manual subscription settings before validate/apply');
-	assert(source.includes('subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked'), 'subscription interval input should be read-only unless override is enabled');
+	assert(source.includes('subscriptionIntervalInput.disabled = disabled || !hasSubscriptionUrl || !subscriptionOverrideInput?.checked'), 'subscription interval input should be unavailable without a subscription URL and read-only unless override is enabled');
 	assert(source.includes('change: updateSubscriptionIntervalInputState'), 'subscription override checkbox should update interval editability');
 
 	const context = {

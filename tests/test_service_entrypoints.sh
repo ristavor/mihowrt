@@ -369,6 +369,16 @@ set_subscription_settings_output="$(
 )"
 assert_eq "https://example.com/sub.yaml|1|12|24" "$set_subscription_settings_output" "set-subscription-settings command should forward auto-update settings"
 
+set_subscription_settings_metadata_output="$(
+	set -- set-subscription-settings "https://example.com/sub.yaml" 0 "" 24 "Тест 🚀" "upload=1; download=2; total=3; expire=4" "https://t.me/help" "https://example.com" "Привет 👋"
+	set_subscription_settings() {
+		printf '%s\n' "$#|$5|$9"
+	}
+	# shellcheck disable=SC1090
+	source <(strip_mihowrt_cli_bootstrap)
+)"
+assert_eq "9|Тест 🚀|Привет 👋" "$set_subscription_settings_metadata_output" "set-subscription-settings command should forward all subscription metadata"
+
 set_subscription_settings_minimal_output="$(
 	set -- set-subscription-settings "https://example.com/sub.yaml" 0 ""
 	set_subscription_settings() {

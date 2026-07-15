@@ -34,6 +34,18 @@ case "${1:-}" in
 				[[ "${TEST_UCI_POLICY_MODE+x}" == x ]] || exit 1
 				printf '%s\n' "$TEST_UCI_POLICY_MODE"
 				;;
+			mihowrt.settings.route_table_id)
+				[[ "${TEST_UCI_ROUTE_TABLE_ID+x}" == x ]] || exit 1
+				printf '%s\n' "$TEST_UCI_ROUTE_TABLE_ID"
+				;;
+			mihowrt.settings.route_rule_priority)
+				[[ "${TEST_UCI_ROUTE_RULE_PRIORITY+x}" == x ]] || exit 1
+				printf '%s\n' "$TEST_UCI_ROUTE_RULE_PRIORITY"
+				;;
+			mihowrt.settings.policy_remote_update_interval)
+				[[ "${TEST_UCI_POLICY_REMOTE_INTERVAL+x}" == x ]] || exit 1
+				printf '%s\n' "$TEST_UCI_POLICY_REMOTE_INTERVAL"
+				;;
 			*)
 				exit 1
 				;;
@@ -54,6 +66,7 @@ export TEST_UCI_LOG="$tmpdir/uci.log"
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
+source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 
 : >"$TEST_UCI_LOG"
 export TEST_UCI_LEGACY_ENABLED=0
@@ -83,9 +96,29 @@ assert_file_not_contains "$TEST_UCI_LOG" "-q commit mihowrt" "legacy migration s
 : >"$TEST_UCI_LOG"
 export TEST_UCI_LEGACY_ENABLED=1
 export TEST_UCI_POLICY_MODE=invalid-mode
+export TEST_UCI_ROUTE_TABLE_ID=201
+export TEST_UCI_ROUTE_RULE_PRIORITY=10010
 migrate_legacy_uci_settings
 assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.policy_mode=direct-first" "legacy migration should force invalid policy mode to direct-first"
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.route_table_id" "legacy migration should remove obsolete route table overrides"
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.route_rule_priority" "legacy migration should remove obsolete route priority overrides"
 assert_file_contains "$TEST_UCI_LOG" "-q commit mihowrt" "legacy migration should commit invalid mode repair"
+unset TEST_UCI_ROUTE_TABLE_ID TEST_UCI_ROUTE_RULE_PRIORITY
+
+DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
+SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
+DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
+printf '1.1.1.1\nhttps://example.com/dst.txt\nhttps://example.com/existing.txt | 12\n' >"$DST_LIST_FILE"
+printf 'https://example.com/src.txt;0443\n' >"$SRC_LIST_FILE"
+: >"$DIRECT_DST_LIST_FILE"
+export TEST_UCI_POLICY_REMOTE_INTERVAL=6
+: >"$TEST_UCI_LOG"
+migrate_policy_remote_intervals
+assert_file_contains "$DST_LIST_FILE" "https://example.com/dst.txt | 6" "remote list migration should preserve the old global interval per URL"
+assert_file_contains "$DST_LIST_FILE" "https://example.com/existing.txt | 12" "remote list migration should preserve an existing per-URL interval"
+assert_file_contains "$SRC_LIST_FILE" "https://example.com/src.txt;0443 | 6" "remote list migration should preserve URL port scope"
+assert_file_contains "$TEST_UCI_LOG" "-q delete mihowrt.settings.policy_remote_update_interval" "remote list migration should remove the obsolete global interval"
+unset TEST_UCI_POLICY_REMOTE_INTERVAL
 
 : >"$TEST_UCI_LOG"
 unset TEST_UCI_LEGACY_ENABLED

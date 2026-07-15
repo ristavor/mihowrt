@@ -27,6 +27,10 @@ MIHOWRT_BACKEND="$backend" sh "$wrapper" live-api-json >/dev/null
 assert_file_contains "$call_log" "live-api-json" "read wrapper should forward live-api-json"
 
 : >"$call_log"
+MIHOWRT_BACKEND="$backend" sh "$wrapper" core-version-json >/dev/null
+assert_file_contains "$call_log" "core-version-json" "read wrapper should forward core-version-json"
+
+: >"$call_log"
 MIHOWRT_BACKEND="$backend" sh "$wrapper" read-config /tmp/mihowrt-config.test >/dev/null
 assert_file_contains "$call_log" "read-config /tmp/mihowrt-config.test" "read wrapper should allow MihoWRT temp config previews"
 

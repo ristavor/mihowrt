@@ -10,20 +10,19 @@ const harness = require('./tests/js_luci_harness');
 const { assertEq } = harness;
 
 const viewSource = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/config.js');
+const overviewSource = harness.readSource('rootfs/www/luci-static/resources/view/mihowrt/overview.js');
 if (viewSource.includes('window.location.reload()'))
 	throw new Error('config.js should not do full page reloads after local actions');
-if (!viewSource.includes('external-controller-unix: /tmp/clash/mihomo.sock'))
-	throw new Error('config.js should show the tmpfs Mihomo socket path');
-if (!viewSource.includes('./ruleset/') || !viewSource.includes('./proxy_providers/'))
-	throw new Error('config.js should show tmpfs provider paths');
-if (viewSource.includes('cache.db'))
-	throw new Error('config.js should not show cache.db naming guidance');
 if (!viewSource.includes('Save Settings'))
 	throw new Error('config.js should label subscription save button as settings save');
 if (viewSource.includes('Save Subscription URL'))
 	throw new Error('config.js should not label subscription settings button as URL-only save');
-if (!viewSource.includes('Update Core'))
-	throw new Error('config.js should expose a core update action');
+if (viewSource.includes("E('h3', _('Service'))"))
+	throw new Error('config.js should not render service controls on the subscriptions page');
+if (!viewSource.includes("E('h3', _('Active YAML configuration'))"))
+	throw new Error('config.js should render the active YAML editor');
+if (!overviewSource.includes('Update Core') || !overviewSource.includes('Open Dashboard'))
+	throw new Error('overview.js should expose core update and dashboard actions');
 if (!viewSource.includes('const pageChildren = [') || !viewSource.includes('const page = E(pageChildren);'))
 	throw new Error('config.js should build page children without empty string placeholders');
 const pageStart = viewSource.indexOf('const pageChildren = [');
@@ -78,29 +77,21 @@ if (!busyMatch)
 
 const context = harness.createContext();
 vm.runInContext(`
-let serviceActionInFlight = false;
-let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 ${busyMatch[0].replace(/\n\nfunction updateControlDisabledState$/, '')}
 globalThis.controlsBusy = controlsBusy;
-globalThis.setBusyFlags = (serviceBusy, kernelBusy, saveBusy, subscriptionBusy) => {
-	serviceActionInFlight = serviceBusy;
-	kernelUpdateInFlight = kernelBusy;
+globalThis.setBusyFlags = (saveBusy, subscriptionBusy) => {
 	saveInFlight = saveBusy;
 	subscriptionInFlight = subscriptionBusy;
 };
 `, context);
 
-context.setBusyFlags(false, false, false, false);
+context.setBusyFlags(false, false);
 assertEq(String(context.controlsBusy()), 'false', 'controlsBusy should be false when no action is running');
-context.setBusyFlags(true, false, false, false);
-assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when service action is running');
-context.setBusyFlags(false, true, false, false);
-assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when kernel update is running');
-context.setBusyFlags(false, false, true, false);
+context.setBusyFlags(true, false);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when save is running');
-context.setBusyFlags(false, false, false, true);
+context.setBusyFlags(false, true);
 assertEq(String(context.controlsBusy()), 'true', 'controlsBusy should be true when subscription action is running');
 
 (async () => {

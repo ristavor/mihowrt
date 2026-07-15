@@ -35,6 +35,11 @@ case "${1:-}" in
 			mihowrt.settings.subscription_last_update) printf '%s\n' "${TEST_UCI_LAST_UPDATE:-}" ;;
 			mihowrt.settings.subscription_next_update) printf '%s\n' "${TEST_UCI_NEXT_UPDATE:-}" ;;
 			mihowrt.settings.subscription_auto_update_reason) printf '%s\n' "${TEST_UCI_AUTO_REASON:-}" ;;
+			mihowrt.settings.subscription_profile_title) printf '%s\n' "${TEST_UCI_PROFILE_TITLE:-}" ;;
+			mihowrt.settings.subscription_userinfo) printf '%s\n' "${TEST_UCI_SUBSCRIPTION_USERINFO:-}" ;;
+			mihowrt.settings.subscription_support_url) printf '%s\n' "${TEST_UCI_SUPPORT_URL:-}" ;;
+			mihowrt.settings.subscription_web_page_url) printf '%s\n' "${TEST_UCI_WEB_PAGE_URL:-}" ;;
+			mihowrt.settings.subscription_announce) printf '%s\n' "${TEST_UCI_ANNOUNCE:-}" ;;
 			*) exit 1 ;;
 		esac
 		;;
@@ -149,6 +154,11 @@ write_headers() {
 	{
 		printf 'HTTP/2 %s\n' "$status"
 		[ -z "${TEST_WGET_PROFILE_UPDATE_INTERVAL:-}" ] || printf 'profile-update-interval: %s\n' "$TEST_WGET_PROFILE_UPDATE_INTERVAL"
+		[ -z "${TEST_WGET_PROFILE_TITLE:-}" ] || printf 'profile-title: %s\n' "$TEST_WGET_PROFILE_TITLE"
+		[ -z "${TEST_WGET_SUBSCRIPTION_USERINFO:-}" ] || printf 'subscription-userinfo: %s\n' "$TEST_WGET_SUBSCRIPTION_USERINFO"
+		[ -z "${TEST_WGET_SUPPORT_URL:-}" ] || printf 'support-url: %s\n' "$TEST_WGET_SUPPORT_URL"
+		[ -z "${TEST_WGET_WEB_PAGE_URL:-}" ] || printf 'profile-web-page-url: %s\n' "$TEST_WGET_WEB_PAGE_URL"
+		[ -z "${TEST_WGET_ANNOUNCE:-}" ] || printf 'announce: %s\n' "$TEST_WGET_ANNOUNCE"
 	} >"$headers"
 }
 
@@ -260,12 +270,23 @@ export TEST_UCI_INTERVAL_OVERRIDE="1"
 export TEST_UCI_UPDATE_INTERVAL="12"
 export TEST_UCI_HEADER_INTERVAL="24"
 export TEST_UCI_AUTO_ENABLED="1"
+export TEST_UCI_PROFILE_TITLE="Тест 🚀"
+export TEST_UCI_SUBSCRIPTION_USERINFO="upload=10; download=20; total=100; expire=1790951622"
+export TEST_UCI_SUPPORT_URL="https://t.me/happ_chat"
+export TEST_UCI_WEB_PAGE_URL="https://example.com/account"
+export TEST_UCI_ANNOUNCE="Обновление доступно 🎉"
 assert_eq "https://example.com/current.yaml" "$(subscription_url_json | jq -r '.subscription_url')" "subscription_url_json should expose saved UCI URL"
 assert_eq "true" "$(subscription_url_json | jq -r '.subscription_interval_override')" "subscription_url_json should expose interval override flag"
 assert_eq "12" "$(subscription_url_json | jq -r '.subscription_update_interval')" "subscription_url_json should expose override interval"
 assert_eq "24" "$(subscription_url_json | jq -r '.subscription_header_interval')" "subscription_url_json should expose header interval"
 assert_eq "12" "$(subscription_url_json | jq -r '.subscription_effective_interval')" "subscription_url_json should prefer override interval"
 assert_eq "true" "$(subscription_url_json | jq -r '.subscription_auto_update_enabled')" "subscription_url_json should expose auto-update state"
+assert_eq "Тест 🚀" "$(subscription_url_json | jq -r '.profile_title')" "subscription_url_json should preserve UTF-8 profile titles"
+assert_eq "30" "$(subscription_url_json | jq -r '(.upload | tonumber) + (.download | tonumber)')" "subscription userinfo should expose upload and download counters"
+assert_eq "100" "$(subscription_url_json | jq -r '.total')" "subscription userinfo should expose total traffic"
+assert_eq "1790951622" "$(subscription_url_json | jq -r '.expire')" "subscription userinfo should expose expiry"
+assert_eq "https://t.me/happ_chat" "$(subscription_url_json | jq -r '.support_url')" "subscription_url_json should expose support URL"
+assert_eq "Обновление доступно 🎉" "$(subscription_url_json | jq -r '.announce')" "subscription_url_json should preserve UTF-8 announcements"
 assert_file_contains "$TEST_UCI_LOG" "-q get mihowrt.settings.subscription_url" "subscription_url_json should read UCI option"
 export TEST_UCI_INTERVAL_OVERRIDE="0"
 assert_eq "24" "$(subscription_url_json | jq -r '.subscription_effective_interval')" "subscription_url_json should use header interval without override"
@@ -369,6 +390,12 @@ assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscr
 set_subscription_settings "https://example.com/current.yaml" 1 12 24
 assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "set_subscription_settings should preserve pending manual restart when drift cannot be detected"
 assert_eq "Mihomo API/UI settings changed; manual restart is required" "$(subscription_url_json | jq -r '.subscription_manual_restart_reason')" "set_subscription_settings should preserve pending manual restart reason when drift cannot be detected"
+
+: >"$TEST_UCI_LOG"
+set_subscription_settings "https://example.com/current.yaml" 0 "" 24 "Личная 🚀" "upload=1; download=2; total=3; expire=4" "https://t.me/help" "https://example.com" "Привет 👋"
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_profile_title=Личная 🚀" "set_subscription_settings should persist profile title metadata"
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_userinfo=upload=1; download=2; total=3; expire=4" "set_subscription_settings should persist subscription userinfo metadata"
+assert_file_contains "$TEST_UCI_LOG" "-q set mihowrt.settings.subscription_announce=Привет 👋" "set_subscription_settings should persist announcement metadata"
 subscription_mark_update_failure "fetch failed"
 assert_file_contains "$SUBSCRIPTION_AUTO_UPDATE_STATE_FILE" "last_result=failure" "subscription failure should update tmpfs result"
 assert_eq "true" "$(subscription_url_json | jq -r '.subscription_manual_restart_required')" "subscription failure should preserve pending manual restart"
@@ -455,10 +482,20 @@ assert_eq "404" "$(printf '%s\n' "$subscription_http_json" | jq -r '.error.http_
 
 export TEST_WGET_MODE=ok
 export TEST_WGET_PROFILE_UPDATE_INTERVAL=24
+export TEST_WGET_PROFILE_TITLE="Подписка 🛰️"
+export TEST_WGET_SUBSCRIPTION_USERINFO="upload=0; download=2153701362; total=0; expire=1790951622"
+export TEST_WGET_SUPPORT_URL="https://t.me/happ_chat"
+export TEST_WGET_WEB_PAGE_URL="https://example.com/account"
+export TEST_WGET_ANNOUNCE="Технические работы ночью"
 subscription_ok_json="$(fetch_subscription_json "https://example.com/sub.yaml")"
 assert_eq "true" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.ok')" "fetch_subscription_json should return ok=true on success"
 assert_eq "mode: rule" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.content')" "fetch_subscription_json should include downloaded content"
 assert_eq "24" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.profile_update_interval')" "fetch_subscription_json should include profile update interval header"
+assert_eq "Подписка 🛰️" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.profile_title')" "fetch_subscription_json should include UTF-8 profile title header"
+assert_eq "upload=0; download=2153701362; total=0; expire=1790951622" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.subscription_userinfo')" "fetch_subscription_json should include subscription userinfo header"
+assert_eq "https://t.me/happ_chat" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.support_url')" "fetch_subscription_json should include support URL header"
+assert_eq "https://example.com/account" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.profile_web_page_url')" "fetch_subscription_json should include website header"
+assert_eq "Технические работы ночью" "$(printf '%s\n' "$subscription_ok_json" | jq -r '.announce')" "fetch_subscription_json should include announcement header"
 
 assert_false "fetch_subscription_config should reject invalid URLs before wget" fetch_subscription_config "ftp://example.com/sub.yaml" >/dev/null
 

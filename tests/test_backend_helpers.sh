@@ -346,6 +346,18 @@ if (state.directDstRemoteUrlCount !== 0)
 		throw new Error('saveSubscriptionSettings should pass fetched interval with saved subscription settings');
 
 	context.execCalls.length = 0;
+	await context.backend.saveSubscriptionSettings('https://example.com/sub.yaml', false, '', '24', {
+		profileTitle: 'Тест 🚀',
+		subscriptionUserinfo: 'upload=1; download=2; total=3; expire=4',
+		supportUrl: 'https://t.me/help',
+		profileWebPageUrl: 'https://example.com',
+		announce: 'Привет 👋'
+	});
+	const saveSubscriptionMetadataExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-settings');
+	if (!saveSubscriptionMetadataExec || saveSubscriptionMetadataExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|0||24|Тест 🚀|upload=1; download=2; total=3; expire=4|https://t.me/help|https://example.com|Привет 👋')
+		throw new Error('saveSubscriptionSettings should pass subscription metadata to backend command');
+
+	context.execCalls.length = 0;
 	await context.backend.saveSubscriptionFetchedInterval('https://example.com/sub.yaml', '24');
 	const saveSubscriptionFetchedIntervalExec = context.execCalls.find(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'set-subscription-fetched-interval');
 	if (!saveSubscriptionFetchedIntervalExec || saveSubscriptionFetchedIntervalExec.args.slice(1).join('|') !== 'https://example.com/sub.yaml|24')
@@ -355,13 +367,29 @@ if (state.directDstRemoteUrlCount !== 0)
 	context.execDirectResults['/usr/bin/mihowrt fetch-subscription-json https://example.com/sub.yaml'] = {
 		ok: true,
 		content: 'mode: rule\n',
-		profile_update_interval: '24'
+		profile_update_interval: '24',
+		profile_title: 'Тест 🚀',
+		subscription_userinfo: 'upload=1; download=2; total=3; expire=4',
+		support_url: 'https://t.me/help',
+		profile_web_page_url: 'https://example.com',
+		announce: 'Привет 👋'
 	};
 	const fetchedSubscription = await context.backend.fetchSubscription('https://example.com/sub.yaml');
-	if (fetchedSubscription.content !== 'mode: rule\n' || fetchedSubscription.profileUpdateInterval !== '24')
+	if (fetchedSubscription.content !== 'mode: rule\n' || fetchedSubscription.profileUpdateInterval !== '24' || fetchedSubscription.profileTitle !== 'Тест 🚀' || fetchedSubscription.announce !== 'Привет 👋')
 		throw new Error('fetchSubscription should return backend JSON content');
 	if (!context.execDirectCalls.some(call => call.cmd === '/usr/bin/mihowrt' && call.args[0] === 'fetch-subscription-json'))
 		throw new Error('fetchSubscription should use direct CGI backend command');
+
+	context.execCalls.length = 0;
+	context.execResults['/usr/bin/mihowrt-read core-version-json'] = {
+		code: 0,
+		stdout: '{"version":"v1.19.26","installed":true}'
+	};
+	const coreVersion = await context.backend.readCoreVersion();
+	if (!coreVersion.available || !coreVersion.installed || coreVersion.version !== 'v1.19.26')
+		throw new Error('readCoreVersion should map local core version JSON');
+	if (!context.execCalls.some(call => call.cmd === '/usr/bin/mihowrt-read' && call.args[0] === 'core-version-json'))
+		throw new Error('readCoreVersion should dispatch through the read-only backend command');
 
 	context.execCalls.length = 0;
 	context.execResults['/usr/bin/mihowrt update-policy-lists'] = {

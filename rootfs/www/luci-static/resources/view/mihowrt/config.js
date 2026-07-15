@@ -51,81 +51,6 @@ function updateControlDisabledState() {
 		subscriptionFetchButton.disabled = disabled || !hasSubscriptionUrl;
 }
 
-async function withServiceActionLock(fn) {
-	// Serialize start/stop/enable/disable actions from this page.
-	serviceActionInFlight = true;
-	updateControlDisabledState();
-
-	try {
-		return await fn();
-	}
-	finally {
-		serviceActionInFlight = false;
-		updateControlDisabledState();
-	}
-}
-
-async function runServiceAction(action) {
-	// Surface stderr/stdout on failure.
-	const result = await fs.exec(SERVICE_SCRIPT, [action]);
-	if (result.code !== 0)
-		throw new Error(mihowrtUi.execErrorDetail(result));
-}
-
-async function handleServiceAction(steps, errorMsg) {
-	// Undo completed steps when possible if a multi-step action fails.
-	const completed = [];
-	try {
-		for (const step of steps) {
-			await runServiceAction(step.action);
-			completed.push(step);
-		}
-		return true;
-	}
-	catch (e) {
-		const rollbackErrors = [];
-
-		for (let i = completed.length - 1; i >= 0; i--) {
-			const rollback = completed[i].rollback;
-			if (!rollback)
-				continue;
-
-			try {
-				await runServiceAction(rollback);
-			}
-			catch (rollbackError) {
-				rollbackErrors.push('%s: %s'.format(rollback, rollbackError.message));
-			}
-		}
-
-		const detail = rollbackErrors.length
-			? _('%s Rollback failed: %s').format(e.message, rollbackErrors.join('; '))
-			: e.message;
-		mihowrtUi.notify(errorMsg.format(detail), 'error');
-		return false;
-	}
-}
-
-async function startService() {
-	return handleServiceAction([
-		{ action: 'start', rollback: 'stop' }
-	], _('Unable to start service: %s'));
-}
-
-async function stopService() {
-	return handleServiceAction([
-		{ action: 'stop', rollback: 'start' }
-	], _('Unable to stop service: %s'));
-}
-
-async function setServiceEnabled(enabled) {
-	return handleServiceAction([
-		{ action: enabled ? 'enable' : 'disable' }
-	], enabled
-		? _('Unable to enable service at boot: %s')
-		: _('Unable to disable service at boot: %s'));
-}
-
 async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 	// Poll only after explicit service actions; normal page display does not poll.
 	const startTime = Date.now();
@@ -151,24 +76,6 @@ async function pollServiceState(predicate, timeout = SERVICE_STATE_TIMEOUT_MS) {
 	return null;
 }
 
-function applyServiceState(running, enabled) {
-	// Reflect latest service state in button labels and badges.
-	if (startStopButton)
-		startStopButton.textContent = configHelper.serviceToggleLabel(running);
-	if (enableDisableButton)
-		enableDisableButton.textContent = configHelper.serviceEnabledToggleLabel(enabled);
-
-	if (serviceStatusBadge) {
-		serviceStatusBadge.textContent = configHelper.serviceBadgeText(running);
-		serviceStatusBadge.style.backgroundColor = configHelper.serviceBadgeColor(running);
-	}
-
-	if (serviceEnabledBadge) {
-		serviceEnabledBadge.textContent = configHelper.serviceEnabledBadgeText(enabled);
-		serviceEnabledBadge.style.backgroundColor = configHelper.serviceEnabledBadgeColor(enabled);
-	}
-}
-
 async function readServiceState() {
 	// Read compact service-state JSON through read-only backend.
 	const status = await backendHelper.readServiceState();
@@ -176,178 +83,22 @@ async function readServiceState() {
 	if (!status.available)
 		throw new Error(configHelper.serviceStateErrorDetail(status));
 
-	lastServiceState = {
+	return {
 		running: !!status.serviceRunning,
 		enabled: !!status.serviceEnabled,
 		ready: !!status.serviceReady
-	};
-
-	return {
-		running: lastServiceState.running,
-		enabled: lastServiceState.enabled,
-		ready: lastServiceState.ready
 	};
 }
 
 async function refreshServiceState(notifyOnError = true) {
 	// Keep last known values if backend is temporarily unavailable.
 	try {
-		const state = await readServiceState();
-		applyServiceState(state.running, state.enabled);
-		return state;
+		return await readServiceState();
 	}
 	catch (e) {
-		applyServiceState(lastServiceState.running, lastServiceState.enabled);
 		if (notifyOnError)
 			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-		return lastServiceState;
-	}
-}
-
-async function toggleService() {
-	// Wait until start reaches ready or stop reaches not-running.
-	if (controlsBusy())
-		return;
-
-	await withServiceActionLock(async () => {
-		let state = null;
-
-		try {
-			state = await readServiceState();
-		}
-		catch (e) {
-			await refreshServiceState(false);
-			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-			return;
-		}
-
-		const targetStatus = !state.running;
-
-		if (state.running) {
-			if (!(await stopService()))
-				return;
-		}
-		else {
-			if (!(await startService()))
-				return;
-		}
-
-		let settledState = null;
-		try {
-			settledState = await pollServiceState(nextState => targetStatus ? nextState.ready : !nextState.running);
-		}
-		catch (e) {
-			await refreshServiceState(false);
-			mihowrtUi.notify(_('Unable to confirm service state: %s').format(e.message), 'warning');
-			return;
-		}
-
-		if (!settledState) {
-			await refreshServiceState(false);
-			mihowrtUi.notify(targetStatus
-				? _('Service start timed out. Check diagnostics and system log.')
-				: _('Service stop timed out. Refresh page and verify runtime state.'), 'warning');
-			return;
-		}
-
-		applyServiceState(settledState.running, settledState.enabled);
-	});
-}
-
-async function toggleServiceEnabled() {
-	// Toggle autostart and refresh state.
-	if (controlsBusy())
-		return;
-
-	await withServiceActionLock(async () => {
-		let state = null;
-
-		try {
-			state = await readServiceState();
-		}
-		catch (e) {
-			await refreshServiceState(false);
-			mihowrtUi.notify(_('Unable to read service state: %s').format(e.message), 'warning');
-			return;
-		}
-
-		if (!(await setServiceEnabled(!state.enabled)))
-			return;
-
-		await refreshServiceState();
-	});
-}
-
-async function openDashboard() {
-	return configHelper.openDashboard({
-		serviceName: SERVICE_NAME,
-		serviceScript: SERVICE_SCRIPT,
-		backendHelper: backendHelper,
-		uiHelper: mihowrtUi,
-		windowObject: window
-	});
-}
-
-async function updateKernel() {
-	if (controlsBusy())
-		return;
-
-	kernelUpdateInFlight = true;
-	updateControlDisabledState();
-
-	try {
-		const result = await backendHelper.updateKernel();
-		const latest = result.latestVersion || result.currentVersion || _('latest');
-
-		if (result.updated) {
-			if (result.restartRequired) {
-				try {
-					await backendHelper.restartValidatedService();
-				}
-				catch (e) {
-					await refreshServiceState(false);
-					mihowrtUi.notify(_('Mihomo kernel updated to %s, but service restart failed: %s').format(latest, e.message), 'error');
-					return;
-				}
-
-				let restartSettled = null;
-				try {
-					restartSettled = await pollServiceState(state => state.ready);
-				}
-				catch (e) {
-					await refreshServiceState(false);
-					mihowrtUi.notify(_('Mihomo kernel updated to %s, but unable to confirm service restart: %s').format(latest, e.message), 'warning');
-					return;
-				}
-
-				if (!restartSettled) {
-					await refreshServiceState(false);
-					mihowrtUi.notify(_('Mihomo kernel updated to %s, but service restart is still in progress. Check diagnostics if it does not recover soon.').format(latest), 'warning');
-					return;
-				}
-
-				applyServiceState(restartSettled.running, restartSettled.enabled);
-				mihowrtUi.notify(_('Mihomo kernel updated to %s and service restarted.').format(latest), 'info');
-				return;
-			}
-
-			mihowrtUi.notify(_('Mihomo kernel updated to %s.').format(latest), 'info');
-			return;
-		}
-
-		if (result.action === 'up_to_date') {
-			mihowrtUi.notify(_('Mihomo kernel is up to date (%s).').format(result.currentVersion || latest), 'info');
-			return;
-		}
-
-		mihowrtUi.notify(result.reason || _('Mihomo kernel update is not required.'), 'info');
-	}
-	catch (e) {
-		mihowrtUi.notify(_('Unable to update Mihomo kernel: %s').format(e.message), 'error');
-	}
-	finally {
-		kernelUpdateInFlight = false;
-		updateControlDisabledState();
+		return null;
 	}
 }
 
@@ -678,7 +429,7 @@ return view.extend({
 
 				let wasRunning = false;
 				try {
-					wasRunning = await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT);
+					wasRunning = (await readServiceState()).running;
 				}
 				catch (e) {
 					mihowrtUi.notify(_('Unable to determine service state before apply: %s').format(e.message), 'error');
@@ -734,7 +485,6 @@ return view.extend({
 						return;
 					}
 
-					applyServiceState(restartSettled.running, restartSettled.enabled);
 					await persistPendingSubscriptionAfterApply();
 					mihowrtUi.notify(_('Service restarted successfully.'), 'info');
 				}

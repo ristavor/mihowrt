@@ -239,22 +239,14 @@ config settings 'settings'
 	list source_network_interfaces 'br-lan'
 	option dns_hijack '1'
 	option disable_quic '1'
-	option policy_remote_update_interval '0'
 	option subscription_url ''
 	option subscription_interval_override '0'
 	option subscription_update_interval ''
 	option subscription_header_interval ''
 ```
 
-Optional route settings can be added:
-
-```text
-option route_table_id ''
-option route_rule_priority ''
-```
-
-Empty route table/priority means auto-select. Explicit values are
-validated and never overwrite unrelated router state.
+Route table and rule priority are always selected automatically. Their
+effective values remain visible in diagnostics, but are not user settings.
 
 ### Policy Lists
 
@@ -281,23 +273,31 @@ cleanup.
 
 MihoWRT adds pages under `Services -> MihoWRT`.
 
-### Config
+### Overview
 
-Edits raw `/opt/clash/config.yaml`.
+The home page contains the daily controls: start/stop, autostart,
+dashboard, core update, installed core version, and service/autostart
+status. It also shows the active subscription title, announcement,
+traffic usage, expiry, update interval, and provider support/site links.
+
+### Subscription
+
+Edits raw `/opt/clash/config.yaml` and the single active subscription.
 
 Important actions:
 
-- `Validate & Apply` validates through Mihomo, validates MihoWRT
+- `Save & Apply` validates through Mihomo, validates MihoWRT
   runtime fields, writes the config only after both checks pass, then hot
   reloads Mihomo when possible. It restarts only when the live API cannot
   be used or API/UI server fields changed during manual apply.
 - `Fetch` downloads subscription text into the editor but
-  does not save it until validation/apply. The backend reads
-  `profile-update-interval` as hours and sends `x-hwid`,
-  `x-device-os`, `x-ver-os`, and `x-device-model` headers.
+	does not save it until validation/apply. The backend reads
+	`profile-update-interval` as hours as well as `profile-title`,
+	`subscription-userinfo`, `support-url`, `profile-web-page-url`, and
+	`announce`. It sends `x-hwid`,
+	`x-device-os`, `x-ver-os`, and `x-device-model` headers.
 - `Save Settings` writes the subscription URL and auto-update settings.
-- service start/stop/autostart buttons call the init script.
-- dashboard button opens the configured Mihomo external UI.
+- `Save` stores the YAML and subscription state without applying it.
 
 Config apply uses a temp file under `/tmp`. The live config is not
 overwritten until validation passes.
@@ -345,11 +345,18 @@ effective lists with the active snapshot. It is blocked while policy
 form/list changes are unsaved. nftables is reloaded only when effective
 content changed.
 
-`Remote List Auto-update (hours)` enables cron-based refetch. A value of
-`0` disables the cron entry. When effective content changes, MihoWRT
+Every remote URL owns its update interval, written after the URL as
+` | hours`; `0` disables updates for that URL. Cron is enabled while at
+least one active URL has a positive interval. When effective content changes, MihoWRT
 updates only the affected nft sets/chains when safe; full policy reload
 is kept for structural changes such as first/last port-scoped rules or
 policy mode changes.
+
+### Diagnostics
+
+Shows service and applied runtime state, parsed config details, errors,
+and recent MihoWRT/Mihomo/clash log lines. Logs load immediately and can
+be refreshed independently.
 
 ### Status
 
@@ -508,6 +515,8 @@ ip/mask;port
 ;port
 http(s)://url
 http(s)://url;port
+http(s)://url | 24
+http(s)://url;port | 6
 ```
 
 Port formats:
@@ -529,6 +538,8 @@ Rules:
 - `;` is preferred before ports because `:` belongs to URLs.
 - legacy `ip:port`, `ip/mask:port`, and `:port` are accepted and migrated.
 - URLs inside remote lists are ignored; remote lists do not recurse.
+- ` | hours` belongs only to top-level remote URL entries. `0` leaves a
+  cached URL available for manual apply but disables its scheduled fetch.
 - remote content is merged into temp effective lists; persistent list files are not rewritten.
 - remote fetch failure fails apply/reload. Existing runtime state is restored when snapshot rollback is possible.
 
@@ -903,7 +914,7 @@ rootfs/www/luci-static/resources/mihowrt/
   shared LuCI backend, exec, config, UI, and Ace helpers.
 
 rootfs/www/luci-static/resources/view/mihowrt/
-  LuCI pages: config, policy, status.
+  LuCI pages: overview, subscription, traffic settings, diagnostics.
 
 tests/
   shell and Node tests.

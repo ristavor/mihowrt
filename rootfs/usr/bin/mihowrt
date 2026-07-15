@@ -427,7 +427,7 @@ subscription-json)
 	subscription_url_json
 	;;
 set-subscription-settings)
-	[ "$#" -ge 4 ] && [ "$#" -le 10 ] || {
+	[ "$#" -ge 4 ] && [ "$#" -le 11 ] || {
 		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours [title userinfo support-url web-page-url announce]]" >&2
 		exit 1
 	}

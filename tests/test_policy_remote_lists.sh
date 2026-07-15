@@ -151,6 +151,7 @@ assert_eq_file() {
 
 PKG_TMP_DIR="$tmpdir/run"
 POLICY_CACHE_DIR="$tmpdir/policy-cache"
+POLICY_REMOTE_URL_STATE_DIR="$tmpdir/policy-remote-state"
 DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
 SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
 DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
@@ -227,7 +228,7 @@ export TEST_WGET_FAIL_ALL=1
 policy_resolve_runtime_lists
 assert_eq_file $'1.1.1.1\n2.2.2.2\n3.3.3.0/24:15-2000\n1.1.1.2:443' "$POLICY_DST_LIST_FILE" "policy_resolve_runtime_lists should fall back to cached destination list when remote fetch fails"
 assert_eq_file $'4.4.4.4\n:53\n:853' "$POLICY_SRC_LIST_FILE" "policy_resolve_runtime_lists should fall back to cached source list when remote fetch fails"
-assert_file_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "policy_resolve_runtime_lists should warn when cached effective lists are used"
+assert_file_contains "$event_log" "Remote policy list unavailable; using URL cache" "policy_resolve_runtime_lists should warn when a per-URL cache is used"
 policy_clear_runtime_list_overrides
 unset TEST_WGET_FAIL_ALL
 
@@ -238,7 +239,7 @@ export POLICY_ALLOW_CACHE_FALLBACK=0
 assert_false "policy_resolve_runtime_lists should fail when cache fallback is disabled" policy_resolve_runtime_lists
 assert_unset POLICY_DST_LIST_FILE "disabled cache fallback should not leave destination override"
 assert_unset POLICY_SRC_LIST_FILE "disabled cache fallback should not leave source override"
-assert_file_not_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "disabled cache fallback should not report cached runtime lists"
+assert_file_not_contains "$event_log" "Remote policy list unavailable; using URL cache" "disabled cache fallback should not report cached URL lists"
 unset TEST_WGET_FAIL_ALL POLICY_ALLOW_CACHE_FALLBACK
 
 POLICY_REMOTE_LIST_MAX_BYTES=999999999999999999999
@@ -293,7 +294,7 @@ policy_clear_runtime_list_overrides
 export TEST_WGET_FAIL_ALL=1
 policy_resolve_runtime_lists
 assert_eq_file $'8.8.8.8\n9.9.9.0/24:443' "$POLICY_DIRECT_DST_LIST_FILE" "proxy-first should fall back to cached direct destination list when remote fetch fails"
-assert_file_contains "$event_log" "Remote policy lists unavailable; using cached effective lists" "proxy-first fallback should warn when cached effective lists are used"
+assert_file_contains "$event_log" "Remote policy list unavailable; using URL cache" "proxy-first fallback should warn when a per-URL cache is used"
 policy_clear_runtime_list_overrides
 unset TEST_WGET_FAIL_ALL
 

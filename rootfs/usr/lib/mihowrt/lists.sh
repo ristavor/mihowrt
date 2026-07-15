@@ -214,161 +214,53 @@ policy_remote_clear_auto_update_state() {
 	rm -f "$(policy_remote_auto_update_state_file)"
 }
 
-policy_remote_state_value() {
-	local key="$1"
-	local file=""
+policy_remote_file_has_auto_update() {
+	local file="$1" line="" interval=""
 
-	file="$(policy_remote_auto_update_state_file)"
 	[ -r "$file" ] || return 1
-	sed -n "s/^$key=//p" "$file" | tail -n 1
+	while IFS= read -r line || [ -n "$line" ]; do
+		line="$(trim "$line")"
+		case "$line" in
+		'' | '#'*) continue ;;
+		esac
+		is_policy_remote_list_url "$line" || continue
+		interval="$(policy_remote_list_interval "$line" 2>/dev/null || true)"
+		[ -n "$interval" ] && [ "$interval" != "0" ] && return 0
+	done <"$file"
+	return 1
 }
 
-policy_remote_write_auto_update_state() {
-	local interval="$1"
-	local result="${2:-scheduled}"
-	local reason="${3:-}"
-	local state_file="" state_dir="" tmp_file="" now="" next_update=""
-
-	state_file="$(policy_remote_auto_update_state_file)"
-	state_dir="$(dirname "$state_file")"
-	ensure_dir "$state_dir" || return 1
-	tmp_file="${state_file}.tmp.$$"
-	now="$(policy_remote_now_epoch)"
-	next_update="$(policy_remote_next_update_epoch "$interval")"
-	reason="$(printf '%s' "$reason" | mihowrt_single_line_value)"
-
-	{
-		printf 'interval=%s\n' "$interval"
-		printf 'last_update=%s\n' "$now"
-		printf 'next_update=%s\n' "$next_update"
-		printf 'last_result=%s\n' "$result"
-		printf 'reason=%s\n' "$reason"
-	} >"$tmp_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
-
-	mv -f "$tmp_file" "$state_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
+policy_remote_any_auto_update_enabled() {
+	policy_remote_file_has_auto_update "${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}" && return 0
+	policy_remote_file_has_auto_update "${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}" && return 0
+	policy_remote_file_has_auto_update "${DIRECT_DST_LIST_FILE:-/opt/clash/lst/direct_dst.txt}"
 }
 
 policy_remote_refresh_auto_update_state() {
-	local interval="" existing_interval="" existing_next_update=""
-
-	interval="$(policy_remote_configured_update_interval)" || {
-		policy_remote_sync_auto_update_cron 0 || return 1
-		policy_remote_clear_auto_update_state
-		return 0
-	}
-
-	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		policy_remote_sync_auto_update_cron 0 || return 1
-		policy_remote_clear_auto_update_state
-		return 0
-	fi
-
-	existing_interval="$(policy_remote_state_value interval 2>/dev/null || true)"
-	existing_next_update="$(policy_remote_state_value next_update 2>/dev/null || true)"
-	if [ "$existing_interval" = "$interval" ] && [ -n "$existing_next_update" ] && is_uint "$existing_next_update"; then
+	policy_remote_clear_auto_update_state
+	if policy_remote_any_auto_update_enabled; then
 		policy_remote_sync_auto_update_cron 1
-		return $?
+	else
+		policy_remote_sync_auto_update_cron 0
 	fi
-
-	policy_remote_write_auto_update_state "$interval" "scheduled" "" || return 1
-	policy_remote_sync_auto_update_cron 1
-}
-
-policy_remote_due_for_update() {
-	local interval="" next_update="" now=""
-
-	interval="$(policy_remote_configured_update_interval)" || {
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 1
-	}
-	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 1
-	fi
-
-	next_update="$(policy_remote_state_value next_update 2>/dev/null || true)"
-	if [ -z "$next_update" ]; then
-		policy_remote_write_auto_update_state "$interval" "scheduled" "" || true
-		return 1
-	fi
-	now="$(policy_remote_now_epoch)"
-	[ -n "$next_update" ] && is_uint "$next_update" || return 0
-	[ "$now" -ge "$next_update" ]
-}
-
-policy_remote_mark_update_success() {
-	local interval=""
-
-	interval="$(policy_remote_configured_update_interval)" || {
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 0
-	}
-	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 0
-	fi
-
-	policy_remote_write_auto_update_state "$interval" "success" "" || return 1
-}
-
-policy_remote_mark_update_failure() {
-	local reason="${1:-remote policy list auto-update failed}"
-	local interval=""
-
-	interval="$(policy_remote_configured_update_interval)" || {
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 0
-	}
-	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		return 0
-	fi
-
-	policy_remote_write_auto_update_state "$interval" "failure" "$reason"
 }
 
 auto_update_policy_remote_lists() {
-	local interval="" output="" rc=0
+	local output="" rc=0
 
-	interval="$(policy_remote_configured_update_interval)" || {
+	if ! policy_remote_any_auto_update_enabled; then
 		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
-		printf 'updated=0\n'
-		return 0
-	}
-	if [ -z "$interval" ] || [ "$interval" = "0" ]; then
-		policy_remote_sync_auto_update_cron 0 || true
-		policy_remote_clear_auto_update_state
 		printf 'updated=0\n'
 		return 0
 	fi
-
-	if ! policy_remote_due_for_update; then
-		printf 'updated=0\n'
-		return 0
-	fi
-
+	POLICY_REMOTE_AUTO_MODE=1
 	output="$(update_runtime_policy_lists)"
 	rc=$?
+	unset POLICY_REMOTE_AUTO_MODE
 	if [ "$rc" -eq 0 ]; then
-		policy_remote_mark_update_success || true
 		printf '%s\n' "$output"
 		return 0
 	fi
-
-	policy_remote_mark_update_failure "remote policy list auto-update failed" || true
 	return "$rc"
 }
 
@@ -418,7 +310,7 @@ policy_remote_list_register_url() {
 		return 1
 	fi
 
-	log "Fetching remote policy list $(policy_remote_redacted_url "$url")"
+	log "Resolving remote policy list $(policy_remote_redacted_url "$url")"
 }
 
 # Clamp per-request timeout to remaining apply budget.
@@ -454,9 +346,49 @@ is_policy_remote_list_url() {
 	policy_remote_list_url "$1" >/dev/null
 }
 
+# Remote URL entries may append " | hours". The URL/optional ;ports part stays
+# compatible with existing list syntax while every source gets its own schedule.
+policy_remote_list_base() {
+	local value="$1" base="" interval=""
+
+	case "$value" in
+	*'|'*)
+		base="$(trim "${value%|*}")"
+		interval="$(trim "${value##*|}")"
+		policy_remote_update_interval_valid "$interval" || return 1
+		printf '%s' "$base"
+		;;
+	*)
+		printf '%s' "$(trim "$value")"
+		;;
+	esac
+}
+
+policy_remote_list_interval() {
+	local value="$1" interval=""
+
+	case "$value" in
+	*'|'*)
+		interval="$(trim "${value##*|}")"
+		policy_remote_update_interval_valid "$interval" || return 1
+		normalize_uint "$interval"
+		;;
+	*)
+		# Legacy entries inherit the old global value until migration annotates them.
+		if have_command uci; then
+			policy_remote_configured_update_interval 2>/dev/null || printf '%s' '0'
+		else
+			printf '%s' '0'
+		fi
+		;;
+	esac
+}
+
 # Return URL part from a remote entry, accepting optional ;ports suffix.
 policy_remote_list_url() {
 	local value="$1" url="" ports=""
+
+	value="$(policy_remote_list_base "$value")" || return 1
 
 	case "$value" in
 	*';'*)
@@ -476,6 +408,8 @@ policy_remote_list_url() {
 # Return normalized inherited ports from URL;ports entries.
 policy_remote_list_ports() {
 	local value="$1" url="" ports=""
+
+	value="$(policy_remote_list_base "$value")" || return 1
 
 	case "$value" in
 	*';'*)
@@ -870,6 +804,94 @@ policy_fetch_remote_list() {
 	printf '%s' "$remote_file"
 }
 
+policy_remote_url_key() {
+	local value="$1" digest="" line=""
+
+	if have_command sha256sum; then
+		line="$(printf '%s' "$value" | sha256sum 2>/dev/null)" || return 1
+		digest="${line%% *}"
+	else
+		have_command cksum || return 1
+		line="$(printf '%s' "$value" | cksum 2>/dev/null)" || return 1
+		digest="${line%% *}"
+	fi
+	case "$digest" in
+	'' | *[!A-Za-z0-9]*) return 1 ;;
+	esac
+	printf '%s' "$digest"
+}
+
+policy_remote_url_cache_file() {
+	local key=""
+
+	key="$(policy_remote_url_key "$1")" || return 1
+	printf '%s/urls/%s.list' "$(policy_cache_dir)" "$key"
+}
+
+policy_remote_url_state_file() {
+	local key=""
+
+	key="$(policy_remote_url_key "$1")" || return 1
+	printf '%s/%s.state' "${POLICY_REMOTE_URL_STATE_DIR:-${PKG_STATE_DIR:-/var/run/mihowrt}/policy-remote}" "$key"
+}
+
+policy_remote_url_state_value() {
+	local source="$1" name="$2" state_file=""
+
+	state_file="$(policy_remote_url_state_file "$source")" || return 1
+	[ -r "$state_file" ] || return 1
+	sed -n "s/^$name=//p" "$state_file" | tail -n 1
+}
+
+policy_remote_url_due() {
+	local source="$1" interval="$2" next_update="" now=""
+
+	[ "$interval" != "0" ] || return 1
+	next_update="$(policy_remote_url_state_value "$source" next_update 2>/dev/null || true)"
+	[ -n "$next_update" ] && is_uint "$next_update" || return 0
+	now="$(policy_remote_now_epoch)"
+	[ "$now" -ge "$next_update" ]
+}
+
+policy_remote_url_mark_success() {
+	local source="$1" interval="$2" state_file="" state_dir="" tmp_file="" next_update=""
+
+	state_file="$(policy_remote_url_state_file "$source")" || return 1
+	if [ "$interval" = "0" ]; then
+		rm -f "$state_file"
+		return 0
+	fi
+	state_dir="$(dirname "$state_file")"
+	ensure_dir "$state_dir" || return 1
+	tmp_file="${state_file}.tmp.$$"
+	next_update="$(policy_remote_next_update_epoch "$interval")"
+	{
+		printf 'interval=%s\n' "$interval"
+		printf 'next_update=%s\n' "$next_update"
+	} >"$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+	mv -f "$tmp_file" "$state_file"
+}
+
+policy_remote_url_cache_install() {
+	local source="$1" downloaded="$2" cache_file="" cache_dir="" tmp_file=""
+
+	cache_file="$(policy_remote_url_cache_file "$source")" || return 1
+	cache_dir="$(dirname "$cache_file")"
+	ensure_dir "$cache_dir" || return 1
+	if [ -r "$cache_file" ] && cmp -s "$downloaded" "$cache_file" 2>/dev/null; then
+		return 0
+	fi
+	tmp_file="${cache_file}.tmp.$$"
+	cp -f "$downloaded" "$tmp_file" || {
+		rm -f "$tmp_file"
+		return 1
+	}
+	mv -f "$tmp_file" "$cache_file"
+}
+
 # Merge a remote URL entry. Nested URLs from remote content are skipped to keep
 # resolution bounded and non-recursive.
 policy_merge_remote_list_entry() {
@@ -877,7 +899,8 @@ policy_merge_remote_list_entry() {
 	local output="$2"
 	local label="$3"
 	local allow_urls="$4"
-	local remote_file="" remote_url="" remote_ports=""
+	local remote_file="" remote_url="" remote_ports="" remote_interval="" remote_source=""
+	local cache_file="" remote_temp=0 should_fetch=1
 
 	if [ "$allow_urls" -ne 1 ]; then
 		remote_url="$(policy_remote_list_url "$line" 2>/dev/null || true)"
@@ -887,13 +910,50 @@ policy_merge_remote_list_entry() {
 
 	remote_url="$(policy_remote_list_url "$line")" || return 1
 	remote_ports="$(policy_remote_list_ports "$line")" || return 1
+	remote_interval="$(policy_remote_list_interval "$line")" || return 1
+	remote_source="${remote_url};${remote_ports}"
 	policy_remote_list_register_url "$remote_url" "$label" || return 1
-	remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
+	cache_file="$(policy_remote_url_cache_file "$remote_source")" || return 1
+
+	if [ "${POLICY_REMOTE_AUTO_MODE:-0}" = "1" ]; then
+		if [ "$remote_interval" = "0" ]; then
+			should_fetch=0
+		elif ! policy_remote_url_due "$remote_source" "$remote_interval"; then
+			should_fetch=0
+		fi
+	fi
+
+	if [ "$should_fetch" -eq 1 ]; then
+		if remote_file="$(policy_fetch_remote_list "$remote_url")"; then
+			remote_temp=1
+			policy_remote_url_cache_install "$remote_source" "$remote_file" || {
+				rm -f "$remote_file"
+				return 1
+			}
+			policy_remote_url_mark_success "$remote_source" "$remote_interval" || true
+		elif [ -r "$cache_file" ] && policy_cache_fallback_enabled; then
+			warn "Remote policy list unavailable; using URL cache for $(policy_remote_redacted_url "$remote_url")"
+			remote_file="$cache_file"
+		else
+			return 1
+		fi
+	elif [ -r "$cache_file" ]; then
+		remote_file="$cache_file"
+	else
+		# First auto-update after migration primes a missing cache once.
+		remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
+		remote_temp=1
+		policy_remote_url_cache_install "$remote_source" "$remote_file" || {
+			rm -f "$remote_file"
+			return 1
+		}
+		policy_remote_url_mark_success "$remote_source" "$remote_interval" || true
+	fi
 	policy_merge_list_file "$remote_file" "$output" "$(policy_remote_redacted_url "$remote_url")" 0 "$remote_ports" || {
-		rm -f "$remote_file"
+		[ "$remote_temp" -eq 0 ] || rm -f "$remote_file"
 		return 1
 	}
-	rm -f "$remote_file"
+	[ "$remote_temp" -eq 0 ] || rm -f "$remote_file"
 }
 
 # Validate and normalize one local policy entry, optionally applying inherited
@@ -938,6 +998,12 @@ policy_merge_list_file() {
 			policy_merge_remote_list_entry "$line" "$output" "$label" "$allow_urls" || return 1
 			continue
 		fi
+		case "$line" in
+		*'|'*)
+			err "Invalid remote policy list schedule in $(policy_log_safe_value "$label")"
+			return 1
+			;;
+		esac
 
 		policy_merge_local_list_entry "$line" "$output" "$label" "$inherited_ports" || return 1
 	done <"$source"

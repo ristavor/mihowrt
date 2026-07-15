@@ -356,6 +356,10 @@ service-state-json)
 	mihowrt_cli_load_module_group service_state_json "$MIHOWRT_SERVICE_STATE_MODULES" || exit 1
 	service_state_json
 	;;
+core-version-json)
+	mihowrt_cli_load_module_group core_version_json "version.sh" || exit 1
+	core_version_json
+	;;
 restart-validated-service)
 	mihowrt_cli_load_module_group current_config_has_validated_stamp "$MIHOWRT_CONFIG_MODULES" || exit 1
 	init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
@@ -398,6 +402,14 @@ apply-config)
 	mihowrt_cli_load_full_modules apply_config_runtime || exit 1
 	with_runtime_lock apply_config_runtime "$2"
 	;;
+save-config)
+	[ -n "${2:-}" ] || {
+		echo "Usage: $0 save-config <temp-config-path>" >&2
+		exit 1
+	}
+	mihowrt_cli_load_module_group apply_config_file "$MIHOWRT_CONFIG_MODULES" || exit 1
+	with_runtime_lock apply_config_file "$2"
+	;;
 apply-active-config)
 	mihowrt_cli_load_full_modules apply_active_config_runtime || exit 1
 	with_runtime_lock apply_active_config_runtime
@@ -415,15 +427,13 @@ subscription-json)
 	subscription_url_json
 	;;
 set-subscription-settings)
-	[ "$#" -ge 4 ] && [ "$#" -le 5 ] || {
-		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours]" >&2
+	[ "$#" -ge 4 ] && [ "$#" -le 10 ] || {
+		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours [title userinfo support-url web-page-url announce]]" >&2
 		exit 1
 	}
 	mihowrt_cli_load_module_group set_subscription_settings "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	case "$#" in
-	4) with_runtime_lock set_subscription_settings "$2" "$3" "$4" ;;
-	5) with_runtime_lock set_subscription_settings "$2" "$3" "$4" "$5" ;;
-	esac
+	shift
+	with_runtime_lock set_subscription_settings "$@"
 	;;
 set-subscription-fetched-interval)
 	[ "$#" -eq 3 ] || {
@@ -474,7 +484,7 @@ status)
 	status_runtime_state
 	;;
 *)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|apply-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-all|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|apply-config|apply-active-config|apply-config-contents|subscription-json|set-subscription-settings|set-subscription-fetched-interval|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|kernel-update-json|status}" >&2
+	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|apply-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-all|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|core-version-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|save-config|apply-config|apply-active-config|apply-config-contents|subscription-json|set-subscription-settings|set-subscription-fetched-interval|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|kernel-update-json|status}" >&2
 	exit 1
 	;;
 esac

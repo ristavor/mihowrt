@@ -14,137 +14,101 @@ cat >"$tmpbin/logger" <<'EOF'
 #!/usr/bin/env bash
 exit 0
 EOF
-
-cat >"$tmpbin/uci" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$*" >>"$TEST_UCI_LOG"
-
-if [[ "${1:-}" == "-q" ]]; then
-	shift
-fi
-
-case "${1:-}" in
-	get)
-		case "${2:-}" in
-			mihowrt.settings.policy_remote_update_interval) printf '%s\n' "${TEST_UCI_POLICY_REMOTE_INTERVAL:-}" ;;
-			*) exit 1 ;;
-		esac
-		;;
-	set|delete|commit)
-		exit 0
-		;;
-	*)
-		exit 1
-		;;
-esac
-EOF
-
-chmod +x "$tmpbin/logger" "$tmpbin/uci"
+chmod +x "$tmpbin/logger"
 export PATH="$tmpbin:$PATH"
-export TEST_UCI_LOG="$tmpdir/uci.log"
-export TEST_UCI_POLICY_REMOTE_INTERVAL=""
 
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/constants.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/helpers.sh"
 source "$ROOT_DIR/rootfs/usr/lib/mihowrt/lists.sh"
 
 event_log="$tmpdir/events.log"
-POLICY_REMOTE_AUTO_UPDATE_STATE_FILE="$tmpdir/policy-remote-auto.state"
+POLICY_REMOTE_CRON_FILE="$tmpdir/root.cron"
+POLICY_REMOTE_AUTO_UPDATE_STATE_FILE="$tmpdir/legacy-policy-remote-auto.state"
+POLICY_REMOTE_URL_STATE_DIR="$tmpdir/url-state"
+DST_LIST_FILE="$tmpdir/always_proxy_dst.txt"
+SRC_LIST_FILE="$tmpdir/always_proxy_src.txt"
+DIRECT_DST_LIST_FILE="$tmpdir/direct_dst.txt"
+: >"$DST_LIST_FILE"
+: >"$SRC_LIST_FILE"
+: >"$DIRECT_DST_LIST_FILE"
 
 update_runtime_policy_lists() {
-	printf 'update_runtime_policy_lists\n' >>"$event_log"
+	printf 'update_runtime_policy_lists auto=%s\n' "${POLICY_REMOTE_AUTO_MODE:-0}" >>"$event_log"
 	[ "${TEST_POLICY_UPDATE_RC:-0}" -eq 0 ] || return "${TEST_POLICY_UPDATE_RC:-1}"
 	printf 'updated=%s\n' "${TEST_POLICY_UPDATED:-1}"
 }
 
-assert_true "zero policy remote auto-update interval should be valid" policy_remote_update_interval_valid "0"
-assert_true "positive policy remote auto-update interval should be valid" policy_remote_update_interval_valid "24"
-assert_false "too large policy remote auto-update interval should be invalid" policy_remote_update_interval_valid "8761"
+assert_true "zero per-URL interval should be valid" policy_remote_update_interval_valid "0"
+assert_true "positive per-URL interval should be valid" policy_remote_update_interval_valid "24"
+assert_false "too large per-URL interval should be invalid" policy_remote_update_interval_valid "8761"
+assert_eq "https://example.com/list.txt" "$(policy_remote_list_base 'https://example.com/list.txt | 12')" "per-URL parser should strip update interval"
+assert_eq "12" "$(policy_remote_list_interval 'https://example.com/list.txt | 12')" "per-URL parser should return update interval"
+assert_eq "0" "$(policy_remote_list_interval 'https://example.com/list.txt | 0')" "zero should disable one URL schedule"
+assert_false "invalid per-URL interval should fail" policy_remote_list_interval 'https://example.com/list.txt | nope' >/dev/null
 
-POLICY_REMOTE_CRON_FILE="$tmpdir/root.cron"
 rm -f "$POLICY_REMOTE_CRON_FILE"
 policy_remote_sync_auto_update_cron 0
-[[ ! -e "$POLICY_REMOTE_CRON_FILE" ]] || fail "policy remote cron sync should not create crontab when disabled and marker is absent"
+[[ ! -e "$POLICY_REMOTE_CRON_FILE" ]] || fail "disabled cron sync should not create an absent crontab"
 printf '0 0 * * * echo keep\n23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 # mihowrt policy remote auto-update\n' >"$POLICY_REMOTE_CRON_FILE"
 policy_remote_sync_auto_update_cron 0
-assert_file_contains "$POLICY_REMOTE_CRON_FILE" "echo keep" "policy remote cron sync should preserve unrelated entries when disabled"
-assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should remove auto-update task when disabled"
+assert_file_contains "$POLICY_REMOTE_CRON_FILE" "echo keep" "cron sync should preserve unrelated entries"
+assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "cron sync should remove the MihoWRT task"
 policy_remote_sync_auto_update_cron 1
-assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should create auto-update task only when enabled"
+assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "cron sync should enable hourly schedule checks"
 policy_cron_inode="$(stat -c %i "$POLICY_REMOTE_CRON_FILE")"
 policy_remote_sync_auto_update_cron 1
-assert_eq "$policy_cron_inode" "$(stat -c %i "$POLICY_REMOTE_CRON_FILE")" "policy remote cron sync should not rewrite unchanged enabled task"
-policy_remote_sync_auto_update_cron 0
-assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "policy remote cron sync should remove auto-update task after interval becomes disabled"
+assert_eq "$policy_cron_inode" "$(stat -c %i "$POLICY_REMOTE_CRON_FILE")" "unchanged cron sync should avoid rewrites"
 
-: >"$TEST_UCI_LOG"
-: >"$POLICY_REMOTE_CRON_FILE"
-TEST_UCI_POLICY_REMOTE_INTERVAL=0
 printf 'next_update=123\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
-policy_remote_refresh_auto_update_state
-assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "refresh should not create cron when interval is zero"
-[[ ! -e "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" ]] || fail "refresh should remove tmpfs state when interval is zero"
-
-: >"$TEST_UCI_LOG"
+: >"$DST_LIST_FILE"
 : >"$POLICY_REMOTE_CRON_FILE"
-TEST_UCI_POLICY_REMOTE_INTERVAL=6
 policy_remote_refresh_auto_update_state
-assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "refresh should create cron for positive interval"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "interval=6" "refresh should write tmpfs schedule state for positive interval"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "next_update=" "refresh should store next update in tmpfs"
-printf 'interval=6\nlast_update=1\nnext_update=123\nlast_result=scheduled\nreason=\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
-policy_remote_refresh_auto_update_state
-assert_eq "123" "$(policy_remote_state_value next_update)" "refresh should preserve next update when interval is unchanged"
+assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "no scheduled URLs should disable cron"
+[[ ! -e "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" ]] || fail "refresh should remove obsolete global state"
 
-: >"$TEST_UCI_LOG"
-printf 'next_update=123\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
-TEST_UCI_POLICY_REMOTE_INTERVAL=9999
+printf 'https://example.com/a.txt | 6\n' >"$DST_LIST_FILE"
 policy_remote_refresh_auto_update_state
-assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "refresh should remove cron when interval is invalid"
-[[ ! -e "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" ]] || fail "refresh should remove tmpfs state when interval is invalid"
+assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "a positive URL interval should enable cron"
+printf 'https://example.com/a.txt | 0\n' >"$DST_LIST_FILE"
+policy_remote_refresh_auto_update_state
+assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "a zero URL interval should disable cron"
+printf 'https://example.com/direct.txt | 24\n' >"$DIRECT_DST_LIST_FILE"
+policy_remote_refresh_auto_update_state
+assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "any policy list may enable cron"
 
+policy_remote_now_epoch() { printf '1000\n'; }
+source_key='https://example.com/a.txt;'
+assert_true "a URL without state should be due" policy_remote_url_due "$source_key" 6
+policy_remote_url_mark_success "$source_key" 6
+assert_eq "6" "$(policy_remote_url_state_value "$source_key" interval)" "per-URL state should retain its interval"
+assert_eq "22600" "$(policy_remote_url_state_value "$source_key" next_update)" "per-URL state should retain its next update"
+assert_false "fresh URL state should not be due" policy_remote_url_due "$source_key" 6
+policy_remote_now_epoch() { printf '22600\n'; }
+assert_true "URL should become due at its own deadline" policy_remote_url_due "$source_key" 6
+policy_remote_url_mark_success "$source_key" 0
+[[ ! -e "$(policy_remote_url_state_file "$source_key")" ]] || fail "disabling a URL should clear its schedule state"
+
+: >"$DST_LIST_FILE"
+: >"$SRC_LIST_FILE"
+: >"$DIRECT_DST_LIST_FILE"
 : >"$event_log"
-TEST_UCI_POLICY_REMOTE_INTERVAL=4
-policy_remote_write_auto_update_state 4 "scheduled" ""
 auto_update_output="$(auto_update_policy_remote_lists)"
-assert_eq "updated=0" "$auto_update_output" "auto updater should no-op before next update time"
-assert_file_not_contains "$event_log" "update_runtime_policy_lists" "not-due auto updater should not fetch remote lists"
+assert_eq "updated=0" "$auto_update_output" "auto updater should no-op without scheduled URLs"
+assert_file_not_contains "$event_log" "update_runtime_policy_lists" "disabled auto updater should not resolve lists"
 
+printf 'https://example.com/a.txt | 4\n' >"$DST_LIST_FILE"
 : >"$event_log"
-: >"$TEST_UCI_LOG"
-: >"$POLICY_REMOTE_CRON_FILE"
-printf '23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 # mihowrt policy remote auto-update\n' >"$POLICY_REMOTE_CRON_FILE"
-TEST_UCI_POLICY_REMOTE_INTERVAL=0
-printf 'next_update=0\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
-auto_update_output="$(auto_update_policy_remote_lists)"
-assert_eq "updated=0" "$auto_update_output" "auto updater should disable itself without fetching when interval becomes zero"
-assert_file_not_contains "$event_log" "update_runtime_policy_lists" "zero interval auto updater should not fetch remote lists"
-assert_file_not_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "zero interval auto updater should remove stale cron entry"
-[[ ! -e "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" ]] || fail "zero interval auto updater should remove tmpfs schedule state"
-
-: >"$event_log"
-: >"$TEST_UCI_LOG"
-: >"$POLICY_REMOTE_CRON_FILE"
-printf '23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 # mihowrt policy remote auto-update\n' >"$POLICY_REMOTE_CRON_FILE"
-TEST_UCI_POLICY_REMOTE_INTERVAL=4
-printf 'next_update=0\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
 TEST_POLICY_UPDATE_RC=0
 TEST_POLICY_UPDATED=1
 auto_update_output="$(auto_update_policy_remote_lists)"
-assert_eq "updated=1" "$auto_update_output" "auto updater should forward changed update result"
-assert_file_contains "$event_log" "update_runtime_policy_lists" "due auto updater should fetch remote lists"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "last_result=success" "successful auto update should store tmpfs result"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "reason=" "successful auto update should clear tmpfs failure reason"
-assert_file_contains "$POLICY_REMOTE_CRON_FILE" "auto-update-policy-lists" "successful auto update should keep cron entry"
+assert_eq "updated=1" "$auto_update_output" "auto updater should forward the policy update result"
+assert_file_contains "$event_log" "update_runtime_policy_lists auto=1" "auto updater should enable per-URL due checks"
+[[ -z "${POLICY_REMOTE_AUTO_MODE+x}" ]] || fail "auto updater should clear its mode after success"
 
 : >"$event_log"
-: >"$TEST_UCI_LOG"
-printf 'next_update=0\n' >"$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE"
 TEST_POLICY_UPDATE_RC=1
-assert_false "auto updater should fail when remote policy update fails" auto_update_policy_remote_lists >/dev/null
-assert_file_contains "$event_log" "update_runtime_policy_lists" "failing auto updater should still attempt due update"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "last_result=failure" "failing auto updater should store tmpfs failure state"
-assert_file_contains "$POLICY_REMOTE_AUTO_UPDATE_STATE_FILE" "reason=remote policy list auto-update failed" "failing auto updater should record failure reason in tmpfs"
-assert_file_not_contains "$TEST_UCI_LOG" "-q set" "auto updater should not write UCI state on scheduled runs"
+assert_false "auto updater should forward a failed list update" auto_update_policy_remote_lists >/dev/null
+assert_file_contains "$event_log" "update_runtime_policy_lists auto=1" "failing auto updater should still attempt list resolution"
+[[ -z "${POLICY_REMOTE_AUTO_MODE+x}" ]] || fail "auto updater should clear its mode after failure"
 
 pass "policy remote auto update"

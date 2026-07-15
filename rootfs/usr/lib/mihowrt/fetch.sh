@@ -288,12 +288,22 @@ FETCH_HTTP_STATUS=""
 FETCH_HTTP_ERROR_KIND=""
 FETCH_HTTP_ERROR_MESSAGE=""
 FETCH_PROFILE_UPDATE_INTERVAL=""
+FETCH_PROFILE_TITLE=""
+FETCH_SUBSCRIPTION_USERINFO=""
+FETCH_SUPPORT_URL=""
+FETCH_PROFILE_WEB_PAGE_URL=""
+FETCH_ANNOUNCE=""
 
 fetch_http_reset_error() {
 	FETCH_HTTP_STATUS=""
 	FETCH_HTTP_ERROR_KIND=""
 	FETCH_HTTP_ERROR_MESSAGE=""
 	FETCH_PROFILE_UPDATE_INTERVAL=""
+	FETCH_PROFILE_TITLE=""
+	FETCH_SUBSCRIPTION_USERINFO=""
+	FETCH_SUPPORT_URL=""
+	FETCH_PROFILE_WEB_PAGE_URL=""
+	FETCH_ANNOUNCE=""
 }
 
 fetch_http_set_error() {
@@ -307,19 +317,36 @@ fetch_last_http_status() {
 	awk '/HTTP\/[0-9.]+[[:space:]]+[0-9][0-9][0-9]/ { code = $2 } END { if (code != "") print code }' "$stderr_file" 2>/dev/null
 }
 
-fetch_profile_update_interval() {
-	local stderr_file="$1"
+fetch_response_header_value() {
+	local header_file="$1"
+	local header_name="$2"
 
-	awk '
-		BEGIN { value = "" }
-		tolower($0) ~ /^[[:space:]]*profile-update-interval[[:space:]]*:/ {
-			line = $0
-			sub("^[^:]*:", "", line)
-			gsub("^[[:space:]]+|[[:space:]]+$", "", line)
-			if (line ~ /^[0-9]+$/) value = line
+	# curl -D may contain one header block per redirect. Reset values on every
+	# HTTP status line so metadata always belongs to the final response.
+	awk -v wanted="$header_name" '
+		BEGIN {
+			wanted = tolower(wanted)
+			value = ""
 		}
-		END { if (value != "") print value }
-	' "$stderr_file" 2>/dev/null
+		/^HTTP\/[0-9.]+[[:space:]]+[0-9][0-9][0-9]/ {
+			value = ""
+			next
+		}
+		{
+			line = $0
+			sub("\r$", "", line)
+			colon = index(line, ":")
+			if (!colon)
+				next
+			name = substr(line, 1, colon - 1)
+			gsub("^[[:space:]]+|[[:space:]]+$", "", name)
+			if (tolower(name) != wanted)
+				next
+			value = substr(line, colon + 1)
+			gsub("^[[:space:]]+|[[:space:]]+$", "", value)
+		}
+		END { printf "%s", value }
+	' "$header_file" 2>/dev/null
 }
 
 fetch_stderr_looks_timeout() {
@@ -451,7 +478,15 @@ fetch_http_body_limited_to_file() {
 		rm -f "$curl_error_file"
 	fi
 	FETCH_HTTP_STATUS="$(fetch_last_http_status "$stderr_file")"
-	FETCH_PROFILE_UPDATE_INTERVAL="$(fetch_profile_update_interval "$stderr_file")"
+	FETCH_PROFILE_UPDATE_INTERVAL="$(fetch_response_header_value "$stderr_file" "profile-update-interval")"
+	case "$FETCH_PROFILE_UPDATE_INTERVAL" in
+	'' | *[!0-9]*) FETCH_PROFILE_UPDATE_INTERVAL="" ;;
+	esac
+	FETCH_PROFILE_TITLE="$(fetch_response_header_value "$stderr_file" "profile-title" | mihowrt_single_line_value)"
+	FETCH_SUBSCRIPTION_USERINFO="$(fetch_response_header_value "$stderr_file" "subscription-userinfo" | mihowrt_single_line_value)"
+	FETCH_SUPPORT_URL="$(fetch_response_header_value "$stderr_file" "support-url" | mihowrt_single_line_value)"
+	FETCH_PROFILE_WEB_PAGE_URL="$(fetch_response_header_value "$stderr_file" "profile-web-page-url" | mihowrt_single_line_value)"
+	FETCH_ANNOUNCE="$(fetch_response_header_value "$stderr_file" "announce" | mihowrt_single_line_value)"
 
 	size="$(wc -c <"$output" 2>/dev/null | awk '{ print $1; exit }')"
 	if ! is_uint "$size"; then
@@ -900,6 +935,8 @@ subscription_url_json() {
 	local subscription_url="" interval_override="" update_interval="" header_interval=""
 	local auto_enabled="0" state_enabled="" last_update="" next_update="" reason="" effective_interval=""
 	local manual_restart_required="" manual_restart_reason=""
+	local profile_title="" userinfo="" support_url="" web_page_url="" announce=""
+	local upload="" download="" total="" expire=""
 
 	require_command jq || return 1
 	require_command uci || return 1
@@ -907,6 +944,15 @@ subscription_url_json() {
 	interval_override="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval_override" 2>/dev/null || true)"
 	update_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_update_interval" 2>/dev/null || true)"
 	header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
+	profile_title="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_profile_title" 2>/dev/null || true)"
+	userinfo="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_userinfo" 2>/dev/null || true)"
+	support_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_support_url" 2>/dev/null || true)"
+	web_page_url="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_web_page_url" 2>/dev/null || true)"
+	announce="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_announce" 2>/dev/null || true)"
+	upload="$(subscription_userinfo_field "$userinfo" upload)"
+	download="$(subscription_userinfo_field "$userinfo" download)"
+	total="$(subscription_userinfo_field "$userinfo" total)"
+	expire="$(subscription_userinfo_field "$userinfo" expire)"
 	effective_interval="$(subscription_effective_update_interval "$interval_override" "$update_interval" "$header_interval")"
 	state_enabled="$(subscription_state_value enabled 2>/dev/null || true)"
 	last_update="$(subscription_state_value last_update 2>/dev/null || true)"
@@ -936,6 +982,15 @@ subscription_url_json() {
 		--arg reason "$reason" \
 		--arg manual_restart_required "$manual_restart_required" \
 		--arg manual_restart_reason "$manual_restart_reason" \
+		--arg profile_title "$profile_title" \
+		--arg userinfo "$userinfo" \
+		--arg upload "$upload" \
+		--arg download "$download" \
+		--arg total "$total" \
+		--arg expire "$expire" \
+		--arg support_url "$support_url" \
+		--arg web_page_url "$web_page_url" \
+		--arg announce "$announce" \
 		'{
 			subscription_url: $subscription_url,
 			subscription_interval_override: ($interval_override == "1"),
@@ -947,13 +1002,48 @@ subscription_url_json() {
 			subscription_next_update: $next_update,
 			subscription_auto_update_reason: $reason,
 			subscription_manual_restart_required: ($manual_restart_required == "1"),
-			subscription_manual_restart_reason: $manual_restart_reason
+			subscription_manual_restart_reason: $manual_restart_reason,
+			profile_title: $profile_title,
+			subscription_userinfo: $userinfo,
+			upload: $upload,
+			download: $download,
+			total: $total,
+			expire: $expire,
+			support_url: $support_url,
+			profile_web_page_url: $web_page_url,
+			announce: $announce
 		}'
+}
+
+subscription_userinfo_field() {
+	local userinfo="$1"
+	local wanted="$2"
+
+	printf '%s\n' "$userinfo" | awk -F ';' -v wanted="$wanted" '
+		{
+			for (i = 1; i <= NF; i++) {
+				part = $i
+				gsub("^[[:space:]]+|[[:space:]]+$", "", part)
+				eq = index(part, "=")
+				if (!eq)
+					continue
+				key = substr(part, 1, eq - 1)
+				value = substr(part, eq + 1)
+				gsub("^[[:space:]]+|[[:space:]]+$", "", key)
+				gsub("^[[:space:]]+|[[:space:]]+$", "", value)
+				if (tolower(key) == wanted && value ~ /^[0-9]+$/)
+					result = value
+			}
+		}
+		END { printf "%s", result }
+	'
 }
 
 set_subscription_settings() {
 	local url="" override="" interval="" header_interval="${4:-}" header_provided=0
-	local current_url="" changed=0 rc=0
+	local metadata_provided=0 profile_title="${5:-}" userinfo="${6:-}"
+	local support_url="${7:-}" web_page_url="${8:-}" announce="${9:-}"
+	local current_url="" changed=0 rc=0 option=""
 	local pkg_config="${PKG_CONFIG:-mihowrt}"
 
 	url="$(trim "${1:-}")"
@@ -961,6 +1051,12 @@ set_subscription_settings() {
 	interval="$(trim "${3:-}")"
 	header_interval="$(trim "$header_interval")"
 	[ "${4+x}" = x ] && header_provided=1 || header_provided=0
+	[ "${5+x}" = x ] && metadata_provided=1 || metadata_provided=0
+	profile_title="$(printf '%s' "$profile_title" | mihowrt_single_line_value)"
+	userinfo="$(printf '%s' "$userinfo" | mihowrt_single_line_value)"
+	support_url="$(printf '%s' "$support_url" | mihowrt_single_line_value)"
+	web_page_url="$(printf '%s' "$web_page_url" | mihowrt_single_line_value)"
+	announce="$(printf '%s' "$announce" | mihowrt_single_line_value)"
 
 	if [ -n "$url" ] && ! is_subscription_url "$url"; then
 		err "Invalid subscription URL: use http:// or https:// without whitespace"
@@ -970,6 +1066,7 @@ set_subscription_settings() {
 	1 | true | yes | on) override=1 ;;
 	*) override=0 ;;
 	esac
+	[ -n "$url" ] || override=0
 	if [ "$override" = "1" ] && [ -n "$interval" ] && ! subscription_interval_valid "$interval"; then
 		err "Invalid subscription update interval: $interval"
 		return 1
@@ -1046,10 +1143,50 @@ set_subscription_settings() {
 		fi
 	fi
 
+	if [ "$metadata_provided" -eq 1 ]; then
+		subscription_store_metadata_option subscription_profile_title "$profile_title" changed || return 1
+		subscription_store_metadata_option subscription_userinfo "$userinfo" changed || return 1
+		subscription_store_metadata_option subscription_support_url "$support_url" changed || return 1
+		subscription_store_metadata_option subscription_web_page_url "$web_page_url" changed || return 1
+		subscription_store_metadata_option subscription_announce "$announce" changed || return 1
+	elif [ "$url" != "$current_url" ]; then
+		for option in subscription_profile_title subscription_userinfo subscription_support_url subscription_web_page_url subscription_announce; do
+			if subscription_delete_option_if_present "$option"; then
+				changed=1
+			else
+				rc=$?
+				[ "$rc" -eq 1 ] || return 1
+			fi
+		done
+	fi
+
 	subscription_commit_if_changed "$changed" || return 1
 
 	# shellcheck disable=SC2119
 	subscription_refresh_auto_update_state
+}
+
+subscription_store_metadata_option() {
+	local option="$1"
+	local value="$2"
+	local changed_var="$3"
+	local rc=0
+
+	if [ -n "$value" ]; then
+		if subscription_set_option_if_changed "$option" "$value"; then
+			eval "$changed_var=1"
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
+	else
+		if subscription_delete_option_if_present "$option"; then
+			eval "$changed_var=1"
+		else
+			rc=$?
+			[ "$rc" -eq 1 ] || return 1
+		fi
+	fi
 }
 
 set_subscription_fetched_interval() {
@@ -1161,12 +1298,22 @@ fetch_subscription_json() {
 			hot_reload_reason="${MIHOMO_API_REASON:-Mihomo API hot reload is unavailable in subscription config}"
 		fi
 		jq -Rs --arg profile_update_interval "${FETCH_PROFILE_UPDATE_INTERVAL:-}" \
+			--arg profile_title "${FETCH_PROFILE_TITLE:-}" \
+			--arg subscription_userinfo "${FETCH_SUBSCRIPTION_USERINFO:-}" \
+			--arg support_url "${FETCH_SUPPORT_URL:-}" \
+			--arg profile_web_page_url "${FETCH_PROFILE_WEB_PAGE_URL:-}" \
+			--arg announce "${FETCH_ANNOUNCE:-}" \
 			--arg hot_reload_supported "$hot_reload_supported" \
 			--arg hot_reload_reason "$hot_reload_reason" \
 			'{
 				ok: true,
 				content: .,
 				profile_update_interval: $profile_update_interval,
+				profile_title: $profile_title,
+				subscription_userinfo: $subscription_userinfo,
+				support_url: $support_url,
+				profile_web_page_url: $profile_web_page_url,
+				announce: $announce,
 				hot_reload_supported: ($hot_reload_supported == "1"),
 				hot_reload_reason: $hot_reload_reason
 			}' <"$body_file"
@@ -1269,6 +1416,7 @@ update_subscription_config() {
 	local url="" candidate="" result="" action="" header_interval="" override="" update_interval="" effective_header_interval=""
 	local interval="" rc=0 restart_required="" restart_reason=""
 	local settings_error="" result_vars=""
+	local profile_title="" userinfo="" support_url="" web_page_url="" announce=""
 
 	require_command jq || return 1
 	require_command mktemp || return 1
@@ -1300,6 +1448,11 @@ update_subscription_config() {
 	fi
 
 	header_interval="${FETCH_PROFILE_UPDATE_INTERVAL:-}"
+	profile_title="${FETCH_PROFILE_TITLE:-}"
+	userinfo="${FETCH_SUBSCRIPTION_USERINFO:-}"
+	support_url="${FETCH_SUPPORT_URL:-}"
+	web_page_url="${FETCH_PROFILE_WEB_PAGE_URL:-}"
+	announce="${FETCH_ANNOUNCE:-}"
 	result="$(apply_config_runtime_auto_update "$candidate")" || return $?
 	if result_vars="$(subscription_apply_result_vars "$result")"; then
 		eval "$result_vars"
@@ -1325,7 +1478,8 @@ update_subscription_config() {
 	effective_header_interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_header_interval" 2>/dev/null || true)"
 	if [ -z "$header_interval" ] || subscription_interval_valid "$header_interval"; then
 		settings_error="$(
-			set_subscription_settings "$url" "$override" "$update_interval" "$header_interval" 2>&1 >/dev/null
+			set_subscription_settings "$url" "$override" "$update_interval" "$header_interval" \
+				"$profile_title" "$userinfo" "$support_url" "$web_page_url" "$announce" 2>&1 >/dev/null
 		)" || {
 			rc=$?
 			err "${settings_error:-Failed to persist subscription update interval}"

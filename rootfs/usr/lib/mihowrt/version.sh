@@ -81,3 +81,16 @@ current_mihomo_version() {
 	[ -x "$CLASH_BIN" ] || return 1
 	"$CLASH_BIN" -v 2>/dev/null | grep -oE '[vV]?[0-9]+\.[0-9]+\.[0-9]+' | head -n1
 }
+
+# Lightweight local-only version probe for the LuCI overview page.
+core_version_json() {
+	local version="" installed=0
+
+	require_command jq || return 1
+	version="$(current_mihomo_version 2>/dev/null || true)"
+	[ -n "$version" ] && installed=1
+	jq -nc \
+		--arg version "$version" \
+		--arg installed "$installed" \
+		'{ version: $version, installed: ($installed == "1") }'
+}

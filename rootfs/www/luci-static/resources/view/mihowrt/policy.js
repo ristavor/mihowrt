@@ -4,7 +4,7 @@
 'require uci';
 'require fs';
 'require ui';
-'require rpc';
+'require network';
 'require mihowrt.backend as backendHelper';
 'require mihowrt.ui as mihowrtUi';
 
@@ -14,12 +14,6 @@ const DIRECT_DST_LIST_FILE = '/opt/clash/lst/direct_dst.txt';
 const SETTINGS_SECTION_ID = 'settings';
 const SERVICE_NAME = 'mihowrt';
 const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
-const commitUciPackage = rpc.declare({
-	object: 'uci',
-	method: 'commit',
-	params: [ 'config' ],
-	reject: true
-});
 
 let dstValueCache = null;
 let srcValueCache = null;
@@ -35,19 +29,6 @@ let updateListsButton = null;
 let policyActionInFlight = false;
 let policyListWriteTransaction = null;
 let policyModeCache = 'direct-first';
-
-function validateNumericRange(value, label, min, max) {
-	// Empty value means backend auto-select.
-	if (!value)
-		return true;
-	if (!/^[0-9]+$/.test(value))
-		return _('%s must be numeric').format(label);
-
-	const parsed = parseInt(value, 10);
-	return parsed >= min && parsed <= max
-		? true
-		: _('%s must be between %s and %s').format(label, min, max);
-}
 
 function normalizeBlock(value) {
 	// Normalize line endings and keep a trailing newline for stable file writes.
@@ -71,11 +52,8 @@ function policySettingOptionNames() {
 	return [
 		'policy_mode',
 		'source_network_interfaces',
-		'dns_hijack',
-		'route_table_id',
-		'route_rule_priority',
-		'disable_quic',
-		'policy_remote_update_interval'
+			'dns_hijack',
+		'disable_quic'
 	];
 }
 
@@ -146,31 +124,6 @@ function hasUnsavedPolicySettingsChange() {
 	return hasUnsavedPolicyModeChange() ||
 		policySettingOptionNames().some(optionName =>
 			currentPolicySettingValue(optionName) !== (policySettingsCache[optionName] || ''));
-}
-
-function changeMentionsOption(change, optionName) {
-	if (Array.isArray(change))
-		return change.some(item => changeMentionsOption(item, optionName));
-	return String(change) === optionName;
-}
-
-function policyRemoteAutoUpdateChanged(changes) {
-	const mihowrtChanges = changes?.mihowrt;
-	return Array.isArray(mihowrtChanges) &&
-		mihowrtChanges.some(change => changeMentionsOption(change, 'policy_remote_update_interval'));
-}
-
-function mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes) {
-	const changedPackages = Object.keys(changes || {}).filter(name =>
-		Array.isArray(changes[name]) && changes[name].length > 0);
-	const mihowrtChanges = changes?.mihowrt;
-	return changedPackages.length === 1 &&
-		changedPackages[0] === 'mihowrt' &&
-		Array.isArray(mihowrtChanges) &&
-		mihowrtChanges.length > 0 &&
-		mihowrtChanges.every(change => Array.isArray(change) &&
-			(String(change[0]) === 'set' || String(change[0]) === 'remove') &&
-			String(change[2]) === 'policy_remote_update_interval');
 }
 
 function updateRemoteListsButtonNode() {
@@ -411,6 +364,8 @@ return view.extend({
 			const wasRunning = listChanged ? await mihowrtUi.getServiceStatus(SERVICE_NAME, SERVICE_SCRIPT) : false;
 			await savePolicyMap();
 			await reloadPolicyIfNeeded(listChanged, wasRunning);
+			if (listChanged)
+				await backendHelper.syncPolicyRemoteAutoUpdate();
 		}
 		finally {
 			clearPolicyListWriteTransaction();
@@ -444,15 +399,6 @@ return view.extend({
 			await savePolicyMap();
 
 			const changes = await uci.changes();
-			if (mihowrtUciChangesOnlyPolicyRemoteAutoUpdate(changes)) {
-				await commitUciPackage('mihowrt');
-				await ui.changes.init();
-				await backendHelper.syncPolicyRemoteAutoUpdate();
-				await reloadPolicyIfNeeded(listChanged, wasRunning);
-				syncPolicySettingsCacheFromForm();
-				return;
-			}
-
 			if (hasMihowrtUciChanges(changes)) {
 				await flushPolicyListWrites(false);
 				try {
@@ -462,13 +408,15 @@ return view.extend({
 					await rollbackPolicyListWrites();
 					throw e;
 				}
-				if (policyRemoteAutoUpdateChanged(changes))
+				if (listChanged)
 					await backendHelper.syncPolicyRemoteAutoUpdate();
 				syncPolicySettingsCacheFromForm();
 				return;
 			}
 
 			await reloadPolicyIfNeeded(listChanged, wasRunning);
+			if (listChanged)
+				await backendHelper.syncPolicyRemoteAutoUpdate();
 		}
 		finally {
 			clearPolicyListWriteTransaction();
@@ -481,14 +429,15 @@ return view.extend({
 			uci.load('mihowrt'),
 			L.resolveDefault(fs.read(DST_LIST_FILE), ''),
 			L.resolveDefault(fs.read(SRC_LIST_FILE), ''),
-			L.resolveDefault(fs.read(DIRECT_DST_LIST_FILE), '')
+			L.resolveDefault(fs.read(DIRECT_DST_LIST_FILE), ''),
+			L.resolveDefault(network.getDevices(), [])
 		]);
 	},
 
 	render: function(data) {
 		syncListCaches(data[1], data[2], data[3]);
 
-		const m = new form.Map('mihowrt', _('MihoWRT Policy'), _('Direct-first proxies selected traffic. Proxy-first proxies non-local traffic except direct destinations.'));
+			const m = new form.Map('mihowrt', _('Traffic Settings'), _('Choose which router traffic should use Mihomo.'));
 		policyMap = m;
 		const s = m.section(form.NamedSection, 'settings', 'settings', _('Routing'));
 
@@ -506,7 +455,13 @@ return view.extend({
 		o = s.option(form.DynamicList, 'source_network_interfaces', _('Source Interfaces'));
 		bindPolicySettingOption('source_network_interfaces', o);
 		o.placeholder = 'br-lan';
-		o.description = _('Ingress interfaces for client traffic.');
+			o.description = _('Ingress interfaces for client traffic.');
+			(data[4] || []).forEach(device => {
+				const name = String(device?.getName?.() || '');
+				if (!name || (device?.isUp && !device.isUp()))
+					return;
+				o.value(name, device?.getI18n?.() || name);
+			});
 		o.validate = function(section_id, value) {
 			if (!value)
 				return true;
@@ -519,39 +474,13 @@ return view.extend({
 		o.rmempty = false;
 		o.description = _('Redirect client TCP/UDP DNS requests before policy routing.');
 
-		o = s.option(form.Value, 'route_table_id', _('Route Table ID'));
-		bindPolicySettingOption('route_table_id', o);
-		o.placeholder = _('auto');
-		o.description = _('Empty value auto-selects a free table.');
-		o.validate = function(section_id, value) {
-			return validateNumericRange(value, _('Route table id'), 1, 252);
-		};
-
-		o = s.option(form.Value, 'route_rule_priority', _('Route Rule Priority'));
-		bindPolicySettingOption('route_rule_priority', o);
-		o.placeholder = _('auto');
-		o.description = _('Empty value auto-selects a free priority.');
-		o.validate = function(section_id, value) {
-			return validateNumericRange(value, _('Route rule priority'), 1, 32765);
-		};
-
 		o = s.option(form.Flag, 'disable_quic', _('Block QUIC for Proxied Traffic'));
 		bindPolicySettingOption('disable_quic', o);
 		o.default = '1';
 		o.rmempty = false;
 		o.description = _('Reject UDP/443 only for traffic selected into Mihomo.');
 
-		o = s.option(form.Value, 'policy_remote_update_interval', _('Remote List Auto-update (hours)'));
-		bindPolicySettingOption('policy_remote_update_interval', o);
-		o.placeholder = '0';
-		o.default = '0';
-		o.rmempty = false;
-		o.description = _('0 disables auto-update.');
-		o.validate = function(section_id, value) {
-			return validateNumericRange(value, _('Remote list auto-update interval'), 0, 8760);
-		};
-
-		o = s.option(form.Button, '_update_remote_lists', _('Update Remote Lists'));
+			o = s.option(form.Button, '_update_remote_lists', _('Update Remote Lists'));
 		updateListsButton = o;
 		o.inputstyle = 'action';
 		o.description = _('Save changes before updating.');
@@ -560,17 +489,17 @@ return view.extend({
 		o = s.option(form.TextValue, '_always_proxy_dst', _('Proxy Destinations'));
 		o.depends('policy_mode', 'direct-first');
 		dstListOption = o;
-		bindTextFileOption(o, 'dst', DST_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
+			bindTextFileOption(o, 'dst', DST_LIST_FILE, _('IPv4, CIDR, or ;port. Remote URL format: URL[;port] | update hours. Use 0 to disable automatic updates.'));
 
 		o = s.option(form.TextValue, '_always_proxy_src', _('Proxy Clients'));
 		o.depends('policy_mode', 'direct-first');
 		srcListOption = o;
-		bindTextFileOption(o, 'src', SRC_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
+			bindTextFileOption(o, 'src', SRC_LIST_FILE, _('IPv4, CIDR, or ;port. Remote URL format: URL[;port] | update hours. Use 0 to disable automatic updates.'));
 
 		o = s.option(form.TextValue, '_direct_dst', _('Direct Destinations'));
 		o.depends('policy_mode', 'proxy-first');
 		directDstListOption = o;
-		bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('IPv4, CIDR, ;port, IPv4;port, CIDR;port, or URL;port. One entry per line.'));
+			bindTextFileOption(o, 'direct-dst', DIRECT_DST_LIST_FILE, _('IPv4, CIDR, or ;port. Remote URL format: URL[;port] | update hours. Use 0 to disable automatic updates.'));
 
 		return m.render();
 	}

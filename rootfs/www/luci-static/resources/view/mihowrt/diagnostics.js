@@ -24,9 +24,7 @@ const DIAGNOSTICS_CSS = `
 	.mihowrt-status-badge {
 		display: inline-block;
 		padding: 4px 9px;
-		border-radius: 3px;
 		font-size: 12px;
-		color: #fff;
 	}
 
 	.mihowrt-status-table {
@@ -52,7 +50,7 @@ const DIAGNOSTICS_CSS = `
 	}
 
 	.mihowrt-status-error {
-		color: #d9534f;
+		font-weight: 600;
 	}
 
 	.mihowrt-status-muted {
@@ -84,8 +82,7 @@ const DIAGNOSTICS_CSS = `
 
 function badge(text, ok) {
 	return E('span', {
-		class: 'mihowrt-status-badge',
-		style: 'background-color:' + (ok ? '#5cb85c' : '#d9534f') + ';'
+		class: 'mihowrt-status-badge label ' + (ok ? 'success' : 'warning')
 	}, text);
 }
 
@@ -333,26 +330,15 @@ return view.extend({
 			}
 		};
 
-		const logsDetails = E('details', {
-			class: 'mihowrt-status-details'
-		}, [
-			E('summary', _('Logs')),
-			E('div', { style: 'margin-bottom:8px;' }, [ logsRefreshButton ]),
-			logsNode
-		]);
-
-		refreshButton.addEventListener('click', refreshStatus);
-		logsRefreshButton.addEventListener('click', () => loadLogs(true));
-		logsDetails.addEventListener('toggle', () => {
-			if (logsDetails.open)
-				loadLogs(false);
-		});
+			refreshButton.addEventListener('click', refreshStatus);
+			logsRefreshButton.addEventListener('click', () => loadLogs(true));
 		runtimeDetailsNode.addEventListener('toggle', () => {
 			if (runtimeDetailsNode.open)
 				loadDetails(false);
 		});
 
-		renderStatus(status);
+			renderStatus(status);
+			window.requestAnimationFrame(() => loadLogs(false));
 		setChildren(runtimeDetailsNode, [
 			E('summary', _('Runtime details')),
 			runtimeNode,
@@ -367,14 +353,20 @@ return view.extend({
 		return E([
 			E('style', DIAGNOSTICS_CSS),
 			E('div', { class: 'mihowrt-status-head' }, [
-				E('h2', { style: 'margin:0;' }, _('MihoWRT Status')),
+				E('h2', { style: 'margin:0;' }, _('Diagnostics')),
 				refreshButton
 			]),
 			E('div', { class: 'cbi-section' }, [
 				summaryNode,
-				runtimeDetailsNode,
-				logsDetails
-			])
+					runtimeDetailsNode
+				]),
+				E('div', { class: 'cbi-section' }, [
+					E('div', { class: 'mihowrt-status-head' }, [
+						E('h3', { style: 'margin:0;' }, _('Logs')),
+						logsRefreshButton
+					]),
+					logsNode
+				])
 		]);
 	},
 

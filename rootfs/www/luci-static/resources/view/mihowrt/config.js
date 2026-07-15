@@ -6,16 +6,11 @@
 'require mihowrt.config as configHelper';
 'require mihowrt.ui as mihowrtUi';
 
-const SERVICE_NAME = 'mihowrt';
-const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
 const CLASH_CONFIG = '/opt/clash/config.yaml';
 const SERVICE_STATE_POLL_INTERVAL_MS = 1000;
 const SERVICE_STATE_TIMEOUT_MS = 35000;
 
-let startStopButton = null;
-let enableDisableButton = null;
-let dashboardButton = null;
-let updateKernelButton = null;
+let saveConfigButton = null;
 let saveApplyButton = null;
 let subscriptionUrlInput = null;
 let subscriptionOverrideInput = null;
@@ -25,51 +20,35 @@ let subscriptionFetchButton = null;
 let subscriptionAutoUpdateBadge = null;
 let subscriptionAutoUpdateReasonNode = null;
 let subscriptionManualRestartNode = null;
-let serviceStatusBadge = null;
-let serviceEnabledBadge = null;
 let editor = null;
-let serviceActionInFlight = false;
-let kernelUpdateInFlight = false;
 let saveInFlight = false;
 let subscriptionInFlight = false;
 let savedConfigContent = '';
 let savedSubscriptionUrl = null;
 let pendingSubscriptionSettings = null;
-let lastServiceState = {
-	running: false,
-	enabled: false,
-	ready: false
-};
-
 function controlsBusy() {
-	// Any active backend operation disables controls to prevent overlap.
-	return serviceActionInFlight || kernelUpdateInFlight || saveInFlight || subscriptionInFlight;
+	return saveInFlight || subscriptionInFlight;
 }
 
 function updateControlDisabledState() {
 	// Keep every control in the same disabled state while action is in flight.
 	const disabled = controlsBusy();
+	const hasSubscriptionUrl = !!String(subscriptionUrlInput?.value || '').trim();
 
-	if (startStopButton)
-		startStopButton.disabled = disabled;
-	if (enableDisableButton)
-		enableDisableButton.disabled = disabled;
-	if (dashboardButton)
-		dashboardButton.disabled = disabled;
-	if (updateKernelButton)
-		updateKernelButton.disabled = disabled;
 	if (saveApplyButton)
 		saveApplyButton.disabled = disabled;
+	if (saveConfigButton)
+		saveConfigButton.disabled = disabled;
 	if (subscriptionUrlInput)
 		subscriptionUrlInput.disabled = disabled;
 	if (subscriptionOverrideInput)
-		subscriptionOverrideInput.disabled = disabled;
+		subscriptionOverrideInput.disabled = disabled || !hasSubscriptionUrl;
 	if (subscriptionIntervalInput)
-		subscriptionIntervalInput.disabled = disabled || !subscriptionOverrideInput?.checked;
+		subscriptionIntervalInput.disabled = disabled || !hasSubscriptionUrl || !subscriptionOverrideInput?.checked;
 	if (subscriptionSaveButton)
 		subscriptionSaveButton.disabled = disabled;
 	if (subscriptionFetchButton)
-		subscriptionFetchButton.disabled = disabled;
+		subscriptionFetchButton.disabled = disabled || !hasSubscriptionUrl;
 }
 
 async function withServiceActionLock(fn) {
@@ -387,12 +366,12 @@ function subscriptionUrlInputValue(input = subscriptionUrlInput) {
 	return configHelper.subscriptionUrlInputValue(input);
 }
 
-async function persistSubscriptionSettings(subscriptionUrl, headerInterval) {
+async function persistSubscriptionSettings(subscriptionUrl, headerInterval, metadata) {
 	const normalizedUrl = String(subscriptionUrl || '').trim();
 	const overrideInterval = !!subscriptionOverrideInput?.checked;
 	const updateInterval = overrideInterval ? String(subscriptionIntervalInput?.value || '').trim() : '';
 
-	await backendHelper.saveSubscriptionSettings(normalizedUrl, overrideInterval, updateInterval, headerInterval);
+	await backendHelper.saveSubscriptionSettings(normalizedUrl, overrideInterval, updateInterval, headerInterval, metadata);
 	savedSubscriptionUrl = normalizedUrl;
 	await refreshSubscriptionState(true);
 }
@@ -441,7 +420,7 @@ function applySubscriptionState(subscriptionState, updateInputs = false) {
 
 	if (subscriptionAutoUpdateBadge) {
 		subscriptionAutoUpdateBadge.textContent = enabled ? _('Auto-update enabled') : _('Auto-update disabled');
-		subscriptionAutoUpdateBadge.style.backgroundColor = enabled ? '#5cb85c' : '#d9534f';
+		subscriptionAutoUpdateBadge.className = 'label ' + (enabled ? 'success' : 'warning');
 	}
 
 	if (subscriptionAutoUpdateReasonNode) {
@@ -487,6 +466,13 @@ function stageSubscriptionSettings(subscriptionUrl, result) {
 	pendingSubscriptionSettings = {
 		subscriptionUrl: String(subscriptionUrl || '').trim(),
 		profileUpdateInterval: profileUpdateInterval,
+		metadata: {
+			profileTitle: String(result?.profileTitle || ''),
+			subscriptionUserinfo: String(result?.subscriptionUserinfo || ''),
+			supportUrl: String(result?.supportUrl || ''),
+			profileWebPageUrl: String(result?.profileWebPageUrl || ''),
+			announce: String(result?.announce || '')
+		},
 		configContent: content
 	};
 	setSubscriptionHeaderIntervalForUrl(profileUpdateInterval, subscriptionUrl);
@@ -502,7 +488,7 @@ async function persistPendingSubscriptionSettings(configContent) {
 		return false;
 	}
 
-	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval);
+	await persistSubscriptionSettings(pending.subscriptionUrl, pending.profileUpdateInterval, pending.metadata);
 	pendingSubscriptionSettings = null;
 	return true;
 }
@@ -573,30 +559,16 @@ return view.extend({
 	load: function() {
 		return Promise.all([
 			L.resolveDefault(fs.read(CLASH_CONFIG), ''),
-			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] }),
-			L.resolveDefault(backendHelper.readServiceState(), { available: false, errors: [ _('Unable to read service state') ] })
+			L.resolveDefault(backendHelper.readSubscriptionUrl(), { subscriptionUrl: '', errors: [ _('Unable to read subscription URL') ] })
 		]);
 	},
 
 	render: async function(data) {
-		const config = data?.[0] ?? '';
-		const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
-		const loadedServiceState = data?.[2] || { available: false, errors: [] };
-		let serviceState = lastServiceState;
+			const config = data?.[0] ?? '';
+			const subscriptionState = data?.[1] || { subscriptionUrl: '', errors: [] };
 
-		// Cache loaded values as the baseline for dirty checks and no-op saves.
-		if (loadedServiceState.available) {
-			serviceState = {
-				running: !!loadedServiceState.serviceRunning,
-				enabled: !!loadedServiceState.serviceEnabled,
-				ready: !!loadedServiceState.serviceReady
-			};
-			lastServiceState = serviceState;
-		}
-		else {
-			mihowrtUi.notify(_('Unable to read service state: %s').format(configHelper.serviceStateErrorDetail(loadedServiceState)), 'warning');
-		}
-		if (subscriptionState.errors && subscriptionState.errors.length)
+			// Cache loaded values as the baseline for dirty checks and no-op saves.
+			if (subscriptionState.errors && subscriptionState.errors.length)
 			mihowrtUi.notify(_('Unable to read subscription URL: %s').format(configHelper.subscriptionStateErrorDetail(subscriptionState)), 'warning');
 		savedConfigContent = configHelper.editorContentForSave(config);
 		savedSubscriptionUrl = subscriptionState.errors && subscriptionState.errors.length
@@ -622,7 +594,7 @@ return view.extend({
 			});
 		};
 
-		const fetchSubscription = async function() {
+			const fetchSubscription = async function() {
 			if (controlsBusy())
 				return;
 
@@ -650,7 +622,34 @@ return view.extend({
 			}).catch(e => {
 				mihowrtUi.notify(_('Unable to fetch subscription: %s').format(e.message), 'error');
 			});
-		};
+			};
+
+			const saveConfig = async function() {
+				if (controlsBusy())
+					return;
+
+				saveInFlight = true;
+				updateControlDisabledState();
+				try {
+					if (!editor)
+						throw new Error(_('Editor is still loading. Please try again in a moment.'));
+
+					const value = configHelper.editorContentForSave(editor.getValue());
+					if (value !== savedConfigContent) {
+						await backendHelper.saveConfig(value);
+						savedConfigContent = await syncEditorToPersistedConfig(value);
+					}
+					await persistPendingSubscriptionSettings(value);
+					mihowrtUi.notify(_('Configuration saved. Apply it when ready.'), 'info');
+				}
+				catch (e) {
+					mihowrtUi.notify(_('Unable to save configuration: %s').format(e.message), 'error');
+				}
+				finally {
+					saveInFlight = false;
+					updateControlDisabledState();
+				}
+			};
 
 		const saveAndApply = async function() {
 			if (controlsBusy())
@@ -666,20 +665,16 @@ return view.extend({
 				}
 
 				const value = configHelper.editorContentForSave(editor.getValue());
-				if (value === savedConfigContent) {
-					try {
-						if (await persistPendingSubscriptionSettings(value)) {
-							mihowrtUi.notify(_('Subscription settings saved.'), 'info');
+					const configChanged = value !== savedConfigContent;
+					if (!configChanged) {
+						try {
+							await persistPendingSubscriptionSettings(value);
+						}
+						catch (e) {
+							mihowrtUi.notify(_('Unable to save subscription settings: %s').format(e.message), 'error');
 							return;
 						}
 					}
-					catch (e) {
-						mihowrtUi.notify(_('Unable to save subscription settings: %s').format(e.message), 'error');
-						return;
-					}
-					mihowrtUi.notify(_('Configuration is unchanged.'), 'info');
-					return;
-				}
 
 				let wasRunning = false;
 				try {
@@ -690,10 +685,11 @@ return view.extend({
 					return;
 				}
 
-				const applyResult = await backendHelper.applyConfig(value) || { restartRequired: wasRunning };
-				const persistedValue = await syncEditorToPersistedConfig(value);
-				savedConfigContent = persistedValue;
-				mihowrtUi.notify(_('Configuration saved successfully.'), 'info');
+					const applyResult = configChanged
+						? await backendHelper.applyConfig(value)
+						: await backendHelper.applyActiveConfig();
+					if (configChanged)
+						savedConfigContent = await syncEditorToPersistedConfig(value);
 
 				const persistPendingSubscriptionAfterApply = async function() {
 					try {
@@ -756,46 +752,20 @@ return view.extend({
 			}
 		};
 
-		const pageChildren = [
-			E('div', {
-				style: 'margin-bottom: 20px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
-			}, [
-				(startStopButton = E('button', {
-					class: 'btn',
-					click: toggleService
-				}, configHelper.serviceToggleLabel(serviceState.running))),
-				(enableDisableButton = E('button', {
-					class: 'btn',
-					click: toggleServiceEnabled
-				}, configHelper.serviceEnabledToggleLabel(serviceState.enabled))),
-				(dashboardButton = E('button', {
-					class: 'btn',
-					click: openDashboard
-				}, _('Open Mihomo Dashboard'))),
-				(updateKernelButton = E('button', {
-					class: 'btn cbi-button-action',
-					click: updateKernel
-				}, _('Update Core'))),
-				(serviceStatusBadge = E('span', {
-					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceBadgeColor(serviceState.running) + ';'
-				}, configHelper.serviceBadgeText(serviceState.running))),
-				(serviceEnabledBadge = E('span', {
-					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + configHelper.serviceEnabledBadgeColor(serviceState.enabled) + ';'
-				}, configHelper.serviceEnabledBadgeText(serviceState.enabled)))
-			]),
-			E('h2', _('Mihomo Config')),
-			E('p', { class: 'cbi-section-descr' }, _('YAML is validated before save. Direct shell edits can be applied with "service mihowrt apply".')),
-			E('p', { class: 'cbi-section-descr' }, _('Managed tmpfs paths: external-controller-unix: /tmp/clash/mihomo.sock, rule providers under ./ruleset/, proxy providers under ./proxy_providers/.')),
-			E('div', {
-				style: 'margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
-			}, [
+			const pageChildren = [
+				E('h2', _('Subscription')),
+				E('p', { class: 'cbi-section-descr' }, _('Download a subscription or edit the active YAML manually. Every save is validated before it reaches disk.')),
+				E('div', { class: 'cbi-section' }, [
+					E('h3', _('Subscription source')),
+					E('div', {
+					style: 'margin-bottom: 15px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;'
+				}, [
 				(subscriptionUrlInput = E('input', {
 					type: 'url',
 					value: String(subscriptionState.subscriptionUrl || ''),
 					placeholder: _('Subscription URL'),
-					style: 'flex: 1 1 360px; min-width: 220px; max-width: 100%;'
+						style: 'flex: 1 1 360px; min-width: 220px; max-width: 100%;',
+						input: updateControlDisabledState
 				})),
 				E('label', {
 					style: 'display:flex; align-items:center; gap:6px;'
@@ -826,39 +796,45 @@ return view.extend({
 					class: 'btn cbi-button-action',
 					click: fetchSubscription
 				}, _('Fetch'))),
-				(subscriptionAutoUpdateBadge = E('span', {
-					class: 'label',
-					style: 'padding: 4px 10px; border-radius: 3px; font-size: 12px; color: white; background-color: ' + (subscriptionState.subscriptionAutoUpdateEnabled ? '#5cb85c' : '#d9534f') + ';'
-				}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled')))
-			])
-		];
+					(subscriptionAutoUpdateBadge = E('span', {
+						class: 'label ' + (subscriptionState.subscriptionAutoUpdateEnabled ? 'success' : 'warning')
+					}, subscriptionState.subscriptionAutoUpdateEnabled ? _('Auto-update enabled') : _('Auto-update disabled')))
+					])
+				])
+			];
 
 		pageChildren.push(subscriptionAutoUpdateReasonNode = E('p', {
 			class: 'cbi-section-descr',
 			style: !subscriptionState.subscriptionAutoUpdateEnabled && subscriptionState.subscriptionAutoUpdateReason ? '' : 'display:none;'
 		}, !subscriptionState.subscriptionAutoUpdateEnabled ? String(subscriptionState.subscriptionAutoUpdateReason || '') : []));
 
-		pageChildren.push(subscriptionManualRestartNode = E('p', {
-			class: 'cbi-section-descr',
-			style: 'color: #a94442;' + (subscriptionState.subscriptionManualRestartRequired ? '' : ' display:none;')
+			pageChildren.push(subscriptionManualRestartNode = E('p', {
+				class: 'alert-message warning',
+				style: subscriptionState.subscriptionManualRestartRequired ? '' : 'display:none;'
 		}, subscriptionState.subscriptionManualRestartRequired
 			? subscriptionState.subscriptionManualRestartReason || _('Mihomo API/UI settings changed. Manual service restart is required.')
 			: []));
 
-		pageChildren.push(
-			editorNode,
-			E('div', { style: 'text-align: center; margin-top: 15px; margin-bottom: 20px;' }, [
-				(saveApplyButton = E('button', {
-					class: 'btn cbi-button-apply',
-					click: saveAndApply
-				}, _('Validate & Apply')))
-			])
-		);
+			pageChildren.push(
+				E('div', { class: 'cbi-section' }, [
+					E('h3', _('Active YAML configuration')),
+					editorNode,
+					E('div', { style: 'display:flex; justify-content:flex-end; flex-wrap:wrap; gap:8px; margin-top:15px;' }, [
+						(saveConfigButton = E('button', {
+							class: 'btn',
+							click: saveConfig
+						}, _('Save'))),
+					(saveApplyButton = E('button', {
+						class: 'btn cbi-button-apply',
+						click: saveAndApply
+					}, _('Save & Apply')))
+					])
+				])
+			);
 
 		const page = E(pageChildren);
 
-		applyServiceState(serviceState.running, serviceState.enabled);
-		applySubscriptionState(subscriptionState);
+			applySubscriptionState(subscriptionState);
 		updateControlDisabledState();
 
 		window.requestAnimationFrame(() => {

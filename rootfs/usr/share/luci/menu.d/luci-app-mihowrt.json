@@ -3,32 +3,40 @@
 		"title": "MihoWRT",
 		"action": {
 			"type": "alias",
-			"path": "admin/services/mihowrt/config"
+			"path": "admin/services/mihowrt/overview"
 		},
 		"depends": {
 			"acl": [ "luci-app-mihowrt" ],
 			"uci": { "mihowrt": true }
 		}
 	},
-	"admin/services/mihowrt/config": {
-		"title": "Config",
+	"admin/services/mihowrt/overview": {
+		"title": "Overview",
 		"order": 10,
+		"action": {
+			"type": "view",
+			"path": "mihowrt/overview"
+		}
+	},
+	"admin/services/mihowrt/subscriptions": {
+		"title": "Subscriptions",
+		"order": 20,
 		"action": {
 			"type": "view",
 			"path": "mihowrt/config"
 		}
 	},
-	"admin/services/mihowrt/policy": {
-		"title": "Policy",
-		"order": 20,
+	"admin/services/mihowrt/settings": {
+		"title": "Traffic Settings",
+		"order": 30,
 		"action": {
 			"type": "view",
 			"path": "mihowrt/policy"
 		}
 	},
 	"admin/services/mihowrt/diagnostics": {
-		"title": "Status",
-		"order": 30,
+		"title": "Diagnostics",
+		"order": 40,
 		"action": {
 			"type": "view",
 			"path": "mihowrt/diagnostics"

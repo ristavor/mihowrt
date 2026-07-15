@@ -77,8 +77,10 @@ load_runtime_config() {
 
 	config_get POLICY_MODE "settings" "policy_mode" "direct-first"
 	config_get_bool DNS_HIJACK "settings" "dns_hijack" 1
-	config_get MIHOMO_ROUTE_TABLE_ID "settings" "route_table_id" ""
-	config_get MIHOMO_ROUTE_RULE_PRIORITY "settings" "route_rule_priority" ""
+	# Route identifiers are always allocated and owned by MihoWRT. Keeping them
+	# out of UCI prevents stale manual values from colliding with router state.
+	MIHOMO_ROUTE_TABLE_ID=""
+	MIHOMO_ROUTE_RULE_PRIORITY=""
 	config_get_bool DISABLE_QUIC "settings" "disable_quic" 0
 	config_list_foreach "settings" "source_network_interfaces" append_source_interface
 

@@ -107,10 +107,19 @@ function emptySubscriptionState() {
 		subscriptionAutoUpdateEnabled: false,
 		subscriptionLastUpdate: '',
 		subscriptionNextUpdate: '',
-		subscriptionAutoUpdateReason: '',
-		subscriptionManualRestartRequired: false,
-		subscriptionManualRestartReason: '',
-		errors: []
+			subscriptionAutoUpdateReason: '',
+			subscriptionManualRestartRequired: false,
+			subscriptionManualRestartReason: '',
+			profileTitle: '',
+			subscriptionUserinfo: '',
+			upload: '',
+			download: '',
+			total: '',
+			expire: '',
+			supportUrl: '',
+			profileWebPageUrl: '',
+			announce: '',
+			errors: []
 	};
 }
 
@@ -201,6 +210,15 @@ function assignSubscriptionState(state, payload) {
 	state.subscriptionAutoUpdateReason = String(payload.subscription_auto_update_reason || '');
 	state.subscriptionManualRestartRequired = !!payload.subscription_manual_restart_required;
 	state.subscriptionManualRestartReason = String(payload.subscription_manual_restart_reason || '');
+	state.profileTitle = String(payload.profile_title || '');
+	state.subscriptionUserinfo = String(payload.subscription_userinfo || '');
+	state.upload = String(payload.upload || '');
+	state.download = String(payload.download || '');
+	state.total = String(payload.total || '');
+	state.expire = String(payload.expire || '');
+	state.supportUrl = String(payload.support_url || '');
+	state.profileWebPageUrl = String(payload.profile_web_page_url || '');
+	state.announce = String(payload.announce || '');
 	return state;
 }
 
@@ -264,6 +282,7 @@ function assignLogState(state, payload) {
 	state.available = !!payload.available;
 	state.limit = Number(payload.limit || state.limit);
 	state.lines = Array.isArray(payload.lines) ? payload.lines.map(String) : [];
+	state.errors = Array.isArray(payload.errors) ? payload.errors.map(String) : [];
 	return state;
 }
 
@@ -321,7 +340,7 @@ return baseclass.extend({
 	readLiveApiConfig: readLiveApiConfig,
 
 	// Write candidate config to /tmp and let the write backend validate/apply it.
-	applyConfig: async function(configContents) {
+		applyConfig: async function(configContents) {
 		const tempPath = tempConfigPath();
 
 		await fs.write(tempPath, String(configContents ?? ''));
@@ -348,15 +367,26 @@ return baseclass.extend({
 		return readBackendJson([ 'subscription-json' ], emptySubscriptionState(), assignSubscriptionState);
 	},
 
-	saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval) {
+		saveSubscriptionSettings: async function(subscriptionUrl, overrideInterval, updateInterval, headerInterval, metadata) {
 		const args = [
 			'set-subscription-settings',
 			String(subscriptionUrl ?? ''),
 			overrideInterval ? '1' : '0',
 			String(updateInterval ?? '')
 		];
-		if (headerInterval !== undefined)
-			args.push(String(headerInterval ?? ''));
+			if (headerInterval !== undefined)
+				args.push(String(headerInterval ?? ''));
+			if (metadata !== undefined) {
+				if (headerInterval === undefined)
+					args.push('');
+				args.push(
+					String(metadata?.profileTitle || ''),
+					String(metadata?.subscriptionUserinfo || ''),
+					String(metadata?.supportUrl || ''),
+					String(metadata?.profileWebPageUrl || ''),
+					String(metadata?.announce || '')
+				);
+			}
 
 		const result = await fs.exec(WRITE_BACKEND, args);
 		if (result.code !== 0)
@@ -380,10 +410,15 @@ return baseclass.extend({
 		if (!payload?.ok)
 			throw new Error(subscriptionFetchErrorDetail(payload?.error || {}));
 
-		return {
-			content: String(payload.content || ''),
-			profileUpdateInterval: String(payload.profile_update_interval || ''),
-			hotReloadSupported: payload.hot_reload_supported !== false,
+			return {
+				content: String(payload.content || ''),
+				profileUpdateInterval: String(payload.profile_update_interval || ''),
+				profileTitle: String(payload.profile_title || ''),
+				subscriptionUserinfo: String(payload.subscription_userinfo || ''),
+				supportUrl: String(payload.support_url || ''),
+				profileWebPageUrl: String(payload.profile_web_page_url || ''),
+				announce: String(payload.announce || ''),
+				hotReloadSupported: payload.hot_reload_supported !== false,
 			hotReloadReason: String(payload.hot_reload_reason || '')
 		};
 	},
@@ -453,7 +488,7 @@ return baseclass.extend({
 		};
 	},
 
-	readServiceState: async function() {
+		readServiceState: async function() {
 		return readBackendJson([ 'service-state-json' ], {
 			available: false,
 			serviceEnabled: false,
@@ -461,7 +496,42 @@ return baseclass.extend({
 			serviceReady: false,
 			errors: []
 		}, assignServiceState);
-	},
+		},
+
+		saveConfig: async function(configContents) {
+			const tempPath = tempConfigPath();
+
+			await fs.write(tempPath, String(configContents ?? ''));
+			try {
+				const result = await fs.exec(WRITE_BACKEND, [ 'save-config', tempPath ]);
+				if (result.code !== 0)
+					throw new Error(execHelper.errorDetail(result));
+			}
+			finally {
+				await removeTempFile(tempPath);
+			}
+		},
+
+		applyActiveConfig: async function() {
+			const result = await fs.exec(WRITE_BACKEND, [ 'apply-active-config' ]);
+			if (result.code !== 0)
+				throw new Error(execHelper.errorDetail(result));
+			return assignApplyResult(JSON.parse(result.stdout || '{}'));
+		},
+
+		readCoreVersion: async function() {
+			return readBackendJson([ 'core-version-json' ], {
+				available: false,
+				installed: false,
+				version: '',
+				errors: []
+			}, function(state, payload) {
+				state.available = true;
+				state.installed = !!payload.installed;
+				state.version = String(payload.version || '');
+				return state;
+			});
+		},
 
 	readStatus: async function() {
 		return readBackendJson([ 'status-json' ], emptyStatusState(), assignStatusState);

@@ -4,7 +4,7 @@
 # clamped so diagnostics cannot stream unbounded logread output through rpcd.
 logs_json() {
 	local limit="${1:-200}"
-	local logread_cmd="" lines=""
+	local logread_cmd="" raw_logs="" lines="" read_error=""
 
 	require_command jq || return 1
 
@@ -21,7 +21,28 @@ logs_json() {
 		return 0
 	fi
 
-	lines="$("$logread_cmd" 2>/dev/null | grep -E '(^|[[:space:]])mihowrt(\[[0-9]+\])?:' | tail -n "$limit" || true)"
+	if raw_logs="$("$logread_cmd" 2>&1)"; then
+		:
+	else
+		read_error="$(printf '%s' "$raw_logs" | mihowrt_single_line_value)"
+		[ -n "$read_error" ] || read_error="logread failed"
+		jq -nc \
+			--argjson limit "$limit" \
+			--arg error "$read_error" \
+			'{ available: false, limit: $limit, lines: [], errors: [$error] }'
+		return 0
+	fi
+
+	# procd, logger and different Mihomo builds do not use one stable tag. Match
+	# known service/core names anywhere in the syslog record instead of requiring
+	# the synthetic "mihowrt:" shape used by the old test fixture.
+	lines="$(printf '%s\n' "$raw_logs" | awk '
+		{
+			line = tolower($0)
+			if (line ~ /mihowrt/ || line ~ /mihomo/ || line ~ /(^|[[:space:]])clash(\[[^]]+\])?:/)
+				print
+		}
+	' | tail -n "$limit")"
 
 	jq -nc \
 		--argjson limit "$limit" \
@@ -29,6 +50,7 @@ logs_json() {
 		'{
 			available: true,
 			limit: $limit,
-			lines: ($lines | split("\n") | map(select(length > 0)))
+			lines: ($lines | split("\n") | map(select(length > 0))),
+			errors: []
 		}'
 }

@@ -202,8 +202,8 @@ load_status_desired_state_json() {
 	if config_load "$pkg_config" 2>/dev/null; then
 		settings_loaded=1
 		config_get_bool dns_hijack "settings" "dns_hijack" 1
-		config_get route_table_id "settings" "route_table_id" ""
-		config_get route_rule_priority "settings" "route_rule_priority" ""
+		route_table_id=""
+		route_rule_priority=""
 		config_get policy_mode "settings" "policy_mode" "direct-first"
 		config_get_bool disable_quic "settings" "disable_quic" 0
 		config_list_foreach "settings" "source_network_interfaces" append_source_interface
@@ -260,8 +260,8 @@ load_status_desired_state_json() {
 			dns_hijack: ($dns_hijack == "1"),
 			route_table_id_raw: $route_table_id,
 			route_rule_priority_raw: $route_rule_priority,
-			route_table_id: (if $settings_loaded != "1" then "unavailable" elif $route_table_id == "" then "auto" else $route_table_id end),
-			route_rule_priority: (if $settings_loaded != "1" then "unavailable" elif $route_rule_priority == "" then "auto" else $route_rule_priority end),
+			route_table_id: "auto",
+			route_rule_priority: "auto",
 			disable_quic: ($disable_quic == "1"),
 			source_network_interfaces: ($source_interfaces | split(" ") | map(select(length > 0))),
 			always_proxy_dst_count: ($proxy_dst_count | tonumber? // 0),

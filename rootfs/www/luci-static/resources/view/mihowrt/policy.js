@@ -284,7 +284,14 @@ async function reloadPolicyIfNeeded(listChanged, wasRunning) {
 	if (!listChanged)
 		return { changed: false, reloaded: false };
 
-	return flushPolicyListWrites(wasRunning);
+	const result = await flushPolicyListWrites(wasRunning);
+
+	// form.Map.save() redraws before this deferred list transaction flushes.
+	// Redraw again after the cache receives the committed file contents.
+	if (policyMap)
+		await policyMap.reset();
+
+	return result;
 }
 
 async function updateRemoteLists() {

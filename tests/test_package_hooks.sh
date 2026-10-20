@@ -45,7 +45,8 @@ rewrite_package_paths() {
 
 extract_preinst() {
 	extract_hook "preinst" |
-		rewrite_package_paths
+		rewrite_package_paths |
+		sed -e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g"
 }
 
 extract_postinst() {
@@ -76,7 +77,7 @@ assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_dst.txt"
 assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_src.txt" "preinst should back up source policy list"
 assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/direct_dst.txt" "preinst should back up direct destination policy list"
 extract_hook "postinst" >"$tmpdir/postinst.raw"
-assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "postinst should detect installer transactions"
+assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "postinst should clear the skip marker"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt' "postinst should restore destination policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt' "postinst should restore source policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt' "postinst should restore direct destination policy list backup"
@@ -162,7 +163,7 @@ assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriti
 assert_eq "$before_same_list_mtime" "$after_same_list_mtime" "postinst should skip rewriting identical policy list backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should remove identical config backup after skip"
 [[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should remove identical policy list backup after skip"
-assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should run migrations outside installer transaction"
+assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should run migrations"
 
 : >"$hook_log"
 set +e
@@ -178,13 +179,13 @@ IPKG_INSTROOT="" "$script_path"
 assert_file_contains "$live_config" "new-config" "postinst should restore changed config backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should consume changed config backup"
 
-printf 'skip-config\n' >"$backup_path"
-printf 'skip-config\n' >"$live_config"
-: >"$skip_start"
-: >"$hook_log"
-IPKG_INSTROOT="" "$script_path"
-assert_file_not_contains "$hook_log" "mihowrt:migrate" "postinst should defer package migrations during installer transaction"
+# apk runs default_postinst ("/etc/init.d/mihowrt start") before this hook:
+# preinst makes that start a no-op, postinst decides and clears the marker.
 rm -f "$skip_start"
+IPKG_INSTROOT="" "$preinst_path"
+[[ -e "$skip_start" ]] || fail "preinst should skip the default postinst start"
+IPKG_INSTROOT="" "$script_path"
+[[ ! -e "$skip_start" ]] || fail "postinst should clear the skip marker"
 
 extract_prerm >"$prerm_path"
 chmod +x "$prerm_path"
@@ -266,3 +267,26 @@ assert_file_contains "$ROOT_DIR/rootfs/etc/apk/protected_paths.d/mihowrt.list" "
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/apk/protected_paths.d/mihowrt.list" "/www/luci-static" "APK protected paths should not preserve stale LuCI assets"
 
 pass "package hook snippets"
+
+source_init_mihowrt_lib
+SKIP_START_FILE="$skip_start"
+MIHOWRT="$tmpdir/mihowrt"
+procd_open_instance() { printf 'procd:open\n' >>"$hook_log"; }
+procd_set_param() { :; }
+procd_close_instance() { :; }
+: >"$skip_start"
+: >"$hook_log"
+start_service
+[[ ! -e "$skip_start" ]] || fail "start_service should consume the skip marker"
+assert_file_not_contains "$hook_log" "mihowrt:prepare" "skipped start should not prepare"
+: >"$skip_start"
+touch -d '2024-01-01 00:00:00' "$skip_start"
+start_service
+assert_file_contains "$hook_log" "mihowrt:prepare" "a stale marker (failed install) must not block Start"
+[[ ! -e "$skip_start" ]] || fail "stale marker removed"
+: >"$hook_log"
+assert_file_not_contains "$hook_log" "mihowrt:prepare" "skipped start should not prepare"
+start_service
+assert_file_contains "$hook_log" "mihowrt:prepare" "next start should run normally"
+assert_file_contains "$hook_log" "procd:open" "next start should launch the service"
+pass "default postinst start skipped once"

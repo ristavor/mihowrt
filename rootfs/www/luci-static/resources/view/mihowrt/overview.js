@@ -10,7 +10,7 @@ function modeLabel(mode) {
 
 function firstRunCard() {
 	const url = E('input', {
-		id: 'mw-sub-url', type: 'url', class: 'cbi-input-text', style: 'min-width: 24em; flex: 1',
+		id: 'mw-sub-url', type: 'url', class: 'cbi-input-text', style: 'flex: 1 1 16em; min-width: 0; width: auto',
 		placeholder: 'https://provider.example/sub/…', 'aria-label': _('Subscription URL')
 	});
 	const connect = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Connect')));
@@ -112,7 +112,9 @@ function groupsSection(groups) {
 		E('h3', text(_('Proxy servers'))),
 		E('div', { class: 'mw-grid' }, groups.flatMap((group) => {
 			const id = 'mw-group-' + group.name.replace(/[^A-Za-z0-9_-]/g, '_');
-			const select = E('select', { id, class: 'cbi-input-select' },
+			// Fallback/URLTest/LoadBalance pick the server themselves: show
+			// the current one and allow a latency test, not a choice.
+			const select = E('select', { id, class: 'cbi-input-select', disabled: group.auto ? '' : null },
 				group.all.map((name) => E('option', { value: name, selected: name === group.now ? '' : null }, text(name))));
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group') }, text(_('Test')));
 
@@ -127,7 +129,10 @@ function groupsSection(groups) {
 					option.textContent = ms ? '%s — %d ms'.format(option.value, ms) : '%s — %s'.format(option.value, _('timeout'));
 				}
 			}));
-			return [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row', style: 'margin:0' }, [ select, test ]) ];
+			const row = [ select, test ];
+			if (group.auto)
+				row.push(E('span', { class: 'mw-muted' }, text(_('Chosen automatically by Mihomo'))));
+			return [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, row) ];
 		}))
 	]);
 }
@@ -140,8 +145,10 @@ function toolsSection(status) {
 		const d = await api.write('dashboard-json');
 		if (!d.running)
 			throw new Error(_('Start MihoWRT to use the dashboard.'));
+		// The setup route applies these values even when the browser keeps an
+		// older backend (e.g. without a secret) for the same host and port.
 		const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
-		window.open('http://%s:%s/ui/?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
+		window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
 	}));
 	core.addEventListener('click', () => api.busy(core, async () => {
 		const res = await api.write('core-update');
@@ -176,7 +183,7 @@ return view.extend({
 		if (status.running)
 			body.push(groupsSection(Array.isArray(groups) ? groups : []));
 		body.push(toolsSection(status));
-		return E('div', {}, body);
+		return E('div', { class: 'mw-page' }, body);
 	},
 
 	handleSave: null,

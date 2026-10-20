@@ -100,3 +100,28 @@ mihomo_config_generate "$src" "$out" || fail "scalar dns must generate"
 assert_eq 0 "$(grep -c '^dns: ~' "$out" || true)" "scalar dns dropped"
 assert_eq 1 "$(count '^dns:$')" "managed dns block used"
 pass "scalar dns treated as absent"
+
+# The shipped config leaves router-owned keys to the managed section.
+for key in tproxy-port routing-mark allow-lan bind-address profile external-controller external-controller-unix; do
+	if grep -q "^$key:" "$ROOT_DIR/rootfs/opt/clash/config.yaml"; then fail "built-in config sets router-owned $key"; fi
+done
+for key in enable listen enhanced-mode fake-ip-range; do
+	if grep -q "^  $key:" "$ROOT_DIR/rootfs/opt/clash/config.yaml"; then fail "built-in config sets router-owned dns.$key"; fi
+done
+mihomo_config_generate "$ROOT_DIR/rootfs/opt/clash/config.yaml" "$out" || fail "built-in config must generate"
+assert_eq 1 "$(count '^tproxy-port: 7894')" "managed tproxy-port"
+assert_eq 1 "$(count '  enhanced-mode: fake-ip')" "managed dns mode"
+assert_eq 1 "$(count '  fake-ip-filter-mode: whitelist')" "user dns options kept"
+pass "built-in config is minimal"
+
+# profile is router-owned: selection and fake-ip mappings survive restarts.
+printf 'mode: rule\nprofile:\n  store-selected: false\n  store-fake-ip: false\nrules:\n  - MATCH,DIRECT\n' >"$src"
+mihomo_config_generate "$src" "$out" || fail "generate with profile"
+assert_eq 1 "$(count '^profile:')" "one profile block"
+assert_eq 0 "$(count 'store-selected: false')" "user profile dropped"
+assert_eq 1 "$(count '  store-selected: true')" "selection persisted"
+assert_eq 1 "$(count '  store-fake-ip: true')" "fake-ip mappings persisted"
+printf 'mode: rule\nprofile: {store-selected: false}\n' >"$src"
+mihomo_config_generate "$src" "$out" || fail "generate with flow profile"
+assert_eq 1 "$(count '^profile:')" "flow-style profile replaced"
+pass "profile is router-owned"

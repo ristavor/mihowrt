@@ -228,6 +228,9 @@ msgstr "%s теперь использует %s."
 msgid "timeout"
 msgstr "нет ответа"
 
+msgid "Chosen automatically by Mihomo"
+msgstr "Выбирает Mihomo автоматически"
+
 msgid "Open dashboard"
 msgstr "Открыть панель"
 
@@ -312,11 +315,11 @@ msgstr "Адреса через прокси"
 msgid "Devices via proxy"
 msgstr "Устройства через прокси"
 
-msgid "All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change."
-msgstr "Весь трафик этих устройств идёт через Mihomo. Закрепите за ними статические адреса DHCP, чтобы адреса не менялись."
-
 msgid "Addresses always direct"
 msgstr "Адреса всегда напрямую"
+
+msgid "All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change."
+msgstr "Весь трафик этих устройств идёт через Mihomo. Закрепите за ними статические адреса DHCP, чтобы адреса не менялись."
 
 msgid "Update remote lists every (hours)"
 msgstr "Обновлять удалённые списки каждые (часов)"
@@ -374,6 +377,9 @@ msgstr "Добавить устройство…"
 
 msgid "unknown"
 msgstr "неизвестно"
+
+msgid "\"%s\" has invalid lines: %s"
+msgstr "В поле «%s» неверные строки: %s"
 
 msgid "Overview"
 msgstr "Обзор"

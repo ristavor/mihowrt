@@ -104,6 +104,9 @@ allow-lan: true          # needed for the IPv6 TPROXY socket
 bind-address: "*"
 tun:
   enable: false
+profile:                 # selected servers and fake-ip mappings survive restarts
+  store-selected: true
+  store-fake-ip: true
 external-controller: <LAN IP>:9090
 external-controller-unix: /tmp/clash/mihomo.sock
 secret: "<generated, stored in UCI>"

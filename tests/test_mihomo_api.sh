@@ -28,9 +28,9 @@ assert_file_contains "$CURL_LOG" "Authorization: Bearer secret-0001" "secret sen
 assert_file_contains "$CURL_LOG" "/dns/query?name=openwrt.org&type=A" "probe path"
 pass "dns probe"
 
-body='{"proxies":{"GLOBAL":{"type":"Selector","now":"A","all":["A"]},"Proxy":{"type":"Selector","now":"B","all":["A","B"]},"Auto":{"type":"URLTest","now":"A","all":["A"]}}}'
+body='{"proxies":{"GLOBAL":{"type":"Selector","now":"A","all":["A"]},"Proxy":{"type":"Selector","now":"B","all":["A","B"]},"Auto":{"type":"URLTest","now":"A","all":["A"]},"FB":{"type":"Fallback","now":"A","all":["A"]},"Hid":{"type":"Selector","hidden":true,"now":"A","all":["A"]},"A":{"type":"Vless"}}}'
 result="$(CURL_BODY="$body" api_proxies_json)"
-assert_eq '[{"name":"Proxy","now":"B","all":["A","B"]}]' "$result" "only user Selector groups"
+assert_eq '[{"name":"Proxy","now":"B","all":["A","B"],"auto":false},{"name":"Auto","now":"A","all":["A"],"auto":true},{"name":"FB","now":"A","all":["A"],"auto":true}]' "$result" "user groups; automatic ones flagged, hidden and GLOBAL skipped"
 pass "proxies filtered"
 
 : >"$CURL_LOG"

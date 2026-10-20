@@ -10,10 +10,14 @@ const WRITE = '/usr/bin/mihowrt';
 const INIT = '/etc/init.d/mihowrt';
 
 const CSS = `
-.mw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0 0 16px; }
+.mw-page { display: flex; flex-direction: column; gap: 16px; }
+.mw-page > h2, .mw-page > .cbi-section { margin: 0; }
+.mw-page h3 { margin-top: 0; }
+.mw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
 .mw-status strong { font-size: 1.25em; }
 .mw-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
-.mw-grid { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; }
+.mw-row:first-child, .mw-grid .mw-row { margin-top: 0; }
+.mw-grid { display: grid; grid-template-columns: max-content 1fr; gap: 8px 16px; align-items: center; }
 .mw-muted { opacity: .75; }
 .mw-check { list-style: none; margin: 0; padding: 0; }
 .mw-check li { padding: 6px 0; border-bottom: 1px solid rgba(127, 127, 127, .2); }

@@ -64,7 +64,7 @@ return view.extend({
 		logDetails.addEventListener('toggle', () => logDetails.open && loadLog());
 		refresh.addEventListener('click', () => location.reload());
 
-		return E('div', {}, [
+		return E('div', { class: 'mw-page' }, [
 			api.style(),
 			E('h2', text(_('Diagnostics'))),
 			E('div', { class: 'cbi-section' }, [ checklist(st), E('div', { class: 'mw-row' }, [ refresh ]) ]),

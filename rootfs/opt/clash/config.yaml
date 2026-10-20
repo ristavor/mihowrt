@@ -1,22 +1,19 @@
+# Mihomo config used without a subscription.
+# MihoWRT sets these itself, so they are not needed here: tproxy-port,
+# routing-mark, allow-lan, bind-address, tun, profile, external-controller*,
+# secret and dns enable/listen/enhanced-mode/fake-ip-range.
 mode: rule
-tproxy-port: 7894
 ipv6: false
-log-level: silent
-allow-lan: false
+log-level: warning
 unified-delay: true
 tcp-concurrent: true
-external-controller: 0.0.0.0:9090
-external-controller-unix: /tmp/clash/mihomo.sock
+find-process-mode: off
 external-ui: ./ui
 external-ui-url: 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip'
 
 dns:
-  enable: true
   ipv6: false
-  listen: 0.0.0.0:7874
-  enhanced-mode: fake-ip
   fake-ip-ttl: 60
-  fake-ip-range: 198.18.0.0/16
   fake-ip-filter-mode: whitelist
   fake-ip-filter:
     - rule-set:ru-bundle
@@ -29,14 +26,6 @@ dns:
   nameserver:
     - 77.88.8.8
     - 77.88.8.1
-
-find-process-mode: off
-
-profile:
-  store-selected: true
-  store-fake-ip: true
-
-routing-mark: 2
 
 proxy-groups:
   - name: FALLBACK

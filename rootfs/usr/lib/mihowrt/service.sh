@@ -321,6 +321,7 @@ lists_apply() {
 	rm -f "$1" "$2" "$3"
 	[ "$rc" -eq 0 ] || return 1
 	if service_ready; then
+		settings_load || return 1
 		lists_update_remote 0 >/dev/null || warn "Some remote lists could not be fetched"
 		with_lock nft_apply || return 1
 	fi

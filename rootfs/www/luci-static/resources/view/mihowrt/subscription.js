@@ -41,7 +41,7 @@ return view.extend({
 			api.notify(res.action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.'));
 		}));
 
-		return E('div', {}, [
+		return E('div', { class: 'mw-page' }, [
 			api.style(),
 			E('h2', text(_('Subscription'))),
 			E('div', { class: 'cbi-section' }, [
@@ -56,7 +56,8 @@ return view.extend({
 						E('div', { class: 'cbi-value-description' }, text(
 							_('Empty: use the provider\'s interval (now %d h). 0: never update automatically.').format(sub.effective_interval || 24))) ])
 				]),
-				E('div', { class: 'mw-row' }, [ save, update ])
+				E('div', { class: 'cbi-value' }, [ E('label', { class: 'cbi-value-title' }, []),
+					E('div', { class: 'cbi-value-field' }, [ E('div', { class: 'mw-row' }, [ save, update ]) ]) ])
 			]),
 			E('details', { class: 'cbi-section' }, [
 				E('summary', text(_('Advanced: edit the Mihomo YAML'))),

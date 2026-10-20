@@ -9,7 +9,15 @@ SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 
 # Validate everything first so a bad config never touches router state.
 start_service() {
-	[ -f "$SKIP_START_FILE" ] && return 0
+	local skip=""
+
+	# Set by the package preinst for the start that apk's default postinst
+	# runs. A marker left by a failed install must not block a later Start.
+	if [ -f "$SKIP_START_FILE" ]; then
+		skip="$(find "$SKIP_START_FILE" -mmin -5 2>/dev/null)"
+		rm -f "$SKIP_START_FILE"
+		[ -n "$skip" ] && return 0
+	fi
 	"$MIHOWRT" prepare || {
 		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid"
 		return 1

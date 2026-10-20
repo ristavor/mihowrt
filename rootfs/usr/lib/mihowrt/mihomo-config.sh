@@ -4,7 +4,7 @@
 # router-owned top-level keys are cut out line by line and re-added in a
 # managed section, owned dns children are replaced inside the dns block.
 
-MIHOMO_OWNED_KEYS="tproxy-port routing-mark allow-lan bind-address tun external-controller external-controller-unix external-controller-tls external-controller-pipe secret"
+MIHOMO_OWNED_KEYS="tproxy-port routing-mark allow-lan bind-address tun profile external-controller external-controller-unix external-controller-tls external-controller-pipe secret"
 MIHOMO_OWNED_DNS_KEYS="enable listen enhanced-mode fake-ip-range"
 
 lan_ip_detect() {
@@ -127,6 +127,10 @@ mihomo_config_generate() {
 			print "bind-address: \"*\""
 			print "tun:"
 			print "  enable: false"
+			# Keep the selected servers and fake-ip mappings across restarts.
+			print "profile:"
+			print "  store-selected: true"
+			print "  store-fake-ip: true"
 			print "external-controller: " api
 			print "external-controller-unix: " sock
 			print "secret: \"" secret "\""

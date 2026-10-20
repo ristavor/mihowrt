@@ -37,8 +37,9 @@ api_reload() {
 api_proxies_json() {
 	api_request GET /proxies | jq -c '
 		[.proxies | to_entries[]
-		 | select(.value.type == "Selector" and .key != "GLOBAL")
-		 | {name: .key, now: .value.now, all: .value.all}]'
+		 | select(.key != "GLOBAL" and (.value.hidden | not)
+		     and (.value.type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))
+		 | {name: .key, now: .value.now, all: .value.all, auto: (.value.type != "Selector")}]'
 }
 
 api_select() {

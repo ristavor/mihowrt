@@ -60,14 +60,17 @@ return view.extend({
 		o.default = 'direct-first';
 		o.description = _('In the first mode only the lists below and blocked sites from your subscription use the proxy.');
 
-		this.listOption(s, 'basic', 'dst', _('Addresses via proxy'), 'direct-first');
-		const devices = this.listOption(s, 'basic', 'src', _('Devices via proxy'), 'direct-first');
+		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct') };
+		this.listOption(s, 'basic', 'dst', this.titles.dst, 'direct-first');
+		const devices = this.listOption(s, 'basic', 'src', this.titles.src, 'direct-first');
 		devices.description = _('All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change.');
-		this.listOption(s, 'basic', 'direct', _('Addresses always direct'), 'proxy-first');
+		this.listOption(s, 'basic', 'direct', this.titles.direct, 'proxy-first');
+		this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
 
 		o = s.taboption('basic', form.Value, 'lists_interval', _('Update remote lists every (hours)'), _('0: only when you press "Update remote lists".'));
 		o.datatype = 'range(0,8760)';
 		o.placeholder = '0';
+		this.extendWidget(o, (node) => this.intervalField(node, this.refreshButton()));
 
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));
 		o.multiple = true;
@@ -83,26 +86,47 @@ return view.extend({
 		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through Mihomo'), _('NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched.'));
 		o.default = '0';
 
-		const refresh = E('button', { class: 'cbi-button' }, text(_('Update remote lists')));
+		this.map = m;
+		return m.render().then((node) => E('div', {}, [ api.style(), node ]));
+	},
+
+	// LuCI re-renders the form after saving: extras are added inside the
+	// option's widget so they survive that (with any theme).
+	extendWidget: function(o, extra) {
+		const render = o.renderWidget;
+		o.renderWidget = function() {
+			return extra(render.apply(this, arguments));
+		};
+	},
+
+	refreshButton: function() {
+		const refresh = E('button', { class: 'cbi-button', type: 'button' }, text(_('Update remote lists')));
 		refresh.addEventListener('click', () => api.busy(refresh, async () => {
 			const res = await api.write('update-lists');
 			api.notify(res.changed ? _('Remote lists updated.') : _('Remote lists are up to date.'));
 		}));
+		return refresh;
+	},
 
-		return m.render().then((node) => {
-			this.map = m;
-			this.addLeasePicker(node, leases);
-			node.appendChild(E('div', { class: 'mw-row' }, [ refresh ]));
-			return E('div', {}, [ api.style(), node ]);
-		});
+	// Number field (with arrows) like the subscription interval, with the
+	// "Update remote lists" button next to it.
+	intervalField: function(node, refresh) {
+		const input = node.querySelector('input');
+		if (input) {
+			input.setAttribute('type', 'number');
+			input.setAttribute('min', '0');
+			input.setAttribute('max', '8760');
+			input.style.width = '8em';
+		}
+		return E('div', { class: 'mw-row' }, [ node, refresh ]);
 	},
 
 	// "Add device" select under the devices list, filled from DHCP leases.
 	addLeasePicker: function(node, leases) {
-		const area = node.querySelector('textarea[id$="._src"]');
+		const area = node.querySelector('textarea');
 		const all = (leases?.dhcp_leases || []).concat(leases?.dhcp6_leases || []);
 		if (!area || !all.length)
-			return;
+			return node;
 
 		const select = E('select', { class: 'cbi-input-select', 'aria-label': _('Add a device') }, [
 			E('option', { value: '' }, text(_('Add a device…')))
@@ -111,24 +135,38 @@ return view.extend({
 			return E('option', { value: addr.replace(/\/\d+$/, '') }, text('%s (%s)'.format(l.hostname || _('unknown'), addr)));
 		})));
 		select.addEventListener('change', () => {
-			if (!select.value)
+			const addr = select.value;
+			if (!addr)
 				return;
-			area.value = (area.value.replace(/\s*$/, '') + '\n' + select.value).replace(/^\n/, '') + '\n';
-			area.dispatchEvent(new Event('change', { bubbles: true }));
 			select.value = '';
+			// Themes with custom dropdowns may repeat "change": add each device once.
+			if (area.value.split('\n').some((l) => l.trim() === addr))
+				return;
+			area.value = (area.value.replace(/\s*$/, '') + '\n' + addr).replace(/^\n/, '') + '\n';
+			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
-		area.parentNode.appendChild(E('div', { class: 'mw-row' }, [ select ]));
+		return E('div', {}, [ node, E('div', { class: 'mw-row' }, [ select ]) ]);
 	},
 
+	// Lists first: if one is rejected, nothing is saved and the edits stay
+	// in the form (map.save() re-renders it from the saved values).
 	handleSave: async function(ev) {
 		this.edited = {};
+		await this.map.parse();
+		const edited = this.edited;
+		if (Object.keys(edited).length) {
+			try {
+				const paths = await Promise.all([ 'dst', 'src', 'direct' ].map((kind) =>
+					api.upload('mihowrt-policy-list', kind in edited ? edited[kind] : this.lists[kind])));
+				await api.write('apply-lists', ...paths);
+			}
+			catch (e) {
+				const bad = /^Invalid (dst|src|direct) entries: (.*)$/.exec(e.message);
+				api.notify(bad ? _('"%s" has invalid lines: %s').format(this.titles[bad[1]], bad[2]) : e.message, 'danger');
+				throw e;
+			}
+			Object.assign(this.lists, edited);
+		}
 		await this.map.save();
-		const kinds = Object.keys(this.edited);
-		if (!kinds.length)
-			return;
-		const paths = await Promise.all([ 'dst', 'src', 'direct' ].map((kind) =>
-			api.upload('mihowrt-policy-list', kind in this.edited ? this.edited[kind] : this.lists[kind])));
-		await api.write('apply-lists', ...paths);
-		Object.assign(this.lists, this.edited);
 	}
 });

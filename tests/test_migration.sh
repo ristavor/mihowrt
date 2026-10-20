@@ -62,3 +62,20 @@ printf "secret: 'old-secret-1234'\n" >"$CLASH_CONFIG"
 migrate_settings
 [ "$(uci_get api_secret)" != "old-secret-1234" ] || fail "migration must not reuse the YAML secret (read ACL can read the YAML)"
 pass "secret not reused from YAML"
+
+cat >"$SRC_LIST_FILE" <<'L'
+# One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port.
+# Use :port without IP to match any IPv4 client.
+# Example:
+# 192.168.1.10
+# 192.168.1.32/27
+192.168.1.151
+# my note
+L
+printf '# Example:\n1.1.1.1\n' >"$DST_LIST_FILE"
+migrate_list_headers
+assert_eq "$(printf '192.168.1.151\n# my note')" "$(cat "$SRC_LIST_FILE")" "0.7 header removed, user lines kept"
+assert_eq "$(printf '# Example:\n1.1.1.1')" "$(cat "$DST_LIST_FILE")" "files without the 0.7 header untouched"
+migrate_list_headers
+assert_eq "$(printf '192.168.1.151\n# my note')" "$(cat "$SRC_LIST_FILE")" "header removal idempotent"
+pass "0.7 list headers removed"

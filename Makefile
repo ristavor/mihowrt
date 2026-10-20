@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.8.1
+PKG_VERSION:=0.8.2
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -104,6 +104,9 @@ define Package/$(PKG_NAME)/preinst
 		mkdir -p "$${backup_file%/*}" || return 1
 		cp -p "$$src" "$$backup_file" || return 1
 	}
+	# apk runs default_postinst, which calls "/etc/init.d/mihowrt start",
+	# before our postinst: skip that start, postinst decides.
+	: >/tmp/luci-app-mihowrt.skip-start
 	rm -f $(PKG_CONFIG_BACKUP_FILE) || exit 1
 	rm -rf $(PKG_POLICY_LIST_BACKUP_DIR) || exit 1
 	backup_mihowrt_file /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE) || exit 1
@@ -133,15 +136,14 @@ define Package/$(PKG_NAME)/postinst
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || exit 1
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
-	if [ ! -f /tmp/luci-app-mihowrt.skip-start ]; then
-		# An upgrade leaves the old service running from memory: stop it so
-		# it removes its own state, migrate, then start the new version.
-		was_running=0
-		pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1 && was_running=1
-		[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
-		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || exit 1
-		[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
-	fi
+	rm -f /tmp/luci-app-mihowrt.skip-start
+	# An upgrade leaves the old service running from memory: stop it so
+	# it removes its own state, migrate, then start the new version.
+	was_running=0
+	pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1 && was_running=1
+	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || exit 1
+	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true

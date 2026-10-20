@@ -159,3 +159,18 @@ mkdir -p /tmp/mihowrt-policy-list.dir
 if lists_apply /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x 2>/dev/null; then fail "nested list path must be rejected"; fi
 rm -rf /tmp/mihowrt-policy-list.dir
 pass "list path check"
+
+# Lists saved from LuCI rebuild nft with the full settings (interfaces etc.).
+(
+	load_modules settings.sh
+	NETBIRD_INTERFACE=""
+	fake_uci_set mihowrt.settings.netbird_interface wt9
+	service_ready() { return 0; }
+	lists_install() { echo 1; }
+	lists_update_remote() { :; }
+	nft_apply() { echo "nft:$NETBIRD_INTERFACE" >>"$events"; }
+	reset_events
+	lists_apply /tmp/mihowrt-policy-list.a /tmp/mihowrt-policy-list.b /tmp/mihowrt-policy-list.c >/dev/null
+	assert_file_contains "$events" "nft:wt9" "apply-lists must load settings before nft_apply"
+)
+pass "apply-lists loads settings"

@@ -76,10 +76,33 @@ migrate_cron() {
 	sed -i -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' "$file"
 }
 
+# 0.7 list templates described an IPv4-only ":port" syntax. Drop exactly
+# those leading template lines; user entries and comments stay.
+migrate_list_headers() {
+	local file=""
+
+	for file in "$DST_LIST_FILE" "$SRC_LIST_FILE" "$DIRECT_DST_LIST_FILE"; do
+		[ "$(head -n 1 "$file" 2>/dev/null)" = "# One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port." ] || continue
+		if awk '
+			BEGIN {
+				n = split("# One IPv4 or CIDR per line. Optional :port, :port-port, or :port,port.|# Use :port without IP to match any IPv4 client.|# Use :port without IP to match any IPv4 destination.|# Use :port without IP to bypass any non-local IPv4 destination on that port.|# Matching non-local destinations bypass Mihomo in proxy-first mode.|# DNS/53 hijack still goes to Mihomo DNS when enabled.|# Domain flows resolved to fake-ip are still handled by Mihomo.|# Example:|# 1.1.1.1|# 8.8.8.0/24|# 8.8.8.8|# 9.9.9.0/24|# :443|# 192.168.1.10|# 192.168.1.32/27", a, "|")
+				for (i = 1; i <= n; i++) old[a[i]] = 1
+			}
+			head && ($0 in old) { next }
+			{ head = 0; print }
+		' head=1 "$file" >"$file.tmp"; then
+			mv "$file.tmp" "$file"
+		else
+			rm -f "$file.tmp"
+		fi
+	done
+}
+
 migrate() {
 	migrate_dns_uci
 	migrate_settings
 	migrate_cron
+	migrate_list_headers
 	rm -f "$CLASH_DIR/mihomo.sock"
 	settings_ensure_generated
 }

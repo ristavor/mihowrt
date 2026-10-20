@@ -27,6 +27,19 @@ On the router:
 curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
 ```
 
+If `raw.githubusercontent.com` is unreachable, use the jsDelivr mirror of the
+same file:
+
+```sh
+curl -fsSL https://cdn.jsdelivr.net/gh/ristavor/mihowrt@main/install.sh | sh
+```
+
+Release downloads (installer and `mihowrt core-update`) use the GitHub API
+first; if it is blocked or rate-limited, the latest tag is taken from the
+`github.com/<repo>/releases/latest` redirect and files are downloaded from
+`github.com/<repo>/releases/download/<tag>/`. Only on the API path is the
+SHA-256 published by GitHub checked.
+
 The installer asks for the action (install/update or remove) and, on a fresh
 install, for the language (English or Russian). Updates keep the language.
 Non-interactive use:
@@ -110,16 +123,21 @@ dnsmasq gets a conf-dir file `/tmp/dnsmasq.<section>.d/mihowrt.conf`:
 ```text
 no-resolv
 server=127.0.0.1#7874
-server=/<ntp host>/<ISP DNS>            # "Time sync without Mihomo"
-server=/<subscription host>/<ISP DNS>   # "Subscription server without Mihomo"
+server=/<ntp host>/<WAN interface DNS>            # "Time sync without Mihomo"
+server=/<subscription host>/<WAN interface DNS>   # "Subscription server without Mihomo"
 ```
 
 UCI is not modified, so stopping MihoWRT, a crash or a reboot restores your
-DNS by removing one tmpfs file. ISP resolvers come from `resolv.conf.auto` and
+DNS by removing one tmpfs file. WAN interface DNS servers come from `resolv.conf.auto` and
 are refreshed on WAN reconnects (hotplug). Global `server` entries you set
 yourself in *DHCP and DNS* keep working next to Mihomo, so some queries bypass
 it; Diagnostics warns about them. Client DNS on port 53 is redirected to
 Mihomo for IPv4 and IPv6 (*Redirect client DNS to Mihomo*).
+
+While a subscription updates (toggle *Subscription server without Mihomo*),
+the addresses of its host are put into a short-lived nft set so the router
+downloads it directly in either mode; they are removed right after the
+download. Only the router's own traffic is affected, not LAN clients.
 
 ### Self-healing
 

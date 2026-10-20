@@ -90,6 +90,9 @@ nft_render_base() {
 		nft_line "add set inet $t $set { type ipv6_addr; flags interval; auto-merge; }"
 	done
 	nft_line "add set inet $t source_ifaces { type ifname; }"
+	# Filled only while the subscription downloads (router traffic only).
+	nft_line "add set inet $t bypass_dst { type ipv4_addr; flags timeout; }"
+	nft_line "add set inet $t bypass_dst6 { type ipv6_addr; flags timeout; }"
 	nft_line "add element inet $t localv4 { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 }"
 	nft_line "add element inet $t localv6 { ::/127, fe80::/10, fc00::/7, ff00::/8 }"
 	for iface in $SOURCE_INTERFACES; do
@@ -220,6 +223,8 @@ nft_render() {
 	nft_rule mangle_output "meta l4proto { tcp, udp } th dport $MIHOMO_TPROXY_PORT return"
 	nft_render_guards mangle_output
 	nft_rule mangle_output "meta l4proto { tcp, udp } th dport 53 return"
+	nft_rule mangle_output "ip daddr @bypass_dst return"
+	nft_rule mangle_output "ip6 daddr @bypass_dst6 return"
 	nft_rule mangle_output "meta mark & $ZAPRET_DESYNC_MARK == $ZAPRET_DESYNC_MARK return"
 	nft_rule mangle_output "meta mark & $ZAPRET_DESYNC_MARK_POSTNAT == $ZAPRET_DESYNC_MARK_POSTNAT return"
 	nft_render_netbird_output
@@ -249,4 +254,21 @@ nft_cleanup() {
 
 nft_active() {
 	nft list table inet "$NFT_TABLE_NAME" >/dev/null 2>&1
+}
+
+# bypass_set <add|delete> <addresses...>: let the router reach these addresses
+# directly. "add" uses a timeout so a killed download cannot leave them.
+nft_bypass() {
+	local action="$1" addr="" suffix=""
+	shift
+
+	[ "$action" = add ] && suffix=" timeout 2m"
+	for addr in "$@"; do
+		if is_ipv4 "$addr"; then
+			nft "$action" element inet "$NFT_TABLE_NAME" bypass_dst "{ $addr$suffix }" 2>/dev/null
+		elif is_ipv6 "$addr"; then
+			nft "$action" element inet "$NFT_TABLE_NAME" bypass_dst6 "{ $addr$suffix }" 2>/dev/null
+		fi
+	done
+	return 0
 }

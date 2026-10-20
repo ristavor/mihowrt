@@ -24,7 +24,8 @@ device_hwid() {
 
 	for path in /sys/firmware/devicetree/base/serial-number /proc/device-tree/serial-number \
 		/sys/class/dmi/id/product_uuid /sys/class/dmi/id/board_serial /sys/class/dmi/id/product_serial; do
-		material="$(tr -d '\000-\037' <"$path" 2>/dev/null | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
+		[ -r "$path" ] || continue
+		material="$(tr -d '\000-\037' <"$path" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')"
 		case "$(echo "$material" | tr '[:upper:]' '[:lower:]')" in
 		'' | 0 | unknown | none | unset | 00000000-0000-0000-0000-000000000000) material="" ;;
 		*)
@@ -121,7 +122,8 @@ http_fetch() {
 		;;
 	esac
 	FETCH_HTTP_STATUS="$(awk '/^HTTP\// { s = $2 } END { print s }' "$FETCH_HDR" 2>/dev/null)"
-	size="$(wc -c <"$out" 2>/dev/null | tr -d ' ')"
+	size=""
+	[ -f "$out" ] && size="$(wc -c <"$out" | tr -d ' ')"
 	if [ "$rc" -eq 63 ] || { is_uint "$size" && [ "$size" -gt "$max" ]; }; then
 		FETCH_ERROR=too_large
 	elif [ "$rc" -eq 22 ]; then
@@ -132,6 +134,19 @@ http_fetch() {
 	[ -z "$FETCH_ERROR" ] && return 0
 	rm -f "$out"
 	return 1
+}
+
+# Latest release tag without the GitHub API (blocked or rate-limited):
+# github.com redirects /releases/latest to /releases/tag/<tag>.
+github_latest_tag() {
+	local url=""
+
+	url="$(curl -fsS -o /dev/null --connect-timeout 15 --max-time 30 \
+		-w '%{redirect_url}' "https://github.com/$1/releases/latest" 2>/dev/null)" || return 1
+	case "$url" in
+	*/releases/tag/?*) echo "${url##*/releases/tag/}" ;;
+	*) return 1 ;;
+	esac
 }
 
 # --- subscription metadata ---------------------------------------------------
@@ -187,7 +202,7 @@ subscription_metadata_from_headers() {
 		--arg download "$(userinfo_field "$userinfo" download)" \
 		--arg total "$(userinfo_field "$userinfo" total)" \
 		--arg expire "$(userinfo_field "$userinfo" expire)" '
-		def num: if test("^[0-9]+$") then tonumber else null end;
+		def num: if . == "" then null else (tonumber? // null) end;
 		{profile_title: $title, announce: $announce, support_url: $support,
 		 web_page_url: $web, header_interval: ($interval | num),
 		 upload: ($upload | num), download: ($download | num),
@@ -197,7 +212,9 @@ subscription_metadata_from_headers() {
 subscription_json() {
 	local meta="{}"
 
-	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(cat "$SUBSCRIPTION_META_FILE")"
+	# A damaged file must not break the page: fall back to no metadata.
+	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(jq -c 'objects' "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
+	[ -n "$meta" ] || meta="{}"
 	jq -nc --arg url "$(uci_get subscription_url)" --arg interval "$(uci_get subscription_interval)" \
 		--arg effective "$(settings_subscription_interval || echo 0)" --arg updated "$(date -r "$PKG_STATE_DIR/subscription.stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
 		$meta + {url: $url, interval: $interval, effective_interval: ($effective | tonumber),
@@ -221,16 +238,37 @@ subscription_set() {
 	return 0
 }
 
+# A and AAAA answers for a host from the router resolver (dnsmasq).
+subscription_host_addresses() {
+	is_ipv4 "$1" || is_ipv6 "$1" && {
+		echo "$1"
+		return 0
+	}
+	nslookup "$1" 127.0.0.1 2>/dev/null | awk '/^Name:/ { name = 1; next } name && /^Address/ { sub(/^Address[^:]*:[[:space:]]*/, ""); print }'
+}
+
 # Download the subscription, validate and install it, update metadata.
 subscription_update() {
-	local candidate="$PKG_TMP_DIR/subscription.$$.yaml" meta="" result=""
+	local candidate="$PKG_TMP_DIR/subscription.$$.yaml" meta="" result="" bypass="" rc=0
 
 	settings_load || return 1
 	[ -n "$SUBSCRIPTION_URL" ] || {
 		err "Subscription URL is not set"
 		return 1
 	}
-	if ! http_fetch "$SUBSCRIPTION_URL" "$candidate" "$SUBSCRIPTION_MAX_BYTES" "$SUBSCRIPTION_TIMEOUT" 1; then
+	# Download directly (not through Mihomo) when the toggle is on: the IPs
+	# come from the same resolver curl uses and are removed right after.
+	bypass=""
+	if [ "${BYPASS_SUBSCRIPTION_DNS:-0}" = "1" ] && nft_active; then
+		bypass="$(subscription_host_addresses "$(url_host "$SUBSCRIPTION_URL")")"
+		# shellcheck disable=SC2086
+		[ -z "$bypass" ] || nft_bypass add $bypass
+	fi
+	rc=0
+	http_fetch "$SUBSCRIPTION_URL" "$candidate" "$SUBSCRIPTION_MAX_BYTES" "$SUBSCRIPTION_TIMEOUT" 1 || rc=$?
+	# shellcheck disable=SC2086
+	[ -z "$bypass" ] || nft_bypass delete $bypass
+	if [ "$rc" -ne 0 ]; then
 		err "Subscription download failed: $FETCH_ERROR"
 		return 1
 	fi
@@ -239,7 +277,7 @@ subscription_update() {
 		err "Subscription returned an empty config"
 		return 1
 	}
-	meta="$(subscription_metadata_from_headers)"
+	meta="$(subscription_metadata_from_headers)" || meta=""
 	# Download without the lock; only installing needs it.
 	result="$(with_lock config_install "$candidate")" || {
 		rm -f "$candidate" "$FETCH_HDR"
@@ -247,11 +285,15 @@ subscription_update() {
 	}
 	rm -f "$candidate"
 	ensure_dir "$(dirname "$SUBSCRIPTION_META_FILE")"
-	# Written only on change to spare flash.
-	printf '%s\n' "$meta" >"$PKG_TMP_DIR/subscription.json"
-	cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" ||
-		mv -f "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"
-	rm -f "$PKG_TMP_DIR/subscription.json"
+	# Written only on change to spare flash, and only if it is valid JSON.
+	if [ -n "$meta" ]; then
+		printf '%s\n' "$meta" >"$PKG_TMP_DIR/subscription.json"
+		cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" ||
+			mv -f "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"
+		rm -f "$PKG_TMP_DIR/subscription.json"
+	else
+		warn "Subscription metadata could not be parsed; keeping the previous one"
+	fi
 	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
 	cron_update
 	printf '%s\n' "$result"

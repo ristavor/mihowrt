@@ -86,3 +86,35 @@ pass "auto interval"
 grep -q 'fetch.headers.\$\$' "$MIHOWRT_LIB_DIR/fetch.sh" || fail "header dump must be per process"
 grep -q 'subscription.\$\$.yaml' "$MIHOWRT_LIB_DIR/fetch.sh" || fail "subscription candidate must be per process"
 pass "per-process temp files"
+
+# Subscription download bypasses Mihomo only while it runs.
+load_modules lists.sh nft.sh
+nft_log="$tmpdir/nft.log"
+: >"$nft_log"
+nft() { echo "nft $*" >>"$nft_log"; }
+nft_active() { true; }
+nslookup() { printf 'Server:\t\t127.0.0.1\nAddress:\t127.0.0.1:53\n\nName:\tsub.example.com\nAddress: 203.0.113.7\n\nName:\tsub.example.com\nAddress: 2001:db8::7\n'; }
+with_lock() { "$@"; }
+config_install() { echo "fetch-order" >>"$nft_log"; echo '{"action":"saved"}'; }
+cron_update() { :; }
+http_fetch() { echo "download" >>"$nft_log"; mkdir -p "$(dirname "$2")"; echo "mode: rule" >"$2"; }
+settings_load() { SUBSCRIPTION_URL=https://sub.example.com/s; BYPASS_SUBSCRIPTION_DNS=1; }
+subscription_update >/dev/null
+assert_eq "nft add element inet mihowrt bypass_dst { 203.0.113.7 timeout 2m }
+nft add element inet mihowrt bypass_dst6 { 2001:db8::7 timeout 2m }
+download
+nft delete element inet mihowrt bypass_dst { 203.0.113.7 }
+nft delete element inet mihowrt bypass_dst6 { 2001:db8::7 }
+fetch-order" "$(cat "$nft_log")" "bypass added before download and removed right after"
+: >"$nft_log"
+settings_load() { SUBSCRIPTION_URL=https://sub.example.com/s; BYPASS_SUBSCRIPTION_DNS=0; }
+subscription_update >/dev/null
+assert_eq $'download\nfetch-order' "$(cat "$nft_log")" "no bypass when the toggle is off"
+pass "temporary subscription bypass"
+
+# A broken metadata file must not break the subscription page.
+: >"$SUBSCRIPTION_META_FILE"
+subscription_json | jq -e '.url != null' >/dev/null || fail "empty metadata file must be ignored"
+echo '{oops' >"$SUBSCRIPTION_META_FILE"
+subscription_json | jq -e '.url != null' >/dev/null || fail "invalid metadata file must be ignored"
+pass "subscription json tolerates broken metadata"

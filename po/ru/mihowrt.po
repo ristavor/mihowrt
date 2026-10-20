@@ -342,14 +342,14 @@ msgstr "Браузеры переходят на TCP, с которым прок
 msgid "Time sync without Mihomo"
 msgstr "Синхронизация времени без Mihomo"
 
-msgid "NTP servers resolve through the ISP DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails."
-msgstr "NTP-серверы резолвятся через DNS провайдера, а UDP/123 идёт мимо Mihomo, поэтому время синхронизируется даже при сбое Mihomo."
+msgid "NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails."
+msgstr "NTP-серверы резолвятся через DNS интерфейсов (WAN), а UDP/123 идёт мимо Mihomo, поэтому время синхронизируется даже при сбое Mihomo."
 
 msgid "Subscription server without Mihomo"
 msgstr "Сервер подписки без Mihomo"
 
-msgid "The subscription host resolves through the ISP DNS, so a broken config can always be replaced."
-msgstr "Адрес сервера подписки резолвится через DNS провайдера, поэтому сломанную конфигурацию всегда можно заменить."
+msgid "While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected."
+msgstr "Во время обновления подписки её сервер резолвится через DNS интерфейсов (WAN) и скачивается напрямую. Остальной трафик к тем же адресам не затрагивается."
 
 msgid "Route outbound NetBird through Mihomo"
 msgstr "Пускать исходящий NetBird через Mihomo"

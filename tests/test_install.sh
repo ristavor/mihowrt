@@ -57,3 +57,19 @@ do_remove >/dev/null
 assert_eq $'apk del luci-i18n-mihowrt-ru\napk del luci-app-mihowrt' "$(cat "$calls")" "translation removed before the app"
 [[ ! -e "$CORE" ]] || fail "core removed"
 pass "remove"
+
+# Installer: API down -> tag from the github.com redirect, direct asset URLs.
+WORK="$tmpdir/work"
+mkdir -p "$WORK"
+REPO="ristavor/mihowrt"
+curl() {
+	case "$*" in
+	*api.github.com*) return 7 ;;
+	*redirect_url*) printf 'https://github.com/ristavor/mihowrt/releases/tag/v0.8.1' ;;
+	*"-o "*) out=""; prev=""; for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; done; echo "$*" >>"$tmpdir/downloads"; echo apk >"$out" ;;
+	esac
+}
+assert_eq v0.8.1 "$(release_tag)" "tag from github.com redirect"
+download_asset luci-app-mihowrt "$WORK/app.apk" || fail "direct download must work"
+assert_file_contains "$tmpdir/downloads" "https://github.com/ristavor/mihowrt/releases/download/v0.8.1/luci-app-mihowrt-0.8.1-r1.apk" "direct asset URL"
+pass "installer github.com fallback"

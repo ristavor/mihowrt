@@ -76,9 +76,9 @@ return view.extend({
 		o.default = '1';
 		o = s.taboption('advanced', form.Flag, 'disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
 		o.default = '1';
-		o = s.taboption('advanced', form.Flag, 'bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the ISP DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
+		o = s.taboption('advanced', form.Flag, 'bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
 		o.default = '1';
-		o = s.taboption('advanced', form.Flag, 'bypass_subscription_dns', _('Subscription server without Mihomo'), _('The subscription host resolves through the ISP DNS, so a broken config can always be replaced.'));
+		o = s.taboption('advanced', form.Flag, 'bypass_subscription_dns', _('Subscription server without Mihomo'), _('While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected.'));
 		o.default = '1';
 		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through Mihomo'), _('NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched.'));
 		o.default = '0';

@@ -73,27 +73,42 @@ core_update() {
 	arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
 	ensure_dir "$KERNEL_TMP_DIR" || return 1
 	json="$KERNEL_TMP_DIR/release.json"
-	http_fetch "$MIHOMO_RELEASES_API" "$json" "$KERNEL_RELEASE_JSON_MAX_BYTES" 30 0 ||
-		core_fail "cannot read latest release ($FETCH_ERROR)" || return 1
-	tag="$(jq -r '.tag_name // empty' "$json")"
-	[ -n "$tag" ] || core_fail "release has no tag" || return 1
-	current="$CORE_VERSION"
-	if [ "$current" = "$tag" ]; then
-		rm -rf "$KERNEL_TMP_DIR"
-		return 0
-	fi
-
-	for name in $(core_asset_names "$arch" "$tag"); do
-		meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
-		[ -n "$meta" ] && break
-	done
-	[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
-	url="$(printf '%s' "$meta" | cut -f1)"
-	digest="$(printf '%s' "$meta" | cut -f2)"
-	size="$(printf '%s' "$meta" | cut -f3)"
-
 	gz="$KERNEL_TMP_DIR/mihomo.gz"
-	http_fetch "$url" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+	current="$CORE_VERSION"
+	if http_fetch "$MIHOMO_RELEASES_API" "$json" "$KERNEL_RELEASE_JSON_MAX_BYTES" 30 0; then
+		tag="$(jq -r '.tag_name // empty' "$json")"
+		[ -n "$tag" ] || core_fail "release has no tag" || return 1
+		[ "$current" != "$tag" ] || {
+			rm -rf "$KERNEL_TMP_DIR"
+			return 0
+		}
+		for name in $(core_asset_names "$arch" "$tag"); do
+			meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
+			[ -n "$meta" ] && break
+		done
+		[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
+		url="$(printf '%s' "$meta" | cut -f1)"
+		digest="$(printf '%s' "$meta" | cut -f2)"
+		size="$(printf '%s' "$meta" | cut -f3)"
+		http_fetch "$url" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+	else
+		# API blocked or rate-limited: tag from the github.com redirect and
+		# direct download URLs (no published digest on this path).
+		warn "Core update: GitHub API unavailable ($FETCH_ERROR); using github.com"
+		tag="$(github_latest_tag "$MIHOMO_REPO")" || core_fail "cannot reach GitHub" || return 1
+		[ "$current" != "$tag" ] || {
+			rm -rf "$KERNEL_TMP_DIR"
+			return 0
+		}
+		url=""
+		for name in $(core_asset_names "$arch" "$tag"); do
+			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0; then
+				url="$name"
+				break
+			fi
+		done
+		[ -n "$url" ] || core_fail "no downloadable asset for $arch in $tag" || return 1
+	fi
 	if is_uint "$size" && [ "$(wc -c <"$gz" | tr -d ' ')" != "$size" ]; then
 		core_fail "downloaded size does not match release" || return 1
 	fi

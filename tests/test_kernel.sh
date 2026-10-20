@@ -69,3 +69,21 @@ core_update
 assert_eq 0 "$CORE_UPDATED" "same version is a no-op"
 assert_eq '{"updated":false,"version":"v1.19.32","error":null}' "$(core_update_json)" "json result"
 pass "core update"
+
+# GitHub API unreachable (or rate-limited): tag from the github.com redirect,
+# asset from the direct download URL.
+printf '#!/bin/sh\necho "Mihomo Meta v1.19.30 linux"\n' >"$CLASH_BIN"
+fetched=""
+http_fetch() {
+	fetched="$fetched $1"
+	case "$1" in
+	*api.github.com*) FETCH_ERROR=network; return 1 ;;
+	*/releases/download/v1.19.32/mihomo-linux-arm64-v1.19.32.gz) cp "$tmpdir/asset.gz" "$2" ;;
+	*) FETCH_ERROR=http_404; return 1 ;;
+	esac
+}
+curl() { case "$*" in *redirect_url*github.com/MetaCubeX/mihomo/releases/latest*) printf 'https://github.com/MetaCubeX/mihomo/releases/tag/v1.19.32' ;; *) return 1 ;; esac; }
+core_update 2>/dev/null || fail "fallback update must succeed: $CORE_ERROR"
+assert_eq "1:v1.19.32" "$CORE_UPDATED:$(core_version)" "core installed via github.com fallback"
+[[ "$fetched" == *"https://github.com/MetaCubeX/mihomo/releases/download/v1.19.32/mihomo-linux-arm64-v1.19.32.gz"* ]] || fail "direct download URL used: $fetched"
+pass "github.com fallback without API"

@@ -19,3 +19,7 @@ check_absent '(^|[|;&(][[:space:]]*|\$\()od[[:space:]]' "od is not in OpenWrt Bu
 check_absent '(^|[|;&(][[:space:]]*|\$\()base64[[:space:]]' "base64 is not in OpenWrt BusyBox"
 check_absent 'sort[^|;]*[[:space:]]-o[[:space:]]' "OpenWrt BusyBox sort has no -o"
 pass "runtime uses only OpenWrt BusyBox tools"
+
+# OpenWrt jq is built without Oniguruma: regex filters fail at runtime.
+check_absent '(test|match|capture|sub|gsub|scan|splits)\("' "jq regex functions are unavailable on OpenWrt"
+pass "runtime jq programs avoid regex filters"

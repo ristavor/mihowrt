@@ -12,9 +12,11 @@ DEPS="luci-base nftables jq kmod-nft-tproxy curl"
 CORE="/opt/clash/bin/clash"
 CORE_SPACE_KB=81920
 WORK="/tmp/mihowrt-install.$$"
+RELEASE_JSON=""
 
 log() { printf '%s\n' "$*"; }
 err() { printf 'Error: %s\n' "$*" >&2; }
+warn() { printf 'Warning: %s\n' "$*" >&2; }
 die() {
 	err "$*"
 	exit 1
@@ -98,23 +100,56 @@ asset_info() {
 		| "\(.browser_download_url) \(.digest // "")"' "$1" | head -n 1
 }
 
-download_asset() {
-	local json="$1" prefix="$2" out="$3" info="" url="" digest=""
+# Release info: GitHub API first (asset digests); if it is blocked or
+# rate-limited, the tag comes from the github.com/releases/latest redirect.
+fetch_release() {
+	RELEASE_JSON="$WORK/release.json"
+	curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 -o "$RELEASE_JSON" "$RELEASES_API" 2>/dev/null &&
+		[ -n "$(jq -r '.tag_name // empty' "$RELEASE_JSON" 2>/dev/null)" ] && return 0
+	RELEASE_JSON=""
+	return 1
+}
 
-	info="$(asset_info "$json" "$prefix")"
-	[ -n "$info" ] || return 1
-	url="${info%% *}"
-	digest="${info#* }"
-	curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "$out" "$url" || die "download failed: $url"
+release_tag() {
+	local url=""
+
+	[ -n "${RELEASE_JSON:-}" ] || fetch_release
+	if [ -n "${RELEASE_JSON:-}" ]; then
+		jq -r .tag_name "$RELEASE_JSON"
+		return 0
+	fi
+	url="$(curl -fsS -o /dev/null --connect-timeout 15 --max-time 30 -w '%{redirect_url}' \
+		"https://github.com/$REPO/releases/latest" 2>/dev/null)" || return 1
+	case "$url" in
+	*/releases/tag/?*) echo "${url##*/releases/tag/}" ;;
+	*) return 1 ;;
+	esac
+}
+
+# download_asset <name-prefix> <out>
+download_asset() {
+	local prefix="$1" out="$2" info="" url="" digest="" tag=""
+
+	if [ -n "${RELEASE_JSON:-}" ]; then
+		info="$(asset_info "$RELEASE_JSON" "$prefix")"
+		[ -n "$info" ] || return 1
+		url="${info%% *}"
+		digest="${info#* }"
+	else
+		tag="$(release_tag)" || return 1
+		url="https://github.com/$REPO/releases/download/$tag/$prefix-${tag#v}-r1.apk"
+	fi
+	curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "$out" "$url" || return 1
 	case "$digest" in
 	sha256:*)
 		[ "$(sha256sum "$out" | cut -d' ' -f1)" = "${digest#sha256:}" ] || die "sha256 mismatch for $prefix"
 		;;
+	*) warn "no published checksum for $prefix (GitHub API unavailable); installing without checksum verification" ;;
 	esac
 }
 
 install_packages() {
-	local lang="$1" json="$WORK/release.json"
+	local lang="$1" tag=""
 
 	log "Installing dependencies..."
 	apk update >/dev/null || die "apk update failed"
@@ -123,14 +158,14 @@ install_packages() {
 	check_space
 
 	log "Downloading the latest MihoWRT release..."
-	curl -fsSL --retry 3 --connect-timeout 15 --max-time 60 -o "$json" "$RELEASES_API" ||
-		die "cannot read release information from GitHub"
-	download_asset "$json" "$PKG" "$WORK/$PKG.apk" || die "release has no $PKG package"
-	log "Installing $(jq -r .tag_name "$json")..."
+	fetch_release || log "GitHub API unavailable, using github.com directly"
+	tag="$(release_tag)" || die "cannot reach GitHub (api.github.com and github.com failed)"
+	download_asset "$PKG" "$WORK/$PKG.apk" || die "cannot download $PKG for $tag"
+	log "Installing $tag..."
 	apk add --allow-untrusted "$WORK/$PKG.apk" >/dev/null || die "package installation failed"
 
 	if [ "$lang" = ru ]; then
-		if download_asset "$json" "$I18N_PKG" "$WORK/$I18N_PKG.apk"; then
+		if download_asset "$I18N_PKG" "$WORK/$I18N_PKG.apk"; then
 			apk add --allow-untrusted "$WORK/$I18N_PKG.apk" >/dev/null || err "Russian translation failed to install"
 		else
 			err "release has no Russian translation package"

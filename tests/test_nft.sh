@@ -67,3 +67,12 @@ if command -v nft >/dev/null 2>&1 && nft -c -f "$out" 2>/dev/null; then
 else
 	printf 'skip - nft syntax check (needs nft with kernel support)\n'
 fi
+
+# Temporary subscription bypass: router traffic only, sets with timeouts.
+render
+assert_file_contains "$out" "add set inet mihowrt bypass_dst { type ipv4_addr; flags timeout; }" "v4 bypass set"
+assert_file_contains "$out" "add set inet mihowrt bypass_dst6 { type ipv6_addr; flags timeout; }" "v6 bypass set"
+assert_file_contains "$out" "add rule inet mihowrt mangle_output ip daddr @bypass_dst return" "router traffic bypass v4"
+assert_file_contains "$out" "add rule inet mihowrt mangle_output ip6 daddr @bypass_dst6 return" "router traffic bypass v6"
+assert_file_not_contains "$out" "prerouting_policy ip daddr @bypass_dst" "LAN clients are not affected"
+pass "bypass sets for router traffic only"

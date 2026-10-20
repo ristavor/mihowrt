@@ -20,8 +20,8 @@ dns_confdirs() {
 	done
 }
 
-# ISP resolvers learned by netifd for any WAN protocol.
-dns_isp_servers() {
+# DNS servers of the WAN interfaces, as learned by netifd (provider or custom).
+dns_wan_servers() {
 	[ -r "$DNS_AUTO_RESOLVFILE" ] || return 0
 	awk '$1 == "nameserver" && $2 !~ /^(127\.|::1$|0\.0\.0\.0$)/ && $2 !~ /%/ { print $2 }' "$DNS_AUTO_RESOLVFILE"
 }
@@ -54,7 +54,7 @@ dns_bypass_hosts() {
 dns_render() {
 	local out="$1" host="" server="" servers=""
 
-	servers="$(dns_isp_servers)"
+	servers="$(dns_wan_servers)"
 	{
 		printf 'no-resolv\n'
 		printf 'server=127.0.0.1#%s\n' "$MIHOMO_DNS_PORT"
@@ -111,7 +111,7 @@ dns_cleanup() {
 	log "dnsmasq DNS restored"
 }
 
-# WAN reconnects change ISP resolvers; refresh bypass lines while running.
+# WAN reconnects change interface DNS servers; refresh bypass lines.
 dns_refresh() {
 	# The marker exists only while policy is applied to a live Mihomo.
 	[ -f "$RUNNING_MARKER" ] && service_running || return 0

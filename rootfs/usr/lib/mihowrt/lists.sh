@@ -1,1208 +1,190 @@
 #!/bin/ash
 
-# Ensure policy list directory exists before package hooks or runtime apply use it.
-ensure_policy_files() {
-	ensure_dir "$LIST_DIR"
-}
+# Policy lists: one entry per line, IPv4 or IPv6.
+#   addr[/prefix][;ports]   e.g. 1.1.1.1, 2001:db8::/32;443
+#   ;ports                  any address on these ports
+#   URL[;ports]             remote list (cached); a trailing "| hours" is ignored
+# Remote URLs are fetched by lists_update_remote and read from the cache, so
+# applying policy never waits on the network.
 
-# Detect legacy ip:port syntax while ignoring URLs and IPv6-like strings.
-policy_entry_has_legacy_colon_ports() {
+LISTS_REMOTE_MAX_BYTES="${LISTS_REMOTE_MAX_BYTES:-262144}"
+LISTS_REMOTE_MAX_URLS="${LISTS_REMOTE_MAX_URLS:-32}"
+LISTS_REMOTE_TIMEOUT="${LISTS_REMOTE_TIMEOUT:-30}"
+
+lists_file() {
 	case "$1" in
-	*';'* | *:*:*)
-		return 1
-		;;
-	*:*)
-		is_policy_entry "$1" && policy_entry_has_ports "$1"
-		return $?
-		;;
+	dst) printf '%s' "$DST_LIST_FILE" ;;
+	src) printf '%s' "$SRC_LIST_FILE" ;;
+	direct) printf '%s' "$DIRECT_DST_LIST_FILE" ;;
+	*) return 1 ;;
 	esac
-
-	return 1
 }
 
-# Convert one legacy ip:port entry to the current ip;port form.
-policy_entry_legacy_colon_to_semicolon() {
-	local value="$1"
+lists_ensure_files() {
+	local kind=""
 
-	policy_entry_has_legacy_colon_ports "$value" || return 1
-	printf '%s;%s' "${value%:*}" "${value##*:}"
+	ensure_dir "$LIST_DIR" || return 1
+	for kind in dst src direct; do
+		[ -f "$(lists_file "$kind")" ] || : >"$(lists_file "$kind")"
+	done
 }
 
-# Scan a list for legacy entries before writing anything to flash.
-policy_list_file_needs_migration() {
-	local file="$1"
-	local line="" trimmed=""
-
-	[ -f "$file" ] || return 1
-
-	while IFS= read -r line || [ -n "$line" ]; do
-		trimmed="$(trim "$line")"
-		case "$trimmed" in
-		'' | '#'*) continue ;;
-		esac
-
-		policy_entry_has_legacy_colon_ports "$trimmed" && return 0
-	done <"$file"
-
-	return 1
-}
-
-# Rewrite a list only when migration is required and content actually changes.
-migrate_policy_list_file() {
-	local file="$1"
-	local tmp="" file_dir="" file_base="" line="" trimmed="" migrated=""
-	local rc=0
-
-	[ -f "$file" ] || return 0
-	policy_list_file_needs_migration "$file" || return 0
-
-	file_dir="$(dirname "$file")" || return 1
-	file_base="$(basename "$file")" || return 1
-	tmp="$(mktemp "$file_dir/.${file_base}.tmp.XXXXXX")" || return 1
-	cp -p "$file" "$tmp" || {
-		rm -f "$tmp"
-		return 1
-	}
-
-	exec 3<"$file" || {
-		rm -f "$tmp"
-		return 1
-	}
-	exec 4>"$tmp" || {
-		exec 3<&-
-		rm -f "$tmp"
-		return 1
-	}
-
-	while IFS= read -r line <&3 || [ -n "$line" ]; do
-		trimmed="$(trim "$line")"
-		if policy_entry_has_legacy_colon_ports "$trimmed"; then
-			migrated="$(policy_entry_legacy_colon_to_semicolon "$trimmed")" || {
-				rc=1
-				break
+# One awk pass validates and classifies entries (a fork per entry is far too
+# slow on router CPUs). Prints "<family> <entry>", family 4, 6 or any; with
+# -v bad=1 prints only the invalid lines.
+lists_classify() {
+	awk -v bad="${1:-0}" '
+		function port_ok(p) { return p ~ /^[0-9]+$/ && p + 0 >= 1 && p + 0 <= 65535 }
+		function ports_ok(s,   n, i, a, r) {
+			if (s == "" || s ~ /^,|,$|,,/) return 0
+			n = split(s, a, ",")
+			for (i = 1; i <= n; i++) {
+				if (split(a[i], r, "-") == 2) {
+					if (!port_ok(r[1]) || !port_ok(r[2]) || r[1] + 0 > r[2] + 0) return 0
+				} else if (!port_ok(a[i])) return 0
 			}
-			printf '%s\n' "$migrated" >&4 || {
-				rc=1
-				break
-			}
+			return 1
+		}
+		function prefix_ok(p, max) { return p ~ /^[0-9]+$/ && p + 0 <= max }
+		function v4(s,   n, i, a) {
+			if (index(s, "/")) { if (!prefix_ok(substr(s, index(s, "/") + 1), 32)) return 0; s = substr(s, 1, index(s, "/") - 1) }
+			if (split(s, a, ".") != 4) return 0
+			for (i = 1; i <= 4; i++) if (a[i] !~ /^[0-9][0-9]?[0-9]?$/ || a[i] + 0 > 255) return 0
+			return 1
+		}
+		function v6(s,   n, i, a, g, dbl) {
+			if (index(s, "/")) { if (!prefix_ok(substr(s, index(s, "/") + 1), 128)) return 0; s = substr(s, 1, index(s, "/") - 1) }
+			if (s !~ /:/ || s ~ /[^0-9A-Fa-f:]/ || s ~ /:::/) return 0
+			dbl = gsub(/::/, "&", s)
+			if (dbl > 1) return 0
+			if (s ~ /^:[^:]/ || s ~ /[^:]:$/) return 0
+			n = split(s, a, ":"); g = 0
+			for (i = 1; i <= n; i++) if (a[i] != "") { if (length(a[i]) > 4) return 0; g++ }
+			return dbl ? g <= 7 : g == 8
+		}
+		{
+			addr = $0; ports = ""
+			if (index($0, ";")) { addr = substr($0, 1, index($0, ";") - 1); ports = substr($0, index($0, ";") + 1) }
+			fam = ""
+			if (ports != "" && !ports_ok(ports)) fam = ""
+			else if (addr == "") fam = (ports != "") ? "any" : ""
+			else if (v4(addr)) fam = "4"
+			else if (v6(addr)) fam = "6"
+			if (bad) { if (fam == "") print; next }
+			if (fam != "") print fam " " $0
+		}
+	'
+}
+
+# Print 4, 6 or "any" for one entry; status 1 when invalid.
+list_entry_family() {
+	local family=""
+
+	family="$(printf '%s\n' "$1" | lists_classify | cut -d' ' -f1)"
+	[ -n "$family" ] && printf '%s' "$family"
+}
+
+# Strip comments, spaces and the legacy " | hours" suffix.
+lists_clean_lines() {
+	sed -e 's/#.*//' -e 's/|.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$@"
+}
+
+lists_url_key() {
+	printf '%s' "$1" | sha256sum | cut -c1-16
+}
+
+lists_cache_file() {
+	printf '%s/%s.txt' "$POLICY_CACHE_DIR" "$(lists_url_key "$1")"
+}
+
+lists_urls() {
+	local kind="" file=""
+
+	for kind in dst src direct; do
+		file="$(lists_file "$kind")"
+		[ -r "$file" ] && lists_clean_lines "$file"
+	done | sed -n 's/;.*//; /^https\?:\/\//p' | awk '!seen[$0]++'
+}
+
+lists_resolve() {
+	local kind="$1" out4="$2" out6="$3" file="" line="" url="" ports="" cache=""
+
+	file="$(lists_file "$kind")" || return 1
+	: >"$out4" && : >"$out6" || return 1
+	[ -r "$file" ] || return 0
+	{
+		lists_clean_lines "$file" | grep -v '^https\?://' || true
+		# Remote entries inherit the URL's ports unless they carry their own.
+		lists_clean_lines "$file" | sed -n '/^https\?:\/\//p' | while IFS= read -r line; do
+			url="${line%%;*}"
+			ports=""
+			[ "$url" = "$line" ] || ports="${line#*;}"
+			cache="$(lists_cache_file "$url")"
+			[ -r "$cache" ] || continue
+			awk -v p="$ports" 'p != "" && !index($0, ";") { $0 = $0 ";" p } { print }' "$cache"
+		done
+	} | lists_classify | awk -v o4="$out4" -v o6="$out6" '
+		$1 == "4" { print $2 >o4 }
+		$1 == "6" { print $2 >o6 }
+		$1 == "any" { print $2 >o4; print $2 >o6 }
+	'
+	# BusyBox sort on OpenWrt has no -o.
+	sort -u "$out4" >"$out4.sorted" && mv -f "$out4.sorted" "$out4" &&
+		sort -u "$out6" >"$out6.sorted" && mv -f "$out6.sorted" "$out6"
+}
+
+# True when the cache for a URL is missing or older than LISTS_INTERVAL hours.
+lists_remote_due() {
+	local cache="$1"
+
+	[ -f "$cache" ] || return 0
+	[ "${LISTS_INTERVAL:-0}" -gt 0 ] || return 1
+	[ -n "$(find "$cache" -mmin +$((LISTS_INTERVAL * 60 - 5)) 2>/dev/null)" ]
+}
+
+# Fetch due remote lists into the cache. Prints "changed" or "unchanged".
+lists_update_remote() {
+	local force="${1:-0}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0
+
+	ensure_dir "$POLICY_CACHE_DIR" || return 1
+	tmp="$PKG_TMP_DIR/list.$$"
+	ensure_dir "$PKG_TMP_DIR" || return 1
+	for url in $(lists_urls); do
+		count=$((count + 1))
+		[ "$count" -le "$LISTS_REMOTE_MAX_URLS" ] || {
+			warn "Too many remote lists; only $LISTS_REMOTE_MAX_URLS are used"
+			break
+		}
+		cache="$(lists_cache_file "$url")"
+		[ "$force" = "1" ] || lists_remote_due "$cache" || continue
+		if ! http_fetch "$url" "$tmp" "$LISTS_REMOTE_MAX_BYTES" "$LISTS_REMOTE_TIMEOUT" 0; then
+			warn "Remote list fetch failed: $(url_host "$url") ($FETCH_ERROR)"
+			failed=1
+			continue
+		fi
+		lists_clean_lines "$tmp" | lists_classify | cut -d' ' -f2- >"$tmp.clean"
+		if cmp -s "$tmp.clean" "$cache"; then
+			touch "$cache"
 		else
-			printf '%s\n' "$line" >&4 || {
-				rc=1
-				break
-			}
+			mv -f "$tmp.clean" "$cache" && changed=1
 		fi
 	done
-
-	exec 3<&-
-	exec 4>&-
-	[ "$rc" -eq 0 ] || {
-		rm -f "$tmp"
-		return 1
-	}
-
-	if cmp -s "$tmp" "$file" 2>/dev/null; then
-		rm -f "$tmp"
-		return 0
-	fi
-
-	mv -f "$tmp" "$file" || {
-		rm -f "$tmp"
-		return 1
-	}
-	log "Migrated legacy policy list port syntax in $file"
-}
-
-# Migrate all user policy lists from old colon syntax.
-migrate_policy_list_files() {
-	ensure_policy_files || return 1
-	migrate_policy_list_file "$DST_LIST_FILE" || return 1
-	migrate_policy_list_file "$SRC_LIST_FILE" || return 1
-	migrate_policy_list_file "$DIRECT_DST_LIST_FILE" || return 1
-}
-
-policy_positive_uint_or_default() {
-	positive_uint_or_default "${1:-}" "$2"
-}
-
-policy_remote_list_max_bytes() {
-	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_BYTES:-}" 262144 2147483646
-}
-
-policy_effective_list_max_bytes() {
-	bounded_positive_uint_or_default "${POLICY_EFFECTIVE_LIST_MAX_BYTES:-}" 1048576 2147483646
-}
-
-policy_remote_list_fetch_timeout() {
-	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_TIMEOUT:-}" 15 3600
-}
-
-policy_remote_list_fetch_budget() {
-	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_FETCH_BUDGET:-}" 60 3600
-}
-
-policy_remote_list_max_urls() {
-	bounded_positive_uint_or_default "${POLICY_REMOTE_LIST_MAX_URLS:-}" 32 1024
-}
-
-policy_remote_update_interval_valid() {
-	local value="$1"
-
-	is_uint "$value" || return 1
-	value="$(normalize_uint "$value")"
-	uint_lte "$value" 8760
-}
-
-policy_remote_now_epoch() {
-	date +%s 2>/dev/null || printf '0\n'
-}
-
-policy_remote_next_update_epoch() {
-	local interval="$1" now=""
-
-	if [ -z "$interval" ] || ! policy_remote_update_interval_valid "$interval"; then
-		printf '%s' ''
-		return 0
-	fi
-	now="$(policy_remote_now_epoch)"
-	printf '%s' $((now + (interval * 3600)))
-}
-
-policy_remote_cron_file() {
-	printf '%s' "${POLICY_REMOTE_CRON_FILE:-/etc/crontabs/root}"
-}
-
-policy_remote_cron_marker() {
-	printf '%s' "# mihowrt policy remote auto-update"
-}
-
-policy_remote_restart_cron() {
-	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1 || true
-}
-
-policy_remote_sync_auto_update_cron() {
-	local enabled="$1"
-	local cron_file="" marker="" entry=""
-
-	cron_file="$(policy_remote_cron_file)"
-	marker="$(policy_remote_cron_marker)"
-	entry="23 * * * * /usr/bin/mihowrt auto-update-policy-lists >/dev/null 2>&1 $marker"
-
-	mihowrt_sync_cron_marker "$cron_file" "$marker" "$enabled" "$entry" || return 1
-	[ "${MIHOWRT_CRON_CHANGED:-0}" -eq 1 ] && policy_remote_restart_cron
-	return 0
-}
-
-policy_remote_configured_update_interval() {
-	local interval=""
-
-	require_command uci || return 1
-	interval="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.policy_remote_update_interval" 2>/dev/null || true)"
-	[ -n "$interval" ] || {
-		printf '%s' '0'
-		return 0
-	}
-
-	policy_remote_update_interval_valid "$interval" || return 1
-	normalize_uint "$interval"
-}
-
-policy_remote_auto_update_state_file() {
-	printf '%s' "${POLICY_REMOTE_AUTO_UPDATE_STATE_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/policy-remote-auto.state}"
-}
-
-policy_remote_clear_auto_update_state() {
-	rm -f "$(policy_remote_auto_update_state_file)"
-}
-
-policy_remote_file_has_auto_update() {
-	local file="$1" line="" interval=""
-
-	[ -r "$file" ] || return 1
-	while IFS= read -r line || [ -n "$line" ]; do
-		line="$(trim "$line")"
-		case "$line" in
-		'' | '#'*) continue ;;
-		esac
-		is_policy_remote_list_url "$line" || continue
-		interval="$(policy_remote_list_interval "$line" 2>/dev/null || true)"
-		[ -n "$interval" ] && [ "$interval" != "0" ] && return 0
-	done <"$file"
-	return 1
-}
-
-policy_remote_any_auto_update_enabled() {
-	policy_remote_file_has_auto_update "${DST_LIST_FILE:-/opt/clash/lst/always_proxy_dst.txt}" && return 0
-	policy_remote_file_has_auto_update "${SRC_LIST_FILE:-/opt/clash/lst/always_proxy_src.txt}" && return 0
-	policy_remote_file_has_auto_update "${DIRECT_DST_LIST_FILE:-/opt/clash/lst/direct_dst.txt}"
-}
-
-policy_remote_refresh_auto_update_state() {
-	policy_remote_clear_auto_update_state
-	if policy_remote_any_auto_update_enabled; then
-		policy_remote_sync_auto_update_cron 1
+	rm -f "$tmp" "$tmp.clean"
+	if [ "$changed" -eq 1 ]; then
+		echo changed
 	else
-		policy_remote_sync_auto_update_cron 0
+		echo unchanged
 	fi
+	[ "$failed" -eq 0 ]
 }
 
-auto_update_policy_remote_lists() {
-	local output="" rc=0
+lists_count() {
+	local file=""
 
-	if ! policy_remote_any_auto_update_enabled; then
-		policy_remote_sync_auto_update_cron 0 || true
-		printf 'updated=0\n'
-		return 0
-	fi
-	POLICY_REMOTE_AUTO_MODE=1
-	output="$(update_runtime_policy_lists)"
-	rc=$?
-	unset POLICY_REMOTE_AUTO_MODE
-	if [ "$rc" -eq 0 ]; then
-		printf '%s\n' "$output"
-		return 0
-	fi
-	return "$rc"
-}
-
-# Start one apply-wide remote fetch budget. Each URL gets a bounded timeout and
-# the whole list resolution must finish before this deadline.
-policy_remote_list_fetch_limits_begin() {
-	local now="" budget=""
-
-	require_command date || return 1
-	now="$(date +%s)" || return 1
-	is_uint "$now" || {
-		err "Failed to read current time for remote policy list budget"
-		return 1
-	}
-
-	budget="$(policy_remote_list_fetch_budget)"
-	POLICY_REMOTE_LIST_URL_COUNT=0
-	POLICY_REMOTE_LIST_FETCH_DEADLINE=$((now + budget))
-}
-
-policy_remote_redacted_url() {
-	http_fetch_redacted_url "$1" 2>/dev/null || printf '<redacted>'
-}
-
-policy_log_safe_value() {
-	case "$1" in
-	http://* | https://*)
-		policy_remote_redacted_url "$1"
-		;;
-	*)
-		printf '%s' "$1"
-		;;
-	esac
-}
-
-# Count remote URLs across all lists in one apply to prevent accidental URL
-# storms from user-maintained lists.
-policy_remote_list_register_url() {
-	local url="$1"
-	local label="$2"
-	local max_urls=""
-
-	max_urls="$(policy_remote_list_max_urls)"
-	POLICY_REMOTE_LIST_URL_COUNT=$((${POLICY_REMOTE_LIST_URL_COUNT:-0} + 1))
-	if ! uint_lte "$POLICY_REMOTE_LIST_URL_COUNT" "$max_urls"; then
-		err "Too many remote policy list URLs in $label: $POLICY_REMOTE_LIST_URL_COUNT, limit $max_urls"
-		return 1
-	fi
-
-	log "Resolving remote policy list $(policy_remote_redacted_url "$url")"
-}
-
-# Clamp per-request timeout to remaining apply budget.
-policy_remote_list_effective_timeout() {
-	local timeout="$1"
-	local now="" remaining=0
-
-	[ -n "${POLICY_REMOTE_LIST_FETCH_DEADLINE:-}" ] || {
-		printf '%s' "$timeout"
-		return 0
-	}
-
-	now="$(date +%s)" || return 1
-	is_uint "$now" || {
-		err "Failed to read current time for remote policy list budget"
-		return 1
-	}
-
-	remaining=$((POLICY_REMOTE_LIST_FETCH_DEADLINE - now))
-	if [ "$remaining" -le 0 ]; then
-		err "Remote policy list fetch budget exceeded"
-		return 1
-	fi
-
-	if uint_lte "$timeout" "$remaining"; then
-		printf '%s' "$timeout"
-	else
-		printf '%s' "$remaining"
-	fi
-}
-
-is_policy_remote_list_url() {
-	policy_remote_list_url "$1" >/dev/null
-}
-
-# Remote URL entries may append " | hours". The URL/optional ;ports part stays
-# compatible with existing list syntax while every source gets its own schedule.
-policy_remote_list_base() {
-	local value="$1" base="" interval=""
-
-	case "$value" in
-	*'|'*)
-		base="$(trim "${value%|*}")"
-		interval="$(trim "${value##*|}")"
-		policy_remote_update_interval_valid "$interval" || return 1
-		printf '%s' "$base"
-		;;
-	*)
-		printf '%s' "$(trim "$value")"
-		;;
-	esac
-}
-
-policy_remote_list_interval() {
-	local value="$1" interval=""
-
-	case "$value" in
-	*'|'*)
-		interval="$(trim "${value##*|}")"
-		policy_remote_update_interval_valid "$interval" || return 1
-		normalize_uint "$interval"
-		;;
-	*)
-		# Legacy entries inherit the old global value until migration annotates them.
-		if have_command uci; then
-			policy_remote_configured_update_interval 2>/dev/null || printf '%s' '0'
-		else
-			printf '%s' '0'
-		fi
-		;;
-	esac
-}
-
-# Return URL part from a remote entry, accepting optional ;ports suffix.
-policy_remote_list_url() {
-	local value="$1" url="" ports=""
-
-	value="$(policy_remote_list_base "$value")" || return 1
-
-	case "$value" in
-	*';'*)
-		url="${value%;*}"
-		ports="${value##*;}"
-		is_http_fetch_url "$url" || return 1
-		is_policy_port_spec "$ports" || return 1
-		printf '%s' "$url"
-		return 0
-		;;
-	esac
-
-	is_http_fetch_url "$value" || return 1
-	printf '%s' "$value"
-}
-
-# Return normalized inherited ports from URL;ports entries.
-policy_remote_list_ports() {
-	local value="$1" url="" ports=""
-
-	value="$(policy_remote_list_base "$value")" || return 1
-
-	case "$value" in
-	*';'*)
-		url="${value%;*}"
-		ports="${value##*;}"
-		is_http_fetch_url "$url" || return 1
-		policy_ports_normalized_spec "$ports"
-		return $?
-		;;
-	esac
-
-	printf '%s' ''
-}
-
-# Count non-comment list lines that satisfy a predicate.
-policy_count_matching_lines() {
-	local file="$1"
-	local predicate="$2"
-	local count=0
-	local line
-
-	[ -f "$file" ] || {
+	file="$(lists_file "$1")" || return 1
+	[ -r "$file" ] || {
 		echo 0
 		return 0
 	}
-
-	while IFS= read -r line || [ -n "$line" ]; do
-		line="$(trim "$line")"
-		case "$line" in
-		'' | '#'*) continue ;;
-		esac
-
-		if "$predicate" "$line"; then
-			count=$((count + 1))
-		fi
-	done <"$file"
-
-	echo "$count"
-}
-
-count_remote_list_urls() {
-	policy_count_matching_lines "$1" is_policy_remote_list_url
-}
-
-policy_list_has_remote_urls() {
-	local file="$1"
-	local line=""
-
-	[ -f "$file" ] || return 1
-
-	while IFS= read -r line || [ -n "$line" ]; do
-		line="$(trim "$line")"
-		case "$line" in
-		'' | '#'*) continue ;;
-		esac
-
-		is_policy_remote_list_url "$line" && return 0
-	done <"$file"
-
-	return 1
-}
-
-policy_active_source_lists_have_remote_urls() {
-	case "${POLICY_MODE:-direct-first}" in
-	direct-first)
-		policy_list_has_remote_urls "${POLICY_SOURCE_DST_LIST_FILE:-$DST_LIST_FILE}" && return 0
-		policy_list_has_remote_urls "${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}" && return 0
-		;;
-	proxy-first)
-		policy_list_has_remote_urls "${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}" && return 0
-		;;
-	esac
-
-	return 1
-}
-
-# Stable, cheap fingerprint for diagnostics/snapshot comparison.
-policy_list_fingerprint() {
-	local file="$1"
-	local line="" first="" second=""
-
-	if [ ! -f "$file" ]; then
-		printf '%s' 'missing:0'
-		return 0
-	fi
-
-	if have_command sha256sum; then
-		line="$(sha256sum "$file" 2>/dev/null)" || return 1
-		first="${line%% *}"
-		[ -n "$first" ] || return 1
-		printf 'sha256:%s' "$first"
-		return 0
-	fi
-
-	if have_command cksum; then
-		line="$(cksum "$file" 2>/dev/null)" || return 1
-		first="${line%% *}"
-		second="${line#* }"
-		second="${second%% *}"
-		[ -n "$first" ] && [ -n "$second" ] || return 1
-		printf 'cksum:%s:%s' "$first" "$second"
-		return 0
-	fi
-
-	return 1
-}
-
-policy_cache_dir() {
-	printf '%s\n' "${POLICY_CACHE_DIR:-${PKG_PERSIST_DIR:-/etc/mihowrt}/policy-cache}"
-}
-
-policy_cache_metadata_file() {
-	printf '%s\n' "$(policy_cache_dir)/metadata.json"
-}
-
-policy_cache_dst_file() {
-	printf '%s\n' "$(policy_cache_dir)/always_proxy_dst.effective"
-}
-
-policy_cache_src_file() {
-	printf '%s\n' "$(policy_cache_dir)/always_proxy_src.effective"
-}
-
-policy_cache_direct_file() {
-	printf '%s\n' "$(policy_cache_dir)/direct_dst.effective"
-}
-
-policy_cache_install_file_if_changed() {
-	local source="$1"
-	local target="$2"
-	local tmp=""
-
-	if [ -f "$source" ] && [ -f "$target" ] && cmp -s "$source" "$target" 2>/dev/null; then
-		return 0
-	fi
-	if [ ! -f "$source" ] && [ -f "$target" ] && [ ! -s "$target" ]; then
-		return 0
-	fi
-
-	tmp="${target}.tmp.$$"
-	if [ -f "$source" ]; then
-		cp -f "$source" "$tmp" || {
-			rm -f "$tmp"
-			return 1
-		}
-	else
-		: >"$tmp" || {
-			rm -f "$tmp"
-			return 1
-		}
-	fi
-	mv -f "$tmp" "$target" || {
-		rm -f "$tmp"
-		return 1
-	}
-}
-
-policy_cache_install_text_if_changed() {
-	local text="$1"
-	local target="$2"
-	local current=""
-	local tmp=""
-
-	if [ -f "$target" ]; then
-		current="$(cat "$target" 2>/dev/null || true)"
-		[ "$current" = "$text" ] && return 0
-	fi
-
-	tmp="${target}.tmp.$$"
-	printf '%s\n' "$text" >"$tmp" || {
-		rm -f "$tmp"
-		return 1
-	}
-	mv -f "$tmp" "$target" || {
-		rm -f "$tmp"
-		return 1
-	}
-}
-
-policy_cache_save_current() {
-	local cache_dir="" metadata_file="" metadata_json=""
-	local cache_mode="${POLICY_MODE:-direct-first}"
-	local cache_effective_dst="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
-	local cache_effective_src="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
-	local cache_effective_direct="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
-	local cache_source_dst="${POLICY_SOURCE_DST_LIST_FILE:-$DST_LIST_FILE}"
-	local cache_source_src="${POLICY_SOURCE_SRC_LIST_FILE:-$SRC_LIST_FILE}"
-	local cache_source_direct="${POLICY_SOURCE_DIRECT_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
-	local dst_source_hash="" src_source_hash="" direct_source_hash=""
-
-	policy_active_source_lists_have_remote_urls || return 0
-	require_command jq || return 1
-
-	cache_dir="$(policy_cache_dir)"
-	metadata_file="$(policy_cache_metadata_file)"
-	ensure_dir "$cache_dir" || return 1
-
-	case "$cache_mode" in
-	direct-first)
-		dst_source_hash="$(policy_list_fingerprint "$cache_source_dst")" || return 1
-		src_source_hash="$(policy_list_fingerprint "$cache_source_src")" || return 1
-		[ -n "$dst_source_hash" ] && [ -n "$src_source_hash" ] || return 1
-		;;
-	proxy-first)
-		direct_source_hash="$(policy_list_fingerprint "$cache_source_direct")" || return 1
-		[ -n "$direct_source_hash" ] || return 1
-		;;
-	*)
-		return 1
-		;;
-	esac
-
-	metadata_json="$(jq -nc \
-		--arg policy_mode "$cache_mode" \
-		--arg dst_source_hash "$dst_source_hash" \
-		--arg src_source_hash "$src_source_hash" \
-		--arg direct_source_hash "$direct_source_hash" \
-		'{
-			policy_mode: $policy_mode,
-			always_proxy_dst_source_hash: $dst_source_hash,
-			always_proxy_src_source_hash: $src_source_hash,
-			direct_dst_source_hash: $direct_source_hash
-		}')" || return 1
-
-	case "$cache_mode" in
-	direct-first)
-		policy_cache_install_file_if_changed "$cache_effective_dst" "$(policy_cache_dst_file)" || return 1
-		policy_cache_install_file_if_changed "$cache_effective_src" "$(policy_cache_src_file)" || return 1
-		;;
-	proxy-first)
-		policy_cache_install_file_if_changed "$cache_effective_direct" "$(policy_cache_direct_file)" || return 1
-		;;
-	esac
-	policy_cache_install_text_if_changed "$metadata_json" "$metadata_file" || return 1
-}
-
-policy_cache_metadata_value() {
-	local key="$1"
-	local metadata_file=""
-
-	metadata_file="$(policy_cache_metadata_file)"
-	[ -r "$metadata_file" ] || return 1
-	jq -r --arg key "$key" '.[$key] // ""' "$metadata_file"
-}
-
-policy_cache_source_hash_matches() {
-	local key="$1"
-	local source="$2"
-	local cached_hash="" current_hash=""
-
-	cached_hash="$(policy_cache_metadata_value "$key")" || return 1
-	current_hash="$(policy_list_fingerprint "$source")" || return 1
-	[ -n "$cached_hash" ] && [ "$cached_hash" = "$current_hash" ]
-}
-
-policy_cache_prepare_effective_copy() {
-	local source="$1"
-	local label="$2"
-	local output=""
-
-	[ -r "$source" ] || return 1
-	output="$(policy_prepare_effective_list_path)" || return 1
-	cp -f "$source" "$output" || {
-		rm -f "$output"
-		return 1
-	}
-	policy_record_effective_list_file "$output"
-	log "Using cached effective policy list for $label"
-	POLICY_CACHED_EFFECTIVE_LIST_FILE="$output"
-}
-
-policy_cache_apply_runtime_lists() {
-	local mode="${POLICY_MODE:-direct-first}"
-	local cached_mode="" dst_effective="" src_effective="" direct_effective=""
-
-	require_command jq || return 1
-	cached_mode="$(policy_cache_metadata_value policy_mode)" || return 1
-	[ "$cached_mode" = "$mode" ] || return 1
-
-	policy_save_runtime_list_overrides
-	case "$mode" in
-	direct-first)
-		policy_cache_source_hash_matches always_proxy_dst_source_hash "$POLICY_SOURCE_DST_LIST_FILE" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		policy_cache_source_hash_matches always_proxy_src_source_hash "$POLICY_SOURCE_SRC_LIST_FILE" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		policy_cache_prepare_effective_copy "$(policy_cache_dst_file)" "proxy destination list" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		dst_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
-		policy_cache_prepare_effective_copy "$(policy_cache_src_file)" "proxy source list" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		src_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
-		POLICY_DST_LIST_FILE="$dst_effective"
-		POLICY_SRC_LIST_FILE="$src_effective"
-		;;
-	proxy-first)
-		policy_cache_source_hash_matches direct_dst_source_hash "$POLICY_SOURCE_DIRECT_LIST_FILE" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		policy_cache_prepare_effective_copy "$(policy_cache_direct_file)" "direct destination list" || {
-			policy_clear_runtime_list_overrides
-			return 1
-		}
-		direct_effective="$POLICY_CACHED_EFFECTIVE_LIST_FILE"
-		POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
-		;;
-	*)
-		policy_clear_runtime_list_overrides
-		return 1
-		;;
-	esac
-
-	unset POLICY_CACHED_EFFECTIVE_LIST_FILE
-	warn "Remote policy lists unavailable; using cached effective lists"
-	return 0
-}
-
-policy_cache_fallback_enabled() {
-	case "${POLICY_ALLOW_CACHE_FALLBACK:-1}" in
-	0 | false | no | off)
-		return 1
-		;;
-	esac
-
-	return 0
-}
-
-policy_cache_apply_runtime_lists_if_allowed() {
-	policy_cache_fallback_enabled || return 1
-	policy_cache_apply_runtime_lists
-}
-
-# Remove temporary effective list files.
-policy_effective_list_cleanup() {
-	local path
-
-	for path in "$@"; do
-		rm -f "$path"
-	done
-}
-
-# Cleanup helper for newline-delimited temp path lists.
-policy_effective_list_cleanup_paths() {
-	local path
-
-	while IFS= read -r path; do
-		[ -n "$path" ] || continue
-		policy_effective_list_cleanup "$path"
-	done <<EOF
-${1:-}
-EOF
-}
-
-# Append one normalized effective policy entry.
-policy_effective_list_append_entry() {
-	local output="$1"
-	local entry="$2"
-
-	printf '%s\n' "$entry" >>"$output" || return 1
-}
-
-# Fetch a remote list into a temp file under /tmp with size/time limits.
-policy_fetch_remote_list() {
-	local remote_url="$1"
-	local remote_file="" remote_max_bytes="" remote_timeout=""
-
-	remote_file="$(mktemp "$PKG_TMP_DIR/policy-remote.XXXXXX")" || {
-		err "Failed to allocate temporary remote policy list path"
-		return 1
-	}
-
-	remote_max_bytes="$(policy_remote_list_max_bytes)"
-	remote_timeout="$(policy_remote_list_fetch_timeout)"
-	remote_timeout="$(policy_remote_list_effective_timeout "$remote_timeout")" || {
-		rm -f "$remote_file"
-		return 1
-	}
-	if ! fetch_http_body_limited_to_file "$remote_url" "$remote_max_bytes" "$remote_timeout" "Remote policy list" "$remote_file" 0; then
-		rm -f "$remote_file"
-		return 1
-	fi
-
-	printf '%s' "$remote_file"
-}
-
-policy_remote_url_key() {
-	local value="$1" digest="" line=""
-
-	if have_command sha256sum; then
-		line="$(printf '%s' "$value" | sha256sum 2>/dev/null)" || return 1
-		digest="${line%% *}"
-	else
-		have_command cksum || return 1
-		line="$(printf '%s' "$value" | cksum 2>/dev/null)" || return 1
-		digest="${line%% *}"
-	fi
-	case "$digest" in
-	'' | *[!A-Za-z0-9]*) return 1 ;;
-	esac
-	printf '%s' "$digest"
-}
-
-policy_remote_url_cache_file() {
-	local key=""
-
-	key="$(policy_remote_url_key "$1")" || return 1
-	printf '%s/urls/%s.list' "$(policy_cache_dir)" "$key"
-}
-
-policy_remote_url_state_file() {
-	local key=""
-
-	key="$(policy_remote_url_key "$1")" || return 1
-	printf '%s/%s.state' "${POLICY_REMOTE_URL_STATE_DIR:-${PKG_STATE_DIR:-/var/run/mihowrt}/policy-remote}" "$key"
-}
-
-policy_remote_url_state_value() {
-	local source="$1" name="$2" state_file=""
-
-	state_file="$(policy_remote_url_state_file "$source")" || return 1
-	[ -r "$state_file" ] || return 1
-	sed -n "s/^$name=//p" "$state_file" | tail -n 1
-}
-
-policy_remote_url_due() {
-	local source="$1" interval="$2" next_update="" now=""
-
-	[ "$interval" != "0" ] || return 1
-	next_update="$(policy_remote_url_state_value "$source" next_update 2>/dev/null || true)"
-	[ -n "$next_update" ] && is_uint "$next_update" || return 0
-	now="$(policy_remote_now_epoch)"
-	[ "$now" -ge "$next_update" ]
-}
-
-policy_remote_url_mark_success() {
-	local source="$1" interval="$2" state_file="" state_dir="" tmp_file="" next_update=""
-
-	state_file="$(policy_remote_url_state_file "$source")" || return 1
-	if [ "$interval" = "0" ]; then
-		rm -f "$state_file"
-		return 0
-	fi
-	state_dir="$(dirname "$state_file")"
-	ensure_dir "$state_dir" || return 1
-	tmp_file="${state_file}.tmp.$$"
-	next_update="$(policy_remote_next_update_epoch "$interval")"
-	{
-		printf 'interval=%s\n' "$interval"
-		printf 'next_update=%s\n' "$next_update"
-	} >"$tmp_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
-	mv -f "$tmp_file" "$state_file"
-}
-
-policy_remote_url_cache_install() {
-	local source="$1" downloaded="$2" cache_file="" cache_dir="" tmp_file=""
-
-	cache_file="$(policy_remote_url_cache_file "$source")" || return 1
-	cache_dir="$(dirname "$cache_file")"
-	ensure_dir "$cache_dir" || return 1
-	if [ -r "$cache_file" ] && cmp -s "$downloaded" "$cache_file" 2>/dev/null; then
-		return 0
-	fi
-	tmp_file="${cache_file}.tmp.$$"
-	cp -f "$downloaded" "$tmp_file" || {
-		rm -f "$tmp_file"
-		return 1
-	}
-	mv -f "$tmp_file" "$cache_file"
-}
-
-# Merge a remote URL entry. Nested URLs from remote content are skipped to keep
-# resolution bounded and non-recursive.
-policy_merge_remote_list_entry() {
-	local line="$1"
-	local output="$2"
-	local label="$3"
-	local allow_urls="$4"
-	local remote_file="" remote_url="" remote_ports="" remote_interval="" remote_source=""
-	local cache_file="" remote_temp=0 should_fetch=1
-
-	if [ "$allow_urls" -ne 1 ]; then
-		remote_url="$(policy_remote_list_url "$line" 2>/dev/null || true)"
-		warn "Skipping nested remote policy list URL '$(policy_remote_redacted_url "$remote_url")' in $(policy_log_safe_value "$label")"
-		return 0
-	fi
-
-	remote_url="$(policy_remote_list_url "$line")" || return 1
-	remote_ports="$(policy_remote_list_ports "$line")" || return 1
-	remote_interval="$(policy_remote_list_interval "$line")" || return 1
-	remote_source="${remote_url};${remote_ports}"
-	policy_remote_list_register_url "$remote_url" "$label" || return 1
-	cache_file="$(policy_remote_url_cache_file "$remote_source")" || return 1
-
-	if [ "${POLICY_REMOTE_AUTO_MODE:-0}" = "1" ]; then
-		if [ "$remote_interval" = "0" ]; then
-			should_fetch=0
-		elif ! policy_remote_url_due "$remote_source" "$remote_interval"; then
-			should_fetch=0
-		fi
-	fi
-
-	if [ "$should_fetch" -eq 1 ]; then
-		if remote_file="$(policy_fetch_remote_list "$remote_url")"; then
-			remote_temp=1
-			policy_remote_url_cache_install "$remote_source" "$remote_file" || {
-				rm -f "$remote_file"
-				return 1
-			}
-			policy_remote_url_mark_success "$remote_source" "$remote_interval" || true
-		elif [ -r "$cache_file" ] && policy_cache_fallback_enabled; then
-			warn "Remote policy list unavailable; using URL cache for $(policy_remote_redacted_url "$remote_url")"
-			remote_file="$cache_file"
-		else
-			return 1
-		fi
-	elif [ -r "$cache_file" ]; then
-		remote_file="$cache_file"
-	else
-		# First auto-update after migration primes a missing cache once.
-		remote_file="$(policy_fetch_remote_list "$remote_url")" || return 1
-		remote_temp=1
-		policy_remote_url_cache_install "$remote_source" "$remote_file" || {
-			rm -f "$remote_file"
-			return 1
-		}
-		policy_remote_url_mark_success "$remote_source" "$remote_interval" || true
-	fi
-	policy_merge_list_file "$remote_file" "$output" "$(policy_remote_redacted_url "$remote_url")" 0 "$remote_ports" || {
-		[ "$remote_temp" -eq 0 ] || rm -f "$remote_file"
-		return 1
-	}
-	[ "$remote_temp" -eq 0 ] || rm -f "$remote_file"
-}
-
-# Validate and normalize one local policy entry, optionally applying inherited
-# ports from URL;ports.
-policy_merge_local_list_entry() {
-	local line="$1"
-	local output="$2"
-	local label="$3"
-	local inherited_ports="${4:-}"
-	local entry=""
-
-	if ! is_policy_entry "$line"; then
-		warn "Skipping invalid policy entry '$(policy_log_safe_value "$line")' in $(policy_log_safe_value "$label")"
-		return 0
-	fi
-
-	entry="$(policy_entry_normalized "$line")" || return 1
-	if [ -n "$inherited_ports" ] && ! policy_entry_has_ports "$entry"; then
-		entry="$(policy_entry_with_ports "$entry" "$inherited_ports")" || return 1
-	fi
-	policy_effective_list_append_entry "$output" "$entry"
-}
-
-# Merge one source file into a raw effective list, resolving top-level URLs.
-policy_merge_list_file() {
-	local source="$1"
-	local output="$2"
-	local label="$3"
-	local allow_urls="$4"
-	local inherited_ports="${5:-}"
-	local line=""
-
-	[ -f "$source" ] || return 0
-
-	while IFS= read -r line || [ -n "$line" ]; do
-		line="$(trim "$line")"
-		case "$line" in
-		'' | '#'*) continue ;;
-		esac
-
-		if is_policy_remote_list_url "$line"; then
-			policy_merge_remote_list_entry "$line" "$output" "$label" "$allow_urls" || return 1
-			continue
-		fi
-		case "$line" in
-		*'|'*)
-			err "Invalid remote policy list schedule in $(policy_log_safe_value "$label")"
-			return 1
-			;;
-		esac
-
-		policy_merge_local_list_entry "$line" "$output" "$label" "$inherited_ports" || return 1
-	done <"$source"
-}
-
-# Build a deduplicated effective list and enforce total output size.
-policy_resolve_list_file() {
-	local source="$1"
-	local output="$2"
-	local label="$3"
-	local raw_output=""
-	local max_bytes=""
-	local dedup_rc=0
-
-	require_command mktemp || return 1
-	require_command awk || return 1
-
-	raw_output="$(mktemp "$PKG_TMP_DIR/policy-effective.raw.XXXXXX")" || {
-		err "Failed to allocate temporary effective policy list path"
-		return 1
-	}
-	: >"$raw_output" || {
-		rm -f "$raw_output"
-		return 1
-	}
-
-	max_bytes="$(policy_effective_list_max_bytes)"
-	policy_merge_list_file "$source" "$raw_output" "$label" 1 || {
-		rm -f "$raw_output"
-		return 1
-	}
-
-	awk -v max_bytes="$max_bytes" '
-		!seen[$0]++ {
-			total += length($0) + 1
-			if (total > max_bytes)
-				exit 2
-			print
-		}
-	' "$raw_output" >"$output"
-	dedup_rc=$?
-	if [ "$dedup_rc" -ne 0 ]; then
-		if [ "$dedup_rc" -eq 2 ]; then
-			err "Effective policy list is too large after dedup: limit $max_bytes"
-		else
-			err "Failed to build effective policy list"
-		fi
-		rm -f "$raw_output"
-		return 1
-	fi
-	rm -f "$raw_output"
-}
-
-# Allocate an empty temp list file.
-policy_prepare_effective_list_path() {
-	local path=""
-
-	path="$(mktemp "$PKG_TMP_DIR/policy-effective.XXXXXX")" || {
-		err "Failed to allocate temporary effective policy list path"
-		return 1
-	}
-	: >"$path" || {
-		rm -f "$path"
-		return 1
-	}
-	printf '%s' "$path"
-}
-
-# Remember temp list paths so every failure path can clean them.
-policy_record_effective_list_file() {
-	local path="$1"
-
-	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
-		POLICY_EFFECTIVE_LIST_FILES="${POLICY_EFFECTIVE_LIST_FILES}
-$path"
-	else
-		POLICY_EFFECTIVE_LIST_FILES="$path"
-	fi
-}
-
-# Resolve one source list into POLICY_RESOLVED_EFFECTIVE_LIST_FILE.
-policy_resolve_effective_list() {
-	local source="$1"
-	local label="$2"
-	local effective=""
-
-	POLICY_RESOLVED_EFFECTIVE_LIST_FILE=""
-	effective="$(policy_prepare_effective_list_path)" || return 1
-	policy_record_effective_list_file "$effective"
-	policy_resolve_list_file "$source" "$effective" "$label" || return 1
-	POLICY_RESOLVED_EFFECTIVE_LIST_FILE="$effective"
-}
-
-# Save current list path variables before replacing them with temp effective
-# lists for one apply/reload transaction.
-policy_save_runtime_list_overrides() {
-	POLICY_PREV_DST_LIST_FILE_SET=0
-	POLICY_PREV_SRC_LIST_FILE_SET=0
-	POLICY_PREV_DIRECT_LIST_FILE_SET=0
-	POLICY_EFFECTIVE_LIST_FILES=""
-	POLICY_SOURCE_DST_LIST_FILE="${POLICY_DST_LIST_FILE:-$DST_LIST_FILE}"
-	POLICY_SOURCE_SRC_LIST_FILE="${POLICY_SRC_LIST_FILE:-$SRC_LIST_FILE}"
-	POLICY_SOURCE_DIRECT_LIST_FILE="${POLICY_DIRECT_DST_LIST_FILE:-$DIRECT_DST_LIST_FILE}"
-
-	[ "${POLICY_DST_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_DST_LIST_FILE_SET=1
-		POLICY_PREV_DST_LIST_FILE="$POLICY_DST_LIST_FILE"
-	}
-	[ "${POLICY_SRC_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_SRC_LIST_FILE_SET=1
-		POLICY_PREV_SRC_LIST_FILE="$POLICY_SRC_LIST_FILE"
-	}
-	[ "${POLICY_DIRECT_DST_LIST_FILE+x}" = x ] && {
-		POLICY_PREV_DIRECT_LIST_FILE_SET=1
-		POLICY_PREV_DIRECT_LIST_FILE="$POLICY_DIRECT_DST_LIST_FILE"
-	}
-
-	return 0
-}
-
-# Restore original list path variables and remove temp effective lists.
-policy_clear_runtime_list_overrides() {
-	if [ -n "${POLICY_EFFECTIVE_LIST_FILES:-}" ]; then
-		policy_effective_list_cleanup_paths "$POLICY_EFFECTIVE_LIST_FILES"
-	fi
-
-	if [ "${POLICY_PREV_DST_LIST_FILE_SET:-0}" -eq 1 ]; then
-		POLICY_DST_LIST_FILE="$POLICY_PREV_DST_LIST_FILE"
-	else
-		unset POLICY_DST_LIST_FILE
-	fi
-
-	if [ "${POLICY_PREV_SRC_LIST_FILE_SET:-0}" -eq 1 ]; then
-		POLICY_SRC_LIST_FILE="$POLICY_PREV_SRC_LIST_FILE"
-	else
-		unset POLICY_SRC_LIST_FILE
-	fi
-
-	if [ "${POLICY_PREV_DIRECT_LIST_FILE_SET:-0}" -eq 1 ]; then
-		POLICY_DIRECT_DST_LIST_FILE="$POLICY_PREV_DIRECT_LIST_FILE"
-	else
-		unset POLICY_DIRECT_DST_LIST_FILE
-	fi
-
-	unset POLICY_EFFECTIVE_LIST_FILES
-	unset POLICY_CACHED_EFFECTIVE_LIST_FILE
-	unset POLICY_PREV_DST_LIST_FILE POLICY_PREV_SRC_LIST_FILE POLICY_PREV_DIRECT_LIST_FILE
-	unset POLICY_SOURCE_DST_LIST_FILE POLICY_SOURCE_SRC_LIST_FILE POLICY_SOURCE_DIRECT_LIST_FILE
-	unset POLICY_PREV_DST_LIST_FILE_SET POLICY_PREV_SRC_LIST_FILE_SET POLICY_PREV_DIRECT_LIST_FILE_SET
-	unset POLICY_RESOLVED_EFFECTIVE_LIST_FILE
-	unset POLICY_REMOTE_LIST_URL_COUNT POLICY_REMOTE_LIST_FETCH_DEADLINE
-}
-
-# Resolve only lists needed by current policy mode, then point nft/snapshot code
-# at temp effective files until policy_clear_runtime_list_overrides runs.
-policy_resolve_runtime_lists() {
-	local dst_effective="" src_effective="" direct_effective=""
-	local mode="${POLICY_MODE:-direct-first}"
-
-	ensure_dir "$PKG_TMP_DIR"
-	[ -z "${POLICY_EFFECTIVE_LIST_FILES:-}" ] || policy_clear_runtime_list_overrides
-	policy_remote_list_fetch_limits_begin || return 1
-	policy_save_runtime_list_overrides
-
-	case "$mode" in
-	direct-first)
-		policy_resolve_effective_list "$POLICY_SOURCE_DST_LIST_FILE" "proxy destination list" || {
-			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists_if_allowed || return 1
-			return 0
-		}
-		dst_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-		policy_resolve_effective_list "$POLICY_SOURCE_SRC_LIST_FILE" "proxy source list" || {
-			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists_if_allowed || return 1
-			return 0
-		}
-		src_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-		POLICY_DST_LIST_FILE="$dst_effective"
-		POLICY_SRC_LIST_FILE="$src_effective"
-		;;
-	proxy-first)
-		policy_resolve_effective_list "$POLICY_SOURCE_DIRECT_LIST_FILE" "direct destination list" || {
-			policy_clear_runtime_list_overrides
-			policy_cache_apply_runtime_lists_if_allowed || return 1
-			return 0
-		}
-		direct_effective="$POLICY_RESOLVED_EFFECTIVE_LIST_FILE"
-		POLICY_DIRECT_DST_LIST_FILE="$direct_effective"
-		;;
-	*)
-		err "Invalid policy mode: $mode"
-		policy_clear_runtime_list_overrides
-		return 1
-		;;
-	esac
-}
-
-# Count valid manual/effective list entries for diagnostics.
-count_valid_list_entries() {
-	policy_count_matching_lines "$1" is_policy_entry
+	lists_clean_lines "$file" | wc -l | tr -d ' '
 }

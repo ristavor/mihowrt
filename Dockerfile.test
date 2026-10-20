@@ -1,0 +1,20 @@
+# syntax=docker/dockerfile:1
+FROM alpine:3.24
+
+LABEL maintainer="MihoWRT Maintainers"
+LABEL description="Native test runner container for MihoWRT"
+
+# Install test tools natively for host architecture (no QEMU emulation required)
+RUN apk add --no-cache \
+    bash \
+    coreutils \
+    gawk \
+    grep \
+    jq \
+    nodejs \
+    sed \
+    shellcheck
+
+WORKDIR /workspace
+
+CMD ["/bin/bash", "tests/run.sh"]

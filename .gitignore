@@ -1,0 +1,14 @@
+# Local SDK and build outputs
+.sdk/
+.build/
+dist/
+
+# AI assistant artifacts (not part of the project)
+context-snapshot.json
+state.md
+session-log.md
+known-issues.md
+project-map.md
+docs/specs/
+docs/plans/
+.superpowers/

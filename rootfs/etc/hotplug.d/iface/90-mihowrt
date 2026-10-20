@@ -1,0 +1,15 @@
+#!/bin/sh
+
+# WAN came up: refresh the NTP/subscription DNS bypass, or restart an
+# enabled service that procd gave up on (e.g. watchdog during a long outage).
+case "$ACTION" in
+ifup | ifupdate) ;;
+*) exit 0 ;;
+esac
+
+if [ -f /var/run/mihowrt/running ]; then
+	/usr/bin/mihowrt dns-refresh >/dev/null 2>&1 &
+elif [ "$ACTION" = ifup ] && /etc/init.d/mihowrt enabled &&
+	! pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
+	/etc/init.d/mihowrt start >/dev/null 2>&1 &
+fi

@@ -3,33 +3,28 @@
 		"description": "Grant access to MihoWRT procedures",
 		"read": {
 			"file": {
-				"/opt/clash/config.yaml": [ "read" ],
 				"/usr/bin/mihowrt-read": [ "exec" ],
 				"/opt/clash/lst/always_proxy_dst.txt": [ "read" ],
 				"/opt/clash/lst/always_proxy_src.txt": [ "read" ],
 				"/opt/clash/lst/direct_dst.txt": [ "read" ]
 			},
 			"ubus": {
-				"file": [ "read", "stat", "exec" ],
-				"service": [ "list" ]
+				"file": [ "read", "exec" ],
+				"luci-rpc": [ "getDHCPLeases" ]
 			},
-			"uci": [
-				"mihowrt"
-			]
+			"uci": [ "mihowrt" ]
 		},
 		"write": {
 			"file": {
 				"/usr/bin/mihowrt": [ "exec" ],
+				"/etc/init.d/mihowrt": [ "exec" ],
 				"/tmp/mihowrt-config.*": [ "write" ],
-				"/tmp/mihowrt-policy-list.*": [ "write" ],
-				"/etc/init.d/mihowrt": [ "exec" ]
+				"/tmp/mihowrt-policy-list.*": [ "write" ]
 			},
 			"ubus": {
 				"file": [ "write", "exec" ]
 			},
-			"uci": [
-				"mihowrt"
-			]
+			"uci": [ "mihowrt" ]
 		}
 	}
 }

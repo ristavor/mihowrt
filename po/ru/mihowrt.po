@@ -1,0 +1,379 @@
+msgid ""
+msgstr ""
+"Content-Type: text/plain; charset=UTF-8\n"
+"Language: ru\n"
+
+msgid "Unknown error"
+msgstr "Неизвестная ошибка"
+
+msgid "Unexpected response from the router: %s"
+msgstr "Неожиданный ответ роутера: %s"
+
+msgid "Unlimited"
+msgstr "Безлимит"
+
+msgid "Mihomo core installed"
+msgstr "Ядро Mihomo установлено"
+
+msgid "Open Overview and install the core."
+msgstr "Откройте «Обзор» и установите ядро."
+
+msgid "Configuration is valid"
+msgstr "Конфигурация корректна"
+
+msgid "Update the subscription or fix the YAML on the Subscription page."
+msgstr "Обновите подписку или исправьте YAML на странице «Подписка»."
+
+msgid "Subscription configured"
+msgstr "Подписка настроена"
+
+msgid "Without a subscription only the YAML you entered is used."
+msgstr "Без подписки используется только введённый вами YAML."
+
+msgid "Service is running"
+msgstr "Сервис запущен"
+
+msgid "Press Start on Overview. If it stops again, check the log below."
+msgstr "Нажмите «Запустить» на странице «Обзор». Если он снова остановится, посмотрите журнал ниже."
+
+msgid "Mihomo answers DNS queries"
+msgstr "Mihomo отвечает на DNS-запросы"
+
+msgid "Mihomo cannot resolve names: check that the proxy servers and DNS servers in the config are reachable."
+msgstr "Mihomo не может разрешать имена: проверьте, что прокси-серверы и DNS-серверы из конфигурации доступны."
+
+msgid "Traffic rules are active"
+msgstr "Правила трафика активны"
+
+msgid "Restart the service; if it persists, see the log."
+msgstr "Перезапустите сервис; если не поможет, посмотрите журнал."
+
+msgid "dnsmasq has its own upstream servers: %s"
+msgstr "У dnsmasq заданы собственные DNS-серверы: %s"
+
+msgid "These servers answer next to Mihomo, so some sites may bypass the proxy. Move them to the Mihomo YAML (dns.nameserver) and remove them from Network → DHCP and DNS."
+msgstr "Эти серверы отвечают наравне с Mihomo, поэтому часть сайтов может идти мимо прокси. Перенесите их в YAML Mihomo (dns.nameserver) и удалите в «Сеть → DHCP и DNS»."
+
+msgid "OK:"
+msgstr "Норма:"
+
+msgid "Problem:"
+msgstr "Проблема:"
+
+msgid "MihoWRT version"
+msgstr "Версия MihoWRT"
+
+msgid "Mode"
+msgstr "Режим"
+
+msgid "Client interfaces"
+msgstr "Интерфейсы клиентов"
+
+msgid "List entries"
+msgstr "Записи в списках"
+
+msgid "proxy %d, devices %d, direct %d"
+msgstr "через прокси %d, устройств %d, напрямую %d"
+
+msgid "Routing table"
+msgstr "Таблица маршрутизации"
+
+msgid "not active"
+msgstr "не активна"
+
+msgid "Starts at boot"
+msgstr "Запуск при загрузке"
+
+msgid "yes"
+msgstr "да"
+
+msgid "no"
+msgstr "нет"
+
+msgid "Open to load the log."
+msgstr "Раскройте, чтобы загрузить журнал."
+
+msgid "Log"
+msgstr "Журнал"
+
+msgid "No MihoWRT log lines yet."
+msgstr "В журнале пока нет записей MihoWRT."
+
+msgid "System log is not available."
+msgstr "Системный журнал недоступен."
+
+msgid "Cannot read the log: %s"
+msgstr "Не удалось прочитать журнал: %s"
+
+msgid "Check again"
+msgstr "Проверить снова"
+
+msgid "Diagnostics"
+msgstr "Диагностика"
+
+msgid "Details"
+msgstr "Подробности"
+
+msgid "All traffic via proxy except exclusions"
+msgstr "Весь трафик через прокси, кроме исключений"
+
+msgid "Only selected traffic via proxy"
+msgstr "Через прокси только выбранное"
+
+msgid "Subscription URL"
+msgstr "Ссылка на подписку"
+
+msgid "Connect"
+msgstr "Подключить"
+
+msgid "Enter the subscription link that starts with https://"
+msgstr "Введите ссылку на подписку, начинающуюся с https://"
+
+msgid "Subscription connected. MihoWRT is starting."
+msgstr "Подписка подключена. MihoWRT запускается."
+
+msgid "Connect a subscription"
+msgstr "Подключите подписку"
+
+msgid "Paste the link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing."
+msgstr "Вставьте ссылку от вашего VPN-провайдера. MihoWRT скачает конфигурацию, проверит её и включит маршрутизацию."
+
+msgid "Install Mihomo core"
+msgstr "Установить ядро Mihomo"
+
+msgid "Mihomo core %s installed."
+msgstr "Ядро Mihomo %s установлено."
+
+msgid "Mihomo core is not installed"
+msgstr "Ядро Mihomo не установлено"
+
+msgid "MihoWRT needs the Mihomo core (about 20 MB download, about 60 MB on flash)."
+msgstr "Для работы нужно ядро Mihomo (загрузка около 20 МБ, на флеш-памяти около 60 МБ)."
+
+msgid "Stop"
+msgstr "Остановить"
+
+msgid "Start"
+msgstr "Запустить"
+
+msgid "Restart"
+msgstr "Перезапустить"
+
+msgid "Running"
+msgstr "Работает"
+
+msgid "Stopped"
+msgstr "Остановлен"
+
+msgid "Running, but DNS does not answer — see Diagnostics"
+msgstr "Работает, но DNS не отвечает — см. «Диагностику»"
+
+msgid "Does not start at boot"
+msgstr "Не запускается при загрузке"
+
+msgid "Update subscription"
+msgstr "Обновить подписку"
+
+msgid "Traffic"
+msgstr "Трафик"
+
+msgid "Expires"
+msgstr "Действует до"
+
+msgid "Never"
+msgstr "Бессрочно"
+
+msgid "Last update"
+msgstr "Последнее обновление"
+
+msgid "Not yet"
+msgstr "Ещё не было"
+
+msgid "Auto-update"
+msgstr "Автообновление"
+
+msgid "every %d h"
+msgstr "каждые %d ч"
+
+msgid "Off"
+msgstr "Выключено"
+
+msgid "Support"
+msgstr "Поддержка"
+
+msgid "Website"
+msgstr "Сайт"
+
+msgid "Subscription updated and applied."
+msgstr "Подписка обновлена и применена."
+
+msgid "Subscription updated."
+msgstr "Подписка обновлена."
+
+msgid "Subscription"
+msgstr "Подписка"
+
+msgid "Proxy servers"
+msgstr "Прокси-серверы"
+
+msgid "Measure latency of every server in this group"
+msgstr "Измерить задержку каждого сервера этой группы"
+
+msgid "Test"
+msgstr "Проверить"
+
+msgid "%s now uses %s."
+msgstr "%s теперь использует %s."
+
+msgid "timeout"
+msgstr "нет ответа"
+
+msgid "Open dashboard"
+msgstr "Открыть панель"
+
+msgid "Update Mihomo core"
+msgstr "Обновить ядро Mihomo"
+
+msgid "Start MihoWRT to use the dashboard."
+msgstr "Запустите MihoWRT, чтобы открыть панель."
+
+msgid "Mihomo core updated to %s."
+msgstr "Ядро Mihomo обновлено до %s."
+
+msgid "Mihomo core %s is up to date."
+msgstr "Ядро Mihomo %s — последняя версия."
+
+msgid "MihoWRT %s, Mihomo %s"
+msgstr "MihoWRT %s, Mihomo %s"
+
+msgid "MihoWRT"
+msgstr "MihoWRT"
+
+msgid "auto"
+msgstr "авто"
+
+msgid "Save"
+msgstr "Сохранить"
+
+msgid "Update now"
+msgstr "Обновить сейчас"
+
+msgid "Check and apply"
+msgstr "Проверить и применить"
+
+msgid "Subscription settings saved."
+msgstr "Настройки подписки сохранены."
+
+msgid "Updating replaces your unsaved YAML edits. Continue?"
+msgstr "Обновление заменит несохранённые правки YAML. Продолжить?"
+
+msgid "Subscription updated. Start MihoWRT to use it."
+msgstr "Подписка обновлена. Запустите MihoWRT, чтобы её использовать."
+
+msgid "Configuration checked and applied."
+msgstr "Конфигурация проверена и применена."
+
+msgid "Configuration checked and saved."
+msgstr "Конфигурация проверена и сохранена."
+
+msgid "Link from your VPN provider. Leave empty to manage the YAML yourself."
+msgstr "Ссылка от VPN-провайдера. Оставьте пустой, если ведёте YAML вручную."
+
+msgid "Update every (hours)"
+msgstr "Обновлять каждые (часов)"
+
+msgid "Empty: use the provider's interval (now %d h). 0: never update automatically."
+msgstr "Пусто — интервал провайдера (сейчас %d ч). 0 — не обновлять автоматически."
+
+msgid "Advanced: edit the Mihomo YAML"
+msgstr "Дополнительно: редактировать YAML Mihomo"
+
+msgid "MihoWRT manages ports, routing mark, TUN and the controller itself; those keys are overridden. Updating the subscription replaces this file."
+msgstr "Порты, метку маршрутизации, TUN и контроллер MihoWRT задаёт сама — эти ключи переопределяются. Обновление подписки заменяет этот файл."
+
+msgid "One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments."
+msgstr "По одной записи в строке: IPv4- или IPv6-адрес либо подсеть, при необходимости с портами (1.1.1.1;443, 2001:db8::/32). Строка со ссылкой (https://…) подключает удалённый список. Строки с # — комментарии."
+
+msgid "Choose which traffic goes through Mihomo. Saving applies the changes immediately."
+msgstr "Выберите, какой трафик идёт через Mihomo. Изменения применяются сразу после сохранения."
+
+msgid "Basic"
+msgstr "Основное"
+
+msgid "Advanced"
+msgstr "Дополнительно"
+
+msgid "In the first mode only the lists below and blocked sites from your subscription use the proxy."
+msgstr "В первом режиме через прокси идут только списки ниже и заблокированные сайты из подписки."
+
+msgid "Addresses via proxy"
+msgstr "Адреса через прокси"
+
+msgid "Devices via proxy"
+msgstr "Устройства через прокси"
+
+msgid "All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change."
+msgstr "Весь трафик этих устройств идёт через Mihomo. Закрепите за ними статические адреса DHCP, чтобы адреса не менялись."
+
+msgid "Addresses always direct"
+msgstr "Адреса всегда напрямую"
+
+msgid "Update remote lists every (hours)"
+msgstr "Обновлять удалённые списки каждые (часов)"
+
+msgid "0: only when you press \"Update remote lists\"."
+msgstr "0 — только по кнопке «Обновить удалённые списки»."
+
+msgid "Traffic from these interfaces is handled. Usually br-lan."
+msgstr "Обрабатывается трафик с этих интерфейсов. Обычно br-lan."
+
+msgid "Redirect client DNS to Mihomo"
+msgstr "Перенаправлять DNS клиентов в Mihomo"
+
+msgid "Devices with a hard-coded DNS server (port 53) still get Mihomo answers."
+msgstr "Устройства с жёстко заданным DNS-сервером (порт 53) всё равно получают ответы Mihomo."
+
+msgid "Block QUIC for proxied traffic"
+msgstr "Блокировать QUIC для трафика через прокси"
+
+msgid "Forces browsers to use TCP, which proxies handle better."
+msgstr "Браузеры переходят на TCP, с которым прокси работают лучше."
+
+msgid "Time sync without Mihomo"
+msgstr "Синхронизация времени без Mihomo"
+
+msgid "NTP servers resolve through the ISP DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails."
+msgstr "NTP-серверы резолвятся через DNS провайдера, а UDP/123 идёт мимо Mihomo, поэтому время синхронизируется даже при сбое Mihomo."
+
+msgid "Subscription server without Mihomo"
+msgstr "Сервер подписки без Mihomo"
+
+msgid "The subscription host resolves through the ISP DNS, so a broken config can always be replaced."
+msgstr "Адрес сервера подписки резолвится через DNS провайдера, поэтому сломанную конфигурацию всегда можно заменить."
+
+msgid "Route outbound NetBird through Mihomo"
+msgstr "Пускать исходящий NetBird через Mihomo"
+
+msgid "NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched."
+msgstr "Управляющий, relay- и peer-трафик NetBird идёт по правилам Mihomo. Входящий трафик NetBird не затрагивается."
+
+msgid "Update remote lists"
+msgstr "Обновить удалённые списки"
+
+msgid "Remote lists updated."
+msgstr "Удалённые списки обновлены."
+
+msgid "Remote lists are up to date."
+msgstr "Удалённые списки актуальны."
+
+msgid "Add a device"
+msgstr "Добавить устройство"
+
+msgid "Add a device…"
+msgstr "Добавить устройство…"
+
+msgid "unknown"
+msgstr "неизвестно"
+
+msgid "Overview"
+msgstr "Обзор"

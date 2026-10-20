@@ -1,338 +1,185 @@
 'use strict';
 'require view';
-'require fs';
-'require mihowrt.backend as backendHelper';
-'require mihowrt.config as configHelper';
-'require mihowrt.ui as mihowrtUi';
+'require mihowrt.api as api';
 
-const SERVICE_NAME = 'mihowrt';
-const SERVICE_SCRIPT = '/etc/init.d/mihowrt';
-const POLL_INTERVAL_MS = 1000;
-const POLL_TIMEOUT_MS = 35000;
-
-const OVERVIEW_CSS = `
-	.mihowrt-grid {
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-		gap: 16px;
-	}
-	.mihowrt-card {
-		min-width: 0;
-	}
-	.mihowrt-card h3 {
-		margin-top: 0;
-	}
-	.mihowrt-actions, .mihowrt-badges {
-		display: flex;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: 8px;
-	}
-	.mihowrt-actions {
-		margin-top: 14px;
-	}
-	.mihowrt-facts {
-		display: grid;
-		grid-template-columns: minmax(120px, auto) minmax(0, 1fr);
-		gap: 8px 16px;
-		margin: 14px 0 0;
-	}
-	.mihowrt-facts dt {
-		opacity: .7;
-	}
-	.mihowrt-facts dd {
-		margin: 0;
-		word-break: break-word;
-	}
-	.mihowrt-announce {
-		margin-bottom: 16px;
-		white-space: pre-wrap;
-	}
-	@media (max-width: 520px) {
-		.mihowrt-facts { grid-template-columns: 1fr; gap: 3px; }
-		.mihowrt-facts dd { margin-bottom: 8px; }
-	}
-`;
-
-function badge(text, ok) {
-	return E('span', { class: 'label ' + (ok ? 'success' : 'warning') }, text);
+function modeLabel(mode) {
+	return mode === 'proxy-first'
+		? _('All traffic via proxy except exclusions')
+		: _('Only selected traffic via proxy');
 }
 
-function setBadge(node, text, ok) {
-	node.textContent = text;
-	node.className = 'label ' + (ok ? 'success' : 'warning');
+function firstRunCard() {
+	const url = E('input', {
+		id: 'mw-sub-url', type: 'url', class: 'cbi-input-text', style: 'min-width: 24em; flex: 1',
+		placeholder: 'https://provider.example/sub/…', 'aria-label': _('Subscription URL')
+	});
+	const connect = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Connect')));
+
+	connect.addEventListener('click', () => api.busy(connect, async () => {
+		const value = url.value.trim();
+		if (!/^https?:\/\//i.test(value))
+			throw new Error(_('Enter the subscription link that starts with https://'));
+		await api.write('set-subscription', value, '');
+		await api.write('update-subscription');
+		await api.service('enable');
+		await api.service('restart');
+		api.notify(_('Subscription connected. MihoWRT is starting.'));
+		window.setTimeout(() => location.reload(), 1500);
+	}));
+
+	return E('div', { class: 'cbi-section' }, [
+		E('h3', text(_('Connect a subscription'))),
+		E('p', text(_('Paste the link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
+		E('label', { for: 'mw-sub-url' }, text(_('Subscription URL'))),
+		E('div', { class: 'mw-row' }, [ url, connect ])
+	]);
 }
 
-function fact(label, value) {
-	return [ E('dt', label), E('dd', value) ];
+function coreMissingCard() {
+	const install = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Install Mihomo core')));
+
+	install.addEventListener('click', () => api.busy(install, async () => {
+		const res = await api.write('core-update');
+		api.notify(_('Mihomo core %s installed.').format(res.version || ''));
+		location.reload();
+	}));
+	return E('div', { class: 'cbi-section' }, [
+		E('h3', text(_('Mihomo core is not installed'))),
+		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 60 MB on flash).'))),
+		install
+	]);
 }
 
-function safeExternalUrl(value) {
-	value = String(value || '').trim();
-	if (!value)
+function statusSection(status) {
+	const toggle = E('button', { class: 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action') },
+		text(status.running ? _('Stop') : _('Start')));
+	const restart = E('button', { class: 'cbi-button' }, text(_('Restart')));
+
+	toggle.addEventListener('click', () => api.busy(toggle, async () => {
+		if (!status.running && !status.enabled)
+			await api.service('enable');
+		await api.service(status.running ? 'stop' : 'start');
+		location.reload();
+	}));
+	restart.addEventListener('click', () => api.busy(restart, async () => {
+		await api.service('restart');
+		location.reload();
+	}));
+
+	let headline = status.running ? _('Running') : _('Stopped');
+	if (status.running && status.dns_ok === false)
+		headline = _('Running, but DNS does not answer — see Diagnostics');
+
+	return E('div', { class: 'cbi-section' }, [
+		E('div', { class: 'mw-status', role: 'status' }, [
+			E('strong', text(headline)),
+			E('span', { class: 'mw-muted' }, text(modeLabel(status.mode))),
+			E('span', { class: 'mw-muted' }, text(status.enabled ? _('Starts at boot') : _('Does not start at boot')))
+		]),
+		E('div', { class: 'mw-row' }, [ toggle, restart ])
+	]);
+}
+
+function subscriptionSection(sub) {
+	const update = E('button', { class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
+	const rows = [
+		[ _('Traffic'), api.trafficSummary(sub) ],
+		[ _('Expires'), sub.expire ? api.formatDate(sub.expire) : _('Never') ],
+		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
+		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval) : _('Off') ]
+	];
+	const links = [ api.safeLink(sub.support_url, _('Support')), api.safeLink(sub.web_page_url, _('Website')) ].filter(Boolean);
+
+	update.addEventListener('click', () => api.busy(update, async () => {
+		const res = await api.write('update-subscription');
+		api.notify(res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.'));
+		location.reload();
+	}));
+
+	return E('div', { class: 'cbi-section' }, [
+		E('h3', text(sub.profile_title || _('Subscription'))),
+		sub.announce ? E('p', { class: 'mw-announce' }, text(sub.announce)) : '',
+		E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ])),
+		E('div', { class: 'mw-row' }, [ update ].concat(links))
+	]);
+}
+
+function groupsSection(groups) {
+	if (!groups.length)
 		return '';
 
-	try {
-		const url = new URL(value);
-		return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : '';
-	}
-	catch (e) {
-		return '';
-	}
+	return E('div', { class: 'cbi-section mw-groups' }, [
+		E('h3', text(_('Proxy servers'))),
+		E('div', { class: 'mw-grid' }, groups.flatMap((group) => {
+			const id = 'mw-group-' + group.name.replace(/[^A-Za-z0-9_-]/g, '_');
+			const select = E('select', { id, class: 'cbi-input-select' },
+				group.all.map((name) => E('option', { value: name, selected: name === group.now ? '' : null }, text(name))));
+			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group') }, text(_('Test')));
+
+			select.addEventListener('change', () => api.busy(select, async () => {
+				await api.write('select-proxy', group.name, select.value);
+				api.notify(_('%s now uses %s.').format(group.name, select.value));
+			}));
+			test.addEventListener('click', () => api.busy(test, async () => {
+				const delays = await api.write('group-delay', group.name);
+				for (const option of select.options) {
+					const ms = delays[option.value];
+					option.textContent = ms ? '%s — %d ms'.format(option.value, ms) : '%s — %s'.format(option.value, _('timeout'));
+				}
+			}));
+			return [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row', style: 'margin:0' }, [ select, test ]) ];
+		}))
+	]);
 }
 
-function externalButton(url, text) {
-	return E('a', {
-		class: 'btn',
-		href: url,
-		target: '_blank',
-		rel: 'noopener noreferrer'
-	}, text);
+function toolsSection(status) {
+	const dashboard = E('button', { class: 'cbi-button' }, text(_('Open dashboard')));
+	const core = E('button', { class: 'cbi-button' }, text(_('Update Mihomo core')));
+
+	dashboard.addEventListener('click', () => api.busy(dashboard, async () => {
+		const d = await api.write('dashboard-json');
+		if (!d.running)
+			throw new Error(_('Start MihoWRT to use the dashboard.'));
+		const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
+		window.open('http://%s:%s/ui/?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
+	}));
+	core.addEventListener('click', () => api.busy(core, async () => {
+		const res = await api.write('core-update');
+		api.notify(res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version));
+	}));
+
+	return E('div', { class: 'cbi-section' }, [
+		E('div', { class: 'mw-row' }, [ dashboard, core,
+			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
+	]);
 }
 
-function numericHeader(value) {
-	const number = Number(String(value || ''));
-	return Number.isFinite(number) && number >= 0 ? number : null;
-}
-
-function formatBytes(value) {
-	if (!Number.isFinite(value) || value < 0)
-		return _('Not provided');
-
-	const units = [ _('B'), _('KiB'), _('MiB'), _('GiB'), _('TiB'), _('PiB') ];
-	let unit = 0;
-	while (value >= 1024 && unit < units.length - 1) {
-		value /= 1024;
-		unit++;
-	}
-	const digits = unit === 0 ? 0 : (value >= 100 ? 0 : value >= 10 ? 1 : 2);
-	return '%s %s'.format(value.toFixed(digits), units[unit]);
-}
-
-function subscriptionTraffic(state) {
-	const upload = numericHeader(state.upload);
-	const download = numericHeader(state.download);
-	const total = numericHeader(state.total);
-	const used = upload == null || download == null ? null : upload + download;
-
-	return {
-		used: used == null ? _('Not provided') : formatBytes(used),
-		total: total == null ? _('Not provided') : total === 0 ? _('Unlimited') : formatBytes(total),
-		remaining: used == null || total == null
-			? _('Not provided')
-			: total === 0 ? _('Unlimited') : formatBytes(Math.max(0, total - used))
-	};
-}
-
-function formatEpoch(value) {
-	const seconds = numericHeader(value);
-	if (seconds == null || seconds === 0)
-		return _('Not provided');
-
-	const date = new Date(seconds * 1000);
-	return Number.isNaN(date.getTime()) ? _('Not provided') : date.toLocaleString();
-}
-
-function intervalText(state) {
-	const interval = String(state.subscriptionEffectiveInterval || '').trim();
-	if (!state.subscriptionUrl)
-		return _('Disabled: no subscription URL');
-	if (!interval || interval === '0')
-		return _('Disabled');
-	return state.subscriptionIntervalOverride
-		? _('%s hours (manual)').format(interval)
-		: _('%s hours (from subscription)').format(interval);
-}
-
-function serviceStateError(state) {
-	return (state?.errors || []).filter(Boolean).join('; ') || _('unknown error');
-}
+const text = api.text;
 
 return view.extend({
-	load: function() {
-		return Promise.all([
-			backendHelper.readServiceState(),
-			backendHelper.readSubscriptionUrl(),
-			backendHelper.readCoreVersion()
-		]);
+	load: () => Promise.all([
+		api.read('status-json'),
+		api.read('subscription-json').catch(() => ({})),
+		api.read('proxies-json').catch(() => [])
+	]),
+
+	render: ([ status, sub, groups ]) => {
+		const body = [ api.style(), E('h2', text(_('MihoWRT'))) ];
+
+		if (!status.core_installed)
+			body.push(coreMissingCard());
+		else if (!status.subscription_configured)
+			body.push(firstRunCard());
+		body.push(statusSection(status));
+		if (status.subscription_configured)
+			body.push(subscriptionSection(sub));
+		if (status.running)
+			body.push(groupsSection(Array.isArray(groups) ? groups : []));
+		body.push(toolsSection(status));
+		return E('div', {}, body);
 	},
 
-	render: function(data) {
-		let serviceState = data[0] || {};
-		const subscription = data[1] || {};
-		let core = data[2] || {};
-		let busy = false;
-
-		const runningBadge = badge(serviceState.serviceRunning ? _('Running') : _('Stopped'), !!serviceState.serviceRunning);
-		const enabledBadge = badge(serviceState.serviceEnabled ? _('Autostart on') : _('Autostart off'), !!serviceState.serviceEnabled);
-		const readyBadge = badge(serviceState.serviceReady ? _('Ready') : _('Not ready'), !!serviceState.serviceReady);
-		const versionNode = E('span', core.version || _('Not installed'));
-		const toggleButton = E('button', { class: 'btn' }, configHelper.serviceToggleLabel(!!serviceState.serviceRunning));
-		const autostartButton = E('button', { class: 'btn' }, configHelper.serviceEnabledToggleLabel(!!serviceState.serviceEnabled));
-		const dashboardButton = E('button', { class: 'btn' }, _('Open Dashboard'));
-		const updateButton = E('button', { class: 'btn cbi-button-action' }, _('Update Core'));
-		const actionControls = [ toggleButton, autostartButton, dashboardButton, updateButton ];
-
-		const setBusy = function(value) {
-			busy = value;
-			actionControls.forEach(node => { node.disabled = value; });
-		};
-
-		const applyServiceState = function(next) {
-			serviceState = next;
-			toggleButton.textContent = configHelper.serviceToggleLabel(!!next.serviceRunning);
-			autostartButton.textContent = configHelper.serviceEnabledToggleLabel(!!next.serviceEnabled);
-			setBadge(runningBadge, next.serviceRunning ? _('Running') : _('Stopped'), !!next.serviceRunning);
-			setBadge(enabledBadge, next.serviceEnabled ? _('Autostart on') : _('Autostart off'), !!next.serviceEnabled);
-			setBadge(readyBadge, next.serviceReady ? _('Ready') : _('Not ready'), !!next.serviceReady);
-		};
-
-		const readService = async function() {
-			const next = await backendHelper.readServiceState();
-			if (!next.available)
-				throw new Error(serviceStateError(next));
-			applyServiceState(next);
-			return next;
-		};
-
-		const runInitAction = async function(action) {
-			const result = await fs.exec(SERVICE_SCRIPT, [ action ]);
-			if (result.code !== 0)
-				throw new Error(mihowrtUi.execErrorDetail(result));
-		};
-
-		const pollService = async function(predicate) {
-			const started = Date.now();
-			while (Date.now() - started < POLL_TIMEOUT_MS) {
-				const next = await readService();
-				if (predicate(next))
-					return next;
-				await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
-			}
-			return null;
-		};
-
-		toggleButton.addEventListener('click', async function() {
-			if (busy)
-				return;
-			setBusy(true);
-			try {
-				const current = await readService();
-				const start = !current.serviceRunning;
-				await runInitAction(start ? 'start' : 'stop');
-				const settled = await pollService(next => start ? next.serviceReady : !next.serviceRunning);
-				if (!settled)
-					throw new Error(_('Service state change timed out. Check diagnostics.'));
-			}
-			catch (e) {
-				mihowrtUi.notify(_('Unable to change service state: %s').format(e.message), 'error');
-			}
-			finally {
-				setBusy(false);
-			}
-		});
-
-		autostartButton.addEventListener('click', async function() {
-			if (busy)
-				return;
-			setBusy(true);
-			try {
-				const current = await readService();
-				await runInitAction(current.serviceEnabled ? 'disable' : 'enable');
-				await readService();
-			}
-			catch (e) {
-				mihowrtUi.notify(_('Unable to change autostart: %s').format(e.message), 'error');
-			}
-			finally {
-				setBusy(false);
-			}
-		});
-
-		dashboardButton.addEventListener('click', function() {
-			if (!busy)
-				configHelper.openDashboard({
-					serviceName: SERVICE_NAME,
-					serviceScript: SERVICE_SCRIPT,
-					backendHelper,
-					uiHelper: mihowrtUi,
-					windowObject: window
-				});
-		});
-
-		updateButton.addEventListener('click', async function() {
-			if (busy)
-				return;
-			setBusy(true);
-			try {
-				const result = await backendHelper.updateKernel();
-				if (result.updated && result.restartRequired && serviceState.serviceRunning) {
-					await backendHelper.restartValidatedService();
-					const settled = await pollService(next => next.serviceReady);
-					if (!settled)
-						throw new Error(_('Core updated, but service restart timed out.'));
-				}
-				core = await backendHelper.readCoreVersion();
-				versionNode.textContent = core.version || result.latestVersion || _('Not installed');
-				if (result.updated)
-					mihowrtUi.notify(_('Mihomo core updated to %s.').format(versionNode.textContent), 'info');
-				else if (result.action === 'up_to_date')
-					mihowrtUi.notify(_('Mihomo core is up to date (%s).').format(versionNode.textContent), 'info');
-				else
-					mihowrtUi.notify(result.reason || _('Mihomo core update is not required.'), 'warning');
-			}
-			catch (e) {
-				mihowrtUi.notify(_('Unable to update Mihomo core: %s').format(e.message), 'error');
-			}
-			finally {
-				setBusy(false);
-			}
-		});
-
-		const traffic = subscriptionTraffic(subscription);
-		const supportUrl = safeExternalUrl(subscription.supportUrl);
-		const webPageUrl = safeExternalUrl(subscription.profileWebPageUrl);
-		const subscriptionFacts = [
-			...fact(_('Used traffic'), traffic.used),
-			...fact(_('Total traffic'), traffic.total),
-			...fact(_('Remaining traffic'), traffic.remaining),
-			...fact(_('Expires'), formatEpoch(subscription.expire)),
-			...fact(_('Auto-update'), intervalText(subscription))
-		];
-		if (subscription.subscriptionNextUpdate)
-			subscriptionFacts.push(...fact(_('Next update'), formatEpoch(subscription.subscriptionNextUpdate)));
-
-		const subscriptionActions = [];
-		if (supportUrl)
-			subscriptionActions.push(externalButton(supportUrl, _('Support')));
-		if (webPageUrl)
-			subscriptionActions.push(externalButton(webPageUrl, _('Website')));
-
-		return E([
-			E('style', OVERVIEW_CSS),
-			E('h2', _('MihoWRT Overview')),
-			subscription.announce
-				? E('div', { class: 'cbi-section mihowrt-announce' }, [ E('strong', _('Announcement')), E('p', String(subscription.announce)) ])
-				: E([]),
-			E('div', { class: 'mihowrt-grid' }, [
-				E('div', { class: 'cbi-section mihowrt-card' }, [
-					E('h3', _('Service')),
-					E('div', { class: 'mihowrt-badges' }, [ runningBadge, enabledBadge, readyBadge ]),
-					E('dl', { class: 'mihowrt-facts' }, fact(_('Core version'), versionNode)),
-					E('div', { class: 'mihowrt-actions' }, actionControls)
-				]),
-				E('div', { class: 'cbi-section mihowrt-card' }, [
-					E('h3', subscription.profileTitle || _('Subscription')),
-					subscription.subscriptionUrl
-						? E('dl', { class: 'mihowrt-facts' }, subscriptionFacts)
-						: E('p', { class: 'cbi-section-descr' }, _('No subscription configured. Manual YAML remains available on the Subscriptions page.')),
-					subscriptionActions.length ? E('div', { class: 'mihowrt-actions' }, subscriptionActions) : E([])
-				])
-			])
-		]);
-	},
-
-	handleSaveApply: null,
 	handleSave: null,
+	handleSaveApply: null,
 	handleReset: null
 });

@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.7.25
+PKG_VERSION:=0.8.0
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -34,6 +34,8 @@ define Build/Prepare
 endef
 
 define Build/Compile
+	$(INSTALL_DIR) $(PKG_BUILD_DIR)
+	po2lmo ./po/ru/mihowrt.po $(PKG_BUILD_DIR)/mihowrt.ru.lmo
 endef
 
 define Package/$(PKG_NAME)/conffiles
@@ -51,6 +53,9 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./rootfs/etc/config/mihowrt $(1)/etc/config/
+
+	$(INSTALL_DIR) $(1)/etc/hotplug.d/iface
+	$(INSTALL_BIN) ./rootfs/etc/hotplug.d/iface/90-mihowrt $(1)/etc/hotplug.d/iface/
 
 	$(INSTALL_DIR) $(1)/etc/mihowrt
 
@@ -129,9 +134,14 @@ define Package/$(PKG_NAME)/postinst
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	if [ ! -f /tmp/luci-app-mihowrt.skip-start ]; then
-		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate-all >/dev/null 2>&1 || exit 1
+		# An upgrade leaves the old service running from memory: stop it so
+		# it removes its own state, migrate, then start the new version.
+		was_running=0
+		pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1 && was_running=1
+		[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
+		[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || exit 1
+		[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
 	fi
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt init-layout >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
@@ -144,7 +154,7 @@ define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt cleanup >/dev/null 2>&1 || true
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt recover >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover disable >/dev/null 2>&1 || true
 }
 exit 0
@@ -156,9 +166,9 @@ define Package/$(PKG_NAME)/postrm
 	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
 	rm -f /etc/apk/protected_paths.d/mihowrt.list
 	cron_file=/etc/crontabs/root
-	if [ -f "$$cron_file" ] && grep -qE '# mihowrt (subscription|policy remote) auto-update' "$$cron_file" 2>/dev/null; then
+	if [ -f "$$cron_file" ] && grep -qE '# mihowrt (subscription |policy remote )?auto-update' "$$cron_file" 2>/dev/null; then
 		cron_tmp="$${cron_file}.mihowrt.$$$$"
-		if sed -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' "$$cron_file" >"$$cron_tmp"; then
+		if sed -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' -e '/# mihowrt auto-update/d' "$$cron_file" >"$$cron_tmp"; then
 			if ! cmp -s "$$cron_tmp" "$$cron_file"; then
 				if mv -f "$$cron_tmp" "$$cron_file"; then
 					/etc/init.d/cron restart >/dev/null 2>&1 || true
@@ -183,7 +193,11 @@ define Package/$(PKG_NAME)/postrm
 	rmdir /tmp/clash 2>/dev/null || true
 	rm -rf /tmp/mihowrt
 	rm -rf /var/run/mihowrt
-	rm -f /etc/mihowrt/dns.backup
+	rm -f /etc/mihowrt/dns.backup /etc/mihowrt/subscription.json /etc/mihowrt/cache.db
+	if ls /tmp/dnsmasq*.d/mihowrt.conf >/dev/null 2>&1; then
+		rm -f /tmp/dnsmasq*.d/mihowrt.conf
+		/etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
+	fi
 	rm -rf /etc/mihowrt/policy-cache
 	rmdir /etc/mihowrt 2>/dev/null || true
 	rm -rf /www/luci-static/resources/view/mihowrt
@@ -192,3 +206,47 @@ define Package/$(PKG_NAME)/postrm
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))
+
+define Package/luci-i18n-mihowrt-ru
+	SECTION:=luci
+	CATEGORY:=LuCI
+	SUBMENU:=3. Applications
+	TITLE:=$(PKG_NAME) - Russian translation
+	DEPENDS:=$(PKG_NAME)
+	PKGARCH:=all
+endef
+
+define Package/luci-i18n-mihowrt-ru/description
+	Russian translation for $(PKG_NAME).
+endef
+
+define Package/luci-i18n-mihowrt-ru/install
+	$(INSTALL_DIR) $(1)/usr/lib/lua/luci/i18n
+	$(INSTALL_DATA) $(PKG_BUILD_DIR)/mihowrt.ru.lmo $(1)/usr/lib/lua/luci/i18n/
+	$(INSTALL_DIR) $(1)/etc/uci-defaults
+	( \
+		echo '#!/bin/sh'; \
+		echo 'uci -q get luci.languages.ru >/dev/null || {'; \
+		echo '	uci set luci.languages.ru='\''русский (Russian)'\'';'; \
+		echo '	uci commit luci'; \
+		echo '}'; \
+		echo 'exit 0'; \
+	) > $(1)/etc/uci-defaults/luci-i18n-mihowrt-ru
+	chmod 0755 $(1)/etc/uci-defaults/luci-i18n-mihowrt-ru
+endef
+
+define Package/luci-i18n-mihowrt-ru/postinst
+#!/bin/sh
+[ -n "$$IPKG_INSTROOT" ] || {
+	uci -q get luci.languages.ru >/dev/null || {
+		uci set luci.languages.ru='русский (Russian)'
+		uci commit luci
+	}
+	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
+	rm -rf /tmp/luci-modulecache 2>/dev/null || true
+}
+exit 0
+endef
+
+$(eval $(call BuildPackage,luci-i18n-mihowrt-ru))
+

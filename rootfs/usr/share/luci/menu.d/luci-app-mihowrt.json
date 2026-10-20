@@ -13,33 +13,21 @@
 	"admin/services/mihowrt/overview": {
 		"title": "Overview",
 		"order": 10,
-		"action": {
-			"type": "view",
-			"path": "mihowrt/overview"
-		}
+		"action": { "type": "view", "path": "mihowrt/overview" }
 	},
-	"admin/services/mihowrt/subscriptions": {
-		"title": "Subscriptions",
+	"admin/services/mihowrt/subscription": {
+		"title": "Subscription",
 		"order": 20,
-		"action": {
-			"type": "view",
-			"path": "mihowrt/config"
-		}
+		"action": { "type": "view", "path": "mihowrt/subscription" }
 	},
-	"admin/services/mihowrt/settings": {
-		"title": "Traffic Settings",
+	"admin/services/mihowrt/traffic": {
+		"title": "Traffic",
 		"order": 30,
-		"action": {
-			"type": "view",
-			"path": "mihowrt/policy"
-		}
+		"action": { "type": "view", "path": "mihowrt/traffic" }
 	},
 	"admin/services/mihowrt/diagnostics": {
 		"title": "Diagnostics",
 		"order": 40,
-		"action": {
-			"type": "view",
-			"path": "mihowrt/diagnostics"
-		}
+		"action": { "type": "view", "path": "mihowrt/diagnostics" }
 	}
 }

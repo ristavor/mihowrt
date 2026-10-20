@@ -1,83 +1,28 @@
 #!/bin/ash
 
+# Read-only entry point for the LuCI read ACL. Mutating commands need the
+# write ACL and /usr/bin/mihowrt.
 BACKEND="${MIHOWRT_BACKEND:-/usr/bin/mihowrt}"
-
-# Keep LuCI read ACL on a narrow command surface. Mutating operations must go
-# through /usr/bin/mihowrt with write ACL.
-usage() {
-	echo "Usage: $0 {read-config|live-api-json|subscription-json|service-state-json|core-version-json|status-json|logs-json}" >&2
-	exit 1
-}
-
-# Delegate to the real backend after this wrapper has checked command and path.
-backend_exec() {
-	[ -x "$BACKEND" ] || {
-		echo "Error: backend '$BACKEND' is missing or not executable" >&2
-		exit 1
-	}
-
-	exec "$BACKEND" "$@"
-}
-
-temp_config_path_allowed() {
-	local candidate="$1"
-	local base=""
-
-	case "$candidate" in
-	/tmp/mihowrt-config.*)
-		;;
-	*)
-		return 1
-		;;
-	esac
-
-	base="${candidate#/tmp/}"
-	case "$base" in
-	'' | */*)
-		return 1
-		;;
-	esac
-
-	[ ! -L "$candidate" ]
-}
 
 case "${1:-}" in
 read-config)
-	case "$#" in
-	1)
-		backend_exec read-config
-		;;
-	2)
-		if temp_config_path_allowed "$2"; then
-			backend_exec read-config "$2"
-		else
-			echo "Error: read-config path must be a MihoWRT temp config" >&2
-			exit 1
-		fi
-		;;
+	[ $# -le 2 ] || exit 1
+	case "${2:-}" in
+	'' | /tmp/mihowrt-config.*) ;;
 	*)
-		usage
+		echo "Error: read-config path must be a MihoWRT temp config" >&2
+		exit 1
 		;;
 	esac
 	;;
-live-api-json | subscription-json | service-state-json | core-version-json | status-json)
-	[ "$#" -eq 1 ] || usage
-	backend_exec "$1"
-	;;
-logs-json)
-	case "$#" in
-	1)
-		backend_exec logs-json
-		;;
-	2)
-		backend_exec logs-json "$2"
-		;;
-	*)
-		usage
-		;;
-	esac
+logs-json) [ $# -le 2 ] || exit 1 ;;
+status-json | service-state-json | subscription-json | core-version-json | proxies-json)
+	[ $# -eq 1 ] || exit 1
 	;;
 *)
-	usage
+	echo "Usage: $0 {read-config [tmp]|status-json|service-state-json|subscription-json|core-version-json|proxies-json|logs-json [lines]}" >&2
+	exit 1
 	;;
 esac
+
+exec "$BACKEND" "$@"

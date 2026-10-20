@@ -8,8 +8,10 @@ warn() {
 	logger -p daemon.warn -t "mihowrt" "$*"
 }
 
+# Errors go to syslog and stderr so LuCI can show the reason to the user.
 err() {
 	logger -p daemon.err -t "mihowrt" "$*"
+	printf 'Error: %s\n' "$*" >&2
 }
 
 have_command() {
@@ -23,186 +25,154 @@ trim() {
 	printf '%s' "$value"
 }
 
-mihowrt_lower_ascii() {
-	sed 'y/ABCDEFGHIJKLMNOPQRSTUVWXYZ/abcdefghijklmnopqrstuvwxyz/'
-}
-
-mihowrt_strip_space() {
-	sed 's/[[:space:]]//g'
-}
-
-mihowrt_strip_control_trim() {
-	sed 's/[[:cntrl:]]//g; s/^[[:space:]]*//; s/[[:space:]]*$//'
-}
-
-mihowrt_single_line_value() {
-	awk '
-		{
-			gsub(/[[:cntrl:]]/, " ")
-			if (NR > 1)
-				printf " "
-			printf "%s", $0
-		}
-	'
-}
-
 ensure_dir() {
-	local dir="$1"
-	[ -d "$dir" ] || mkdir -p "$dir"
+	[ -d "$1" ] || mkdir -p "$1"
 }
 
-remove_path_if_exists() {
-	local path="$1"
-	[ -e "$path" ] || [ -L "$path" ] || return 0
-	rm -rf "$path"
+# Collapse a value to one printable line (used for HTTP header metadata).
+single_line() {
+	tr '\r\n\t' '   ' | tr -d '\000-\037' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'
 }
 
-require_command() {
-	have_command "$1" || {
-		err "Required command missing: $1"
-		return 1
-	}
+uci_get() {
+	local value=""
+
+	value="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.$1" 2>/dev/null)" || value=""
+	[ -n "$value" ] || value="${2:-}"
+	printf '%s' "$value"
 }
 
-mihowrt_sync_cron_marker() {
-	local cron_file="$1"
-	local marker="$2"
-	local enabled="$3"
-	local entry="$4"
-	local cron_dir="" scratch_dir="" scratch_file="" tmp_file=""
-	local marker_count="" entry_count=""
+uci_set() {
+	uci -q set "${PKG_CONFIG:-mihowrt}.settings.$1=$2"
+}
 
-	MIHOWRT_CRON_CHANGED=0
+uci_commit() {
+	uci -q commit "${PKG_CONFIG:-mihowrt}"
+}
 
-	if [ "$enabled" != "1" ]; then
-		[ -r "$cron_file" ] || return 0
-		grep -qF "$marker" "$cron_file" 2>/dev/null || return 0
-	else
-		if [ -r "$cron_file" ]; then
-			marker_count="$(grep -cF "$marker" "$cron_file" 2>/dev/null || true)"
-			entry_count="$({ grep -Fx "$entry" "$cron_file" 2>/dev/null || true; } | wc -l | tr -d ' ')"
-			[ "$marker_count" = "1" ] && [ "$entry_count" = "1" ] && return 0
-		fi
-	fi
+# One runtime lock serializes nft, route, DNS and config changes. ln -s is
+# atomic on every OpenWrt filesystem and stores the owner pid in the link.
+lock_acquire() {
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}"
+	local owner="" waited=0 timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
 
-	cron_dir="$(dirname "$cron_file")"
-	scratch_dir="${TMPDIR:-/tmp}"
-	scratch_file="$scratch_dir/mihowrt-cron.$$"
-	tmp_file="${cron_file}.mihowrt.$$"
-
-	ensure_dir "$scratch_dir" || return 1
-	if [ -r "$cron_file" ]; then
-		grep -vF "$marker" "$cron_file" >"$scratch_file" || true
-	else
-		: >"$scratch_file"
-	fi
-
-	if [ "$enabled" = "1" ]; then
-		printf '%s\n' "$entry" >>"$scratch_file" || {
-			rm -f "$scratch_file"
-			return 1
-		}
-	fi
-
-	if [ -f "$cron_file" ] && cmp -s "$scratch_file" "$cron_file"; then
-		rm -f "$scratch_file"
+	# Re-entrant: nested with_lock calls in the same process just count.
+	if [ "$(readlink "$lock" 2>/dev/null)" = "$$" ]; then
+		LOCK_DEPTH=$((${LOCK_DEPTH:-0} + 1))
 		return 0
 	fi
+	ensure_dir "$(dirname "$lock")" || return 1
+	while ! ln -s "$$" "$lock" 2>/dev/null; do
+		owner="$(readlink "$lock" 2>/dev/null)"
+		if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
+			# Remove only if the dead owner still holds it: another waiter may
+			# have taken the lock in between.
+			[ "$(readlink "$lock" 2>/dev/null)" = "$owner" ] && rm -f "$lock"
+			continue
+		fi
+		[ "$waited" -lt "$timeout" ] || {
+			err "Runtime is busy (process $owner)"
+			return 1
+		}
+		# run_service sets MIHOWRT_STOP from its signal trap.
+		[ "${MIHOWRT_STOP:-0}" = 0 ] || return 1
+		sleep 1
+		waited=$((waited + 1))
+	done
+	LOCK_DEPTH=1
+}
 
-	ensure_dir "$cron_dir" || {
-		rm -f "$scratch_file"
-		return 1
-	}
-	cat "$scratch_file" >"$tmp_file" || {
-		rm -f "$scratch_file" "$tmp_file"
-		return 1
-	}
-	mv -f "$tmp_file" "$cron_file" || {
-		rm -f "$scratch_file" "$tmp_file"
-		return 1
-	}
-	rm -f "$scratch_file"
-	MIHOWRT_CRON_CHANGED=1
+lock_release() {
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}"
+
+	[ "$(readlink "$lock" 2>/dev/null)" = "$$" ] || return 0
+	LOCK_DEPTH=$((${LOCK_DEPTH:-1} - 1))
+	[ "$LOCK_DEPTH" -gt 0 ] || rm -f "$lock"
 	return 0
 }
 
-# Resolve module directory. Tests override MIHOWRT_LIB_DIR to load modules from
-# the repository instead of an installed OpenWrt rootfs.
-mihowrt_lib_dir() {
-	if [ -n "${MIHOWRT_LIB_DIR:-}" ]; then
-		printf '%s\n' "$MIHOWRT_LIB_DIR"
+# True when another live process holds the runtime lock.
+lock_busy() {
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}" owner=""
+
+	owner="$(readlink "$lock" 2>/dev/null)" || return 1
+	[ "$owner" != "$$" ] && kill -0 "$owner" 2>/dev/null
+}
+
+with_lock() {
+	local rc=0
+
+	lock_acquire || return 1
+	"$@" || rc=$?
+	lock_release
+	return "$rc"
+}
+
+# Add or remove one marked crontab line; restart cron only on change.
+cron_sync() {
+	local marker="$1" enabled="$2" line="$3"
+	local file="${CRON_FILE:-/etc/crontabs/root}" tmp=""
+
+	ensure_dir "$(dirname "$file")" || return 1
+	tmp="$file.mihowrt.$$"
+	# grep -v exits 1 when nothing is left; 2 is a real error (e.g. ENOSPC).
+	if [ -e "$file" ]; then
+		grep -vF "$marker" "$file" >"$tmp" 2>/dev/null
+		[ "$?" -le 1 ] || {
+			rm -f "$tmp"
+			return 1
+		}
+	else
+		: >"$tmp" || return 1
+	fi
+	if [ "$enabled" = "1" ] && ! printf '%s %s\n' "$line" "$marker" >>"$tmp"; then
+		rm -f "$tmp"
+		return 1
+	fi
+	if cmp -s "$tmp" "$file" 2>/dev/null; then
+		rm -f "$tmp"
 		return 0
 	fi
-	printf '%s\n' "/usr/lib/mihowrt"
-}
-
-# Source one required module and emit a shell-visible error. Missing modules are
-# fatal because partial runtime loading can leave commands with undefined helpers.
-mihowrt_source_module() {
-	local module="$1"
-	local lib_dir="" path="" message=""
-
-	lib_dir="$(mihowrt_lib_dir)"
-	path="$lib_dir/$module"
-	[ -r "$path" ] || {
-		message="Required MihoWRT module missing: $path"
-		err "$message"
-		printf 'Error: %s\n' "$message" >&2
+	mv -f "$tmp" "$file" || {
+		rm -f "$tmp"
 		return 1
 	}
-
-	# shellcheck disable=SC1090
-	. "$path"
+	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1
+	return 0
 }
 
-MIHOWRT_HELPER_MODULES="${MIHOWRT_HELPER_MODULES:-validation.sh runtime-probe.sh config-io.sh mihomo-api.sh migration.sh fetch.sh diagnostics.sh version.sh}"
-MIHOWRT_RUNTIME_MODULES="${MIHOWRT_RUNTIME_MODULES:-dns-state.sh lists.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh runtime.sh}"
+# LuCI uploads land in /tmp/<prefix><suffix>: a plain file, no subdirectory,
+# no symlink.
+upload_path_allowed() {
+	local prefix="$1" path="$2"
 
-# Track sourced modules so lazy command dispatch can compose small groups without
-# re-parsing shared dependencies.
-mihowrt_module_key() {
-	printf '%s/%s' "$(mihowrt_lib_dir)" "$1"
-}
-
-mihowrt_module_loaded() {
-	local module_key="$1"
-
-	case " ${MIHOWRT_LOADED_MODULES:-} " in
-	*" $module_key "*)
-		return 0
-		;;
+	case "$path" in
+	"$prefix"?*) ;;
+	*) return 1 ;;
 	esac
-	return 1
+	case "${path#/tmp/}" in
+	*/*) return 1 ;;
+	esac
+	[ -f "$path" ] && [ ! -L "$path" ]
 }
 
-mihowrt_source_module_once() {
-	local module="$1" module_key=""
-
-	module_key="$(mihowrt_module_key "$module")"
-	mihowrt_module_loaded "$module_key" && return 0
-	mihowrt_source_module "$module" || return 1
-	MIHOWRT_LOADED_MODULES="${MIHOWRT_LOADED_MODULES:+$MIHOWRT_LOADED_MODULES }$module_key"
+mihowrt_lib_dir() {
+	printf '%s' "${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
 }
 
-# Load modules in caller-provided order; later modules may depend on functions
-# defined by earlier ones.
-mihowrt_source_module_list() {
-	local modules="$1" module=""
+# Modules are small; loading all of them keeps command dispatch trivial.
+MIHOWRT_MODULES="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh lists.sh dns.sh nft.sh route.sh config.sh kernel.sh service.sh status.sh migration.sh"
 
-	# shellcheck disable=SC2086
-	for module in $modules; do
-		mihowrt_source_module_once "$module" || return 1
+mihowrt_load_modules() {
+	local module="" dir=""
+
+	dir="$(mihowrt_lib_dir)"
+	for module in $MIHOWRT_MODULES; do
+		[ -r "$dir/$module" ] || {
+			err "Required MihoWRT module missing: $dir/$module"
+			return 1
+		}
+		# shellcheck disable=SC1090
+		. "$dir/$module" || return 1
 	done
 }
-
-mihowrt_load_helper_modules() {
-	mihowrt_source_module_list "$MIHOWRT_HELPER_MODULES"
-}
-
-mihowrt_load_runtime_modules() {
-	mihowrt_source_module_list "$MIHOWRT_RUNTIME_MODULES"
-}
-
-if [ "${MIHOWRT_HELPERS_AUTOLOAD:-1}" != "0" ]; then
-	mihowrt_load_helper_modules || return 1 2>/dev/null || exit 1
-fi

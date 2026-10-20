@@ -4,229 +4,37 @@ START=21
 STOP=79
 USE_PROCD=1
 
-SERVICE_NAME="mihowrt"
-CLASH_DIR="/opt/clash"
-CLASH_BIN="${CLASH_DIR}/bin/clash"
-CLASH_CONFIG="${CLASH_DIR}/config.yaml"
-ORCHESTRATOR="/usr/bin/mihowrt"
+MIHOWRT="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
-EXTRA_COMMANDS="apply update_lists update_subscription"
-EXTRA_HELP="        apply         Validate and apply on-disk MihoWRT config/policy
-        update_lists  Fetch remote policy lists and reload nft only when changed
-        update_subscription  Fetch configured subscription and hot reload when safe"
 
-msg() {
-	logger -p daemon.info -t "$SERVICE_NAME" "$*"
-}
-
-# Use the orchestrator's pid/probe logic instead of procd status, because the
-# runtime can still be cleaning up while procd has already noticed process exit.
-service_running() {
-	[ -x "$ORCHESTRATOR" ] || return 1
-	"$ORCHESTRATOR" service-running >/dev/null 2>&1
-}
-
-# Validate both Mihomo syntax and MihoWRT runtime fields before procd starts or
-# restarts the service, so bad configs do not partially mutate router state.
-validate_service_inputs() {
-	[ -x "$CLASH_BIN" ] || {
-		msg "ERROR: Mihomo binary not found at $CLASH_BIN"
-		return 1
-	}
-
-	[ -f "$CLASH_CONFIG" ] || {
-		msg "ERROR: Mihomo config not found at $CLASH_CONFIG"
-		return 1
-	}
-
-	if ! "$ORCHESTRATOR" ensure-api-defaults; then
-		msg "ERROR: Failed to ensure Mihomo API defaults"
-		return 1
-	fi
-
-	if [ "${MIHOWRT_SKIP_CLASH_TEST:-0}" = "1" ]; then
-		msg "Skipping duplicate Mihomo configuration test"
-	elif ! "$CLASH_BIN" -d "$CLASH_DIR" -f "$CLASH_CONFIG" -t; then
-		msg "ERROR: Mihomo configuration test failed"
-		return 1
-	fi
-
-	if ! "$ORCHESTRATOR" validate; then
-		msg "ERROR: Policy validation failed"
-		return 1
-	fi
-}
-
-sync_auto_update_schedules() {
-	if ! "$ORCHESTRATOR" sync-policy-remote-auto-update >/dev/null 2>&1; then
-		msg "WARNING: Failed to sync remote policy auto-update schedule"
-	fi
-	if ! "$ORCHESTRATOR" sync-subscription-auto-update >/dev/null 2>&1; then
-		msg "WARNING: Failed to sync subscription auto-update schedule"
-	fi
-	return 0
-}
-
-apply_result_vars() {
-	local result="$1"
-
-	printf '%s\n' "$result" | jq -r '
-		@sh "apply_restart_required=\(if .restart_required == false then 0 else 1 end) apply_action=\(.action // "")"
-	' 2>/dev/null
-}
-
-# Start path cleans stale state first, then lets run-service own Mihomo lifetime
-# and stop-time cleanup.
+# Validate everything first so a bad config never touches router state.
 start_service() {
-	[ -f "$SKIP_START_FILE" ] && {
-		msg "Skipping MihoWRT service auto-start during installer transaction"
-		return 0
+	[ -f "$SKIP_START_FILE" ] && return 0
+	"$MIHOWRT" prepare || {
+		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid"
+		return 1
 	}
-
-	msg "Starting MihoWRT service..."
-	"$ORCHESTRATOR" recover >/dev/null 2>&1 || true
-
-	if ! validate_service_inputs; then
-		return 1
-	fi
-	sync_auto_update_schedules || return 1
-
-	if ! "$ORCHESTRATOR" cleanup >/dev/null 2>&1; then
-		msg "ERROR: Failed to clean stale runtime state"
-		return 1
-	fi
 
 	procd_open_instance
-	procd_set_param command "$ORCHESTRATOR" run-service
+	procd_set_param command "$MIHOWRT" run-service
 	procd_set_param stdout 1
 	procd_set_param stderr 1
+	# Watchdog or crash: retry every 5 s, give up after 5 failures per hour.
 	procd_set_param respawn 3600 5 5
+	# Cleanup (DNS, nft, routes) must finish before procd escalates to SIGKILL.
+	procd_set_param term_timeout 30
 	procd_close_instance
-
-	msg "MihoWRT service registered with procd"
 }
 
-# procd sends the stop signal to run-service; actual nft/route/DNS cleanup lives
-# in the orchestrator trap.
-stop_service() {
-	msg "Stopping MihoWRT service..."
+# Make stop synchronous and clear leftovers if run-service was killed.
+service_stopped() {
+	"$MIHOWRT" wait-stopped >/dev/null 2>&1
 }
 
-# Reload only policy-level state. Changes to Mihomo DNS/TPROXY/fake-ip settings
-# require restart because those values define sockets and marks already in use.
 reload_service() {
-	msg "Reloading MihoWRT policy..."
-	sync_auto_update_schedules || return 1
-
-	if ! service_running; then
-		msg "MihoWRT service is not running; skipping policy reload"
-		return 0
-	fi
-
-	if ! "$ORCHESTRATOR" reload-policy >/dev/null 2>&1; then
-		msg "ERROR: Policy reload failed"
-		return 1
-	fi
-
-	msg "MihoWRT policy reloaded"
+	"$MIHOWRT" reload
 }
 
-# Refresh remote policy lists without touching nft when effective content is
-# unchanged.
-update_lists() {
-	msg "Updating MihoWRT remote policy lists..."
-
-	if ! service_running; then
-		msg "MihoWRT service is not running; skipping remote list update"
-		return 0
-	fi
-
-	if ! "$ORCHESTRATOR" update-policy-lists >/dev/null 2>&1; then
-		msg "ERROR: Remote policy list update failed"
-		return 1
-	fi
-
-	msg "MihoWRT remote policy list update finished"
-}
-
-update_subscription() {
-	msg "Updating MihoWRT subscription..."
-
-	if ! "$ORCHESTRATOR" update-subscription >/dev/null 2>&1; then
-		msg "ERROR: Subscription update failed"
-		return 1
-	fi
-
-	msg "MihoWRT subscription update finished"
-}
-
-# Apply on-disk config safely: validate first, then try Mihomo hot reload and
-# policy reload. Restart remains the fallback for API/UI changes or failed hot
-# reloads.
-apply() {
-	local apply_result="" apply_action="" apply_restart_required=1 apply_vars=""
-
-	msg "Applying MihoWRT on-disk config..."
-
-	[ -f "$SKIP_START_FILE" ] && {
-		msg "ERROR: Cannot apply while installer skip-start marker is active"
-		return 1
-	}
-
-	if ! validate_service_inputs; then
-		return 1
-	fi
-	sync_auto_update_schedules || return 1
-
-	if ! service_running; then
-		msg "MihoWRT service is not running; validated on-disk config only"
-		return 0
-	fi
-
-	if ! apply_result="$("$ORCHESTRATOR" apply-active-config 2>&1)"; then
-		msg "ERROR: Failed to hot-apply on-disk config: $apply_result"
-		return 1
-	fi
-
-	if apply_vars="$(apply_result_vars "$apply_result")"; then
-		eval "$apply_vars"
-	else
-		apply_restart_required=1
-		apply_action=""
-	fi
-
-	if [ "$apply_restart_required" -eq 0 ]; then
-		case "$apply_action" in
-		policy_reloaded)
-			msg "MihoWRT on-disk changes hot-applied; policy reloaded"
-			;;
-		hot_reloaded)
-			msg "MihoWRT on-disk changes hot-applied"
-			;;
-		*)
-			msg "MihoWRT on-disk config already active"
-			;;
-		esac
-		return 0
-	fi
-
-	msg "MihoWRT service is running; restarting to fully apply on-disk changes"
-
-	if ! stop; then
-		msg "ERROR: Failed to stop MihoWRT service for apply"
-		return 1
-	fi
-
-	if ! start; then
-		stop >/dev/null 2>&1 || true
-		msg "ERROR: Failed to restart MihoWRT service with updated on-disk config"
-		return 1
-	fi
-
-	msg "MihoWRT on-disk changes applied"
-}
-
-# Let LuCI Save & Apply call reload when /etc/config/mihowrt changes.
 service_triggers() {
 	procd_add_reload_trigger "mihowrt"
 }

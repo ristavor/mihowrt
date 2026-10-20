@@ -80,12 +80,12 @@ assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt' "postinst should restore destination policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt' "postinst should restore source policy list backup"
 assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt' "postinst should restore direct destination policy list backup"
-assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate-all" "postinst should run package migrations on package upgrade"
+assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate" "postinst should run package migrations on package upgrade"
 
 cat >"$tmpdir/mihowrt" <<EOF
 #!/usr/bin/env bash
 printf 'mihowrt:%s\n' "\$*" >>"$hook_log"
-if [[ "\${1:-}" == "migrate-all" && "\${TEST_FAIL_MIGRATE:-0}" == "1" ]]; then
+if [[ "\${1:-}" == "migrate" && "\${TEST_FAIL_MIGRATE:-0}" == "1" ]]; then
 	exit 1
 fi
 exit 0
@@ -148,17 +148,21 @@ printf 'same-dst\n' >"$list_backup_dir/always_proxy_dst.txt"
 printf 'same-dst\n' >"$live_dst_list"
 touch -d '2024-01-01 00:00:00' "$live_config"
 touch -d '2024-01-01 00:00:00' "$live_dst_list"
-before_same_mtime="$(stat -c %Y "$live_config")"
-before_same_list_mtime="$(stat -c %Y "$live_dst_list")"
+file_mtime() {
+	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
+}
+
+before_same_mtime="$(file_mtime "$live_config")"
+before_same_list_mtime="$(file_mtime "$live_dst_list")"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
-after_same_mtime="$(stat -c %Y "$live_config")"
-after_same_list_mtime="$(stat -c %Y "$live_dst_list")"
+after_same_mtime="$(file_mtime "$live_config")"
+after_same_list_mtime="$(file_mtime "$live_dst_list")"
 assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriting identical config backup"
 assert_eq "$before_same_list_mtime" "$after_same_list_mtime" "postinst should skip rewriting identical policy list backup"
 [[ ! -e "$backup_path" ]] || fail "postinst should remove identical config backup after skip"
 [[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should remove identical policy list backup after skip"
-assert_file_contains "$hook_log" "mihowrt:migrate-all" "postinst should run migrations outside installer transaction"
+assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should run migrations outside installer transaction"
 
 : >"$hook_log"
 set +e
@@ -166,8 +170,7 @@ TEST_FAIL_MIGRATE=1 IPKG_INSTROOT="" "$script_path"
 postinst_migrate_fail_rc=$?
 set -e
 [[ "$postinst_migrate_fail_rc" -ne 0 ]] || fail "postinst should fail when package migration fails"
-assert_file_contains "$hook_log" "mihowrt:migrate-all" "postinst should attempt package migration before failing"
-assert_file_not_contains "$hook_log" "mihowrt:init-layout" "postinst should stop before layout init when package migration fails"
+assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should attempt package migration before failing"
 
 printf 'new-config\n' >"$backup_path"
 printf 'old-config\n' >"$live_config"
@@ -180,8 +183,7 @@ printf 'skip-config\n' >"$live_config"
 : >"$skip_start"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
-assert_file_not_contains "$hook_log" "mihowrt:migrate-all" "postinst should defer package migrations during installer transaction"
-assert_file_contains "$hook_log" "mihowrt:init-layout" "postinst should still initialize layout during installer transaction"
+assert_file_not_contains "$hook_log" "mihowrt:migrate" "postinst should defer package migrations during installer transaction"
 rm -f "$skip_start"
 
 extract_prerm >"$prerm_path"
@@ -207,7 +209,7 @@ chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt" "$tmpdir/init-recover"
 : >"$hook_log"
 IPKG_INSTROOT="" "$prerm_path"
 assert_file_contains "$hook_log" "init:stop" "prerm should stop service before package files are removed"
-assert_file_contains "$hook_log" "mihowrt:cleanup" "prerm should clean runtime state before package files are removed"
+assert_file_contains "$hook_log" "mihowrt:recover" "prerm should clean runtime state before package files are removed"
 assert_file_contains "$hook_log" "recover:disable" "prerm should disable recover init hook before package files are removed"
 
 : >"$hook_log"
@@ -248,11 +250,10 @@ assert_file_contains "$ROOT_DIR/Makefile" '/opt/clash/mihomo.sock' "package remo
 assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt subscription auto-update' "package removal should delete subscription cron entry"
 assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt policy remote auto-update' "package removal should delete policy remote cron entry"
 assert_file_contains "$ROOT_DIR/Makefile" '+curl' "package should depend on curl for Mihomo API hot reload"
-assert_file_contains "$ROOT_DIR/install.sh" 'REQUIRED_REPO_PACKAGES="luci-base nftables jq kmod-nft-tproxy curl"' "installer dependency hold should include runtime dependencies"
-assert_file_contains "$ROOT_DIR/install.sh" '/usr/bin/mihowrt-read' "installer removal should delete read-only backend wrapper"
-assert_file_contains "$ROOT_DIR/install.sh" '/opt/clash/mihomo.sock' "installer removal should delete Mihomo socket symlink"
-assert_file_contains "$ROOT_DIR/install.sh" '# mihowrt subscription auto-update' "installer removal should delete subscription cron entry"
-assert_file_contains "$ROOT_DIR/install.sh" '# mihowrt policy remote auto-update' "installer removal should delete policy remote cron entry"
+installer_deps="$(sed -n 's/^DEPS="\(.*\)"$/\1/p' "$ROOT_DIR/install.sh")"
+for dep in $installer_deps; do
+	assert_file_contains "$ROOT_DIR/Makefile" "+$dep" "installer dependency $dep must match package LUCI_DEPENDS"
+done
 assert_file_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "option subscription_url ''" "default UCI config should disable subscriptions"
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "policy_remote_update_interval" "default UCI config should use per-URL policy list intervals"
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "route_table_id" "default UCI config should keep route table selection automatic"

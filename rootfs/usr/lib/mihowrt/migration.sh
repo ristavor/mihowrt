@@ -1,108 +1,85 @@
 #!/bin/ash
 
-migrate_legacy_uci_settings() {
-	local pkg_config="${PKG_CONFIG:-mihowrt}"
-	local policy_mode="" changed=0 legacy_enabled_present=0 option=""
+# One-time upgrade steps from 0.7.x. Every step is idempotent.
 
-	have_command uci || return 0
+OLD_DNS_BACKUP_FILE="${OLD_DNS_BACKUP_FILE:-/etc/mihowrt/dns.backup}"
+OLD_SUBSCRIPTION_OPTIONS="subscription_interval_override subscription_update_interval subscription_header_interval subscription_profile_title subscription_userinfo subscription_support_url subscription_web_page_url subscription_announce"
 
-	if uci -q get "$pkg_config.settings.enabled" >/dev/null 2>&1; then
-		legacy_enabled_present=1
-	fi
+# 0.7 edited dnsmasq UCI. If it crashed, dnsmasq may still point at Mihomo.
+migrate_dns_uci() {
+	local section="dhcp.@dnsmasq[0]" servers="" line="" changed=0
 
-	policy_mode="$(uci -q get "$pkg_config.settings.policy_mode" 2>/dev/null || true)"
-	case "$policy_mode" in
-	direct-first | proxy-first)
-		;;
+	servers="$(uci -q get "$section.server" 2>/dev/null)" || servers=""
+	case " $servers " in
+	*" 127.0.0.1#$MIHOMO_DNS_PORT "*) ;;
 	*)
-		uci -q set "$pkg_config.settings=settings" || {
-			err "Failed to prepare MihoWRT UCI settings section"
-			return 1
-		}
-		uci -q set "$pkg_config.settings.policy_mode=direct-first" || {
-			err "Failed to migrate MihoWRT policy_mode to direct-first"
-			return 1
-		}
-		changed=1
+		rm -f "$OLD_DNS_BACKUP_FILE"
+		return 0
 		;;
 	esac
 
-	if [ "$legacy_enabled_present" = "1" ]; then
-		uci -q delete "$pkg_config.settings.enabled" || {
-			err "Failed to remove legacy MihoWRT enabled option"
-			return 1
-		}
-		changed=1
-	fi
-
-	for option in route_table_id route_rule_priority; do
-		if uci -q get "$pkg_config.settings.$option" >/dev/null 2>&1; then
-			uci -q delete "$pkg_config.settings.$option" || {
-				err "Failed to remove obsolete MihoWRT $option option"
-				return 1
-			}
-			changed=1
-		fi
-	done
-
-	[ "$changed" = "1" ] || return 0
-	uci -q commit "$pkg_config" || {
-		err "Failed to commit migrated MihoWRT UCI settings"
-		return 1
-	}
-	log "Migrated legacy MihoWRT UCI settings"
-}
-
-migrate_policy_remote_interval_file() {
-	local file="$1" interval="$2" tmp_file="" line="" trimmed="" changed=0
-
-	[ -f "$file" ] || return 0
-	tmp_file="${file}.intervals.tmp.$$"
-	: >"$tmp_file" || return 1
-	while IFS= read -r line || [ -n "$line" ]; do
-		trimmed="$(trim "$line")"
-		if is_policy_remote_list_url "$trimmed"; then
-			case "$trimmed" in
-			*'|'*) printf '%s\n' "$line" >>"$tmp_file" || return 1 ;;
-			*)
-				printf '%s | %s\n' "$trimmed" "$interval" >>"$tmp_file" || return 1
-				changed=1
+	uci -q delete "$section.server"
+	if [ -r "$OLD_DNS_BACKUP_FILE" ]; then
+		while IFS= read -r line; do
+			case "$line" in
+			ORIG_NORESOLV=?*) uci -q set "$section.noresolv=${line#*=}" ;;
+			ORIG_NORESOLV=) uci -q delete "$section.noresolv" ;;
+			ORIG_RESOLVFILE=?*) uci -q set "$section.resolvfile=${line#*=}" ;;
+			ORIG_CACHESIZE=?*) uci -q set "$section.cachesize=${line#*=}" ;;
+			ORIG_SERVER=?*)
+				for line in ${line#ORIG_SERVER=}; do
+					uci -q add_list "$section.server=$line"
+				done
 				;;
 			esac
-		else
-			printf '%s\n' "$line" >>"$tmp_file" || return 1
-		fi
-	done <"$file"
-
-	if [ "$changed" -eq 1 ]; then
-		mv -f "$tmp_file" "$file" || return 1
+		done <"$OLD_DNS_BACKUP_FILE"
 	else
-		rm -f "$tmp_file"
+		uci -q delete "$section.noresolv"
 	fi
+	uci -q commit dhcp && changed=1
+	rm -f "$OLD_DNS_BACKUP_FILE"
+	[ "$changed" -eq 1 ] && [ -x /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq restart >/dev/null 2>&1
+	log "Migrated dnsmasq settings left by MihoWRT 0.7"
 }
 
-migrate_policy_remote_intervals() {
-	local pkg_config="${PKG_CONFIG:-mihowrt}" interval="0" changed=0
+migrate_settings() {
+	local override="" hours="" option="" min=""
 
-	if have_command uci; then
-		interval="$(uci -q get "$pkg_config.settings.policy_remote_update_interval" 2>/dev/null || true)"
+	[ -n "$(uci_get bypass_ntp)" ] || uci_set bypass_ntp 1
+	[ -n "$(uci_get bypass_subscription_dns)" ] || uci_set bypass_subscription_dns 1
+
+	override="$(uci_get subscription_interval_override)"
+	hours="$(uci_get subscription_update_interval)"
+	if [ "$override" = "1" ] && is_uint "$hours" && [ -z "$(uci_get subscription_interval)" ]; then
+		uci_set subscription_interval "$hours"
 	fi
-	policy_remote_update_interval_valid "$interval" || interval=0
-	interval="$(normalize_uint "$interval")"
+	for option in $OLD_SUBSCRIPTION_OPTIONS; do
+		uci -q delete "${PKG_CONFIG:-mihowrt}.settings.$option"
+	done
 
-	migrate_policy_remote_interval_file "$DST_LIST_FILE" "$interval" || return 1
-	migrate_policy_remote_interval_file "$SRC_LIST_FILE" "$interval" || return 1
-	migrate_policy_remote_interval_file "$DIRECT_DST_LIST_FILE" "$interval" || return 1
+	# The API secret is not taken from the YAML: the read ACL can read that
+	# file. settings_ensure_generated creates a fresh one.
 
-	if have_command uci && uci -q get "$pkg_config.settings.policy_remote_update_interval" >/dev/null 2>&1; then
-		uci -q delete "$pkg_config.settings.policy_remote_update_interval" || return 1
-		changed=1
+	if [ -z "$(uci_get lists_interval)" ]; then
+		min="$({ cat "$DST_LIST_FILE" "$SRC_LIST_FILE" "$DIRECT_DST_LIST_FILE" 2>/dev/null || true; } |
+			sed -n 's/^[^#]*|[[:space:]]*\([0-9][0-9]*\)[[:space:]]*$/\1/p' |
+			awk '$1 > 0 && (m == "" || $1 < m) { m = $1 } END { print m + 0 }')"
+		uci_set lists_interval "${min:-0}"
 	fi
-	[ "$changed" -eq 0 ] || uci -q commit "$pkg_config"
+	uci_commit
 }
 
-migrate_all() {
-	migrate_legacy_uci_settings || return 1
-	migrate_policy_list_files || return 1
-	migrate_policy_remote_intervals || return 1
+migrate_cron() {
+	local file="${CRON_FILE:-/etc/crontabs/root}"
+
+	grep -qE '# mihowrt (subscription|policy remote) auto-update' "$file" 2>/dev/null || return 0
+	sed -i -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' "$file"
+}
+
+migrate() {
+	migrate_dns_uci
+	migrate_settings
+	migrate_cron
+	rm -f "$CLASH_DIR/mihomo.sock"
+	settings_ensure_generated
 }

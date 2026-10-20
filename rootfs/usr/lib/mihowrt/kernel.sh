@@ -1,293 +1,133 @@
 #!/bin/ash
 
-kernel_error() {
-	err "$*"
-	printf 'Error: %s\n' "$*" >&2
-}
+# Mihomo core install/update. The new binary is unpacked next to the old one,
+# checked (-v and config test) and moved into place atomically. No RAM copy.
 
-kernel_clear_stage() {
-	[ -n "${KERNEL_STAGED_BIN:-}" ] && rm -f "$KERNEL_STAGED_BIN"
-	KERNEL_STAGED_BIN=""
-	KERNEL_STAGED_TAG=""
-	KERNEL_STAGED_ARCH=""
-	KERNEL_STAGED_ASSET=""
-	KERNEL_STAGED_IDENTICAL=0
-	rm -f "${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}"/*.gz 2>/dev/null || true
-}
-
-kernel_clear_all_tmp() {
-	kernel_clear_stage
-	rm -rf "${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}"
-}
-
-kernel_release_json() {
-	fetch_http_body_limited \
-		"${MIHOMO_RELEASES_API:-https://api.github.com/repos/MetaCubeX/mihomo/releases/latest}" \
-		"${KERNEL_RELEASE_JSON_MAX_BYTES:-2097152}" \
-		"${KERNEL_FETCH_TIMEOUT:-60}" \
-		"Mihomo release"
-}
-
-kernel_release_tag() {
-	jq -r '.tag_name // ""' 2>/dev/null
-}
-
-kernel_asset_url() {
-	local asset_name="$1"
-
-	jq -r --arg name "$asset_name" '
-		.assets[]? | select(.name == $name) | .browser_download_url
-	' 2>/dev/null | head -n1
-}
-
-kernel_asset_candidates() {
-	local arch="$1"
-	local tag="$2"
-
-	case "$arch" in
-	amd64)
-		printf '%s\n' \
-			"mihomo-linux-amd64-compatible-$tag.gz" \
-			"mihomo-linux-amd64-v1-$tag.gz" \
-			"mihomo-linux-amd64-$tag.gz"
-		;;
-	386)
-		printf '%s\n' \
-			"mihomo-linux-386-$tag.gz" \
-			"mihomo-linux-386-softfloat-$tag.gz"
-		;;
-	loong64)
-		printf '%s\n' \
-			"mihomo-linux-loong64-abi1-$tag.gz" \
-			"mihomo-linux-loong64-abi2-$tag.gz" \
-			"mihomo-linux-loong64-$tag.gz"
-		;;
-	*)
-		printf '%s\n' "mihomo-linux-$arch-$tag.gz"
-		;;
+core_arch() {
+	case "$(sed -n "s/^DISTRIB_ARCH='\([^']*\)'/\1/p" /etc/openwrt_release 2>/dev/null)" in
+	aarch64_*) echo arm64 ;;
+	x86_64) echo amd64 ;;
+	i386_*) echo 386 ;;
+	riscv64_*) echo riscv64 ;;
+	loongarch64_*) echo loong64 ;;
+	mips64el_*) echo mips64le ;;
+	mips64_*) echo mips64 ;;
+	mipsel_*hardfloat*) echo mipsle-hardfloat ;;
+	mipsel_*) echo mipsle-softfloat ;;
+	mips_*hardfloat*) echo mips-hardfloat ;;
+	mips_*) echo mips-softfloat ;;
+	arm_*neon-vfp*) echo armv7 ;;
+	arm_*neon* | arm_*vfp*) echo armv6 ;;
+	arm_*) echo armv5 ;;
+	*) return 1 ;;
 	esac
 }
 
-kernel_select_asset() {
-	local release_json="$1"
-	local arch="$2"
-	local tag="$3"
-	local asset_name="" asset_url=""
+core_version() {
+	[ -x "${1:-$CLASH_BIN}" ] || return 1
+	"${1:-$CLASH_BIN}" -v 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
+}
 
-	while IFS= read -r asset_name; do
-		[ -n "$asset_name" ] || continue
-		asset_url="$(printf '%s\n' "$release_json" | kernel_asset_url "$asset_name")"
-		[ -n "$asset_url" ] || continue
-		printf '%s	%s\n' "$asset_name" "$asset_url"
-		return 0
-	done <<EOF
-$(kernel_asset_candidates "$arch" "$tag")
-EOF
+core_version_json() {
+	local version=""
 
+	version="$(core_version)"
+	jq -nc --arg v "$version" '{version: $v, installed: ($v != "")}'
+}
+
+core_asset_names() {
+	case "$1" in
+	amd64) printf '%s\n' "mihomo-linux-amd64-compatible-$2.gz" "mihomo-linux-amd64-v1-$2.gz" "mihomo-linux-amd64-$2.gz" ;;
+	386) printf '%s\n' "mihomo-linux-386-$2.gz" "mihomo-linux-386-softfloat-$2.gz" ;;
+	loong64) printf '%s\n' "mihomo-linux-loong64-abi1-$2.gz" "mihomo-linux-loong64-abi2-$2.gz" "mihomo-linux-loong64-$2.gz" ;;
+	*) printf '%s\n' "mihomo-linux-$1-$2.gz" ;;
+	esac
+}
+
+# Uncompressed size from the gzip trailer.
+core_gzip_isize() {
+	tail -c 4 "$1" 2>/dev/null | hexdump -v -e '4/1 "%u " "\n"' |
+		awk 'NF == 4 { print $1 + $2 * 256 + $3 * 65536 + $4 * 16777216 }'
+}
+
+core_free_kb() {
+	df -k "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
+}
+
+core_fail() {
+	CORE_ERROR="$*"
+	err "Core update: $*"
+	rm -rf "$KERNEL_TMP_DIR" "$CLASH_BIN.new"
 	return 1
 }
 
-kernel_stage_binary_from_asset() {
-	local asset_url="$1"
-	local asset_name="$2"
-	local tmpgz="" tmpbin=""
+# Install the latest release. Sets CORE_UPDATED (0|1), CORE_VERSION, CORE_ERROR.
+core_update() {
+	local arch="" json="" tag="" current="" name="" meta="" url="" digest="" size="" gz="" isize="" free=""
+	local config="$PKG_TMP_DIR/core-test.yaml"
 
-	ensure_dir "${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}" || return 1
-	tmpgz="${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}/$asset_name"
-	tmpbin="${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}/clash.staged"
-
-	rm -f "$tmpgz" "$tmpbin"
-	if ! fetch_http_body_limited_to_file \
-		"$asset_url" \
-		"${KERNEL_ASSET_MAX_BYTES:-67108864}" \
-		"${KERNEL_FETCH_TIMEOUT:-60}" \
-		"Mihomo kernel" \
-		"$tmpgz" \
-		0; then
-		rm -f "$tmpgz" "$tmpbin"
-		kernel_error "${FETCH_HTTP_ERROR_MESSAGE:-failed to download Mihomo asset $asset_name}"
-		return 1
-	fi
-
-	if ! gzip -dc "$tmpgz" >"$tmpbin"; then
-		rm -f "$tmpgz" "$tmpbin"
-		kernel_error "failed to decompress Mihomo asset $asset_name"
-		return 1
-	fi
-	rm -f "$tmpgz"
-
-	if ! chmod 0755 "$tmpbin"; then
-		rm -f "$tmpbin"
-		kernel_error "failed to chmod Mihomo binary"
-		return 1
-	fi
-
-	if ! "$tmpbin" -v >/dev/null 2>&1; then
-		rm -f "$tmpbin"
-		kernel_error "downloaded Mihomo binary failed self-check"
-		return 1
-	fi
-
-	if [ -f "$CLASH_BIN" ] && cmp -s "$tmpbin" "$CLASH_BIN" 2>/dev/null; then
-		rm -f "$tmpbin"
-		KERNEL_STAGED_IDENTICAL=1
+	CORE_UPDATED=0
+	CORE_ERROR=""
+	CORE_VERSION="$(core_version)"
+	settings_load 2>/dev/null || true
+	arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
+	ensure_dir "$KERNEL_TMP_DIR" || return 1
+	json="$KERNEL_TMP_DIR/release.json"
+	http_fetch "$MIHOMO_RELEASES_API" "$json" "$KERNEL_RELEASE_JSON_MAX_BYTES" 30 0 ||
+		core_fail "cannot read latest release ($FETCH_ERROR)" || return 1
+	tag="$(jq -r '.tag_name // empty' "$json")"
+	[ -n "$tag" ] || core_fail "release has no tag" || return 1
+	current="$CORE_VERSION"
+	if [ "$current" = "$tag" ]; then
+		rm -rf "$KERNEL_TMP_DIR"
 		return 0
 	fi
 
-	KERNEL_STAGED_BIN="$tmpbin"
-	KERNEL_STAGED_ASSET="$asset_name"
+	for name in $(core_asset_names "$arch" "$tag"); do
+		meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
+		[ -n "$meta" ] && break
+	done
+	[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
+	url="$(printf '%s' "$meta" | cut -f1)"
+	digest="$(printf '%s' "$meta" | cut -f2)"
+	size="$(printf '%s' "$meta" | cut -f3)"
+
+	gz="$KERNEL_TMP_DIR/mihomo.gz"
+	http_fetch "$url" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+	if is_uint "$size" && [ "$(wc -c <"$gz" | tr -d ' ')" != "$size" ]; then
+		core_fail "downloaded size does not match release" || return 1
+	fi
+	case "$digest" in
+	sha256:*)
+		[ "$(sha256sum "$gz" | cut -d' ' -f1)" = "${digest#sha256:}" ] || core_fail "sha256 mismatch" || return 1
+		;;
+	*) warn "Core update: release has no sha256 digest; size check only" ;;
+	esac
+
+	isize="$(core_gzip_isize "$gz")"
+	free="$(core_free_kb "$(dirname "$CLASH_BIN")")"
+	is_uint "$isize" && is_uint "$free" || core_fail "cannot check free space" || return 1
+	[ $((free * 1024)) -ge $((isize + 4194304)) ] ||
+		core_fail "not enough flash: need $(((isize + 4194304) / 1048576)) MiB, free $((free / 1024)) MiB" || return 1
+
+	ensure_dir "$(dirname "$CLASH_BIN")" || return 1
+	gzip -dc "$gz" >"$CLASH_BIN.new" && chmod 755 "$CLASH_BIN.new" || core_fail "unpack failed" || return 1
+	[ -n "$(core_version "$CLASH_BIN.new")" ] || core_fail "new binary does not run on this router" || return 1
+	if [ -r "$CLASH_CONFIG" ] && mihomo_config_generate "$CLASH_CONFIG" "$config" 2>/dev/null; then
+		mihomo_config_test "$config" "$CLASH_BIN.new" || core_fail "new core rejects the current config" || return 1
+	fi
+	mv -f "$CLASH_BIN.new" "$CLASH_BIN" || core_fail "cannot replace binary" || return 1
+	rm -rf "$KERNEL_TMP_DIR" "$config"
+	CORE_UPDATED=1
+	CORE_VERSION="$tag"
+	log "Mihomo core updated: ${current:-none} -> $tag"
 }
 
-kernel_stage_available() {
-	[ -n "${KERNEL_STAGED_BIN:-}" ] && [ -x "$KERNEL_STAGED_BIN" ]
-}
+core_update_json() {
+	local rc=0
 
-kernel_restore_backup_after_failure() {
-	local backup_path="${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}/clash.previous"
-
-	rm -f "$CLASH_BIN" 2>/dev/null || true
-	[ -f "$backup_path" ] || return 0
-	cp -f "$backup_path" "$CLASH_BIN" || return 1
-	chmod 0755 "$CLASH_BIN" 2>/dev/null || true
-}
-
-kernel_install_staged_update() {
-	local backup_path="${KERNEL_TMP_DIR:-/tmp/mihowrt/kernel-update}/clash.previous"
-	local clash_bin_dir=""
-
-	kernel_stage_available || return 0
-	clash_bin_dir="${CLASH_BIN%/*}"
-	ensure_dir "$clash_bin_dir" || return 1
-
-	rm -f "$backup_path"
-	if [ -f "$CLASH_BIN" ]; then
-		cp -f "$CLASH_BIN" "$backup_path" || {
-			kernel_error "failed to stage previous Mihomo kernel"
-			return 1
-		}
-	fi
-
-	rm -f "$CLASH_BIN" || {
-		kernel_error "failed to remove previous Mihomo kernel"
-		return 1
-	}
-
-	if ! mv -f "$KERNEL_STAGED_BIN" "$CLASH_BIN"; then
-		kernel_restore_backup_after_failure || true
-		kernel_error "failed to install Mihomo kernel"
-		return 1
-	fi
-	KERNEL_STAGED_BIN=""
-
-	if ! chmod 0755 "$CLASH_BIN"; then
-		kernel_restore_backup_after_failure || true
-		kernel_error "failed to chmod installed Mihomo kernel"
-		return 1
-	fi
-
-	rm -f "$backup_path"
-	return 0
-}
-
-kernel_update_service_running() {
-	command -v service_running_state >/dev/null 2>&1 || return 1
-	service_running_state
-}
-
-kernel_update_result_json() {
-	local action="$1"
-	local updated="$2"
-	local restart_required="$3"
-	local arch="$4"
-	local current_version="$5"
-	local latest_version="$6"
-	local asset_name="$7"
-	local reason="$8"
-
-	jq -nc \
-		--arg action "$action" \
-		--arg updated "$updated" \
-		--arg restart_required "$restart_required" \
-		--arg arch "$arch" \
-		--arg current_version "$current_version" \
-		--arg latest_version "$latest_version" \
-		--arg asset "$asset_name" \
-		--arg reason "$reason" \
-		'{
-			action: $action,
-			updated: ($updated == "1"),
-			restart_required: ($restart_required == "1"),
-			arch: $arch,
-			current_version: $current_version,
-			latest_version: $latest_version,
-			asset: $asset,
-			reason: $reason
-		}'
-}
-
-kernel_update_json() {
-	local arch="" release_json="" latest_tag="" latest_ver=""
-	local current_raw="" current_ver="" selected="" asset_name="" asset_url=""
-	local restart_required=0
-
-	require_command jq || return 1
-	require_command gzip || return 1
-
-	arch="$(detect_mihomo_arch)" || {
-		kernel_error "unable to detect Mihomo architecture from /etc/openwrt_release"
-		return 1
-	}
-	current_raw="$(current_mihomo_version 2>/dev/null || true)"
-	current_ver="$(normalize_version "$current_raw")"
-
-	release_json="$(kernel_release_json)" || {
-		kernel_error "${FETCH_HTTP_ERROR_MESSAGE:-failed to query Mihomo latest release}"
-		return 1
-	}
-	latest_tag="$(printf '%s\n' "$release_json" | kernel_release_tag)"
-	[ -n "$latest_tag" ] || {
-		kernel_error "latest Mihomo release has no tag_name"
-		return 1
-	}
-	latest_ver="$(normalize_version "$latest_tag")"
-
-	if [ -n "$current_ver" ] && [ -n "$latest_ver" ] && version_ge "$current_ver" "$latest_ver"; then
-		kernel_update_result_json "up_to_date" 0 0 "$arch" "$current_raw" "$latest_tag" "" "Mihomo kernel already up to date"
-		return 0
-	fi
-
-	selected="$(kernel_select_asset "$release_json" "$arch" "$latest_tag")" || {
-		kernel_error "no Mihomo asset found for architecture $arch"
-		return 1
-	}
-	asset_name="${selected%%	*}"
-	asset_url="${selected#*	}"
-
-	KERNEL_STAGED_BIN=""
-	KERNEL_STAGED_TAG="$latest_tag"
-	KERNEL_STAGED_ARCH="$arch"
-	KERNEL_STAGED_ASSET="$asset_name"
-	KERNEL_STAGED_IDENTICAL=0
-
-	if ! kernel_stage_binary_from_asset "$asset_url" "$asset_name"; then
-		kernel_clear_all_tmp
-		return 1
-	fi
-
-	if [ "$KERNEL_STAGED_IDENTICAL" = "1" ]; then
-		kernel_clear_all_tmp
-		kernel_update_result_json "unchanged" 0 0 "$arch" "$current_raw" "$latest_tag" "$asset_name" "Downloaded Mihomo kernel is identical to installed binary"
-		return 0
-	fi
-
-	kernel_update_service_running && restart_required=1 || restart_required=0
-	if ! kernel_install_staged_update; then
-		kernel_clear_stage
-		return 1
-	fi
-
-	log "Updated Mihomo kernel to $latest_tag for arch $arch"
-	kernel_update_result_json "updated" 1 "$restart_required" "$arch" "$current_raw" "$latest_tag" "$asset_name" "Mihomo kernel updated"
-	kernel_clear_all_tmp
-	return 0
+	core_update || rc=$?
+	jq -nc --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED" \
+		'{updated: ($u == "1"), version: $v, error: (if $e == "" then null else $e end)}'
+	return "$rc"
 }

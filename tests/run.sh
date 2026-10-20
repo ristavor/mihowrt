@@ -11,6 +11,7 @@ ash_shell_files=(
 	"$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt"
 	"$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover"
+	"$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt"
 )
 
 bash_shell_files=(
@@ -18,14 +19,8 @@ bash_shell_files=(
 )
 
 js_syntax_files=(
-	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/config.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/policy.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/backend.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ace.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/config.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/exec.js"
-	"$ROOT_DIR/rootfs/www/luci-static/resources/mihowrt/ui.js"
+	"$ROOT_DIR"/rootfs/www/luci-static/resources/view/mihowrt/*.js
+	"$ROOT_DIR"/rootfs/www/luci-static/resources/mihowrt/*.js
 )
 
 check_js_syntax() {

@@ -1,490 +1,88 @@
 #!/bin/ash
 
-check_required_file() {
-	[ -r "$1" ] || {
-		echo "Error: required file '$1' is missing or not readable" >&2
-		exit 1
-	}
+LIB="${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
+. "$LIB/constants.sh" && . "$LIB/helpers.sh" && mihowrt_load_modules || exit 1
+
+usage() {
+	cat >&2 <<'EOF'
+Usage: mihowrt <command>
+Service:  prepare | run-service | wait-stopped | recover | reload | migrate
+Config:   read-config [tmp] | save-config <tmp>
+Subscr.:  subscription-json | set-subscription <url> <hours|''> | update-subscription
+Lists:    apply-lists <dst-tmp> <src-tmp> <direct-tmp> | update-lists
+Updates:  auto-update | dns-refresh | core-update | core-version-json
+Status:   status-json | service-state-json | logs-json [lines]
+Proxies:  proxies-json | select-proxy <group> <name> | group-delay <group> | dashboard-json
+EOF
+	exit 1
 }
 
-check_required_file /lib/functions.sh
-check_required_file /usr/lib/mihowrt/constants.sh
-check_required_file /usr/lib/mihowrt/helpers.sh
+need_args() {
+	[ "$1" -eq "$2" ] || usage
+}
 
-. /lib/functions.sh
-. /usr/lib/mihowrt/constants.sh
-MIHOWRT_HELPERS_AUTOLOAD=0
-. /usr/lib/mihowrt/helpers.sh
-unset MIHOWRT_HELPERS_AUTOLOAD
+dashboard_json() {
+	settings_load || return 1
+	jq -nc --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --arg secret "$API_SECRET" \
+		--argjson running "$(json_bool service_running)" \
+		'{host: $host, port: ($port | tonumber), secret: $secret, running: $running}'
+}
 
-MIHOWRT_CONFIG_MODULES="${MIHOWRT_CONFIG_MODULES:-validation.sh config-io.sh}"
-MIHOWRT_API_MODULES="${MIHOWRT_API_MODULES:-validation.sh config-io.sh mihomo-api.sh}"
-MIHOWRT_SUBSCRIPTION_MODULES="${MIHOWRT_SUBSCRIPTION_MODULES:-validation.sh config-io.sh mihomo-api.sh fetch.sh}"
-MIHOWRT_STATUS_MODULES="${MIHOWRT_STATUS_MODULES:-validation.sh runtime-probe.sh config-io.sh dns-state.sh lists.sh fetch.sh dns.sh nft.sh route.sh runtime-config.sh runtime-snapshot.sh policy.sh runtime-status.sh}"
-MIHOWRT_SERVICE_STATE_MODULES="${MIHOWRT_SERVICE_STATE_MODULES:-validation.sh runtime-probe.sh runtime-snapshot.sh runtime-status.sh}"
-MIHOWRT_POLICY_LIST_MODULES="${MIHOWRT_POLICY_LIST_MODULES:-validation.sh lists.sh}"
-MIHOWRT_MIGRATION_MODULES="${MIHOWRT_MIGRATION_MODULES:-validation.sh lists.sh migration.sh}"
-MIHOWRT_RUNTIME_CONFIG_MODULES="${MIHOWRT_RUNTIME_CONFIG_MODULES:-validation.sh config-io.sh lists.sh runtime-config.sh}"
-MIHOWRT_INIT_LAYOUT_MODULES="${MIHOWRT_INIT_LAYOUT_MODULES:-runtime.sh}"
-MIHOWRT_DIAGNOSTICS_MODULES="${MIHOWRT_DIAGNOSTICS_MODULES:-validation.sh diagnostics.sh}"
-MIHOWRT_KERNEL_MODULES="${MIHOWRT_KERNEL_MODULES:-validation.sh runtime-probe.sh fetch.sh version.sh kernel.sh}"
+core_update_cmd() {
+	local result="" rc=0
 
-mihowrt_cli_load_module_group() {
-	local sentinel="$1"
-	local modules="$2"
-
-	if [ -n "$sentinel" ] && command -v "$sentinel" >/dev/null 2>&1; then
-		return 0
+	# The download can take minutes: no runtime lock (nothing in the
+	# runtime state changes until the service restarts).
+	result="$(core_update_json)" || rc=$?
+	printf '%s\n' "$result"
+	# Restart outside the lock: stop waits for run-service, which needs it.
+	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | jq -r .updated)" = true ] && service_running; then
+		/etc/init.d/mihowrt restart >/dev/null 2>&1 &
 	fi
-	mihowrt_source_module_list "$modules"
-}
-
-mihowrt_cli_load_full_modules() {
-	local sentinel="$1"
-
-	if [ -n "$sentinel" ] && command -v "$sentinel" >/dev/null 2>&1; then
-		return 0
-	fi
-	mihowrt_load_helper_modules || return 1
-	mihowrt_load_runtime_modules
-}
-
-# Return the lock path used to serialize nft, route, DNS, and snapshot changes.
-runtime_lock_file() {
-	printf '%s\n' "${RUNTIME_LOCK_FILE:-${PKG_STATE_DIR:-/var/run/mihowrt}/runtime.lock}"
-}
-
-# Treat non-numeric or dead lock owners as stale so interrupted operations do
-# not leave the runtime permanently blocked.
-runtime_lock_owner_stale() {
-	local owner="$1"
-
-	case "$owner" in
-	'' | *[!0-9]*)
-		return 0
-		;;
-	esac
-
-	kill -0 "$owner" 2>/dev/null && return 1
-	return 0
-}
-
-# Read the owner token from the current lock. Symlink locks are the normal
-# format; directory locks are accepted so stale locks from older installs can be
-# cleaned up.
-runtime_lock_read_owner() {
-	local lock_file="$1"
-
-	if [ -L "$lock_file" ]; then
-		readlink "$lock_file" 2>/dev/null
-		return $?
-	fi
-	[ -r "$lock_file/owner" ] || return 1
-	cat "$lock_file/owner" 2>/dev/null
-}
-
-# Remove a stale lock without deleting a live replacement. Legacy directory
-# locks are removed only after re-reading their owner.
-runtime_lock_remove_stale() {
-	local lock_file="$1" owner="$2" current_owner=""
-
-	current_owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
-	[ "$current_owner" = "$owner" ] || return 0
-	if [ -L "$lock_file" ]; then
-		runtime_lock_owner_stale "$current_owner" || return 1
-		rm -f "$lock_file"
-		return $?
-	fi
-	if [ ! -d "$lock_file" ]; then
-		rm -f "$lock_file"
-		return $?
-	fi
-	if [ -z "$current_owner" ]; then
-		rm -f "$lock_file/owner" 2>/dev/null || return 1
-		rmdir "$lock_file" 2>/dev/null
-		return $?
-	fi
-	runtime_lock_owner_stale "$current_owner" || return 1
-	rm -f "$lock_file/owner" || return 1
-	rmdir "$lock_file" 2>/dev/null || return 1
-}
-
-# Acquire a symlink lock. ash/openwrt does not guarantee flock everywhere, while
-# ln -s atomically stores the owner token with the lock path.
-runtime_lock_acquire() {
-	local lock_file="" lock_dir="" owner="" waited=0
-	local timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
-
-	case "$timeout" in
-	'' | *[!0-9]*)
-		timeout=120
-		;;
-	esac
-
-	lock_file="$(runtime_lock_file)"
-	lock_dir="$(dirname "$lock_file")"
-	if command -v ensure_dir >/dev/null 2>&1; then
-		ensure_dir "$lock_dir" || return 1
-	else
-		mkdir -p "$lock_dir" || return 1
-	fi
-
-	while :; do
-		if [ -d "$lock_file" ] && [ ! -L "$lock_file" ]; then
-			# ln would create a link inside a legacy directory lock.
-			owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
-		elif ln -s "$$" "$lock_file" 2>/dev/null; then
-			return 0
-		else
-			owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
-		fi
-
-		if runtime_lock_owner_stale "$owner"; then
-			if runtime_lock_remove_stale "$lock_file" "$owner"; then
-				continue
-			fi
-		fi
-
-		if [ "$waited" -ge "$timeout" ]; then
-			err "Runtime state is busy by process $owner"
-			return 1
-		fi
-
-		sleep 1
-		waited=$((waited + 1))
-	done
-}
-
-# Release only the lock owned by this process.
-runtime_lock_release() {
-	local lock_file="" owner=""
-
-	lock_file="$(runtime_lock_file)"
-	owner="$(runtime_lock_read_owner "$lock_file" 2>/dev/null || true)"
-	if [ "$owner" = "$$" ]; then
-		if [ -L "$lock_file" ]; then
-			rm -f "$lock_file"
-			return 0
-		fi
-		rm -f "$lock_file/owner"
-		rmdir "$lock_file" 2>/dev/null || true
-	fi
-}
-
-runtime_tmp_cleanup_stale() {
-	local tmp_dir="${PKG_TMP_DIR:-/tmp/mihowrt}"
-	local path=""
-
-	[ -d "$tmp_dir" ] || return 0
-	for path in "$tmp_dir"/nft.* "$tmp_dir"/nft-fast.* "$tmp_dir"/policy-effective.* "$tmp_dir"/policy-remote.*; do
-		[ -e "$path" ] || continue
-		rm -f "$path" 2>/dev/null || true
-	done
-}
-
-# Run a mutating command under the runtime lock.
-with_runtime_lock() {
-	local rc=0
-
-	runtime_lock_acquire || return 1
-	runtime_tmp_cleanup_stale
-	"$@"
-	rc=$?
-	runtime_tmp_cleanup_stale
-	runtime_lock_release
 	return "$rc"
 }
 
-# Long-running procd payload. It starts Mihomo, waits for DNS/TPROXY readiness,
-# applies router policy, then cleans up when Mihomo exits or service stops.
-run_service() {
-	local pid dns_port cleanup_done=0 stop_requested=0 rc=1 cleanup_rc=0
-	local clash_config="${CLASH_CONFIG:-$CLASH_DIR/config.yaml}"
-
-	log "MihoWRT runtime bootstrap starting"
-	load_runtime_config || return 1
-	log "Runtime config loaded"
-	validate_runtime_config || return 1
-	log "Runtime config validated"
-	ensure_dir "$PKG_STATE_DIR"
-	init_runtime_layout || return 1
-	log "Runtime layout ready"
-
-	cleanup_service() {
-		if [ "$cleanup_done" -eq 0 ]; then
-			with_runtime_lock cleanup_runtime_state || cleanup_rc=$?
-			cleanup_done=1
-		fi
-		mihomo_api_live_state_clear
-		rm -f "$SERVICE_PID_FILE"
-	}
-
-	clear_service_traps() {
-		trap - INT TERM HUP
-	}
-
-	request_service_stop() {
-		stop_requested=1
-		[ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && kill "$pid" 2>/dev/null || true
-	}
-
-	trap 'request_service_stop' INT TERM HUP
-
-	"$CLASH_BIN" -d "$CLASH_DIR" -f "$clash_config" &
-	pid=$!
-	echo "$pid" >"$SERVICE_PID_FILE"
-	log "Mihomo process spawned"
-
-	dns_port="$(dns_listen_port "$MIHOMO_DNS_LISTEN")"
-	# Do not apply nft/route/DNS before Mihomo listens. Otherwise traffic could be
-	# redirected into a socket that does not exist yet.
-	if ! wait_for_mihomo_ready "$dns_port" "$MIHOMO_TPROXY_PORT" "$pid"; then
-		err "Mihomo failed to become ready on DNS port $dns_port and TPROXY port $MIHOMO_TPROXY_PORT"
-		kill "$pid" 2>/dev/null || true
-		wait "$pid" 2>/dev/null || true
-		cleanup_service
-		clear_service_traps
-		[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
-		return 1
-	fi
-	log "Mihomo listeners ready"
-	if mihomo_api_live_state_save_current; then
-		subscription_refresh_auto_update_state || warn "Failed to refresh subscription auto-update state"
-	else
-		warn "Failed to persist live Mihomo API state"
-	fi
-
-	# Runtime policy is applied after readiness so any failure can stop Mihomo and
-	# return router state to the pre-start baseline.
-	if ! with_runtime_lock apply_runtime_state; then
-		err "Failed to apply runtime policy after Mihomo became ready"
-		kill "$pid" 2>/dev/null || true
-		wait "$pid" 2>/dev/null || true
-		cleanup_service
-		clear_service_traps
-		[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
-		return 1
-	fi
-	log "Runtime policy applied"
-
-	log "MihoWRT service ready"
-	rc=0
-	wait "$pid" 2>/dev/null || rc=$?
-	cleanup_service
-	clear_service_traps
-	[ "$cleanup_rc" -eq 0 ] || return "$cleanup_rc"
-
-	if [ "$stop_requested" -eq 1 ]; then
-		log "MihoWRT service stopped"
-		return 0
-	fi
-
-	case "$rc" in
-	0) return 0 ;;
-	'' | *[!0-9]*) return 1 ;;
-	esac
-
-	return 1
-}
-
-case "$1" in
-prepare | start)
-	mihowrt_cli_load_full_modules prepare_runtime_state || exit 1
-	with_runtime_lock prepare_runtime_state
-	;;
-cleanup | stop)
-	mihowrt_cli_load_full_modules cleanup_runtime_state || exit 1
-	with_runtime_lock cleanup_runtime_state
-	;;
-recover)
-	mihowrt_cli_load_full_modules recover_runtime_state || exit 1
-	with_runtime_lock recover_runtime_state
-	;;
-reload | reload-policy)
-	mihowrt_cli_load_full_modules reload_runtime_state || exit 1
-	with_runtime_lock reload_runtime_state
-	;;
-update-policy-lists)
-	mihowrt_cli_load_full_modules update_runtime_policy_lists || exit 1
-	with_runtime_lock update_runtime_policy_lists
-	;;
-apply-policy-lists)
-	[ "$#" -eq 5 ] || {
-		echo "Usage: $0 apply-policy-lists <reload:0|1> <dst-temp-path> <src-temp-path> <direct-temp-path>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_full_modules apply_policy_lists_runtime || exit 1
-	with_runtime_lock apply_policy_lists_runtime "$2" "$3" "$4" "$5"
-	;;
-auto-update-policy-lists)
-	mihowrt_cli_load_full_modules auto_update_policy_remote_lists || exit 1
-	with_runtime_lock auto_update_policy_remote_lists
-	;;
-sync-policy-remote-auto-update)
-	mihowrt_cli_load_module_group policy_remote_refresh_auto_update_state "$MIHOWRT_POLICY_LIST_MODULES" || exit 1
-	with_runtime_lock policy_remote_refresh_auto_update_state
-	;;
-sync-subscription-auto-update)
-	mihowrt_cli_load_module_group subscription_refresh_auto_update_state "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	with_runtime_lock subscription_refresh_auto_update_state
-	;;
-migrate-all)
-	mihowrt_cli_load_module_group migrate_all "$MIHOWRT_MIGRATION_MODULES" || exit 1
-	migrate_all
-	;;
-migrate-legacy-settings)
-	mihowrt_cli_load_module_group migrate_legacy_uci_settings "$MIHOWRT_MIGRATION_MODULES" || exit 1
-	migrate_legacy_uci_settings
-	;;
-migrate-policy-lists)
-	mihowrt_cli_load_module_group migrate_policy_list_files "$MIHOWRT_MIGRATION_MODULES" || exit 1
-	migrate_policy_list_files
-	;;
-ensure-api-defaults)
-	mihowrt_cli_load_module_group ensure_active_config_api_defaults "$MIHOWRT_CONFIG_MODULES" || exit 1
-	with_runtime_lock ensure_active_config_api_defaults
-	;;
-service-running)
-	mihowrt_cli_load_module_group service_running_state "runtime-probe.sh" || exit 1
-	service_running_state
-	;;
-service-ready)
-	mihowrt_cli_load_module_group service_ready_runtime_state "$MIHOWRT_SERVICE_STATE_MODULES" || exit 1
-	service_ready_runtime_state
-	;;
-service-state-json)
-	mihowrt_cli_load_module_group service_state_json "$MIHOWRT_SERVICE_STATE_MODULES" || exit 1
-	service_state_json
-	;;
-core-version-json)
-	mihowrt_cli_load_module_group core_version_json "version.sh" || exit 1
-	core_version_json
-	;;
-restart-validated-service)
-	mihowrt_cli_load_module_group current_config_has_validated_stamp "$MIHOWRT_CONFIG_MODULES" || exit 1
-	init_script="/etc/init.d/${PKG_NAME:-mihowrt}"
-	[ -x "$init_script" ] || {
-		echo "Error: init script '$init_script' is missing or not executable" >&2
-		exit 1
-	}
-	if current_config_has_validated_stamp; then
-		MIHOWRT_SKIP_CLASH_TEST=1 "$init_script" restart
-	else
-		"$init_script" restart
-	fi
-	;;
-validate)
-	mihowrt_cli_load_module_group validate_runtime_config "$MIHOWRT_RUNTIME_CONFIG_MODULES" || exit 1
-	load_runtime_config && validate_runtime_config
-	;;
-run-service)
-	mihowrt_cli_load_full_modules load_runtime_config || exit 1
-	run_service
-	;;
-init-layout)
-	mihowrt_cli_load_module_group init_runtime_layout "$MIHOWRT_INIT_LAYOUT_MODULES" || exit 1
-	init_runtime_layout
-	;;
-read-config)
-	mihowrt_cli_load_module_group read_config_json "$MIHOWRT_CONFIG_MODULES" || exit 1
-	[ -n "${2:-}" ] && CLASH_CONFIG="$2"
-	read_config_json
-	;;
-live-api-json)
-	mihowrt_cli_load_module_group mihomo_api_live_state_read "$MIHOWRT_API_MODULES" || exit 1
-	mihomo_api_live_state_read
-	;;
-apply-config)
-	[ -n "${2:-}" ] || {
-		echo "Usage: $0 apply-config <temp-config-path>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_full_modules apply_config_runtime || exit 1
-	with_runtime_lock apply_config_runtime "$2"
-	;;
+cmd="${1:-}"
+[ $# -gt 0 ] && shift
+case "$cmd" in
+prepare) with_lock service_prepare ;;
+run-service) run_service ;;
+wait-stopped) service_wait_stopped ;;
+recover) with_lock service_recover ;;
+reload) with_lock service_reload ;;
+migrate) with_lock migrate ;;
+read-config) config_read_json "${1:-}" ;;
 save-config)
-	[ -n "${2:-}" ] || {
-		echo "Usage: $0 save-config <temp-config-path>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_module_group apply_config_file "$MIHOWRT_CONFIG_MODULES" || exit 1
-	with_runtime_lock apply_config_file "$2"
+	need_args $# 1
+	with_lock config_save "$1"
 	;;
-apply-active-config)
-	mihowrt_cli_load_full_modules apply_active_config_runtime || exit 1
-	with_runtime_lock apply_active_config_runtime
+subscription-json) subscription_json ;;
+set-subscription)
+	need_args $# 2
+	with_lock subscription_set "$1" "$2"
 	;;
-apply-config-contents)
-	[ "${2+x}" = x ] || {
-		echo "Usage: $0 apply-config-contents <config-contents>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_full_modules apply_config_contents || exit 1
-	with_runtime_lock apply_config_contents "$2"
+update-subscription) subscription_update ;;
+apply-lists)
+	need_args $# 3
+	lists_apply "$1" "$2" "$3"
 	;;
-subscription-json)
-	mihowrt_cli_load_module_group subscription_url_json "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	subscription_url_json
+update-lists) lists_refresh ;;
+auto-update) auto_update ;;
+dns-refresh) with_lock dns_refresh ;;
+core-update) core_update_cmd ;;
+core-version-json) core_version_json ;;
+status-json) status_json ;;
+service-state-json) service_state_json ;;
+logs-json) logs_json "${1:-200}" ;;
+proxies-json) settings_load && api_proxies_json ;;
+select-proxy)
+	need_args $# 2
+	settings_load && api_select "$1" "$2"
 	;;
-set-subscription-settings)
-	[ "$#" -ge 4 ] && [ "$#" -le 11 ] || {
-		echo "Usage: $0 set-subscription-settings <url> <override:0|1> <interval-hours> [header-interval-hours [title userinfo support-url web-page-url announce]]" >&2
-		exit 1
-	}
-	mihowrt_cli_load_module_group set_subscription_settings "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	shift
-	with_runtime_lock set_subscription_settings "$@"
+group-delay)
+	need_args $# 1
+	settings_load && api_group_delay "$1"
 	;;
-set-subscription-fetched-interval)
-	[ "$#" -eq 3 ] || {
-		echo "Usage: $0 set-subscription-fetched-interval <url> <header-interval-hours>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_module_group set_subscription_fetched_interval "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	with_runtime_lock set_subscription_fetched_interval "$2" "$3"
-	;;
-fetch-subscription)
-	[ -n "${2:-}" ] || {
-		echo "Usage: $0 fetch-subscription <url>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_module_group fetch_subscription_config "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	fetch_subscription_config "$2"
-	;;
-fetch-subscription-json)
-	[ -n "${2:-}" ] || {
-		echo "Usage: $0 fetch-subscription-json <url>" >&2
-		exit 1
-	}
-	mihowrt_cli_load_module_group fetch_subscription_json "$MIHOWRT_SUBSCRIPTION_MODULES" || exit 1
-	fetch_subscription_json "$2"
-	;;
-update-subscription)
-	mihowrt_cli_load_full_modules update_subscription_config || exit 1
-	with_runtime_lock update_subscription_config
-	;;
-auto-update-subscription)
-	mihowrt_cli_load_full_modules auto_update_subscription_config || exit 1
-	with_runtime_lock auto_update_subscription_config
-	;;
-status-json)
-	mihowrt_cli_load_module_group status_json "$MIHOWRT_STATUS_MODULES" || exit 1
-	status_json
-	;;
-logs-json)
-	mihowrt_cli_load_module_group logs_json "$MIHOWRT_DIAGNOSTICS_MODULES" || exit 1
-	logs_json "${2:-200}"
-	;;
-kernel-update-json)
-	mihowrt_cli_load_module_group kernel_update_json "$MIHOWRT_KERNEL_MODULES" || exit 1
-	with_runtime_lock kernel_update_json
-	;;
-status)
-	mihowrt_cli_load_module_group status_runtime_state "$MIHOWRT_STATUS_MODULES" || exit 1
-	status_runtime_state
-	;;
-*)
-	echo "Usage: $0 {prepare|cleanup|recover|reload|reload-policy|update-policy-lists|apply-policy-lists|auto-update-policy-lists|sync-policy-remote-auto-update|sync-subscription-auto-update|migrate-all|migrate-legacy-settings|migrate-policy-lists|ensure-api-defaults|service-running|service-ready|service-state-json|core-version-json|restart-validated-service|validate|run-service|init-layout|read-config|live-api-json|save-config|apply-config|apply-active-config|apply-config-contents|subscription-json|set-subscription-settings|set-subscription-fetched-interval|fetch-subscription|fetch-subscription-json|update-subscription|auto-update-subscription|status-json|logs-json|kernel-update-json|status}" >&2
-	exit 1
-	;;
+dashboard-json) dashboard_json ;;
+*) usage ;;
 esac

@@ -12,3 +12,6 @@ project-map.md
 docs/specs/
 docs/plans/
 .superpowers/
+
+# macOS
+.DS_Store

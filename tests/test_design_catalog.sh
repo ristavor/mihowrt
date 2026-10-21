@@ -34,4 +34,6 @@ console.log('ok - layout-only MihoWRT CSS');
 // MihoWRT menu cannot extend beyond a 390px viewport (398px before this cap).
 assert(/#tabmenu\s*>\s*\.tabs\s*\{[^}]*max-width:\s*100%/.test(css), 'page tabs must fit the viewport despite theme negative margins');
 console.log('ok - bounded page tab layout');
+assert(/\.mw-page\s+\[hidden\]\s*\{\s*display:\s*none;?\s*\}/.test(css), 'hidden toggle content must override grid and theme display rules');
+console.log('ok - hidden toggle content layout');
 NODE

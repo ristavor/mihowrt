@@ -79,8 +79,48 @@ nft_port_rules() {
 }
 
 
+# Main-table connected routes only; default-route devices are WAN links.
+nft_connected_prefixes() {
+	local fam="$1"
+
+	{
+		ip -"$fam" route show default
+		printf '%s\n' '--main--'
+		ip -"$fam" route show table main
+	} | awk -v fam="$fam" '
+		$0 == "--main--" { main = 1; next }
+		!main {
+			for (i = 1; i < NF; i++) if ($i == "dev") wan[$(i + 1)] = 1
+			next
+		}
+		$1 == "default" { next }
+		{
+			unreachable = ($1 == "unreachable")
+			prefix = unreachable ? $2 : $1
+			dev = ""
+			for (i = 1; i <= NF; i++) {
+				if ($i == "via") next
+				if ($i == "dev") dev = $(i + 1)
+			}
+			if (!unreachable && (dev in wan)) next
+			n = split(prefix, parts, "/")
+			if (n > 2 || (n == 2 && parts[2] !~ /^[0-9]+$/)) next
+			if (fam == 4) {
+				if (parts[1] !~ /^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$/) next
+				bits = n == 2 ? parts[2] + 0 : 32
+				if (bits < 16 || bits > 32) next
+			} else {
+				if (parts[1] !~ /:/ || parts[1] !~ /^[0-9a-fA-F:]+$/) next
+				bits = n == 2 ? parts[2] + 0 : 128
+				if (bits < 32 || bits > 128) next
+			}
+			print prefix
+		}
+	'
+}
+
 nft_render_base() {
-	local iface="" t="$NFT_TABLE_NAME" set=""
+	local iface="" t="$NFT_TABLE_NAME" set="" prefix=""
 
 	nft_line "add table inet $t"
 	nft_line "delete table inet $t"
@@ -100,6 +140,13 @@ nft_render_base() {
 	nft_line "add set inet $t bypass_dst6 { type ipv6_addr; flags timeout; }"
 	nft_line "add element inet $t localv4 { 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24, 192.168.0.0/16, 198.51.100.0/24, 203.0.113.0/24, 224.0.0.0/3 }"
 	nft_line "add element inet $t localv6 { ::/127, fe80::/10, fc00::/7, ff00::/8 }"
+	# Separate additions let interval auto-merge absorb overlaps with fixed
+	# ranges and delegated aggregates. Sort for stable refresh comparisons.
+	for set in 4 6; do
+		nft_connected_prefixes "$set" | sort -u | while IFS= read -r prefix; do
+			nft_line "add element inet $t localv$set { $prefix }"
+		done
+	done
 	for iface in $SOURCE_INTERFACES; do
 		nft_line "add element inet $t source_ifaces { \"$iface\" }"
 	done

@@ -113,12 +113,13 @@ dns_cleanup() {
 	log "dnsmasq DNS restored"
 }
 
-# WAN reconnects change interface DNS servers; refresh bypass lines.
-dns_refresh() {
+# Interface updates change both DNS servers and connected/delegated routes.
+net_refresh() {
 	# The marker exists only while policy is applied to a live Mihomo.
 	[ -f "$RUNNING_MARKER" ] && service_running || return 0
 	settings_load || return 1
-	dns_apply
+	dns_apply || return 1
+	nft_apply
 }
 
 dns_custom_servers() {

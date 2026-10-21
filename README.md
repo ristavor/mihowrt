@@ -297,6 +297,9 @@ Real-router checks run in an OpenWrt 25.12.6 x86/64 QEMU VM:
 
 ## Known limits
 
+- Connected-network exclusions read only the main routing table, not mwan3 or
+  other policy tables. Public VPN routes without `via` with prefixes at least
+  /16 (IPv4) or /32 (IPv6) are treated as local and go direct through the tunnel.
 - IPv6 fake-IP is not used. IPv6 destinations are handled by the lists and by
   the *All traffic* mode.
 - Clients using DoH/DoT (browser DoH, Android Private DNS) bypass Mihomo DNS,

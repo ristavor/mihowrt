@@ -11,6 +11,52 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh
 setup_runtime_paths "$tmpdir"
 
+# Real OpenWrt route formats, including delegated unreachable aggregates.
+cat >"$tmpdir/routes.6" <<'ROUTES'
+default via fe80::1 dev eth1
+2a00:1::/64 dev eth1 proto kernel
+unreachable 2001:db8:1::/48 dev lo
+2001:db8:1:10::/64 dev br-lan
+2001:db8:1:20::/64 dev br-guest
+2000::/3 dev wg0
+ROUTES
+cat >"$tmpdir/routes.4" <<'ROUTES'
+default via 10.0.2.2 dev eth1
+10.0.2.0/24 dev eth1
+203.0.113.0/24 dev br-dmz
+0.0.0.0/1 dev wg0
+5.0.0.0/8 dev wg1
+ROUTES
+ip() {
+ case "$*" in
+ '-4 route show table main') cat "$tmpdir/routes.4" ;;
+ '-6 route show table main') cat "$tmpdir/routes.6" ;;
+ '-4 route show default') grep '^default' "$tmpdir/routes.4" || true ;;
+ '-6 route show default') grep '^default' "$tmpdir/routes.6" || true ;;
+ *) fail "unexpected ip arguments: $*" ;;
+ esac
+}
+assert_eq $'2001:db8:1::/48\n2001:db8:1:10::/64\n2001:db8:1:20::/64' "$(nft_connected_prefixes 6)" 'connected v6'
+pass 'connected v6'
+assert_eq '203.0.113.0/24' "$(nft_connected_prefixes 4)" 'connected v4'
+pass 'connected v4'
+(
+ cat >>"$tmpdir/routes.6" <<'ROUTES'
+default from 2001:db8::/48 via fe80::2 dev pppoe-wan proto static metric 512 pref medium
+2a00:2::/64 dev pppoe-wan proto kernel
+unreachable 2001:db8:2::/48 dev pppoe-wan proto static metric 2147483647 pref medium
+2001:db8:3::/64 via fe80::3 dev br-lan
+2001:db8:4::1 dev br-lan
+blackhole 2001:db8:5::/48
+ROUTES
+ assert_eq $'2001:db8:1::/48\n2001:db8:1:10::/64\n2001:db8:1:20::/64\n2001:db8:2::/48\n2001:db8:4::1' "$(nft_connected_prefixes 6)" 'source-specific defaults, unreachable WAN routes, via routes and hosts'
+ sed '/^default/d' "$tmpdir/routes.4" >"$tmpdir/routes.boot"
+ mv "$tmpdir/routes.boot" "$tmpdir/routes.4"
+ assert_eq $'10.0.2.0/24\n203.0.113.0/24' "$(nft_connected_prefixes 4)" 'no default at boot keeps link subnets'
+)
+# Restore the exact v4 vector after the boot case.
+sed -i '1i default via 10.0.2.2 dev eth1' "$tmpdir/routes.4"
+
 
 LIST_DIR="$tmpdir/lst"
 DST_LIST_FILE="$LIST_DIR/dst.txt"
@@ -41,6 +87,13 @@ render() {
 }
 
 render
+assert_file_contains "$out" 'localv4 { 203.0.113.0/24 }' 'sets filled: connected v4'
+for prefix in 2001:db8:1::/48 2001:db8:1:10::/64 2001:db8:1:20::/64; do
+ assert_file_contains "$out" "localv6 { $prefix }" 'sets filled: overlapping delegated v6'
+done
+assert_file_contains "$out" 'localv4 { 0.0.0.0/8, 10.0.0.0/8,' 'fixed v4 ranges retained'
+assert_file_contains "$out" 'localv6 { ::/127, fe80::/10, fc00::/7, ff00::/8 }' 'fixed v6 ranges retained'
+pass 'sets filled'
 assert_file_contains "$out" "add element inet mihowrt proxy_dst { 1.1.1.1 }" "v4 set element"
 assert_file_contains "$out" "add element inet mihowrt proxy_dst6 { 2001:db8::/32 }" "v6 set element"
 assert_file_contains "$out" "add element inet mihowrt proxy_src6 { fd00::10 }" "v6 source element"

@@ -10,7 +10,7 @@ Service:  prepare | run-service | wait-stopped | recover | reload | migrate
 Config:   read-config [tmp] | save-config <tmp>
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
-Updates:  auto-update | dns-refresh | core-update | core-version-json
+Updates:  auto-update | net-refresh | core-update | core-version-json
 Status:   status-json | service-state-json | profile-json | logs-json [lines]
 Proxies:  proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
 EOF
@@ -84,7 +84,7 @@ apply-lists)
 	;;
 update-lists) lists_refresh ;;
 auto-update) auto_update ;;
-dns-refresh) with_lock dns_refresh ;;
+net-refresh) with_lock net_refresh ;;
 core-update) core_update_cmd ;;
 core-version-json) core_version_json ;;
 status-json) status_json ;;

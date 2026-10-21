@@ -285,3 +285,57 @@ ACTION=ifup sh "$tmpdir/hotplug.sh"
 for i in {1..50}; do [ ! -e "$tmpdir/hotplug.started" ] || break; sleep 0.02; done
 assert_true "hotplug starts when not stopped" test -f "$tmpdir/hotplug.started"
 pass "sticky Stop and hotplug"
+
+printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || exit 1\nprintf "%%s\\n" "$*" >"%s"\n' "$tmpdir/hotplug.calls" >"$tmpdir/cli"
+touch "$tmpdir/hotplug/running"
+exec 9>>"$tmpdir/hotplug.flock"
+ACTION=ifupdate sh "$tmpdir/hotplug.sh"
+exec 9>&-
+for i in {1..50}; do [ ! -e "$tmpdir/hotplug.calls" ] || break; sleep 0.02; done
+assert_eq net-refresh "$(cat "$tmpdir/hotplug.calls")" 'ifupdate refreshes running service without inherited fd 9'
+assert_false 'old refresh command removed from runtime' grep -R -E 'dns[-_]refresh' "$ROOT_DIR/rootfs"
+pass 'hotplug'
+
+# Execute the actual renamed CLI dispatch with the real DNS/nft apply functions.
+(
+ load_modules settings.sh lists.sh nft.sh dns.sh
+ setup_runtime_paths "$tmpdir/refresh"
+ RUNNING_MARKER="$PKG_STATE_DIR/running"
+ RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock"
+ LIST_DIR="$tmpdir/refresh/lists"
+ DST_LIST_FILE="$LIST_DIR/dst.txt"
+ SRC_LIST_FILE="$LIST_DIR/src.txt"
+ DIRECT_DST_LIST_FILE="$LIST_DIR/direct.txt"
+ POLICY_CACHE_DIR="$tmpdir/refresh/cache"
+ lists_ensure_files
+ fake_uci_reset
+ fake_uci_set dhcp.cfg01 dnsmasq
+ fake_uci_set dhcp.cfg01.confdir "$tmpdir/refresh/dnsmasq.d"
+ DNS_AUTO_RESOLVFILE="$tmpdir/refresh/resolv"
+ printf 'nameserver 10.0.0.1\n' >"$DNS_AUTO_RESOLVFILE"
+ touch "$RUNNING_MARKER"
+ service_running() { return 0; }
+ routes="$tmpdir/refresh/routes"
+ printf '2001:db8:1::/64 dev br-lan\n' >"$routes"
+ ip() { [ "$*" != '-6 route show table main' ] || cat "$routes"; return 0; }
+ nft_active() { return 0; }
+ nft() { echo "$*" >>"$tmpdir/refresh/nft.calls"; }
+ dns_restart_dnsmasq() { echo restart >>"$tmpdir/refresh/restarts"; }
+ # Observe settings reload under the runtime lock, without replacing apply.
+ eval "$(declare -f settings_load | sed '1s/settings_load/refresh_settings_load/')"
+ settings_load() {
+  [ "${LOCK_DEPTH:-0}" = 1 ] || fail 'net-refresh must load settings under lock'
+  refresh_settings_load
+ }
+ sed '/^LIB=/,/mihowrt_load_modules.*exit 1/d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$tmpdir/refresh/cli.sh"
+ refresh_cli() { ( set -- net-refresh; source "$tmpdir/refresh/cli.sh"; ); }
+ refresh_cli
+ refresh_cli
+ assert_eq 1 "$(wc -l <"$tmpdir/refresh/nft.calls" | tr -d ' ')" 'unchanged refresh skips nft -f'
+ assert_eq 1 "$(wc -l <"$tmpdir/refresh/restarts" | tr -d ' ')" 'unchanged refresh skips dnsmasq restart'
+ printf '2001:db8:2::/64 dev br-guest\n' >>"$routes"
+ refresh_cli
+ assert_eq 2 "$(wc -l <"$tmpdir/refresh/nft.calls" | tr -d ' ')" 'new route calls nft -f once'
+ assert_eq 1 "$(wc -l <"$tmpdir/refresh/restarts" | tr -d ' ')" 'new route does not restart dnsmasq'
+)
+pass 'refresh is idempotent'

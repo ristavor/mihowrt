@@ -74,6 +74,6 @@ pass "bypass host names sanitized"
 echo "$$" >"$RUNNING_MARKER"
 service_running() { return 1; }
 settings_load() { :; }
-dns_refresh
+net_refresh
 [[ ! -e "$tmpdir/dnsmasq.d/mihowrt.conf" ]] || fail "refresh must not point dnsmasq at a Mihomo that is not running"
-pass "dns refresh requires running service"
+pass "net refresh requires running service"

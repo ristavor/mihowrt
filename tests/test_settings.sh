@@ -8,13 +8,16 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
+setup_runtime_paths "$tmpdir"
+
 
 settings_load || fail "empty UCI must load"
-assert_eq "direct-first" "$POLICY_MODE" "default policy mode"
+assert_eq "proxy-first" "$POLICY_MODE" "default policy mode"
+assert_eq redir-host "$DNS_MODE" "no YAML defaults to redir-host"
 assert_eq "br-lan" "$SOURCE_INTERFACES" "default source interface"
 assert_eq "1:1:0:1:1" "$DNS_HIJACK:$DISABLE_QUIC:$NETBIRD_PROXY:$BYPASS_NTP:$BYPASS_SUBSCRIPTION_DNS" "default toggles"
-assert_eq "24:0" "$SUBSCRIPTION_INTERVAL:$LISTS_INTERVAL" "default intervals (subscription auto = 24 h)"
+assert_eq "0:0" "$SUBSCRIPTION_INTERVAL:$LISTS_INTERVAL" "default intervals (no provider period)"
 assert_eq "113920" "$NETBIRD_MARK" "default NetBird mark"
 pass "settings defaults"
 
@@ -28,12 +31,11 @@ expect_invalid() {
 	fi
 }
 
-expect_invalid policy_mode foo
 expect_invalid source_network_interfaces 'br;lan'
 expect_invalid netbird_mark 0x08000000
 expect_invalid netbird_mark 0x1BD01
 expect_invalid subscription_url 'ftp://x'
-expect_invalid subscription_interval abc
+expect_invalid lists_interval abc
 pass "settings rejects invalid values"
 
 fake_uci_reset
@@ -85,3 +87,41 @@ unset -f kill
 assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "a lock taken meanwhile is not stolen"
 rm -f "$RUNTIME_LOCK_FILE"
 pass "stale lock removal re-checks owner"
+
+fake_uci_reset
+printf 'mode direct-first\ndns fake-ip\nset disable_quic 0\nset dns_hijack 0\n' >"$PROFILE_FILE"
+fake_uci_set mihowrt.settings.disable_quic 1
+fake_uci_set mihowrt.settings.dns_hijack 1
+fake_uci_set mihowrt.settings.policy_mode proxy-first
+settings_load
+assert_eq '0:0:direct-first' "$DISABLE_QUIC:$DNS_HIJACK:$POLICY_MODE" "provider wins and manual mode ignored"
+assert_true "both provider keys exposed" test "${PROVIDER_KEYS#*disable_quic}" != "$PROVIDER_KEYS"
+fake_uci_set mihowrt.settings.provider_override 'disable_quic bypass_ntp'
+fake_uci_set mihowrt.settings.bypass_ntp 0
+settings_load
+assert_eq '1:0:0' "$DISABLE_QUIC:$DNS_HIJACK:$BYPASS_NTP" "per-key and stale overrides"
+sed -i '/set disable_quic/d' "$PROFILE_FILE"
+settings_load
+assert_eq 1 "$DISABLE_QUIC" "override survives key drop"
+printf 'set disable_quic 0\n' >>"$PROFILE_FILE"
+settings_load
+assert_eq '1:0' "$DISABLE_QUIC:$DNS_HIJACK" "override survives re-add without affecting other key"
+for source in merge own provider invalid; do
+ fake_uci_set mihowrt.settings.dst_list_source "$source"
+ settings_load
+ expected="$source"; [ "$source" != invalid ] || expected=provider
+ assert_eq "$expected" "$DST_LIST_SOURCE" "list source validation"
+done
+for auto in missing 1 0; do
+ fake_uci_set mihowrt.settings.subscription_auto_update "$auto"
+ [ "$auto" != missing ] || uci delete mihowrt.settings.subscription_auto_update
+ for header in 12 0 9999 abc missing; do
+  printf '{"header_interval":"%s"}\n' "$header" >"$tmpdir/meta"
+  SUBSCRIPTION_META_FILE="$tmpdir/meta"
+  [ "$header" != missing ] || echo '{}' >"$SUBSCRIPTION_META_FILE"
+  expected=0
+  if [ "$auto" != 0 ] && [ "$header" = 12 ]; then expected=12; fi
+  assert_eq "$expected" "$(settings_subscription_interval)" "auto=$auto header=$header"
+ done
+done
+pass "provider precedence, persistent per-key overrides, sources and provider schedule"

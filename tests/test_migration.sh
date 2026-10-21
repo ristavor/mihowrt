@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh migration.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh migration.sh
+setup_runtime_paths "$tmpdir"
+
 OLD_DNS_BACKUP_FILE="$tmpdir/dns.backup"
 CLASH_DIR="$tmpdir/clash"
 CLASH_CONFIG="$CLASH_DIR/config.yaml"
@@ -46,7 +48,8 @@ fake_uci_set mihowrt.settings.subscription_userinfo 'upload=1'
 printf 'https://x/list.txt | 12\nhttps://y/l.txt | 4\n' >"$DST_LIST_FILE"
 printf '0 * * * * a # mihowrt subscription auto-update\nkeep me\n5 * * * * b # mihowrt policy remote auto-update\n' >"$CRON_FILE"
 migrate
-assert_eq "6" "$(uci_get subscription_interval)" "manual interval kept"
+assert_eq "1" "$(uci_get subscription_auto_update)" "auto updates migrated"
+assert_eq "" "$(uci_get subscription_interval)" "old interval removed"
 assert_eq "4" "$(uci_get lists_interval)" "smallest list interval"
 assert_eq "" "$(uci_get subscription_userinfo)" "old metadata options removed"
 assert_eq "keep me" "$(cat "$CRON_FILE")" "old cron lines removed"
@@ -79,3 +82,15 @@ assert_eq "$(printf '# Example:\n1.1.1.1')" "$(cat "$DST_LIST_FILE")" "files wit
 migrate_list_headers
 assert_eq "$(printf '192.168.1.151\n# my note')" "$(cat "$SRC_LIST_FILE")" "header removal idempotent"
 pass "0.7 list headers removed"
+
+for old in 0 6 ''; do
+ fake_uci_reset
+ fake_uci_set mihowrt.settings.policy_mode direct-first
+ fake_uci_set mihowrt.settings.subscription_interval "$old"
+ migrate_settings
+ expected=1; [ "$old" != 0 ] || expected=0
+ assert_eq "$expected" "$(uci_get subscription_auto_update)" "migrate interval $old"
+ assert_false "legacy interval deleted" uci -q get mihowrt.settings.subscription_interval
+ assert_false "manual mode deleted" uci -q get mihowrt.settings.policy_mode
+done
+pass "0.9 migration removes manual mode and interval"

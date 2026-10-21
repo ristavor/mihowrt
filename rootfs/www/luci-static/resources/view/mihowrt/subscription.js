@@ -8,10 +8,15 @@ const text = api.text;
 return view.extend({
 	load: () => Promise.all([
 		api.read('subscription-json').catch(() => ({})),
-		api.read('read-config').catch(() => ({ content: '' }))
+		api.readLarge('read-config').then(config => {
+			if (typeof config?.content !== 'string')
+				throw new Error(_('Unexpected response from the router.'));
+			return config;
+		}).catch(e => ({ error: api.errorText(e) })),
+		api.read('status-json').catch(() => ({}))
 	]),
 
-	render: function([ sub, config ]) {
+	render: function([ sub, config, status = {} ]) {
 		// type=text: some themes (openwrt-2020) style only text inputs.
 		const url = E('input', { id: 'mw-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
 			class: 'cbi-input-text', style: 'width: 100%',
@@ -29,15 +34,17 @@ return view.extend({
 				+ (auto.checked !== savedAuto ? ' ' + _('Not saved yet: press Save or Update now.') : '');
 		};
 		describeAuto();
-		auto.addEventListener('change', describeAuto);
 		const save = E('button', { class: 'cbi-button cbi-button-save' }, text(_('Save')));
-		const update = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Update now')));
+		const update = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action important' }, text(_('Update now')));
 		// LuCI's own monospace textarea (as for code fields on stock pages).
-		const yamlWidget = new ui.Textarea(config.content || '', { id: 'mw-yaml', monospace: true, wrap: false, rows: 24 }).render();
-		const yaml = yamlWidget.querySelector('textarea');
-		yaml.classList.add('mw-yaml');
-		yaml.setAttribute('spellcheck', 'false');
-		const apply = E('button', { class: 'cbi-button cbi-button-apply' }, text(_('Check and apply')));
+		const yamlWidget = config.error == null
+			? new ui.Textarea(config.content || '', { id: 'mw-yaml', monospace: true, wrap: false, rows: 24 }).render() : null;
+		const yaml = yamlWidget?.querySelector('textarea');
+		if (yaml) {
+			yaml.classList.add('mw-yaml');
+			yaml.setAttribute('spellcheck', 'false');
+		}
+		const apply = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-apply' }, text(_('Check and apply')));
 		const original = config.content;
 
 		const saveSettings = () => api.write('set-subscription', url.value.trim(), auto.checked ? '1' : '0');
@@ -47,7 +54,7 @@ return view.extend({
 			api.notify(_('Subscription settings saved.'));
 		}));
 		update.addEventListener('click', () => api.busy(update, async () => {
-			if (yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
+			if (yaml && yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
 				return;
 			const link = url.value.trim();
 			const changed = link !== (sub.url || '');
@@ -56,7 +63,7 @@ return view.extend({
 				await saveSettings();
 			// A new link is saved only after it downloads and passes the check.
 			try {
-				res = await api.write('update-subscription', ...(changed ? [ link ] : []));
+				res = await api.job('update-subscription', ...(changed ? [ link ] : []));
 			}
 			catch (e) {
 				throw new Error(api.subscriptionError(e.message) + (changed && sub.url ? ' ' + _('The previous link is kept.') : ''));
@@ -67,14 +74,32 @@ return view.extend({
 			location.reload();
 		}));
 		apply.addEventListener('click', () => api.busy(apply, async () => {
+			if (new Blob([yaml.value]).size > 8388608)
+				throw new Error(_('The YAML is larger than 8 MiB.'));
 			const path = await api.upload('mihowrt-config', yaml.value);
-			const res = await api.write('save-config', path);
+			const res = await api.job('save-config', path);
 			api.notify(res.action === 'unchanged' ? _('Configuration is unchanged.')
 				: res.action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.'));
+			location.reload();
 		}));
+
+		const restore = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null,
+			class: 'cbi-button cbi-button-reset' }, text(_('Restore the previous YAML')));
+		restore.addEventListener('click', () => api.busy(restore, async () => {
+			if (!confirm(_('Replace the current YAML with the previous one?')))
+				return;
+			const res = await api.job('restore-config');
+			api.notify(api.actionNotice(res.action));
+			location.reload();
+		}));
+		const restoreNote = E('div', { class: 'cbi-value-description' },
+			text(_('Automatic updates replace it again with the subscription.')));
+		restoreNote.hidden = !auto.checked;
+		auto.addEventListener('change', () => { describeAuto(); restoreNote.hidden = !auto.checked; });
 
 		return E('div', { class: 'mw-page' }, [
 			api.style(),
+			api.jobNotice(),
 			E('h2', text(_('Subscription'))),
 			E('div', { class: 'cbi-section' }, [
 				E('div', { class: 'cbi-value' }, [
@@ -91,10 +116,14 @@ return view.extend({
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', text(_('Advanced: edit the Mihomo YAML'))),
-				api.toggle(_('Show the YAML editor'), _('Hide the YAML editor'), E('div', {}, [
+				config.error != null ? E('div', { class: 'alert-message error' },
+					text(_('Cannot load the YAML: %s').format(config.error)))
+				: api.toggle(_('Show the YAML editor'), _('Hide the YAML editor'), E('div', {}, [
 					E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
+					E('label', { class: 'cbi-value-title', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
 					yamlWidget,
-					E('div', { class: 'mw-row' }, [ apply ])
+					E('div', { class: 'mw-row' }, [ apply ]),
+					status.config_backup ? E('div', {}, [ restore, restoreNote ]) : null
 				]))
 			])
 		]);

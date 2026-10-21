@@ -273,8 +273,8 @@ Promise.resolve(dash.listeners.click()).then(() => {
  }
  const subCalls = [], notices = [];
  const subview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
-  E: DOM, ui, view: { extend: v => v }, location: { reload() {} },
-  api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s) })
+  E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
+  api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s) })
  }).module;
  for (const [on, period, hint] of [
   [true, 12, 'Your provider decides how often (now every 12 h).'],
@@ -298,10 +298,10 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const yamlUploads = [], confirmations = [];
  let allowUpdate = false;
  const yamlView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
-  E: DOM, ui, view: { extend: v => v }, location: { reload() {} },
+  E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
   confirm: message => { confirmations.push(message); return allowUpdate; },
   api: { ...api, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
-   write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message) }
+   write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message) }
  }).module;
  const yamlNodes = collect(yamlView.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
  const yaml = yamlNodes.find(n => n.tag === 'textarea');
@@ -486,9 +486,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  await collect(fp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
  h.assertEq(fs3.disabled, false, 'select usable again after the test');
  const subCalls = [], errors = []; let fail = false;
- const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, E: (tag, attrs, children) => {
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, Blob, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;
- }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); if (fail && args[0] === 'update-subscription') throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
+ }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); return {}; }, job: async (...args) => { subCalls.push(args); if (fail) throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
  for (const changed of [false, true]) {
   const p = sv.render([{ url: 'https://old.example', auto_update: true }, { content: 'yaml' }]);
   const ns = collect(p); ns.find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
@@ -500,6 +500,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
    h.assertEq(subCalls[0][1], 'https://new.example', 'new link passed to updater');
    fail = true; subCalls.length = 0; await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
    h.assertEq(subCalls.length, 1, 'failed new link never set'); h.assert(errors.at(-1).includes('The previous link is kept.'), 'previous link explanation');
+   h.assert(errors.at(-1).includes('not found (HTTP 404)'), 'job failure keeps subscriptionError mapping');
   }
  }
  let logReads = 0;
@@ -635,6 +636,125 @@ for (const [name, check] of [
   h.assert(texts(p).includes('"Update Mihomo core" is running…'), 'job notice shown on page');
  }
  console.log('ok - overview job notice');
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
+// Task 18: safe editor, large uploads, restore and shared job controls.
+(async () => {
+ function DOM(tag, attrs, children) {
+  const n = E(tag, attrs, children); n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null; return n;
+ }
+ async function check(name, fn) {
+  try { await fn(); console.log('ok - subscription ' + name); }
+  catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
+ }
+ let calls = [], allow = false, reloads = 0, noticeCalls = 0, applyEvents = [];
+ const bridge = { ...api, jobRunning: false,
+  busy: (b, fn) => fn(), read: async cmd => { calls.push(['read', cmd]); return cmd === 'status-json' ? { config_backup: true } : {}; },
+  readLarge: async cmd => { calls.push(['readLarge', cmd]); throw Error('x'); },
+  upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-config.test'; },
+  job: async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; },
+  write: async (...args) => { calls.push(['write', ...args]); return {}; },
+  jobNotice: () => { noticeCalls++; return E('div', { 'aria-live': 'polite' }); }, notify() {}
+ };
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: DOM, ui, Blob, api: bridge, view: { extend: v => v },
+  confirm: message => { h.assertEq(message, 'Replace the current YAML with the previous one?', 'restore question'); return allow; },
+  location: { reload: () => { reloads++; applyEvents.push('reload'); } }
+ }).module;
+ const render = (backup = true, auto = true) => sv.render([{ url: 'https://old.example', auto_update: auto }, { content: 'yaml' }, { config_backup: backup }]);
+ const button = (p, label) => collect(p).find(n => n.tag === 'button' && texts(n).includes(label));
+ await check('load failure', async () => {
+  calls = []; const p = sv.render(await sv.load());
+  h.assert(calls.some(c => c.join(',') === 'readLarge,read-config'), 'YAML uses readLarge');
+  h.assert(calls.some(c => c.join(',') === 'read,status-json'), 'backup status loaded');
+  h.assert(texts(p).includes('Cannot load the YAML: x'), 'read error visible');
+  h.assert(!collect(p).some(n => n.tag === 'textarea') && !button(p, 'Check and apply') && !button(p, 'Restore the previous YAML'), 'no unsafe editor actions');
+ });
+ await check('status failure keeps editor usable', async () => {
+  const read = bridge.read, readLarge = bridge.readLarge;
+  try {
+   bridge.read = async cmd => { if (cmd === 'status-json') throw Error('status unavailable'); return { url: 'https://old.example' }; };
+   bridge.readLarge = async () => ({ content: 'yaml' });
+   const p = sv.render(await sv.load());
+   h.assert(collect(p).some(n => n.tag === 'textarea'), 'editor remains available');
+   h.assert(button(p, 'Check and apply') && button(p, 'Update now'), 'actions remain available');
+   h.assert(!button(p, 'Restore the previous YAML'), 'unknown backup hides restore');
+  } finally { bridge.read = read; bridge.readLarge = readLarge; }
+ });
+ await check('malformed YAML response', async () => {
+  const readLarge = bridge.readLarge;
+  try {
+   for (const reply of [{}, { content: null }, { content: 42 }, null]) {
+    bridge.readLarge = async () => reply;
+    const p = sv.render(await sv.load());
+    h.assert(texts(p).includes('Cannot load the YAML: Unexpected response from the router.'), 'malformed response error');
+    h.assert(!collect(p).some(n => n.tag === 'textarea') && !button(p, 'Check and apply') && !button(p, 'Restore the previous YAML'), 'no unsafe editor actions');
+   }
+   bridge.readLarge = async () => ({ content: '' });
+   h.assert(collect(sv.render(await sv.load())).some(n => n.tag === 'textarea'), 'empty string is valid YAML content');
+  } finally { bridge.readLarge = readLarge; }
+ });
+ await check('apply reloads after notice', async () => {
+  const notify = bridge.notify;
+  try {
+   for (const action of ['unchanged', 'hot_reloaded', 'saved']) {
+    const job = bridge.job; applyEvents = [];
+    try {
+     bridge.job = async () => ({ action });
+     bridge.notify = () => applyEvents.push('notice');
+     const before = reloads;
+     await button(render(), 'Check and apply').listeners.click();
+     h.assertEq(reloads, before + 1, 'successful apply reloads');
+     h.assertEq(applyEvents.join(','), 'notice,reload', 'notice before reload');
+    } finally { bridge.job = job; }
+   }
+  } finally { bridge.notify = notify; reloads = 0; }
+ });
+ await check('apply large YAML and byte limit', async () => {
+  const p = render(), yaml = collect(p).find(n => n.tag === 'textarea');
+  yaml.value = 'x'.repeat(1572864); calls = [];
+  await button(p, 'Check and apply').listeners.click();
+  h.assertEq(calls[0][0], 'upload', 'upload first'); h.assertEq(calls[0][1], 'mihowrt-config', 'upload prefix');
+  h.assertEq(calls[0][2], yaml.value, 'full large content');
+  h.assertEq(calls[1].join(','), 'job,save-config,/tmp/mihowrt-config.test', 'save as job');
+  for (const content of ['x'.repeat(8388609), 'я'.repeat(4194305)]) {
+   yaml.value = content; calls = []; let error = '';
+   try { await button(p, 'Check and apply').listeners.click(); } catch(e) { error = e.message; }
+   h.assertEq(error, 'The YAML is larger than 8 MiB.', 'byte limit message'); h.assertEq(calls.length, 0, 'oversize not uploaded');
+  }
+  yaml.value = 'x'.repeat(8388608); calls = []; await button(p, 'Check and apply').listeners.click();
+  h.assertEq(calls[0][0], 'upload', 'exact limit accepted');
+ });
+ await check('restore', async () => {
+  reloads = 0;
+  const p = render(); const restore = button(p, 'Restore the previous YAML'); h.assert(restore, 'backup restore button');
+  h.assert(texts(p).includes('Automatic updates replace it again with the subscription.'), 'automatic update warning');
+  calls = []; allow = false; await restore.listeners.click(); h.assertEq(calls.length, 0, 'cancel restore');
+  allow = true; await restore.listeners.click(); h.assertEq(calls[0].join(','), 'job,restore-config', 'restore job'); h.assertEq(reloads, 1, 'reload after restore');
+  h.assert(!button(render(false), 'Restore the previous YAML'), 'no restore without backup');
+  const off = render(true, false), note = collect(off).find(n => n.textContent === 'Automatic updates replace it again with the subscription.');
+  h.assert(note.hidden, 'automatic warning hidden when off');
+  const auto = collect(off).find(n => n.attrs.id === 'mw-auto'); auto.checked = true; auto.listeners.change();
+  h.assert(!note.hidden, 'automatic warning follows checkbox');
+ });
+ await check('job notice and shared locks', async () => {
+  noticeCalls = 0;
+  for (const running of [false, true]) {
+   bridge.jobRunning = running; const p = render();
+   for (const label of ['Update now', 'Check and apply', 'Restore the previous YAML']) {
+    const b = button(p, label); h.assert(b.attrs['data-mw-job'] != null, label + ' marked');
+    h.assert(running ? b.attrs.disabled === true : b.attrs.disabled == null, label + ' running state');
+   }
+  }
+  h.assertEq(noticeCalls, 2, 'job notice on each page'); bridge.jobRunning = false;
+ });
+ await check('update jobs', async () => {
+  for (const changed of [false, true]) {
+   const p = render(); collect(p).find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
+   calls = []; await button(p, 'Update now').listeners.click();
+   h.assertEq(JSON.stringify(calls), JSON.stringify(changed ? [['job','update-subscription','https://new.example'],['write','set-subscription','https://new.example','1']] : [['write','set-subscription','https://old.example','1'],['job','update-subscription']]), 'update sequence');
+  }
+ });
 })().catch(err => { console.error(err); process.exitCode = 1; });
 
 NODE

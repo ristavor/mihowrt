@@ -216,11 +216,14 @@ test('no shared helper copies in views', () => {
 test('overview has no long synchronous operations', () => {
 	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/overview.js')));
 });
-// TODO Tasks 18–20: enable once those views switch long operations to api.job.
+test('subscription has no long synchronous operations', () => {
+	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/subscription.js')));
+});
+// TODO Tasks 19–20: enable once those views switch long operations to api.job.
 const longOperations = /(?:api\.write|fs\.exec)\([^;]*(?:core-update|update-subscription|update-lists|apply-lists|save-config)|api\.service\((?!'enable'\))|fs\.exec\([^;]*\/etc\/init\.d\/mihowrt[^;]*(?:start|stop|restart)/;
-const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => name !== 'overview.js');
+const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => !['overview.js', 'subscription.js'].includes(name));
 if (pendingViews.some(name => longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name))))
-	console.log('skip - no long synchronous operations in remaining views (TODO Tasks 18–20)');
+	console.log('skip - no long synchronous operations in remaining views (TODO Tasks 19–20)');
 else test('no long synchronous operations in views', () => {
 	for (const name of pendingViews) assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name)));
 });

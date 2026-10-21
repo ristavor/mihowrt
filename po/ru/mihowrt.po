@@ -597,3 +597,18 @@ msgstr "Не удалось загрузить группы прокси: %s"
 
 msgid "Mihomo is starting. Reload the page in a moment to see the proxy groups."
 msgstr "Mihomo запускается. Через некоторое время обновите страницу, чтобы увидеть группы прокси."
+
+msgid "Cannot load the YAML: %s"
+msgstr "Не удалось загрузить YAML: %s"
+
+msgid "The YAML is larger than 8 MiB."
+msgstr "Размер YAML превышает 8 МиБ."
+
+msgid "Replace the current YAML with the previous one?"
+msgstr "Заменить текущий YAML предыдущим?"
+
+msgid "Automatic updates replace it again with the subscription."
+msgstr "Автоматическое обновление снова заменит его подпиской."
+
+msgid "Mihomo YAML"
+msgstr "YAML Mihomo"

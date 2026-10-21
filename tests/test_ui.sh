@@ -70,6 +70,9 @@ const base = { core_installed: true, subscription_configured: false, running: fa
 
 let page = overview.render([ base, {}, [] ]);
 h.assert(texts(page).includes('Connect a subscription'), 'first-run card shown without subscription');
+const firstUrl = collect(page).find(n => n.attrs.id === 'mw-sub-url');
+h.assertEq(firstUrl.attrs.type, 'text', 'theme-native first-run text input');
+h.assertEq(firstUrl.attrs.inputmode, 'url', 'first-run URL keyboard');
 
 page = overview.render([ Object.assign({}, base, { core_installed: false }), {}, [] ]);
 h.assert(texts(page).includes('Mihomo core is not installed'), 'core card shown when core is missing');
@@ -246,6 +249,11 @@ Promise.resolve(dash.listeners.click()).then(() => {
  await saved.handleSave();
  h.assertEq(uploads.join(','), 'edited,src,direct,direct_src', 'four uploads in stable order');
  h.assertEq(writes[0].join(','), 'apply-lists,edited,src,direct,direct_src', 'four list paths sent');
+ for (const count of [1, 2, 5]) {
+  const pluralOpts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip', lists: { direct: { provided: true, provider_count: count, own_count: count } } });
+  h.assertEq(pluralOpts.direct_list_source.values[0][1], `Provider list (${count} ${count === 1 ? 'entry' : 'entries'})`, 'provider list plural ' + count);
+  h.assert(pluralOpts.direct_list_source.description.includes(count === 1 ? '1 own entry:' : count + ' own entries:'), 'own entries plural ' + count);
+ }
  console.log('ok - provider-first Traffic form and save');
 
  // DOM properties used by subscription events mirror actual browser inputs.

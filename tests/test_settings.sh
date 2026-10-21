@@ -45,7 +45,7 @@ assert_eq 24 "$LISTS_INTERVAL" "explicit load refreshes settings"
 fake_uci_reset
 unset SETTINGS_LOADED
 settings_require
-assert_eq 0 "$LISTS_INTERVAL" "require loads when guard is absent"
+assert_eq 24 "$LISTS_INTERVAL" "require loads when guard is absent"
 pass "settings normalized and lazy loaded without suppressing refresh"
 
 
@@ -54,7 +54,7 @@ assert_eq "proxy-first" "$POLICY_MODE" "default policy mode"
 assert_eq redir-host "$DNS_MODE" "no YAML defaults to redir-host"
 assert_eq "br-lan" "$SOURCE_INTERFACES" "default source interface"
 assert_eq "1:1:0:1:1" "$DNS_HIJACK:$DISABLE_QUIC:$NETBIRD_PROXY:$BYPASS_NTP:$BYPASS_SUBSCRIPTION_DNS" "default toggles"
-assert_eq "0:0" "$SUBSCRIPTION_INTERVAL:$LISTS_INTERVAL" "default intervals (no provider period)"
+assert_eq "0:24" "$SUBSCRIPTION_INTERVAL:$LISTS_INTERVAL" "default intervals (no provider period)"
 assert_eq "113920" "$NETBIRD_MARK" "default NetBird mark"
 pass "settings defaults"
 
@@ -162,3 +162,10 @@ for auto in missing 1 0; do
  done
 done
 pass "provider precedence, persistent per-key overrides, sources and provider schedule"
+
+fake_uci_reset
+fake_uci_set mihowrt.settings.lists_interval 0
+settings_load
+assert_eq 0 "$LISTS_INTERVAL" 'existing lists interval 0 preserved'
+assert_file_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "option lists_interval '24'" 'shipped default interval'
+pass 'default interval and existing disabled interval'

@@ -9,7 +9,8 @@
 # direct lists (x-mihowrt proxy-ips/direct-ips); the user's list source
 # setting picks provider, provider + own file, or own file only.
 
-LISTS_REMOTE_MAX_BYTES="${LISTS_REMOTE_MAX_BYTES:-262144}"
+LISTS_REMOTE_MAX_BYTES="${LISTS_REMOTE_MAX_BYTES:-1048576}"
+LISTS_OWN_MAX_BYTES=1048576
 LISTS_REMOTE_MAX_URLS="${LISTS_REMOTE_MAX_URLS:-32}"
 LISTS_REMOTE_TIMEOUT="${LISTS_REMOTE_TIMEOUT:-30}"
 
@@ -32,11 +33,80 @@ lists_provided() {
 	esac
 }
 
+# Provider URLs may point only to public HTTPS hosts. DNS resolution is not
+# checked here; this policy excludes private address literals, not DNS rebinding.
+lists_provider_url_ok() {
+	local url="$1" host=""
+
+	case "$url" in https://?*) ;; *) return 1 ;; esac
+	is_http_url "$url" || return 1
+	host="$(url_host "${url%%#*}" | tr '[:upper:]' '[:lower:]')"
+	case "$host" in '' | localhost | localhost. | *%*) return 1 ;; esac
+	# curl accepts shortened, integer, hex and octal IPv4. Numeric hosts must
+	# instead be canonical decimal dotted quads before the public-range check.
+	printf '%s\n' "$host" | awk -F. '
+		{
+			n = NF; if ($n == "") n--
+			for (i = 1; i <= n; i++)
+				if ($i !~ /^[0-9]+$/ && $i !~ /^0x[0-9a-f]+$/) exit 0
+			if (NF != 4 || n != 4) exit 1
+			for (i = 1; i <= n; i++)
+				if ($i !~ /^(0|[1-9][0-9]*)$/ || $i + 0 > 255) exit 1
+		}
+	' || return 1
+	if is_ipv4 "$host"; then
+		printf '%s\n' "$host" | awk -F. '
+			{ exit ($1 == 0 || $1 == 10 || $1 == 127 ||
+				($1 == 172 && $2 >= 16 && $2 <= 31) ||
+				($1 == 192 && $2 == 168) || ($1 == 169 && $2 == 254) ||
+				($1 == 100 && $2 >= 64 && $2 <= 127)) ? 1 : 0 }
+		'
+	elif is_ipv6 "$host"; then
+		# Expand :: to reject mapped/compat IPv4 regardless of spelling.
+		printf '%s\n' "$host" | awk '
+			function group(s) { sub(/^0+/, "", s); return s == "" ? "0" : s }
+			{
+				dbl = index($0, "::")
+				if (dbl) {
+					left = substr($0, 1, dbl - 1); right = substr($0, dbl + 2)
+					nl = left == "" ? 0 : split(left, l, ":")
+					nr = right == "" ? 0 : split(right, r, ":")
+					for (i = 1; i <= 8; i++)
+						a[i] = i <= nl ? l[i] : (i > 8 - nr ? r[i - (8 - nr)] : "0")
+				} else split($0, a, ":")
+				zero = 1
+				for (i = 1; i <= 5; i++) if (group(a[i]) != "0") zero = 0
+				if (zero && (group(a[6]) == "0" || group(a[6]) == "ffff")) exit 1
+				first = group(a[1])
+				if (first ~ /^f[cd][0-9a-f][0-9a-f]$/ || first ~ /^fe[89ab][0-9a-f]$/) exit 1
+			}
+		'
+	else
+		# A colon-bearing host that is not a valid IPv6 literal is not public.
+		case "$host" in *:*) return 1 ;; esac
+	fi
+}
+
 lists_provider_entries() {
+	local line="" url="" key=""
+
 	case "$1" in
-	dst) profile_entries proxy-ip | lists_clean_lines ;;
-	direct) profile_entries direct-ip | lists_clean_lines ;;
+	dst) key=proxy-ip ;;
+	direct) key=direct-ip ;;
+	*) return 0 ;;
 	esac
+	profile_entries "$key" | lists_clean_lines | while IFS= read -r line; do
+		case "$line" in
+		*://*)
+			url="${line%%;*}"
+			lists_provider_url_ok "$url" || {
+				warn "x-mihowrt: ignored list URL $url (only public https URLs)"
+				continue
+			}
+			;;
+		esac
+		printf '%s\n' "$line"
+	done
 }
 
 # Cleaned entries that apply for one kind.
@@ -134,6 +204,31 @@ lists_urls() {
 	done | sed -n 's/;.*//; /^https\?:\/\//p' | awk '!seen[$0]++'
 }
 
+# Retain caches for every current URL, including those beyond the fetch cap.
+lists_cache_gc() {
+	local keys="" cache="" url=""
+
+	keys="$(lists_urls | while IFS= read -r url; do lists_url_key "$url"; echo; done)"
+	for cache in "$POLICY_CACHE_DIR"/*.txt; do
+		[ -f "$cache" ] || continue
+		printf '%s\n' "$keys" | grep -Fxq "$(basename "$cache" .txt)" || rm -f "$cache"
+	done
+}
+
+# --rawfile preserves UTF-8, escaping and trailing newlines without shell
+# argument-size limits; a missing file has the same contents as /dev/null.
+lists_json() {
+	local kind="" file=""
+
+	set --
+	for kind in dst src direct direct_src; do
+		file="$(lists_file "$kind")" || return 1
+		[ -f "$file" ] || file=/dev/null
+		set -- "$@" --rawfile "$kind" "$file"
+	done
+	jq -nc "$@" '{dst: $dst, src: $src, direct: $direct, direct_src: $direct_src}'
+}
+
 lists_resolve() {
 	local kind="$1" out4="$2" out6="$3" src="" line="" url="" ports="" cache="" bad=""
 
@@ -211,6 +306,7 @@ lists_update_remote() {
 	done
 	set +f
 	rm -f "$tmp" "$tmp.clean"
+	lists_cache_gc || return 1
 	if [ "$changed" -eq 1 ]; then
 		echo changed
 	else
@@ -239,13 +335,20 @@ lists_own_count() {
 # Install edited lists uploaded by LuCI (/tmp/mihowrt-policy-list.*) after
 # validating every line. Runs under the runtime lock; prints 1 if changed.
 lists_install() {
-	local kind="" tmp="" bad="" url="" changed=0 dst=""
+	local kind="" tmp="" bad="" url="" changed=0 dst="" size=""
 
 	for kind in dst src direct direct_src; do
 		tmp="$1"
 		shift
+		eval "LIST_TMP_$kind=\"\$tmp\""
+		[ "$tmp" != - ] || continue
 		upload_path_allowed /tmp/mihowrt-policy-list. "$tmp" || {
 			err "List path not allowed: $tmp"
+			return 1
+		}
+		size="$(wc -c <"$tmp" | tr -d ' ')"
+		[ "$size" -le "$LISTS_OWN_MAX_BYTES" ] || {
+			err "List $kind is larger than 1 MiB."
 			return 1
 		}
 		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 | tr '\n' ' ')"
@@ -256,10 +359,10 @@ lists_install() {
 			err "Invalid $kind entries: $bad"
 			return 1
 		}
-		eval "LIST_TMP_$kind=\"\$tmp\""
 	done
 	for kind in dst src direct direct_src; do
 		eval "tmp=\"\$LIST_TMP_$kind\""
+		[ "$tmp" != - ] || continue
 		dst="$(lists_file "$kind")"
 		if ! cmp -s "$tmp" "$dst"; then
 			# Copy next to the target and rename: a full flash cannot leave
@@ -278,10 +381,12 @@ lists_install() {
 # apply-lists: install under the lock, fetch new remote URLs without it,
 # then rebuild nft under the lock.
 lists_apply() {
-	local changed="" rc=0
+	local changed="" rc=0 tmp=""
 
 	changed="$(with_lock lists_install "$@")" || rc=1
-	rm -f "$1" "$2" "$3" "$4"
+	for tmp in "$@"; do
+		[ "$tmp" = - ] || rm -f "$tmp"
+	done
 	[ "$rc" -eq 0 ] || return 1
 	if service_ready; then
 		settings_load || return 1

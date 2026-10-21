@@ -256,9 +256,9 @@ assert_eq "null" "$(jq -c '."luci-app-mihowrt".read.file["/etc/init.d/mihowrt"] 
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".read.file["/usr/bin/mihowrt-read"]' "$acl_file")" "ACL read scope should execute only read-only backend wrapper"
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".write.file["/usr/bin/mihowrt"]' "$acl_file")" "ACL should keep validated backend execution"
 assert_eq '["write"]' "$(jq -c '."luci-app-mihowrt".write.file["/tmp/mihowrt-config.*"]' "$acl_file")" "ACL should allow only MihoWRT temp config staging from LuCI"
-assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/always_proxy_dst.txt"]' "$acl_file")" "ACL should allow reading destination policy list"
-assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/always_proxy_src.txt"]' "$acl_file")" "ACL should allow reading source policy list"
-assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_dst.txt"]' "$acl_file")" "ACL should allow reading direct destination list"
+assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/always_proxy_dst.txt"]' "$acl_file")" "ACL should not directly read destination policy list"
+assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/always_proxy_src.txt"]' "$acl_file")" "ACL should not directly read source policy list"
+assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_dst.txt"]' "$acl_file")" "ACL should not directly read direct destination list"
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".write.file["/opt/clash/lst/always_proxy_dst.txt"] // null' "$acl_file")" "ACL should not allow direct destination policy list writes from LuCI"
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".write.file["/opt/clash/lst/always_proxy_src.txt"] // null' "$acl_file")" "ACL should not allow direct source policy list writes from LuCI"
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".write.file["/opt/clash/lst/direct_dst.txt"] // null' "$acl_file")" "ACL should not allow direct policy list writes from LuCI"
@@ -323,5 +323,7 @@ assert_file_contains "$hook_log" "mihowrt:prepare" "next start should run normal
 assert_file_contains "$hook_log" "procd:open" "next start should launch the service"
 pass "default postinst start skipped once"
 
-assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_src.txt"]' "$acl_file")" "fourth list read ACL"
+assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_src.txt"]' "$acl_file")" "fourth list read ACL"
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "fourth list packaged"
+assert_file_not_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" LIST_FILES 'traffic uses lists-json, not direct files'
+assert_file_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" "api.read('lists-json')" 'traffic reads JSON through existing helper'

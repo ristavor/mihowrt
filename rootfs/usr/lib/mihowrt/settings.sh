@@ -30,7 +30,7 @@ settings_bool() {
 settings_hours() {
 	local value=""
 
-	value="$(settings_value "$1" 0)"
+	value="$(settings_value "$1" 24)"
 	is_uint "$value" && [ "$value" -le 8760 ] || return 1
 	uint_norm "$value"
 }

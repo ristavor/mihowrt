@@ -8,12 +8,6 @@
 
 const text = api.text;
 const LIST_KINDS = [ 'dst', 'src', 'direct', 'direct_src' ];
-const LIST_FILES = {
-	dst: '/opt/clash/lst/always_proxy_dst.txt',
-	src: '/opt/clash/lst/always_proxy_src.txt',
-	direct: '/opt/clash/lst/direct_dst.txt',
-	direct_src: '/opt/clash/lst/direct_src.txt'
-};
 
 const callLeases = rpc.declare({ object: 'luci-rpc', method: 'getDHCPLeases', expect: { '': {} } });
 
@@ -25,10 +19,7 @@ return view.extend({
 
 	load: function() {
 		return Promise.all([
-			api.readFile(LIST_FILES.dst),
-			api.readFile(LIST_FILES.src),
-			api.readFile(LIST_FILES.direct),
-			api.readFile(LIST_FILES.direct_src),
+			api.read('lists-json'),
 			api.read('profile-json').catch(() => ({})),
 			callLeases().catch(() => ({}))
 		]);
@@ -124,8 +115,8 @@ return view.extend({
 		return real;
 	},
 
-	render: function([ dst, src, direct, directSrc, profile, leases ]) {
-		this.lists = { dst: dst || '', src: src || '', direct: direct || '', direct_src: directSrc || '' };
+	render: function([ lists, profile, leases ]) {
+		this.lists = lists;
 		this.profile = profile || {};
 		const proxyFirst = this.profile.mode === 'proxy-first';
 		const fakeip = this.profile.dns === 'fake-ip';

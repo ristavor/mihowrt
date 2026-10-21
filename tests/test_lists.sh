@@ -109,6 +109,115 @@ done
 assert_eq "$DIRECT_SRC_LIST_FILE" "$(lists_file direct_src)" "fourth kind"
 pass "provider list source selection and validation"
 
+# Provider URLs alone are restricted; own files retain the same URLs.
+urls=(http://p.example/l.txt https://127.0.0.1/x https://10.1.2.3/x
+ https://192.168.1.1/x https://169.254.1.1/x https://100.64.0.1/x
+ 'https://[::1]/x' 'https://[fd00::1]/x' 'https://[fe80::1]/x'
+ https://localhost/x https://172.16.0.1/x 'https://[0:0:0:0:0:0:0:1]/x'
+ https://127.1/x https://2130706433/x https://0x7f000001/x https://0x7f.0.0.1/x
+ https://0177.0.0.1/x https://127.0.0.1./x
+ ftp://p.example/l.txt 'https://%31%32%37.0.0.1/x'
+ 'https://[::ffff:7f00:1]/x' 'https://[0:0:0:0:0:ffff:808:808]/x'
+ 'https://[::808:808]/x')
+for url in https://p.example/l.txt https://123.example/x https://8.8.8.8/x 'https://[2606:4700::1111]/x'; do
+ assert_true "public https URL allowed: $url" lists_provider_url_ok "$url"
+done
+for url in "${urls[@]}"; do
+ assert_false "provider URL rejected: $url" lists_provider_url_ok "$url"
+done
+assert_false 'fragment cannot spoof the URL host' lists_provider_url_ok 'https://127.0.0.1#@p.example/x'
+printf 'has proxy-ips\nproxy-ip https://p.example/l.txt\n' >"$PROFILE_FILE"
+printf 'proxy-ip %s\n' "${urls[@]}" >>"$PROFILE_FILE"
+printf '%s\n' "${urls[@]}" >"$DST_LIST_FILE"
+DST_LIST_SOURCE=provider
+assert_eq https://p.example/l.txt "$(lists_source dst)" 'provider URLs filtered'
+for url in "${urls[@]}"; do
+ assert_file_contains "$tmpdir/warnings" "x-mihowrt: ignored list URL $url (only public https URLs)" 'exact provider URL warning'
+done
+DST_LIST_SOURCE=own
+assert_eq "$(printf '%s\n' "${urls[@]}")" "$(lists_source dst)" 'own URLs unrestricted'
+rm "$PROFILE_FILE"
+pass 'provider url policy'
+
+printf '# Кириллица\n1.2.3.4\n\n' >"$DST_LIST_FILE"
+printf '# Устройства\n10.0.0.1\n' >"$SRC_LIST_FILE"
+printf '# Прямо\n' >"$DIRECT_DST_LIST_FILE"
+rm "$DIRECT_SRC_LIST_FILE"
+json="$(lists_json)"
+for kind in dst src direct; do
+ file="$(lists_file "$kind")"
+ jq -e --arg k "$kind" --rawfile content "$file" '.[$k] == $content' <<<"$json" >/dev/null || fail "exact JSON file text: $kind"
+done
+assert_eq '' "$(jq -r .direct_src <<<"$json")" 'missing list JSON is empty'
+lists_ensure_files
+pass 'lists-json exact texts'
+
+# Exercise the fetch limit through the real http_fetch, stubbing transport only.
+load_modules fetch.sh
+curl() {
+ local out='' headers=''
+ while [ "$#" -gt 0 ]; do
+  case "$1" in
+  -o) out="$2"; shift ;;
+  -D) headers="$2"; shift ;;
+  esac
+  shift
+ done
+ cp "$tmpdir/remote" "$out"
+ printf 'HTTP/1.1 200 OK\n\n' >"$headers"
+}
+printf 'https://size.example/list\n' >"$DST_LIST_FILE"
+: >"$SRC_LIST_FILE"; : >"$DIRECT_DST_LIST_FILE"; : >"$DIRECT_SRC_LIST_FILE"
+# http_fetch is defined by fetch.sh, replacing the earlier local fake.
+awk 'BEGIN { for (i=0;i<115200;i++) print "9.9.9.9" }' >"$tmpdir/remote"
+assert_eq changed "$(lists_update_remote 1)" '900 KiB remote list accepted'
+cache="$(lists_cache_file https://size.example/list)"
+cp "$cache" "$tmpdir/cache.before"
+awk 'BEGIN { for (i=0;i<144180;i++) print "8.8.8.8" }' >"$tmpdir/remote"
+assert_false '1.1 MiB remote rejected' lists_update_remote 1 >/dev/null
+assert_file_contains "$tmpdir/warnings" '(too_large)' 'too_large remote error'
+cmp -s "$cache" "$tmpdir/cache.before" || fail 'oversized remote keeps cache'
+pass 'remote size'
+
+printf 'https://current.example/a\n' >"$DST_LIST_FILE"
+current="$(lists_cache_file https://current.example/a)"
+removed="$(lists_cache_file https://removed.example/b)"
+printf '1.1.1.1\n' >"$current"; cp "$current" "$removed"
+LISTS_INTERVAL=0
+lists_update_remote 0 >/dev/null
+assert_true 'current cache kept' test -f "$current"
+assert_false 'removed URL cache deleted' test -e "$removed"
+for n in $(seq 1 33); do
+ url="https://many.example/$n"
+ printf '%s\n' "$url"
+ printf '1.1.1.1\n' >"$(lists_cache_file "$url")"
+done >"$DST_LIST_FILE"
+lists_update_remote 0 >/dev/null
+assert_true '33rd URL cache retained' test -f "$(lists_cache_file https://many.example/33)"
+pass 'cache gc includes URLs beyond fetch cap'
+
+# Apply only src; unchanged lists retain their timestamps and content.
+with_lock() { "$@"; }
+settings_load() { :; }
+cron_update() { :; }
+service_ready() { return 1; }
+upload="/tmp/mihowrt-policy-list.task8.$$"
+printf '10.2.3.4\n' >"$upload"
+for kind in dst direct direct_src; do touch -d '2024-01-01 00:00:00' "$(lists_file "$kind")"; done
+cp "$DST_LIST_FILE" "$tmpdir/dst.before"
+assert_eq '{"changed":true}' "$(lists_apply - "$upload" - -)" 'partial apply updates src'
+assert_eq 10.2.3.4 "$(cat "$SRC_LIST_FILE")" 'src replaced'
+cmp -s "$DST_LIST_FILE" "$tmpdir/dst.before" || fail 'dst kept'
+for kind in dst direct direct_src; do
+ assert_eq 1704067200 "$(stat -c %Y "$(lists_file "$kind")")" 'unchanged list mtime'
+done
+assert_eq '{"changed":false}' "$(lists_apply - - - -)" 'all unchanged'
+awk 'BEGIN { for (i=0;i<144180;i++) print "8.8.8.8" }' >"$upload"
+assert_false 'oversize own list rejected' lists_apply - "$upload" - - 2>"$tmpdir/own.err"
+assert_file_contains "$tmpdir/own.err" 'List src is larger than 1 MiB.' 'exact own size error'
+assert_eq 10.2.3.4 "$(cat "$SRC_LIST_FILE")" 'oversize upload keeps installed list'
+pass 'partial apply and own size'
+
 # Both successful and failed list URLs release their response headers.
 lists_urls() {
  case "$outcome" in

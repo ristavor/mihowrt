@@ -17,7 +17,7 @@ read_cli="$ROOT_DIR/rootfs/usr/bin/mihowrt-read"
 
 assert_eq "backend status-json" "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" status-json)" "read command passes"
 assert_eq "backend read-config /tmp/mihowrt-config.abc" "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" read-config /tmp/mihowrt-config.abc)" "temp config read"
-for bad in "select-proxy a b" "save-config /tmp/x" "read-config /etc/hosts" "status-json extra" "core-update" "profile-json x"; do
+for bad in "select-proxy a b" "save-config /tmp/x" "read-config /etc/hosts" "status-json extra" "core-update" "profile-json x" "lists-json x"; do
 	# shellcheck disable=SC2086
 	if MIHOWRT_BACKEND="$backend" sh "$read_cli" $bad >/dev/null 2>&1; then
 		fail "read wrapper must reject: $bad"
@@ -98,3 +98,10 @@ for scenario in stopped unchanged update_failure restart_failure; do
  [ "$scenario" = restart_failure ] || assert_false 'no restart when unnecessary' test -e "$RESTART_MARKER"
 done
 pass 'core CLI synchronous restart and result'
+
+assert_eq 'backend lists-json' "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" lists-json)" 'lists-json read wrapper'
+sed -i '/^case "$cmd" in/i lists_json() { echo lists-json; }' "$tmpdir/cli.sh"
+assert_eq lists-json "$(sh "$tmpdir/cli.sh" lists-json)" 'lists-json CLI dispatch'
+assert_false 'lists-json backend extra args rejected' sh "$tmpdir/cli.sh" lists-json x >/dev/null 2>&1
+assert_eq 'lists:-:/tmp/mihowrt-policy-list.a:-:-' "$(sh "$tmpdir/cli.sh" apply-lists - /tmp/mihowrt-policy-list.a - -)" 'CLI forwards unchanged sentinels'
+pass 'lists-json and partial apply CLI boundary'

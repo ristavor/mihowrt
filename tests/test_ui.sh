@@ -203,7 +203,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
   E, api, view: { extend: v => v }, form, uci, widgets: { DeviceSelect: Option }, rpc: { declare: () => () => Promise.resolve({}) }
  }).module;
  const renderTraffic = async p => {
-  await tv.render(['dst', 'src', 'direct', 'devices', p, {}]);
+  await tv.render([{ dst: 'dst', src: 'src', direct: 'direct', direct_src: 'devices' }, p, {}]);
   for (const name of ['_dst', '_src', '_direct', '_direct_src']) {
    if (tv.map.options[name]) h.assertEq(tv.map.options[name].monospace, true, name + ' native TextValue monospace');
   }

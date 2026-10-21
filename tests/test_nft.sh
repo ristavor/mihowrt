@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh lists.sh nft.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh
+setup_runtime_paths "$tmpdir"
+
 
 LIST_DIR="$tmpdir/lst"
 DST_LIST_FILE="$LIST_DIR/dst.txt"
@@ -17,6 +19,7 @@ DIRECT_DST_LIST_FILE="$LIST_DIR/direct.txt"
 POLICY_CACHE_DIR="$tmpdir/cache"
 lists_ensure_files
 settings_load
+POLICY_MODE=direct-first
 out="$tmpdir/ruleset.nft"
 
 printf '1.1.1.1\n2001:db8::/32\n9.9.9.9;443\n2606:4700::1;80-90\n;53\n' >"$DST_LIST_FILE"
@@ -76,3 +79,35 @@ assert_file_contains "$out" "add rule inet mihowrt mangle_output ip daddr @bypas
 assert_file_contains "$out" "add rule inet mihowrt mangle_output ip6 daddr @bypass_dst6 return" "router traffic bypass v6"
 assert_file_not_contains "$out" "prerouting_policy ip daddr @bypass_dst" "LAN clients are not affected"
 pass "bypass sets for router traffic only"
+
+BYPASS_NTP=1
+DNS_MODE=redir-host
+POLICY_MODE=proxy-first
+printf '192.168.1.50\nfd00::50\n' >"$DIRECT_SRC_LIST_FILE"
+render
+assert_eq $'add table inet mihowrt\ndelete table inet mihowrt\nadd table inet mihowrt' "$(head -n3 "$out")" "atomic table replacement"
+assert_file_contains "$out" 'meta nfproto ipv6 udp dport 123 return' "IPv6 NTP bypass"
+assert_file_contains "$out" 'ip daddr != 198.18.0.0/16 udp dport 123 return' "fake-IP NTP intercepted"
+assert_false "no unconditional NTP bypass" grep -Eq '^add rule .* (prerouting_policy|mangle_output) udp dport 123 return$' "$out"
+assert_file_contains "$out" 'ip saddr @direct_src return' "direct devices bypass"
+assert_file_contains "$out" 'ip6 saddr @direct_src6 return' "IPv6 direct devices bypass"
+a=$(grep -n 'prerouting_policy ip saddr @direct_src return' "$out" | cut -d: -f1)
+b=$(grep -n 'prerouting_policy meta l4proto { tcp, udp } meta mark set' "$out" | cut -d: -f1)
+assert_true "device return precedes catch-all" test "$a" -lt "$b"
+DNS_MODE=fake-ip
+render
+assert_file_not_contains "$out" 'saddr @direct_src' "fake-IP disables direct devices"
+nft() { echo "$*" >>"$tmpdir/nft.calls"; }
+table_present=1
+nft_active() { [ "$table_present" = 1 ]; }
+nft_apply
+nft_apply
+assert_eq 1 "$(wc -l <"$tmpdir/nft.calls" | tr -d ' ')" "identical apply skipped"
+table_present=0
+nft_apply
+assert_eq 2 "$(wc -l <"$tmpdir/nft.calls" | tr -d ' ')" "missing table reapplied"
+table_present=1
+printf '8.8.8.8\n' >>"$DIRECT_DST_LIST_FILE"
+nft_apply
+assert_eq 3 "$(wc -l <"$tmpdir/nft.calls" | tr -d ' ')" "changed list reapplied"
+pass "NTP, direct devices, atomic and no-op nft apply"

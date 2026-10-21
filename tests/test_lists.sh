@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh lists.sh
+load_modules constants.sh helpers.sh validate.sh mihomo-config.sh lists.sh
+setup_runtime_paths "$tmpdir"
+
 
 LIST_DIR="$tmpdir/lst"
 DST_LIST_FILE="$LIST_DIR/dst.txt"
@@ -82,3 +84,29 @@ lists_resolve dst "$tmpdir/v4" "$tmpdir/v6" 2>/dev/null
 elapsed=$(( $(date +%s) - start ))
 [ "$elapsed" -le 3 ] || fail "20000 entries took ${elapsed}s (one fork per entry?)"
 pass "large list resolves fast"
+
+printf 'has proxy-ips\nproxy-ip 1.2.3.4\n' >"$PROFILE_FILE"
+printf '5.6.7.8\n' >"$DST_LIST_FILE"
+for source in provider merge own; do
+ DST_LIST_SOURCE="$source"
+ lists_resolve dst "$tmpdir/p4" "$tmpdir/p6"
+ case "$source" in
+ provider) expected=1.2.3.4 ;;
+ merge) expected=$'1.2.3.4\n5.6.7.8' ;;
+ own) expected=5.6.7.8 ;;
+ esac
+ assert_eq "$expected" "$(cat "$tmpdir/p4")" "provider source $source"
+done
+printf 'has proxy-ips\nproxy-ip 999.1.1.1\nproxy-ip https://p.example/l.txt\n' >"$PROFILE_FILE"
+DST_LIST_SOURCE=provider
+warn() { echo "$*" >>"$tmpdir/warnings"; }
+lists_resolve dst "$tmpdir/p4" "$tmpdir/p6"
+assert_file_not_contains "$tmpdir/p4" 999.1.1.1 "invalid provider address dropped"
+assert_file_contains "$tmpdir/warnings" 999.1.1.1 "invalid provider address warned"
+assert_eq https://p.example/l.txt "$(lists_urls)" "provider URL fetched"
+rm "$PROFILE_FILE"
+for DST_LIST_SOURCE in provider merge own; do
+ assert_eq 5.6.7.8 "$(lists_source dst)" "no provider uses own list"
+done
+assert_eq "$DIRECT_SRC_LIST_FILE" "$(lists_file direct_src)" "fourth kind"
+pass "provider list source selection and validation"

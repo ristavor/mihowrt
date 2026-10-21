@@ -14,6 +14,7 @@ live_list_dir="$tmpdir/opt/clash/lst"
 live_dst_list="$live_list_dir/always_proxy_dst.txt"
 live_src_list="$live_list_dir/always_proxy_src.txt"
 live_direct_list="$live_list_dir/direct_dst.txt"
+live_direct_src_list="$live_list_dir/direct_src.txt"
 preinst_path="$tmpdir/preinst.sh"
 script_path="$tmpdir/postinst.sh"
 prerm_path="$tmpdir/prerm.sh"
@@ -40,6 +41,7 @@ rewrite_package_paths() {
 		-e "s|/opt/clash/lst/always_proxy_dst.txt|$live_dst_list|g" \
 		-e "s|/opt/clash/lst/always_proxy_src.txt|$live_src_list|g" \
 		-e "s|/opt/clash/lst/direct_dst.txt|$live_direct_list|g" \
+		-e "s|/opt/clash/lst/direct_src.txt|$live_direct_src_list|g" \
 		-e 's/\$\$/\$/g'
 }
 
@@ -120,6 +122,7 @@ printf 'user-config\n' >"$live_config"
 printf 'user-dst\n' >"$live_dst_list"
 printf 'user-src\n' >"$live_src_list"
 printf 'user-direct\n' >"$live_direct_list"
+printf 'user-device\n' >"$live_direct_src_list"
 IPKG_INSTROOT="" "$preinst_path"
 assert_file_contains "$backup_path" "user-config" "preinst should back up existing config before fresh package install"
 assert_file_contains "$list_backup_dir/always_proxy_dst.txt" "user-dst" "preinst should back up existing destination policy list"
@@ -130,6 +133,7 @@ printf 'package-config\n' >"$live_config"
 printf 'package-dst\n' >"$live_dst_list"
 printf 'package-src\n' >"$live_src_list"
 printf 'package-direct\n' >"$live_direct_list"
+printf 'package-device\n' >"$live_direct_src_list"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
 assert_file_contains "$live_config" "user-config" "postinst should restore config preserved across sysupgrade reinstall"
@@ -140,6 +144,7 @@ assert_file_contains "$live_direct_list" "user-direct" "postinst should restore 
 [[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should consume restored destination policy list backup"
 [[ ! -e "$list_backup_dir/always_proxy_src.txt" ]] || fail "postinst should consume restored source policy list backup"
 [[ ! -e "$list_backup_dir/direct_dst.txt" ]] || fail "postinst should consume restored direct destination policy list backup"
+assert_file_contains "$live_direct_src_list" user-device "fourth list restored"
 [[ ! -d "$list_backup_dir" ]] || fail "postinst should remove empty policy list backup directory"
 
 printf 'same-config\n' >"$backup_path"
@@ -290,3 +295,6 @@ start_service
 assert_file_contains "$hook_log" "mihowrt:prepare" "next start should run normally"
 assert_file_contains "$hook_log" "procd:open" "next start should launch the service"
 pass "default postinst start skipped once"
+
+assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_src.txt"]' "$acl_file")" "fourth list read ACL"
+assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/direct_src.txt' "fourth list packaged"

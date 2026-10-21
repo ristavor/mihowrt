@@ -36,4 +36,17 @@ assert(/#tabmenu\s*>\s*\.tabs\s*\{[^}]*max-width:\s*100%/.test(css), 'page tabs 
 console.log('ok - bounded page tab layout');
 assert(/\.mw-page\s+\[hidden\]\s*\{\s*display:\s*none;?\s*\}/.test(css), 'hidden toggle content must override grid and theme display rules');
 console.log('ok - hidden toggle content layout');
+// Layout review (LAYOUT-REVIEW.md I1-I3, M1, M2, M4): spacing and alignment
+// rules that keep our blocks consistent with stock LuCI pages in every theme.
+assert(/\.mw-toggle\s*>\s*\.mw-row\s*\+\s*\*\s*\{[^}]*margin-top:\s*12px/.test(css), 'opened toggle content keeps a gap under its button');
+assert(/\.mw-groups\s+\.mw-row\s*>\s*select\s*\{[^}]*flex:\s*1 1 12em[^}]*max-width:\s*28em/.test(css), 'group selects share one width so Test buttons align');
+assert(/\.mw-page\s*>\s*h2\s*\{\s*margin-bottom:\s*0;?\s*\}/.test(css) && !/\.mw-page\s*>\s*h2[^{]*\{[^}]*margin:\s*0/.test(css), 'page title keeps the theme top margin');
+assert(/\.mw-announce\s*\+\s*\.mw-grid\s*\{[^}]*margin-top:\s*12px/.test(css), 'announce text is separated from the subscription grid');
+assert(/\.mw-status\s*\{[^}]*flex-direction:\s*column/.test(css), 'status facts are stacked');
+assert(/\.mw-actions\s*>\s*\.cbi-button\s*\{[^}]*flex:\s*1 1 auto/.test(css), 'phone action buttons share the row');
+const overview = fs.readFileSync(path.join(path.dirname(files[0]), '../view/mihowrt/overview.js'), 'utf8');
+assert(/class: 'mw-toggle'/.test(api), 'toggle wrapper marked for spacing');
+assert(/function linkButton/.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');
+assert(/cells\.push\(E\('span'\), E\('span', \{ class: 'mw-muted' \}/.test(overview), 'LoadBalance note on its own grid row');
+console.log('ok - layout review spacing and alignment');
 NODE

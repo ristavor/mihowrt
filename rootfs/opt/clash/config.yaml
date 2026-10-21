@@ -1,18 +1,18 @@
 # Mihomo config used without a subscription.
 # MihoWRT sets these itself, so they are not needed here: tproxy-port,
 # routing-mark, allow-lan, bind-address, tun, profile, external-controller*,
-# secret and dns enable/listen/enhanced-mode/fake-ip-range.
+# secret, external-ui* (dashboard) and dns enable/listen/fake-ip-range.
+# fake-ip with a whitelist filter: only selected traffic goes via the proxy.
 mode: rule
 ipv6: false
 log-level: warning
 unified-delay: true
 tcp-concurrent: true
 find-process-mode: off
-external-ui: ./ui
-external-ui-url: 'https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip'
 
 dns:
   ipv6: false
+  enhanced-mode: fake-ip
   fake-ip-ttl: 60
   fake-ip-filter-mode: whitelist
   fake-ip-filter:

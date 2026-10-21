@@ -163,7 +163,7 @@ mihomo_memory_limit() {
 
 # procd payload. Exit 0 = stopped on request; exit 1 = failure, procd respawns.
 run_service() {
-	local pid="" fails=0 stop=0 rc=1 memlimit=""
+	local pid="" fails=0 stop=0 rc=1 memlimit="" degraded=0
 
 	settings_load || return 1
 	[ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG" || return 1
@@ -186,15 +186,34 @@ run_service() {
 			lock_busy && continue
 			if api_dns_probe; then
 				fails=0
+				[ "$degraded" -eq 1 ] || continue
+				if with_lock policy_apply; then
+					echo "$$" >"$RUNNING_MARKER"
+					degraded=0
+					log "watchdog: Mihomo DNS recovered, policy restored"
+				fi
 				continue
 			fi
+			[ "$degraded" -eq 1 ] && ! api_alive && {
+				err "watchdog: Mihomo does not answer; restarting"
+				rc=1
+				break
+			}
+			[ "$degraded" -eq 1 ] && continue
 			fails=$((fails + 1))
 			warn "watchdog: Mihomo DNS check failed ($fails/$WATCHDOG_FAILS)"
-			if [ "$fails" -ge "$WATCHDOG_FAILS" ]; then
-				err "watchdog: Mihomo DNS unresponsive, failing open"
+			[ "$fails" -ge "$WATCHDOG_FAILS" ] || continue
+			# A live core with broken upstream DNS: go direct in place and
+			# keep probing. A hung core is restarted by procd.
+			if ! api_alive; then
+				err "watchdog: Mihomo does not answer; restarting"
 				rc=1
 				break
 			fi
+			rm -f "$RUNNING_MARKER"
+			with_lock policy_cleanup
+			degraded=1
+			warn "watchdog: Mihomo DNS unresponsive, traffic goes direct"
 		done
 		[ "$stop" -eq 1 ] || kill -0 "$pid" 2>/dev/null || {
 			err "Mihomo exited unexpectedly"

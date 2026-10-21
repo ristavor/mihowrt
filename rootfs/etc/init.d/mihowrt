@@ -6,6 +6,9 @@ USE_PROCD=1
 
 MIHOWRT="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
+# Set by Stop so WAN hotplug does not start the service again (tmpfs: a
+# reboot clears it). Same path as USER_STOP_FILE in constants.sh.
+USER_STOP_FILE="/var/run/mihowrt/stopped"
 
 # Validate everything first so a bad config never touches router state.
 start_service() {
@@ -18,6 +21,7 @@ start_service() {
 		rm -f "$SKIP_START_FILE"
 		[ -n "$skip" ] && return 0
 	fi
+	rm -f "$USER_STOP_FILE"
 	"$MIHOWRT" prepare || {
 		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid"
 		return 1
@@ -32,6 +36,10 @@ start_service() {
 	# Cleanup (DNS, nft, routes) must finish before procd escalates to SIGKILL.
 	procd_set_param term_timeout 30
 	procd_close_instance
+}
+
+stop_service() {
+	mkdir -p "${USER_STOP_FILE%/*}" && : >"$USER_STOP_FILE"
 }
 
 # Make stop synchronous and clear leftovers if run-service was killed.

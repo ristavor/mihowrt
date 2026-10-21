@@ -259,7 +259,7 @@ now*. Remote lists are refreshed when due.
 
 ```text
 mihowrt status-json | logs-json [lines] | subscription-json | proxies-json
-mihowrt update-subscription | set-subscription <url> <0|1> | profile-json
+mihowrt update-subscription [url] | set-subscription <url> <0|1> | profile-json   # a new [url] is saved only if it downloads and passes the check
 mihowrt update-lists | core-update | recover | reload | dashboard-json
 /etc/init.d/mihowrt start | stop | restart | reload | enable | disable
 ```

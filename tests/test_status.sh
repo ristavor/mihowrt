@@ -69,3 +69,9 @@ printf '# Devices\naa:bb:cc:dd:ee:ff\n10.2.3.4\n' >"$SRC_LIST_FILE"
 printf 'aa:bb:cc:dd:ee:ff\n' >"$DIRECT_SRC_LIST_FILE"
 assert_eq '2:1' "$(status_json | jq -r '"\(.lists.src):\(.lists.direct_src)"')" 'status counts MAC and IP devices'
 pass 'status MAC device counts'
+
+CLASH_CONFIG_BACKUP="$tmpdir/config.yaml.bak"
+assert_eq false "$(status_json | jq .config_backup)" 'no backup flag'
+touch "$CLASH_CONFIG_BACKUP"
+assert_eq true "$(status_json | jq .config_backup)" 'backup flag'
+pass 'status backup flag'

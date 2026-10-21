@@ -113,6 +113,14 @@ config_install() {
 	echo '{"action":"hot_reloaded"}'
 }
 
+config_has_keys() {
+	awk '
+		NR == 1 { sub(/^\357\273\277/, "") }
+		/^["\047]?[A-Za-z0-9_-]+["\047]?[[:space:]]*:/ { found = 1; exit }
+		END { exit !found }
+	' "$1"
+}
+
 config_save() {
 	local tmp="$1" rc=0
 
@@ -120,7 +128,36 @@ config_save() {
 		err "Config path not allowed: $tmp"
 		return 1
 	}
+	if [ "$(wc -c <"$tmp")" -gt "$SUBSCRIPTION_MAX_BYTES" ]; then
+		err "The YAML is larger than 8 MiB."
+		rm -f "$tmp"
+		return 1
+	fi
+	if ! config_has_keys "$tmp"; then
+		err "The YAML is empty: nothing was changed."
+		rm -f "$tmp"
+		return 1
+	fi
 	config_install "$tmp" || rc=$?
 	rm -f "$tmp"
+	return "$rc"
+}
+
+# Install a copy: config_install replaces the backup with the current YAML.
+config_restore() {
+	local candidate="" rc=0
+
+	[ -f "$CLASH_CONFIG_BACKUP" ] || {
+		err "There is no previous configuration."
+		return 1
+	}
+	ensure_dir "$PKG_TMP_DIR" || return 1
+	candidate="$(mktemp "$PKG_TMP_DIR/restore.XXXXXX")" || return 1
+	if cp "$CLASH_CONFIG_BACKUP" "$candidate"; then
+		config_install "$candidate" || rc=$?
+	else
+		rc=1
+	fi
+	rm -f "$candidate"
 	return "$rc"
 }

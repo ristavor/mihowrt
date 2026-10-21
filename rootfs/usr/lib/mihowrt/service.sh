@@ -282,7 +282,7 @@ service_wait_stopped() {
 
 # Apply changed UCI settings to a running service.
 service_reload() {
-	local candidate="$PKG_TMP_DIR/config.candidate.yaml"
+	local candidate="$PKG_TMP_DIR/config.candidate.yaml" file=""
 
 	settings_load || return 1
 	cron_update || warn "Failed to update cron schedule"
@@ -291,14 +291,28 @@ service_reload() {
 		rm -f "$candidate" "$candidate.profile"
 		return 1
 	}
-	mv -f "$candidate.profile" "$PROFILE_FILE"
-	if ! cmp -s "$candidate" "$RUNTIME_CONFIG"; then
-		if ! { mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; then
-			err "Mihomo hot reload failed"
+	rm -f "$RUNTIME_CONFIG.prev" "$PROFILE_FILE.prev"
+	for file in "$RUNTIME_CONFIG" "$PROFILE_FILE"; do
+		if [ -f "$file" ] && ! cp -p "$file" "$file.prev"; then
+			rm -f "$candidate" "$candidate.profile" "$RUNTIME_CONFIG.prev" "$PROFILE_FILE.prev"
 			return 1
 		fi
+	done
+	if ! { mv -f "$candidate.profile" "$PROFILE_FILE" &&
+		{ cmp -s "$candidate" "$RUNTIME_CONFIG" ||
+			{ mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; }; }; then
+		for file in "$RUNTIME_CONFIG" "$PROFILE_FILE"; do
+			if [ -f "$file.prev" ]; then
+				mv -f "$file.prev" "$file"
+			else
+				rm -f "$file"
+			fi
+		done
+		rm -f "$candidate" "$candidate.profile"
+		err "Mihomo hot reload failed"
+		return 1
 	fi
-	rm -f "$candidate"
+	rm -f "$candidate" "$RUNTIME_CONFIG.prev" "$PROFILE_FILE.prev"
 	policy_apply
 }
 

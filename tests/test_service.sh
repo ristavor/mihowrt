@@ -339,3 +339,64 @@ pass 'hotplug'
  assert_eq 1 "$(wc -l <"$tmpdir/refresh/restarts" | tr -d ' ')" 'new route does not restart dnsmasq'
 )
 pass 'refresh is idempotent'
+
+(
+ PKG_TMP_DIR="$tmpdir/tmp"
+ RUNTIME_CONFIG="$tmpdir/reload.yaml"
+ PROFILE_FILE="$tmpdir/reload.profile"
+ service_ready() { return 0; }
+ settings_load() { :; }
+ cron_update() { :; }
+ runtime_config_build() {
+  printf 'new runtime\n' >"$1"
+  printf 'new profile\n' >"$1.profile"
+ }
+ printf 'previous runtime\n' >"$RUNTIME_CONFIG"
+ printf 'previous profile\n' >"$PROFILE_FILE"
+ cp "$RUNTIME_CONFIG" "$tmpdir/runtime.before"
+ cp "$PROFILE_FILE" "$tmpdir/profile.before"
+ previous_kept=0
+ api_reload() {
+  cmp -s "$RUNTIME_CONFIG.prev" "$tmpdir/runtime.before" && previous_kept=1
+  return 1
+ }
+ rc=0
+ service_reload 2>"$tmpdir/reload.err" || rc=$?
+ assert_eq 1 "$rc" 'reload failure reported'
+ assert_eq 1 "$previous_kept" 'previous runtime kept until API reload'
+ assert_true 'runtime rolled back' cmp -s "$RUNTIME_CONFIG" "$tmpdir/runtime.before"
+ assert_true 'profile rolled back' cmp -s "$PROFILE_FILE" "$tmpdir/profile.before"
+ assert_file_contains "$tmpdir/reload.err" 'Mihomo hot reload failed' 'reload failure logged'
+ api_reload() { return 0; }
+ service_reload
+ assert_eq 'new runtime' "$(cat "$RUNTIME_CONFIG")" 'successful reload installs runtime'
+ assert_eq 'new profile' "$(cat "$PROFILE_FILE")" 'successful reload installs profile'
+ assert_false 'success removes previous runtime' test -e "$RUNTIME_CONFIG.prev"
+ assert_false 'success removes previous profile' test -e "$PROFILE_FILE.prev"
+
+ for missing in profile both; do
+  rm -f "$PROFILE_FILE"
+  [ "$missing" != both ] || rm -f "$RUNTIME_CONFIG"
+  api_reload() { return 0; }
+  rc=0
+  service_reload 2>"$tmpdir/reload.err" || rc=$?
+  assert_eq 0 "$rc" "reload succeeds with missing $missing"
+  assert_eq 'new profile' "$(cat "$PROFILE_FILE")" 'reload installs missing profile'
+  assert_eq 'new runtime' "$(cat "$RUNTIME_CONFIG")" 'reload installs runtime'
+
+  printf 'previous runtime\n' >"$RUNTIME_CONFIG"
+  rm -f "$PROFILE_FILE"
+  [ "$missing" != both ] || rm -f "$RUNTIME_CONFIG"
+  api_reload() { return 1; }
+  rc=0
+  service_reload 2>"$tmpdir/reload.err" || rc=$?
+  assert_eq 1 "$rc" "reload failure with missing $missing reported"
+  assert_false 'rollback leaves no stray profile' test -e "$PROFILE_FILE"
+  if [ "$missing" = both ]; then
+   assert_false 'rollback leaves no stray runtime' test -e "$RUNTIME_CONFIG"
+  else
+   assert_eq 'previous runtime' "$(cat "$RUNTIME_CONFIG")" 'rollback restores existing runtime'
+  fi
+ done
+)
+pass 'reload rollback'

@@ -7,7 +7,7 @@ usage() {
 	cat >&2 <<'EOF'
 Usage: mihowrt <command>
 Service:  prepare | run-service | wait-stopped | recover | reload | migrate
-Config:   read-config [tmp] | save-config <tmp>
+Config:   read-config [tmp] | save-config <tmp> | restore-config
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
 Updates:  auto-update | net-refresh | core-update | core-version-json
@@ -65,6 +65,7 @@ save-config)
 	settings_load >/dev/null 2>&1 && config_api_wait
 	with_lock config_save "$1"
 	;;
+restore-config) with_lock config_restore ;;
 subscription-json) subscription_json ;;
 set-subscription)
 	need_args $# 2

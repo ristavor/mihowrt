@@ -57,6 +57,7 @@ status_json() {
 		--argjson dns_ok "$dns_ok" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \
+		--argjson config_backup "$(json_bool test -f "$CLASH_CONFIG_BACKUP")" \
 		--arg config_error "$config_error" \
 		--arg dns_mode "${DNS_MODE:-}" \
 		--arg version "$PKG_VERSION" \
@@ -73,7 +74,7 @@ status_json() {
 		def words: split(" ") | map(select(length > 0));
 		{running: $running, enabled: $enabled, version: $version, core: $core,
 		 core_installed: ($core != ""), subscription_configured: ($url != ""),
-		 config_valid: $config_valid, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
+		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
 		 mode: $mode, interfaces: ($interfaces | words),
 		 custom_dns_servers: ($custom | words),
 		 lists: {dst: ($dst | tonumber), src: ($src | tonumber), direct: ($direct | tonumber), direct_src: ($direct_src | tonumber)},

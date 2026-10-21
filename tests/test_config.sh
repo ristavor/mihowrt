@@ -124,3 +124,86 @@ runtime_config_build "$RUNTIME_CONFIG"
 assert_true "prepare records success" test -f "$CONFIG_OK_FILE"
 assert_false "prepare clears error" test -f "$CONFIG_ERR_FILE"
 pass "no-op install, reload/profile/DNS transitions, lock-free wait and prepare check records"
+
+# Exercise the real save-config dispatch, including its upload path guard.
+load_modules subscription.sh
+sed '/^LIB=/,/mihowrt_load_modules.*exit 1/d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$tmpdir/cli.sh"
+config_cli() { ( set -- "$@"; source "$tmpdir/cli.sh"; ); }
+upload="/tmp/mihowrt-config.safety.$$"
+trap 'rm -rf "$tmpdir"; rm -f "$upload"' EXIT
+for candidate in '' $'\n  \n' $'# only\n# comments\n'; do
+ printf '%s' "$candidate" >"$upload"
+ cp "$CLASH_CONFIG" "$tmpdir/source.before"
+ cp "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.before"
+ : >"$tmpdir/events"
+ rc=0
+ config_cli save-config "$upload" >"$tmpdir/out" 2>"$tmpdir/err" || rc=$?
+ assert_eq 1 "$rc" 'empty yaml rejected'
+ assert_eq 'Error: The YAML is empty: nothing was changed.' "$(cat "$tmpdir/err")" 'empty YAML message'
+ assert_true 'empty preserves installed YAML' cmp -s "$CLASH_CONFIG" "$tmpdir/source.before"
+ assert_true 'empty preserves backup' cmp -s "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.before"
+ assert_eq '' "$(cat "$tmpdir/events")" 'empty does not reload'
+done
+pass 'empty yaml rejected'
+
+printf 'proxies: []\n' >"$upload"
+truncate -s 8388609 "$upload"
+rc=0
+config_cli save-config "$upload" >"$tmpdir/out" 2>"$tmpdir/err" || rc=$?
+assert_eq 1 "$rc" 'oversize rejected'
+assert_eq 'Error: The YAML is larger than 8 MiB.' "$(cat "$tmpdir/err")" 'oversize message'
+assert_true 'oversize preserves installed YAML' cmp -s "$CLASH_CONFIG" "$tmpdir/source.before"
+assert_true 'oversize preserves backup' cmp -s "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.before"
+assert_eq '' "$(cat "$tmpdir/events")" 'oversize does not reload'
+pass 'oversize rejected'
+
+for key in 'mode:' '"quoted-key" :' "'quoted_key':" 'key9:'; do
+ printf '%s value\n' "$key" >"$tmpdir/keys"
+ assert_true 'top-level mapping key recognized' config_has_keys "$tmpdir/keys"
+done
+printf '  nested: value\n- item\n# comment: value\n' >"$tmpdir/keys"
+assert_false 'only top-level keys recognized' config_has_keys "$tmpdir/keys"
+pass 'config_has_keys contract'
+
+api_alive() { return 0; }
+service_running() { return 0; }
+service_ready() { return 0; }
+printf 'mode: rule\n' >"$CLASH_CONFIG"
+printf 'mode: global\n' >"$CLASH_CONFIG_BACKUP"
+: >"$tmpdir/events"
+assert_eq '{"action":"hot_reloaded"}' "$(config_cli restore-config)" 'restore action'
+assert_eq 'mode: global' "$(cat "$CLASH_CONFIG")" 'restore installs B'
+assert_eq 'mode: rule' "$(cat "$CLASH_CONFIG_BACKUP")" 'restore backs up A'
+assert_file_contains "$tmpdir/events" reload 'restore hot reloads'
+config_cli restore-config >/dev/null
+assert_eq 'mode: rule' "$(cat "$CLASH_CONFIG")" 'second restore installs A'
+assert_eq 'mode: global' "$(cat "$CLASH_CONFIG_BACKUP")" 'second restore backs up B'
+rm "$CLASH_CONFIG_BACKUP"
+rc=0
+config_cli restore-config 2>"$tmpdir/err" || rc=$?
+assert_eq 1 "$rc" 'missing backup rejected'
+assert_eq 'Error: There is no previous configuration.' "$(cat "$tmpdir/err")" 'missing backup message'
+pass 'restore swaps'
+
+printf 'BROKEN\n' >"$CLASH_CONFIG_BACKUP"
+cp "$CLASH_CONFIG" "$tmpdir/source.before"
+cp "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.before"
+: >"$tmpdir/events"
+rc=0
+config_cli restore-config >"$tmpdir/out" 2>"$tmpdir/err" || rc=$?
+assert_eq 1 "$rc" 'broken backup rejected'
+assert_true 'broken backup preserves installed YAML' cmp -s "$CLASH_CONFIG" "$tmpdir/source.before"
+assert_true 'broken backup stays unchanged' cmp -s "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.before"
+assert_eq '' "$(find "$PKG_TMP_DIR" -name 'restore.*' -print)" 'broken restore removes temporary file'
+assert_eq '' "$(cat "$tmpdir/events")" 'broken restore does not reload'
+pass 'broken backup restore is safe'
+
+for candidate in $'\357\273\277proxies: []\n' $'proxies: []\r\n'; do
+ printf '%s' "$candidate" >"$upload"
+ (
+  awk() { busybox awk "$@"; }
+  assert_true 'BusyBox awk accepts BOM or CRLF single key' config_has_keys "$upload"
+ )
+ assert_true 'save-config accepts BOM or CRLF single key' config_cli save-config "$upload"
+done
+pass 'BOM and CRLF single key accepted'

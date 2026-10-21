@@ -12,6 +12,7 @@ const INIT = '/etc/init.d/mihowrt';
 const CSS = `
 #tabmenu > .tabs { max-width: 100%; }
 .mw-page { display: flex; flex-direction: column; gap: 16px; }
+.mw-page [hidden] { display: none; }
 .mw-page > h2, .mw-page > .cbi-section { margin: 0; }
 .mw-page h3 { margin-top: 0; }
 .mw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }

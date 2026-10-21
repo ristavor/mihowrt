@@ -27,7 +27,25 @@ printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || touch "%s"\nexec sleep 30\n' "$tmpd
 chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$RUNTIME_CONFIG"
 
+# Readers holding an old inode must never observe a truncated/replaced error.
+(
+ printf 'previous error\n' >"$LAST_ERROR_FILE"
+ exec 8<"$LAST_ERROR_FILE"
+ service_error 'replacement error' 2>/dev/null
+ assert_eq 'previous error' "$(cat <&8)" 'error publication replaces inode'
+ exec 8<&-
+)
+pass 'last error published atomically'
+
+(
+ settings_load() { return 1; }
+ if run_service 2>"$tmpdir/settings.err"; then fail 'empty settings failure must fail'; fi
+ assert_eq 'MihoWRT could not start. See the system log.' "$(cat "$LAST_ERROR_FILE")" 'empty settings error has fallback'
+)
+pass 'empty settings failure has message'
+
 # A supervisor entered with an inherited lock must drop both fd and depth.
+env PKG_STATE_DIR="$PKG_STATE_DIR" HEALTH_FILE="$HEALTH_FILE" DEGRADED_FILE="$DEGRADED_FILE" LAST_ERROR_FILE="$LAST_ERROR_FILE" \
 CHECK_FILE="$tmpdir/supervisor-closed" RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock" ash -c '
  . "$MIHOWRT_LIB_DIR/helpers.sh"
  . "$MIHOWRT_LIB_DIR/validate.sh"
@@ -111,6 +129,7 @@ rc=0
 run_service 2>/dev/null || rc=$?
 assert_eq 1 "$rc" "start failure"
 assert_eq "cleanup" "$(cat "$events")" "no apply when Mihomo is not ready"
+assert_eq "Mihomo did not become ready; router stays on direct routing" "$(cat "$LAST_ERROR_FILE")" "startup error recorded"
 pass "not ready cleans up"
 
 load_modules service.sh
@@ -230,14 +249,29 @@ probe_script=0001000
 api_alive() { [ "$probe_count" -le 3 ]; }
 wait_for_ready() { :; }
 settings_load() { :; }
-policy_cleanup() { echo "cleanup:$([ -e "$RUNNING_MARKER" ] && echo yes || echo no)" >>"$events"; }
+policy_cleanup() {
+ if [ "$probe_count" = 3 ]; then
+  assert_true 'degraded visible before policy cleanup' test -f "$DEGRADED_FILE"
+ fi
+ echo "cleanup:$([ -e "$RUNNING_MARKER" ] && echo yes || echo no)" >>"$events"
+}
 policy_apply() { echo apply >>"$events"; }
 api_dns_probe() {
  probe_count=$((probe_count + 1))
+ if [ "$probe_count" = 2 ]; then
+  assert_eq fail "$(cat "$HEALTH_FILE")" "failed probe written"
+ fi
  if [ "$probe_count" = 4 ]; then
+  exec 8<"$HEALTH_FILE"
+  assert_true "degraded file created" test -f "$DEGRADED_FILE"
   assert_false "degraded marker absent before recovery" test -e "$RUNNING_MARKER"
  fi
  if [ "$probe_count" = 5 ]; then
+  assert_eq fail "$(cat <&8)" 'health publication replaces inode'
+  exec 8<&-
+  assert_eq ok "$(cat "$HEALTH_FILE")" "successful probe written"
+  assert_false "recovery clears degraded file" test -e "$DEGRADED_FILE"
+  assert_false "ready clears last error" test -e "$LAST_ERROR_FILE"
   assert_true "recovery restores marker" test -e "$RUNNING_MARKER"
  fi
  [ "$(printf '%s' "$probe_script" | cut -c"$probe_count")" = 1 ]
@@ -247,12 +281,17 @@ rc=0
 run_service 2>"$tmpdir/watchdog.err" || rc=$?
 assert_eq 1 "$rc" "hung core still exits for respawn"
 assert_eq 7 "$probe_count" "loop continues after degrade and recover"
+assert_false "exit removes health" test -e "$HEALTH_FILE"
+assert_false "exit removes degraded" test -e "$DEGRADED_FILE"
+assert_eq "watchdog: Mihomo does not answer; restarting" "$(cat "$LAST_ERROR_FILE")" "watchdog error recorded"
 assert_eq $'apply\ncleanup:no\napply\ncleanup:no' "$(cat "$events")" "degrade cleans and recovery reapplies"
 pass "watchdog degrades in place and restores policy and marker"
 
 exec 9>>"$tmpdir/init-inherited.flock"
 source_init_mihowrt_lib
 assert_false "init script closes inherited fd 9 before procd" test -e "/proc/$$/fd/9"
+PKG_STATE_DIR="$tmpdir/run"
+LAST_ERROR_FILE="$tmpdir/last_error"
 USER_STOP_FILE="$tmpdir/stopped"
 SKIP_START_FILE="$tmpdir/skip-start"
 MIHOWRT="$tmpdir/cli"
@@ -265,6 +304,22 @@ stop_service
 assert_true "Stop creates sticky flag" test -f "$USER_STOP_FILE"
 start_service
 assert_false "Start clears sticky flag" test -f "$USER_STOP_FILE"
+printf '#!/bin/sh\necho "Error: Invalid lists_interval: x" >&2\nexit 1\n' >"$MIHOWRT"
+logger() { printf '%s\n' "$*" >>"$tmpdir/prepare.log"; }
+if start_service 2>"$tmpdir/prepare.err"; then fail 'invalid prepare must fail'; fi
+assert_file_contains "$tmpdir/prepare.err" 'Invalid lists_interval: x' 'prepare reason visible on stderr'
+assert_file_contains "$tmpdir/prepare.log" 'Invalid lists_interval: x' 'prepare reason logged'
+assert_eq 'Invalid lists_interval: x' "$(cat "$LAST_ERROR_FILE")" 'prepare error strips prefix'
+assert_false 'failed prepare removes temporary file' test -e "$LAST_ERROR_FILE.tmp.$$"
+printf '#!/bin/sh\nexit 1\n' >"$MIHOWRT"
+if start_service 2>"$tmpdir/prepare.err"; then fail 'empty prepare failure must fail'; fi
+assert_eq 'MihoWRT could not start. See the system log.' "$(cat "$LAST_ERROR_FILE")" 'empty prepare error has fallback'
+assert_file_contains "$tmpdir/prepare.err" 'MihoWRT could not start. See the system log.' 'fallback visible on stderr'
+printf '#!/bin/sh\nexit 0\n' >"$MIHOWRT"
+start_service
+assert_false 'successful prepare clears error' test -e "$LAST_ERROR_FILE"
+assert_false 'successful prepare clears temporary file' test -e "$LAST_ERROR_FILE.tmp.$$"
+pass 'prepare last error'
 # Rewrite constants and absolute device paths, then execute real hotplug logic.
 mkdir -p "$tmpdir/lib"
 sed -e "s|/var/run/mihowrt|$tmpdir/hotplug|g" -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" \

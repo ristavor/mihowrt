@@ -3,15 +3,45 @@
 # Read-only status for LuCI and the CLI.
 
 service_enabled() {
-	/etc/init.d/mihowrt enabled >/dev/null 2>&1
+	local link=""
+
+	for link in /etc/rc.d/S*mihowrt; do
+		[ -e "$link" ] && return 0
+	done
+	return 1
 }
 
 json_bool() {
 	if "$@"; then echo true; else echo false; fi
 }
 
+service_state() {
+	if service_running; then
+		if [ -f "$DEGRADED_FILE" ]; then echo degraded
+		elif [ -f "$RUNNING_MARKER" ]; then echo running
+		else echo starting
+		fi
+	elif [ -f "$USER_STOP_FILE" ]; then echo stopped
+	elif [ -f "$LAST_ERROR_FILE" ]; then echo failed
+	else echo stopped
+	fi
+}
+
+health_json() {
+	case "$(cat "$HEALTH_FILE" 2>/dev/null)" in
+	ok) echo true ;;
+	fail) echo false ;;
+	*) echo null ;;
+	esac
+}
+
 service_state_json() {
-	printf '{"running":%s,"enabled":%s}\n' "$(json_bool service_running)" "$(json_bool service_enabled)"
+	jq -nc --argjson running "$(json_bool service_running)" \
+		--argjson enabled "$(json_bool service_enabled)" \
+		--arg state "$(service_state)" \
+		--argjson dns_ok "$(health_json)" \
+		--arg last_error "$(cat "$LAST_ERROR_FILE" 2>/dev/null)" \
+		'{running: $running, enabled: $enabled, state: $state, dns_ok: $dns_ok, last_error: $last_error}'
 }
 
 # Plain upstream servers in dnsmasq bypass Mihomo; domain-scoped ones are fine.
@@ -39,12 +69,11 @@ config_valid_json() {
 }
 
 status_json() {
-	local running=false dns_ok=null policy=false config_valid=null config_error="" errors=""
+	local running=false policy=false config_valid=null config_error="" errors=""
 
 	settings_load 2>/dev/null || errors="Invalid MihoWRT settings"
 	service_running && running=true
 	if [ "$running" = true ]; then
-		dns_ok="$(json_bool api_dns_probe)"
 		nft_active && route_active && policy=true
 	fi
 	config_valid="$(config_valid_json)"
@@ -54,7 +83,9 @@ status_json() {
 	jq -nc \
 		--argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
-		--argjson dns_ok "$dns_ok" \
+		--argjson dns_ok "$(health_json)" \
+		--arg state "$(service_state)" \
+		--arg last_error "$(cat "$LAST_ERROR_FILE" 2>/dev/null)" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \
 		--argjson config_backup "$(json_bool test -f "$CLASH_CONFIG_BACKUP")" \
@@ -72,7 +103,7 @@ status_json() {
 		--arg direct_src "$(lists_count direct_src)" \
 		--arg errors "$errors" '
 		def words: split(" ") | map(select(length > 0));
-		{running: $running, enabled: $enabled, version: $version, core: $core,
+		{running: $running, enabled: $enabled, state: $state, last_error: $last_error, version: $version, core: $core,
 		 core_installed: ($core != ""), subscription_configured: ($url != ""),
 		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
 		 mode: $mode, interfaces: ($interfaces | words),

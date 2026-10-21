@@ -176,16 +176,30 @@ mihomo_memory_limit() {
 	awk '/^MemTotal:/ { print int($2 / 2048) "MiB" }' /proc/meminfo 2>/dev/null
 }
 
+service_error() {
+	atomic_write "$LAST_ERROR_FILE" "$*"
+	err "$*"
+}
+
 # procd payload. Exit 0 = stopped on request; exit 1 = failure, procd respawns.
 run_service() {
-	local pid="" fails=0 stop=0 rc=1 memlimit="" degraded=0
+	local pid="" fails=0 stop=0 rc=1 memlimit="" degraded=0 error=""
 
 	# A long-lived supervisor must never retain its caller's lock.
 	exec 9>&-
 	LOCK_DEPTH=0
 
-	settings_load || return 1
-	[ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG" || return 1
+	ensure_dir "$PKG_STATE_DIR" || return 1
+	rm -f "$HEALTH_FILE" "$DEGRADED_FILE"
+	if ! { settings_load && { [ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG"; }; } 2>"$LAST_ERROR_FILE.tmp.$$"; then
+		cat "$LAST_ERROR_FILE.tmp.$$" >&2
+		error="$(sed 's/^Error: //' "$LAST_ERROR_FILE.tmp.$$")"
+		atomic_write "$LAST_ERROR_FILE" "${error:-MihoWRT could not start. See the system log.}"
+		rm -f "$LAST_ERROR_FILE.tmp.$$"
+		return 1
+	fi
+	cat "$LAST_ERROR_FILE.tmp.$$" >&2
+	rm -f "$LAST_ERROR_FILE.tmp.$$"
 	memlimit="$(mihomo_memory_limit)"
 	trap 'stop=1; MIHOWRT_STOP=1' INT TERM HUP
 	GOMEMLIMIT="${memlimit:-off}" SAFE_PATHS="$PKG_TMP_DIR" \
@@ -195,6 +209,7 @@ run_service() {
 
 	if wait_for_ready "$pid" && with_lock policy_reapply; then
 		echo "$$" >"$RUNNING_MARKER"
+		rm -f "$LAST_ERROR_FILE"
 		log "MihoWRT ready (Mihomo pid $pid)"
 		rc=0
 		while [ "$stop" -eq 0 ] && kill -0 "$pid" 2>/dev/null; do
@@ -204,17 +219,20 @@ run_service() {
 			kill -0 "$pid" 2>/dev/null || break
 			lock_busy && continue
 			if api_dns_probe; then
+				atomic_write "$HEALTH_FILE" ok
 				fails=0
 				[ "$degraded" -eq 1 ] || continue
 				if with_lock policy_reapply; then
 					echo "$$" >"$RUNNING_MARKER"
 					degraded=0
+					rm -f "$DEGRADED_FILE"
 					log "watchdog: Mihomo DNS recovered, policy restored"
 				fi
 				continue
 			fi
+			atomic_write "$HEALTH_FILE" fail
 			[ "$degraded" -eq 1 ] && ! api_alive && {
-				err "watchdog: Mihomo does not answer; restarting"
+				service_error "watchdog: Mihomo does not answer; restarting"
 				rc=1
 				break
 			}
@@ -225,21 +243,22 @@ run_service() {
 			# A live core with broken upstream DNS: go direct in place and
 			# keep probing. A hung core is restarted by procd.
 			if ! api_alive; then
-				err "watchdog: Mihomo does not answer; restarting"
+				service_error "watchdog: Mihomo does not answer; restarting"
 				rc=1
 				break
 			fi
+			: >"$DEGRADED_FILE"
 			rm -f "$RUNNING_MARKER"
 			with_lock policy_cleanup
 			degraded=1
 			warn "watchdog: Mihomo DNS unresponsive, traffic goes direct"
 		done
 		[ "$stop" -eq 1 ] || kill -0 "$pid" 2>/dev/null || {
-			err "Mihomo exited unexpectedly"
+			service_error "Mihomo exited unexpectedly"
 			rc=1
 		}
 	else
-		err "Mihomo did not become ready; router stays on direct routing"
+		service_error "Mihomo did not become ready; router stays on direct routing"
 		rc=1
 	fi
 
@@ -258,7 +277,7 @@ run_service() {
 	fi
 	stop_child "$pid"
 	cache_db_persist
-	rm -f "$SERVICE_PID_FILE"
+	rm -f "$SERVICE_PID_FILE" "$HEALTH_FILE" "$DEGRADED_FILE"
 	[ "$stop" -eq 1 ] && {
 		log "MihoWRT stopped"
 		return 0

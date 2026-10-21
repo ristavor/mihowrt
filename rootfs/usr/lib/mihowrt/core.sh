@@ -24,8 +24,19 @@ core_arch() {
 }
 
 core_version() {
-	[ -x "${1:-$CLASH_BIN}" ] || return 1
-	"${1:-$CLASH_BIN}" -v 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
+	local binary="${1:-$CLASH_BIN}" version=""
+
+	[ -x "$binary" ] || return 1
+	# Candidate binaries must not read or overwrite the installed core's cache.
+	if [ "$binary" = "$CLASH_BIN" ] && [ -f "$CORE_VERSION_CACHE" ] && ! [ "$binary" -nt "$CORE_VERSION_CACHE" ]; then
+		cat "$CORE_VERSION_CACHE"
+		return 0
+	fi
+	version="$("$binary" -v 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)"
+	if [ "$binary" = "$CLASH_BIN" ]; then
+		ensure_dir "$PKG_STATE_DIR" && atomic_write "$CORE_VERSION_CACHE" "$version"
+	fi
+	printf '%s\n' "$version"
 }
 
 core_version_json() {
@@ -140,6 +151,7 @@ core_update() {
 		config_check_record ok
 	fi
 	mv -f "$CLASH_BIN.new" "$CLASH_BIN" || core_fail "cannot replace binary" || return 1
+	rm -f "$CORE_VERSION_CACHE"
 	rm -rf "$CORE_TMP_DIR" "$config" "$config.profile"
 	CORE_UPDATED=1
 	CORE_VERSION="$tag"

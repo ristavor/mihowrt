@@ -22,6 +22,26 @@ chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$CLASH_CONFIG"
 core_arch() { echo arm64; }
 
+# Cache only the installed binary, never a candidate under validation.
+printf '#!/bin/sh\necho called >>"%s"\necho "Mihomo v1.19.30"\n' "$tmpdir/version.calls" >"$CLASH_BIN"
+assert_eq v1.19.30 "$(core_version)" 'missing cache queries core'
+assert_eq v1.19.30 "$(core_version)" 'cache returns version'
+assert_eq 1 "$(wc -l <"$tmpdir/version.calls" | tr -d ' ')" 'installed core queried once'
+assert_eq v1.19.30 "$(cat "$CORE_VERSION_CACHE")" 'version cache stored'
+candidate="$tmpdir/candidate"
+printf '#!/bin/sh\necho "Mihomo v1.20.0"\n' >"$candidate"
+chmod +x "$candidate"
+assert_eq v1.20.0 "$(core_version "$candidate")" 'candidate queried separately'
+assert_eq v1.19.30 "$(cat "$CORE_VERSION_CACHE")" 'candidate does not pollute installed cache'
+echo 'previous version' >"$CORE_VERSION_CACHE"
+exec 8<"$CORE_VERSION_CACHE"
+touch -d '2000-01-01' "$CORE_VERSION_CACHE"
+assert_eq v1.19.30 "$(core_version)" 'newer binary refreshes cache'
+assert_eq 2 "$(wc -l <"$tmpdir/version.calls" | tr -d ' ')" 'refresh queries once'
+assert_eq 'previous version' "$(cat <&8)" 'core cache publication replaces inode'
+exec 8<&-
+pass 'core version cache'
+
 # New core: prints its version; rejects configs when NEW_CORE_REJECTS=1.
 new_core="$tmpdir/new-core"
 cat >"$new_core" <<'N'

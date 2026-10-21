@@ -29,6 +29,7 @@ nft_active() { true; }
 route_active() { true; }
 core_version() { echo v1.19.32; }
 
+echo ok >"$HEALTH_FILE"
 json="$(status_json)"
 assert_eq "true|true|true|null" "$(jq -r '"\(.running)|\(.dns_ok)|\(.policy_active)|\(.config_valid)"' <<<"$json")" "checklist flags"
 assert_eq '["9.9.9.9"]' "$(jq -c .custom_dns_servers <<<"$json")" "only global custom servers reported"
@@ -36,7 +37,8 @@ assert_eq 2 "$(jq .lists.dst <<<"$json")" "list count ignores comments"
 assert_eq "v1.19.32" "$(jq -r .core <<<"$json")" "core version"
 pass "status checklist"
 
-api_dns_probe() { false; }
+echo fail >"$HEALTH_FILE"
+api_dns_probe() { fail "status must not probe DNS"; }
 assert_eq false "$(status_json | jq .dns_ok)" "failed DNS probe reported"
 pass "status dns failure"
 
@@ -75,3 +77,68 @@ assert_eq false "$(status_json | jq .config_backup)" 'no backup flag'
 touch "$CLASH_CONFIG_BACKUP"
 assert_eq true "$(status_json | jq .config_backup)" 'backup flag'
 pass 'status backup flag'
+
+# Every state-table row, including precedence when multiple files exist.
+service_running() { true; }
+touch "$DEGRADED_FILE" "$RUNNING_MARKER" "$USER_STOP_FILE" "$LAST_ERROR_FILE"
+assert_eq degraded "$(service_state)" 'alive degraded wins'
+rm "$DEGRADED_FILE"
+assert_eq running "$(service_state)" 'alive running marker'
+rm "$RUNNING_MARKER"
+assert_eq starting "$(service_state)" 'alive without marker'
+service_running() { false; }
+assert_eq stopped "$(service_state)" 'user stop wins over error'
+rm "$USER_STOP_FILE"
+assert_eq failed "$(service_state)" 'dead with error'
+rm "$LAST_ERROR_FILE"
+assert_eq stopped "$(service_state)" 'dead without error'
+pass 'service state table'
+
+# Exercise real core_version and service_enabled; only the full status may load settings.
+load_modules core.sh status.sh
+printf '#!/bin/sh\necho called >>"%s"\necho "Mihomo v1.19.32"\n' "$tmpdir/core.calls" >"$CLASH_BIN"
+chmod +x "$CLASH_BIN"
+echo v1.19.32 >"$CORE_VERSION_CACHE"
+touch -d '2000-01-01' "$CLASH_BIN"
+curl() { echo called >>"$tmpdir/curl.calls"; return 1; }
+api_dns_probe() { curl; }
+echo 'failure "quoted"' >"$LAST_ERROR_FILE"
+for health in ok fail missing; do
+ case "$health" in ok) expected=true ;; fail) expected=false ;; missing) expected=null ;; esac
+ if [ "$health" = missing ]; then rm -f "$HEALTH_FILE"; else echo "$health" >"$HEALTH_FILE"; fi
+ (
+  settings_load() { fail 'cheap status must not load settings'; }
+  uci() { fail 'cheap status must not call uci'; }
+  json="$(service_state_json)"
+  assert_eq "$expected" "$(jq .dns_ok <<<"$json")" 'cheap health snapshot'
+  jq -e '.running == false and (.enabled | type) == "boolean" and .state == "failed" and .last_error == "failure \"quoted\"" and (keys | length) == 5' <<<"$json" >/dev/null || fail 'cheap JSON contract'
+ )
+ json="$(status_json)"
+ assert_eq "$expected" "$(jq .dns_ok <<<"$json")" 'full status health snapshot'
+ assert_eq failed "$(jq -r .state <<<"$json")" 'full status state'
+ assert_eq 'failure "quoted"' "$(jq -r .last_error <<<"$json")" 'full status error'
+done
+assert_false 'status does not call API' test -e "$tmpdir/curl.calls"
+assert_false 'fresh cache avoids core invocation' test -e "$tmpdir/core.calls"
+touch -d '2001-01-01' "$CORE_VERSION_CACHE"
+touch "$CLASH_BIN"
+json="$(status_json)"
+json="$(status_json)"
+assert_eq 1 "$(wc -l <"$tmpdir/core.calls" | tr -d ' ')" 'new binary queried exactly once'
+assert_eq v1.19.32 "$(cat "$CORE_VERSION_CACHE")" 'cache refreshed'
+pass 'cheap status uses health files and cached core version'
+
+(
+ # Relocate only the fixed init paths, keeping the real enabled-check logic.
+ eval "$(declare -f service_enabled | sed "s|/etc/|$tmpdir/etc/|g")"
+ mkdir -p "$tmpdir/etc/rc.d" "$tmpdir/etc/init.d"
+ printf '#!/bin/sh\ntouch "%s"\n' "$tmpdir/init.called" >"$tmpdir/etc/init.d/mihowrt"
+ chmod +x "$tmpdir/etc/init.d/mihowrt"
+ assert_false 'no start link means disabled' service_enabled
+ ln -s ../init.d/mihowrt "$tmpdir/etc/rc.d/S21mihowrt"
+ assert_true 'start link means enabled' service_enabled
+ assert_false 'enabled never invokes init' test -e "$tmpdir/init.called"
+)
+assert_eq service-state-json "$(MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" service-state-json)" 'read wrapper exposes cheap status'
+assert_false 'cheap read command rejects arguments' env MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" service-state-json extra
+pass 'cheap enabled flag and read wrapper'

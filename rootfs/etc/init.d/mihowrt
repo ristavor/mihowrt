@@ -13,7 +13,7 @@ SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 
 # Validate everything first so a bad config never touches router state.
 start_service() {
-	local skip=""
+	local skip="" error=""
 
 	# Set by the package preinst for the start that apk's default postinst
 	# runs. A marker left by a failed install must not block a later Start.
@@ -22,11 +22,18 @@ start_service() {
 		rm -f "$SKIP_START_FILE"
 		[ -n "$skip" ] && return 0
 	fi
-	rm -f "$USER_STOP_FILE"
-	"$MIHOWRT" prepare || {
-		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid"
+	mkdir -p "$PKG_STATE_DIR" || return 1
+	rm -f "$USER_STOP_FILE" "$LAST_ERROR_FILE"
+	"$MIHOWRT" prepare 2>"$LAST_ERROR_FILE.tmp.$$" || {
+		error="$(sed 's/^Error: //' "$LAST_ERROR_FILE.tmp.$$")"
+		printf '%s\n' "${error:-MihoWRT could not start. See the system log.}" >"$LAST_ERROR_FILE.tmp.$$"
+		mv -f "$LAST_ERROR_FILE.tmp.$$" "$LAST_ERROR_FILE"
+		cat "$LAST_ERROR_FILE" >&2
+		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid: $(cat "$LAST_ERROR_FILE")"
 		return 1
 	}
+
+	rm -f "$LAST_ERROR_FILE.tmp.$$"
 
 	procd_open_instance
 	# The fixed command in constants.sh intentionally expands to two arguments.

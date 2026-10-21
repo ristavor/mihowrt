@@ -29,6 +29,17 @@ ensure_dir() {
 	[ -d "$1" ] || mkdir -p "$1"
 }
 
+# Publish a complete value without exposing a truncated file to status readers.
+atomic_write() {
+	local f="$1"
+
+	if printf '%s\n' "$2" >"$f.tmp.$$" && mv -f "$f.tmp.$$" "$f"; then
+		return 0
+	fi
+	rm -f "$f.tmp.$$"
+	return 1
+}
+
 # Collapse a value to one printable line (used for HTTP header metadata).
 single_line() {
 	tr '\r\n\t' '   ' | tr -d '\000-\037' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'

@@ -11,8 +11,8 @@ ifup | ifupdate) ;;
 esac
 
 if [ -f "$RUNNING_MARKER" ]; then
-	/usr/bin/mihowrt dns-refresh >/dev/null 2>&1 &
+	/usr/bin/mihowrt dns-refresh 9>&- >/dev/null 2>&1 &
 elif [ "$ACTION" = ifup ] && [ ! -f "$USER_STOP_FILE" ] && /etc/init.d/mihowrt enabled &&
 	! pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1; then
-	/etc/init.d/mihowrt start >/dev/null 2>&1 &
+	/etc/init.d/mihowrt start 9>&- >/dev/null 2>&1 &
 fi

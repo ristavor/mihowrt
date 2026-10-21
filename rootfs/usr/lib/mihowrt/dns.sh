@@ -68,7 +68,7 @@ dns_render() {
 
 dns_restart_dnsmasq() {
 	[ -x /etc/init.d/dnsmasq ] || return 0
-	/etc/init.d/dnsmasq restart >/dev/null 2>&1
+	/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1
 }
 
 dns_apply() {

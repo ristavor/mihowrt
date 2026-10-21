@@ -23,9 +23,21 @@ CACHE_DB_TMPFS="$tmpdir/cache.db"
 WATCHDOG_INTERVAL=0.1
 mkdir -p "$PKG_STATE_DIR"
 CLASH_BIN="$tmpdir/clash"
-printf '#!/bin/sh\nexec sleep 30\n' >"$CLASH_BIN"
+printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || touch "%s"\nexec sleep 30\n' "$tmpdir/core-lock-leaked" >"$CLASH_BIN"
 chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$RUNTIME_CONFIG"
+
+# A supervisor entered with an inherited lock must drop both fd and depth.
+CHECK_FILE="$tmpdir/supervisor-closed" RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock" ash -c '
+ . "$MIHOWRT_LIB_DIR/helpers.sh"
+ . "$MIHOWRT_LIB_DIR/validate.sh"
+ . "$MIHOWRT_LIB_DIR/service.sh"
+ lock_acquire || exit 1
+ settings_load() { [ ! -e /proc/$$/fd/9 ] && [ "$LOCK_DEPTH" = 0 ] && touch "$CHECK_FILE"; return 1; }
+ run_service
+' 2>/dev/null || true
+assert_true "supervisor drops inherited lock fd and depth" test -f "$tmpdir/supervisor-closed"
+pass "supervisor closes inherited fd 9"
 
 # Persist through a sibling temporary file, leaving the old database intact
 # until rename and preserving it if the copy fails.
@@ -81,6 +93,7 @@ run_service || rc=$?
 assert_eq 1 "$rc" "watchdog exits 1 so procd respawns"
 assert_eq $'apply\ncleanup' "$(cat "$events")" "policy cleaned once after fail-open"
 [[ ! -e "$RUNNING_MARKER" ]] || fail "running marker removed"
+assert_false "Mihomo does not inherit fd 9" test -e "$tmpdir/core-lock-leaked"
 pass "watchdog fails open"
 
 reset_events
@@ -116,22 +129,23 @@ pass "apply failure cleans"
 
 nested() {
 	with_lock true
-	[ -L "$RUNTIME_LOCK_FILE" ] || fail "outer lock must survive nested release"
+	[ "$LOCK_DEPTH" = 1 ] || fail "outer lock must survive nested release"
 }
 with_lock nested
-[[ ! -e "$RUNTIME_LOCK_FILE" ]] || fail "lock released after outer call"
+assert_false "lock released after outer call" lock_busy
 pass "lock is re-entrant"
 
 # Network fetches must not hold the runtime lock (LuCI saves would time out).
 load_modules fetch.sh subscription.sh config.sh
 lock_seen=""
 http_fetch() {
-	lock_seen="$lock_seen $(readlink "$RUNTIME_LOCK_FILE" 2>/dev/null || echo free)"
+	lock_seen="$lock_seen ${LOCK_DEPTH:-0}"
+	assert_false "network download leaves lock free" lock_busy
 	mkdir -p "$(dirname "$2")"
 	printf 'proxies: []\n' >"$2"
 }
 config_install() {
-	[ "$(readlink "$RUNTIME_LOCK_FILE")" = "$$" ] || fail "config_install must run under the lock"
+	[ "${LOCK_DEPTH:-0}" -gt 0 ] || fail "config_install must run under the lock"
 	echo '{"action":"saved"}'
 }
 cron_update() { :; }
@@ -141,7 +155,7 @@ lists_urls() { :; }
 SUBSCRIPTION_META_FILE="$tmpdir/etc/sub.json"
 settings_load() { SUBSCRIPTION_URL=https://sub.example/x; SUBSCRIPTION_INTERVAL=1; LISTS_INTERVAL=1; }
 subscription_update >/dev/null
-assert_eq " free" "$lock_seen" "subscription download runs without the lock"
+assert_eq " 0" "$lock_seen" "subscription download runs without the lock"
 pass "network fetch outside the lock"
 
 # --- review fixes -----------------------------------------------------------
@@ -163,9 +177,8 @@ WATCHDOG_FAILS=3
 pass "marker removed before cleanup"
 
 # A: stop never waits on a busy lock longer than procd allows.
-sleep 300 &
-holder=$!
-ln -s "$holder" "$RUNTIME_LOCK_FILE"
+start_runtime_lock_holder "$RUNTIME_LOCK_FILE" "$tmpdir/holder.ready"
+holder=$LOCK_HOLDER_PID
 reset_events
 start=$(date +%s)
 probe_script="1111111111"
@@ -174,7 +187,6 @@ probe_count=0
 run_service 2>/dev/null || true
 elapsed=$(( $(date +%s) - start ))
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null || true
-rm -f "$RUNTIME_LOCK_FILE"
 [ "$elapsed" -lt 25 ] || fail "stop took ${elapsed}s with a busy lock (procd kills at 30s)"
 assert_file_contains "$events" "cleanup" "cleanup still happens without the lock"
 pass "stop does not wait on a busy lock"
@@ -238,7 +250,9 @@ assert_eq 7 "$probe_count" "loop continues after degrade and recover"
 assert_eq $'apply\ncleanup:no\napply\ncleanup:no' "$(cat "$events")" "degrade cleans and recovery reapplies"
 pass "watchdog degrades in place and restores policy and marker"
 
+exec 9>>"$tmpdir/init-inherited.flock"
 source_init_mihowrt_lib
+assert_false "init script closes inherited fd 9 before procd" test -e "/proc/$$/fd/9"
 USER_STOP_FILE="$tmpdir/stopped"
 SKIP_START_FILE="$tmpdir/skip-start"
 MIHOWRT="$tmpdir/cli"

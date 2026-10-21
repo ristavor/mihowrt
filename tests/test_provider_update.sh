@@ -44,7 +44,8 @@ nft() { echo "nft:$*" >>"$tmpdir/events"; }
 policy_apply() { echo "policy:$POLICY_MODE" >>"$tmpdir/events"; nft_apply; }
 dns_restart_dnsmasq() { echo dns-restart >>"$tmpdir/events"; }
 http_fetch() {
- assert_false "download outside lock" test -L "$RUNTIME_LOCK_FILE"
+ assert_eq 0 "${LOCK_DEPTH:-0}" "download outside lock"
+ assert_false "download leaves runtime lock free" lock_busy
  cp "$tmpdir/download" "$2"
  printf 'HTTP/1.1 200 OK\r\n%s\r\n' "$headers" >"$FETCH_HDR"
 }
@@ -66,12 +67,14 @@ assert_eq 1 "$(grep -c '^reload$' "$tmpdir/events")" "cron hot reloads without s
 # New provider URL is fetched unlocked, then nft is applied under the lock.
 printf 'x-mihowrt:\n  proxy-ips:\n    - https://p.example/list.txt\n' >>"$tmpdir/download"
 lists_update_remote() {
- assert_false "remote list fetch outside lock" test -L "$RUNTIME_LOCK_FILE"
+ assert_eq 0 "${LOCK_DEPTH:-0}" "remote list fetch outside lock"
+ assert_false "remote list fetch leaves runtime lock free" lock_busy
  echo fetched >>"$tmpdir/events"
  echo changed
 }
 nft_apply() {
- assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "nft apply owns runtime lock"
+ assert_true "nft apply owns runtime lock" test "${LOCK_DEPTH:-0}" -gt 0
+ assert_eq "$$" "$(cat "$RUNTIME_LOCK_FILE.owner")" "nft apply owner metadata"
  echo nft-ready >>"$tmpdir/events"
 }
 : >"$tmpdir/events"

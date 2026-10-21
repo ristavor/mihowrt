@@ -23,3 +23,13 @@ pass "runtime uses only OpenWrt BusyBox tools"
 # OpenWrt jq is built without Oniguruma: regex filters fail at runtime.
 check_absent '(test|match|capture|sub|gsub|scan|splits)\("' "jq regex functions are unavailable on OpenWrt"
 pass "runtime jq programs avoid regex filters"
+
+# fd 9 belongs only to the runtime lock, never to long-lived children.
+spawn_files=("$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh "$ROOT_DIR/rootfs/usr/bin/mihowrt" "$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt")
+hits="$(grep -nE '(^|[^&]) &[[:space:]]*$' "${spawn_files[@]}" | grep -vF '9>&-' || true)"
+[[ -z "$hits" ]] || fail "runtime background spawns must close lock fd 9: $hits"
+pass "runtime background spawns close fd 9"
+hits="$(grep -nE '/etc/init.d/[^[:space:]]+ (start|restart|reload)([[:space:]]|$)' "${spawn_files[@]}" | grep -vF '9>&-' || true)"
+[[ -z "$hits" ]] || fail "daemon starts must close lock fd 9: $hits"
+pass "runtime daemon starts close fd 9"
+check_absent 'flock[^;|]*[[:space:]]-w' "BusyBox flock has no -w timeout"

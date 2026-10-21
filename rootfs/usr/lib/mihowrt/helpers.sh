@@ -50,53 +50,71 @@ uci_commit() {
 	uci -q commit "${PKG_CONFIG:-mihowrt}"
 }
 
-# One runtime lock serializes nft, route, DNS and config changes. ln -s is
-# atomic on every OpenWrt filesystem and stores the owner pid in the link.
+# fd 9 is reserved for the runtime lock; background/daemon children close it.
+# The kernel owns exclusion. The owner pid is diagnostic metadata only.
 lock_acquire() {
-	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}"
-	local owner="" waited=0 timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.flock}"
+	local depth="" owner="" waited=0 timeout="${RUNTIME_LOCK_TIMEOUT:-120}"
 
-	# Re-entrant: nested with_lock calls in the same process just count.
-	if [ "$(readlink "$lock" 2>/dev/null)" = "$$" ]; then
-		LOCK_DEPTH=$((${LOCK_DEPTH:-0} + 1))
+	depth="$(uint_norm "${LOCK_DEPTH:-0}")"
+	# Subshells inherit both fd 9 and depth: never open a second lock fd.
+	if [ "$depth" -gt 0 ]; then
+		LOCK_DEPTH=$((depth + 1))
 		return 0
 	fi
+	is_uint "$timeout" || {
+		err "Invalid RUNTIME_LOCK_TIMEOUT: $timeout"
+		return 1
+	}
+	timeout="$(uint_norm "$timeout")"
 	ensure_dir "$(dirname "$lock")" || return 1
-	while ! ln -s "$$" "$lock" 2>/dev/null; do
-		owner="$(readlink "$lock" 2>/dev/null)"
-		if [ -n "$owner" ] && ! kill -0 "$owner" 2>/dev/null; then
-			# Remove only if the dead owner still holds it: another waiter may
-			# have taken the lock in between.
-			[ "$(readlink "$lock" 2>/dev/null)" = "$owner" ] && rm -f "$lock"
-			continue
-		fi
-		[ "$waited" -lt "$timeout" ] || {
-			err "Runtime is busy (process $owner)"
+	exec 9>>"$lock" || return 1
+	while :; do
+		# run_service sets MIHOWRT_STOP from its signal trap.
+		[ "${MIHOWRT_STOP:-0}" = 0 ] || {
+			exec 9>&-
 			return 1
 		}
-		# run_service sets MIHOWRT_STOP from its signal trap.
-		[ "${MIHOWRT_STOP:-0}" = 0 ] || return 1
+		if flock -n 9; then
+			if ! echo "$$" >"$lock.owner"; then
+				flock -u 9
+				exec 9>&-
+				return 1
+			fi
+			LOCK_DEPTH=1
+			return 0
+		fi
+		[ "$waited" -lt "$timeout" ] || {
+			owner="$(cat "$lock.owner" 2>/dev/null)"
+			err "Runtime is busy (process $owner)"
+			exec 9>&-
+			return 1
+		}
 		sleep 1
 		waited=$((waited + 1))
 	done
-	LOCK_DEPTH=1
 }
 
 lock_release() {
-	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}"
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.flock}" depth=""
 
-	[ "$(readlink "$lock" 2>/dev/null)" = "$$" ] || return 0
-	LOCK_DEPTH=$((${LOCK_DEPTH:-1} - 1))
-	[ "$LOCK_DEPTH" -gt 0 ] || rm -f "$lock"
+	depth="$(uint_norm "${LOCK_DEPTH:-0}")"
+	[ "$depth" -gt 0 ] || return 0
+	LOCK_DEPTH=$((depth - 1))
+	[ "$LOCK_DEPTH" -eq 0 ] || return 0
+	# Remove metadata before unlocking so a new owner's pid cannot be removed.
+	rm -f "$lock.owner"
+	flock -u 9
+	exec 9>&-
 	return 0
 }
 
-# True when another live process holds the runtime lock.
+# Probe through a separate fd; re-opening our own lock would report it busy.
 lock_busy() {
-	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.lock}" owner=""
+	local lock="${RUNTIME_LOCK_FILE:-/var/run/mihowrt/runtime.flock}"
 
-	owner="$(readlink "$lock" 2>/dev/null)" || return 1
-	[ "$owner" != "$$" ] && kill -0 "$owner" 2>/dev/null
+	[ "${LOCK_DEPTH:-0}" -gt 0 ] && return 1
+	! ( exec 8>>"$lock"; flock -n 8 )
 }
 
 with_lock() {
@@ -137,7 +155,7 @@ cron_sync() {
 		rm -f "$tmp"
 		return 1
 	}
-	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart >/dev/null 2>&1
+	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart 9>&- >/dev/null 2>&1
 	return 0
 }
 

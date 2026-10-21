@@ -115,15 +115,13 @@ unset -f grep
 assert_file_contains "$CRON_FILE" "/root/backup.sh" "crontab kept on write error"
 pass "cron sync safe on errors"
 
-# F: a stale lock is removed only if it still belongs to the dead owner.
-RUNTIME_LOCK_FILE="$tmpdir/lock"
-ln -s 999999 "$RUNTIME_LOCK_FILE"
-kill() { if [ "$1" = -0 ] && [ "$2" = 999999 ]; then ln -sfn $$ "$RUNTIME_LOCK_FILE.live"; mv -f "$RUNTIME_LOCK_FILE.live" "$RUNTIME_LOCK_FILE"; return 1; fi; command kill "$@"; }
-RUNTIME_LOCK_TIMEOUT=1 lock_acquire 2>/dev/null || true
-unset -f kill
-assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "a lock taken meanwhile is not stolen"
-rm -f "$RUNTIME_LOCK_FILE"
-pass "stale lock removal re-checks owner"
+# Owner metadata is diagnostic only; stale or reused pids cannot block work.
+RUNTIME_LOCK_FILE="$tmpdir/runtime.flock"
+echo "$$" >"$RUNTIME_LOCK_FILE.owner"
+RUNTIME_LOCK_TIMEOUT=0 with_lock true || fail "unrelated live owner pid must not block an unlocked flock"
+assert_true "persistent flock file exists" test -f "$RUNTIME_LOCK_FILE"
+assert_false "lock file is not a symlink" test -L "$RUNTIME_LOCK_FILE"
+pass "stale owner metadata cannot block the runtime lock"
 
 fake_uci_reset
 printf 'mode direct-first\ndns fake-ip\nset disable_quic 0\nset dns_hijack 0\n' >"$PROFILE_FILE"

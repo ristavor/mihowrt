@@ -105,14 +105,16 @@ printf 'log-level: warning\n' >>"$tmpdir/cand"
 config_install "$tmpdir/cand" >/dev/null
 assert_eq reload "$(cat "$tmpdir/events")" "same profile no policy or DNS restart"
 RUNTIME_LOCK_FILE="$tmpdir/lock"
-ln -s $$ "$RUNTIME_LOCK_FILE"
+start_runtime_lock_holder "$RUNTIME_LOCK_FILE" "$tmpdir/holder.ready"
 api_checks=0
 api_alive() { api_checks=$((api_checks + 1)); [ "$api_checks" -ge 3 ]; }
-sleep() { assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "readiness wait retains other owner's lock"; }
+sleep() { assert_true "readiness wait retains other owner's lock" lock_busy; }
 config_api_wait
 unset -f sleep
 assert_eq 3 "$api_checks" "readiness retries until API responds"
-assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "API wait does not acquire held lock"
+assert_true "API wait does not acquire held lock" lock_busy
+kill -9 "$LOCK_HOLDER_PID"
+wait "$LOCK_HOLDER_PID" 2>/dev/null || true
 load_modules service.sh
 printf 'BROKEN\n' >"$CLASH_CONFIG"
 assert_false "prepare failure" runtime_config_build "$RUNTIME_CONFIG"

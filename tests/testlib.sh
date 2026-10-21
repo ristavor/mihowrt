@@ -175,6 +175,26 @@ LOGGER
 	export PATH="$dir/bin:$PATH"
 }
 
+# Hold a kernel flock independently of the implementation under test.
+start_runtime_lock_holder() {
+	local lock="$1" ready="$2" i
+
+	rm -f "$ready"
+	RUNTIME_LOCK_FILE="$lock" ash -c '
+		exec 9>>"$RUNTIME_LOCK_FILE"
+		busybox flock -n 9 || exit 1
+		echo "$$" >"$RUNTIME_LOCK_FILE.owner"
+		echo "$$" >"$1"
+		exec sleep 300
+	' ash "$ready" &
+	LOCK_HOLDER_PID=$!
+	for i in {1..100}; do
+		[ ! -f "$ready" ] || return 0
+		sleep 0.02
+	done
+	fail "runtime lock holder did not become ready"
+}
+
 fake_uci_reset() {
 	: >"$FAKE_UCI_DB"
 }

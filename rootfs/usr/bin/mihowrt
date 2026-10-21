@@ -37,7 +37,7 @@ core_update_cmd() {
 	printf '%s\n' "$result"
 	# Restart outside the lock: stop waits for run-service, which needs it.
 	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | jq -r .updated)" = true ] && service_running; then
-		/etc/init.d/mihowrt restart >/dev/null 2>&1 &
+		/etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1 &
 	fi
 	return "$rc"
 }

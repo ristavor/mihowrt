@@ -4,6 +4,9 @@ START=21
 STOP=79
 USE_PROCD=1
 
+# Do not pass a caller's runtime lock to procd or its supervisor.
+exec 9>&-
+
 MIHOWRT="/usr/bin/mihowrt"
 SKIP_START_FILE="/tmp/luci-app-mihowrt.skip-start"
 . /usr/lib/mihowrt/constants.sh

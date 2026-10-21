@@ -43,7 +43,11 @@ startup_settings|watchdog_settings)
 	settings_load() { POLICY_MODE="$(cat "$tmpdir/mode")"; echo load >>"$events"; }
 	# Change settings after the initial load, before startup policy is installed.
 	wait_for_ready() { [ "$name" != startup_settings ] || echo proxy-first >"$tmpdir/mode"; }
-	policy_apply() { echo "apply:$POLICY_MODE" >>"$events"; }
+	policy_apply() {
+		assert_true "$name: policy applies under flock" test "${LOCK_DEPTH:-0}" -gt 0
+		assert_false "$name: own lock is not busy" lock_busy
+		echo "apply:$POLICY_MODE" >>"$events"
+	}
 	policy_cleanup() { :; }
 	cache_db_persist() { :; }
 	WATCHDOG_INTERVAL=0.01

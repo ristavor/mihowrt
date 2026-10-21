@@ -209,3 +209,15 @@ migrate_list_suffix
 assert_eq '1.1.1.1' "$(cat "$DIRECT_SRC_LIST_FILE")" "private list suffix stripped"
 assert_eq 600 "$(stat -c %a "$DIRECT_SRC_LIST_FILE")" "private list mode preserved"
 pass "suffix migration preserves file mode"
+
+# Remove the old symlink itself, never open or write through its target.
+ln -s 12345 "$PKG_STATE_DIR/runtime.lock"
+migrate
+assert_false "legacy symlink removed" test -L "$PKG_STATE_DIR/runtime.lock"
+assert_false "legacy relative target never created" test -e "$PKG_STATE_DIR/12345"
+printf untouched >"$tmpdir/old-lock-target"
+ln -s "$tmpdir/old-lock-target" "$PKG_STATE_DIR/runtime.lock"
+migrate
+assert_false "legacy absolute symlink removed" test -L "$PKG_STATE_DIR/runtime.lock"
+assert_eq untouched "$(cat "$tmpdir/old-lock-target")" "legacy target untouched"
+pass "migrate removes old lock without following it"

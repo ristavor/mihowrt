@@ -180,12 +180,16 @@ mihomo_memory_limit() {
 run_service() {
 	local pid="" fails=0 stop=0 rc=1 memlimit="" degraded=0
 
+	# A long-lived supervisor must never retain its caller's lock.
+	exec 9>&-
+	LOCK_DEPTH=0
+
 	settings_load || return 1
 	[ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG" || return 1
 	memlimit="$(mihomo_memory_limit)"
 	trap 'stop=1; MIHOWRT_STOP=1' INT TERM HUP
 	GOMEMLIMIT="${memlimit:-off}" SAFE_PATHS="$PKG_TMP_DIR" \
-		"$CLASH_BIN" -d "$CLASH_DIR" -f "$RUNTIME_CONFIG" &
+		"$CLASH_BIN" -d "$CLASH_DIR" -f "$RUNTIME_CONFIG" 9>&- &
 	pid=$!
 	echo "$pid" >"$SERVICE_PID_FILE"
 
@@ -194,7 +198,7 @@ run_service() {
 		log "MihoWRT ready (Mihomo pid $pid)"
 		rc=0
 		while [ "$stop" -eq 0 ] && kill -0 "$pid" 2>/dev/null; do
-			sleep "$WATCHDOG_INTERVAL" &
+			sleep "$WATCHDOG_INTERVAL" 9>&- &
 			wait $! 2>/dev/null
 			[ "$stop" -eq 0 ] || break
 			kill -0 "$pid" 2>/dev/null || break

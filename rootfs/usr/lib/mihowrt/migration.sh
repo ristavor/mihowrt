@@ -38,7 +38,7 @@ migrate_dns_uci() {
 	fi
 	uci -q commit dhcp && changed=1
 	rm -f "$OLD_DNS_BACKUP_FILE"
-	[ "$changed" -eq 1 ] && [ -x /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq restart >/dev/null 2>&1
+	[ "$changed" -eq 1 ] && [ -x /etc/init.d/dnsmasq ] && /etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1
 	log "Migrated dnsmasq settings left by MihoWRT 0.7"
 }
 
@@ -179,6 +179,8 @@ migrate_list_headers() {
 }
 
 migrate() {
+	# Never follow or reuse the pre-flock symlink, even with a live old pid.
+	rm -f "$PKG_STATE_DIR/runtime.lock"
 	migrate_dns_uci
 	migrate_settings
 	migrate_route_07

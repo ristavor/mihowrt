@@ -151,7 +151,9 @@ github_latest_tag() {
 
 # --- subscription metadata ---------------------------------------------------
 
-# Decode "base64:..." header values; keep anything else (and invalid data) as is.
+# Decode "base64:..." header values. A payload that cannot be decoded (bad
+# format, over 16384 characters, invalid UTF-8, NUL) gives an empty value;
+# plain values are kept as sent.
 subscription_decode_metadata_value() {
 	local raw="$1" payload="" decoded=""
 
@@ -165,23 +167,13 @@ subscription_decode_metadata_value() {
 	payload="$(printf '%s' "${raw#base64:}" | tr -d ' \t\r\n')"
 	# BusyBox base64 accepts malformed padding, so check the format first.
 	case "$payload" in
-	'' | *[!A-Za-z0-9+/=]* | *=[!=]* | *===*)
-		printf '%s' "$raw"
-		return 0
-		;;
+	'' | *[!A-Za-z0-9+/=]* | *=[!=]* | *===*) return 0 ;;
 	esac
-	if [ $((${#payload} % 4)) -ne 0 ] || [ "${#payload}" -gt 4096 ]; then
-		printf '%s' "$raw"
-		return 0
-	fi
+	[ $((${#payload} % 4)) -eq 0 ] && [ "${#payload}" -le 16384 ] || return 0
 	# OpenWrt has no base64 tool; jq decodes. jq turns invalid UTF-8 into
-	# U+FFFD, so such values (and NUL bytes) keep the raw form.
+	# U+FFFD, so such values (and NUL bytes) are dropped.
 	decoded="$(printf '%s' "$payload" | jq -Rr '@base64d | select(length > 0 and (explode | all(. != 0 and . != 65533)))' 2>/dev/null)"
-	if [ -n "$decoded" ]; then
-		printf '%s' "$decoded"
-	else
-		printf '%s' "$raw"
-	fi
+	printf '%s' "$decoded"
 }
 
 userinfo_field() {
@@ -215,24 +207,27 @@ subscription_json() {
 	# A damaged file must not break the page: fall back to no metadata.
 	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(jq -c 'objects' "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
 	[ -n "$meta" ] || meta="{}"
-	jq -nc --arg url "$(uci_get subscription_url)" --arg interval "$(uci_get subscription_interval)" \
-		--arg effective "$(settings_subscription_interval || echo 0)" --arg updated "$(date -r "$PKG_STATE_DIR/subscription.stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
-		$meta + {url: $url, interval: $interval, effective_interval: ($effective | tonumber),
+	jq -nc --arg url "$(uci_get subscription_url)" --arg auto "$(uci_get subscription_auto_update 1)" \
+		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$PKG_STATE_DIR/subscription.stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
+		$meta + {url: $url, auto_update: ($auto != "0"), effective_interval: ($effective | tonumber),
 		         last_update: (if $updated == "" then null else ($updated | tonumber) end)}'
 }
 
 subscription_set() {
-	local url="$1" interval="$2"
+	local url="$1" auto="$2"
 
 	[ -z "$url" ] || is_http_url "$url" || {
 		err "Subscription URL must start with http:// or https://"
 		return 1
 	}
-	[ -z "$interval" ] || { is_uint "$interval" && [ "$interval" -le 8760 ]; } || {
-		err "Update interval must be a number of hours (0-8760) or empty for automatic"
+	case "$auto" in
+	0 | 1) ;;
+	*)
+		err "Auto-update must be 0 or 1"
 		return 1
-	}
-	uci_set subscription_url "$url" && uci_set subscription_interval "$interval" && uci_commit || return 1
+		;;
+	esac
+	uci_set subscription_url "$url" && uci_set subscription_auto_update "$auto" && uci_commit || return 1
 	settings_load && cron_update
 	[ -f "$RUNNING_MARKER" ] && dns_apply
 	return 0
@@ -245,6 +240,16 @@ subscription_host_addresses() {
 		return 0
 	}
 	nslookup "$1" 127.0.0.1 2>/dev/null | awk '/^Name:/ { name = 1; next } name && /^Address/ { sub(/^Address[^:]*:[[:space:]]*/, ""); print }'
+}
+
+# A Clash/Mihomo config has a top-level proxies or proxy-providers key.
+# Catches V2Ray links, base64 lists, sing-box JSON and web pages early.
+subscription_is_clash() {
+	awk '
+		NR == 1 { sub(/^\357\273\277/, "") }
+		/^["\047]?(proxies|proxy-providers)["\047]?[[:space:]]*:/ { found = 1; exit }
+		END { exit !found }
+	' "$1"
 }
 
 # Download the subscription, validate and install it, update metadata.
@@ -277,8 +282,15 @@ subscription_update() {
 		err "Subscription returned an empty config"
 		return 1
 	}
+	subscription_is_clash "$candidate" || {
+		rm -f "$candidate" "$FETCH_HDR"
+		err "The provider returned something that is not a Clash/Mihomo config (V2Ray links, base64, sing-box JSON or a web page). Use the Clash/Mihomo link from your provider's account."
+		return 1
+	}
 	meta="$(subscription_metadata_from_headers)" || meta=""
-	# Download without the lock; only installing needs it.
+	# Download without the lock; only installing needs it. A starting
+	# Mihomo is awaited before the lock (run_service needs it to finish).
+	config_api_wait || true
 	result="$(with_lock config_install "$candidate")" || {
 		rm -f "$candidate" "$FETCH_HDR"
 		return 1
@@ -294,7 +306,13 @@ subscription_update() {
 	else
 		warn "Subscription metadata could not be parsed; keeping the previous one"
 	fi
+	rm -f "$FETCH_HDR"
 	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
-	cron_update
+	# Reload: the period header and provider lists may be new.
+	settings_load || return 1
+	if [ -n "$(lists_urls)" ] && [ "$(lists_update_remote 0)" = changed ] && service_ready; then
+		with_lock nft_apply || warn "Failed to apply new remote lists"
+	fi
+	cron_update || warn "Failed to update cron schedule"
 	printf '%s\n' "$result"
 }

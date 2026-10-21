@@ -81,6 +81,29 @@ status_json() {
 		 errors: ([$errors] | map(select(length > 0)))}'
 }
 
+# Provider profile for the Traffic page: mode, DNS, provider settings,
+# the user's overrides and provider list state.
+profile_json() {
+	settings_load || return 1
+	jq -nc \
+		--arg mode "$POLICY_MODE" --arg dns "$DNS_MODE" \
+		--arg provider "$(profile_entries set)" \
+		--arg overrides "$PROVIDER_OVERRIDES" \
+		--argjson dst_provided "$(json_bool lists_provided dst)" \
+		--arg dst_provider "$(lists_provider_entries dst | wc -l | tr -d ' ')" \
+		--arg dst_own "$(lists_own_count dst)" --arg dst_source "$DST_LIST_SOURCE" \
+		--argjson direct_provided "$(json_bool lists_provided direct)" \
+		--arg direct_provider "$(lists_provider_entries direct | wc -l | tr -d ' ')" \
+		--arg direct_own "$(lists_own_count direct)" --arg direct_source "$DIRECT_LIST_SOURCE" '
+		def words: split(" ") | map(select(length > 0));
+		def list($p; $n; $o; $s): {provided: $p, provider_count: ($n | tonumber), own_count: ($o | tonumber), source: $s};
+		{mode: $mode, dns: $dns,
+		 provider: ($provider | split("\n") | map(select(length > 0) | split(" ") | {(.[0]): .[1]}) | add // {}),
+		 overrides: ($overrides | words),
+		 lists: {dst: list($dst_provided; $dst_provider; $dst_own; $dst_source),
+		         direct: list($direct_provided; $direct_provider; $direct_own; $direct_source)}}'
+}
+
 logs_json() {
 	local limit="${1:-200}" lines=""
 

@@ -8,11 +8,11 @@ usage() {
 Usage: mihowrt <command>
 Service:  prepare | run-service | wait-stopped | recover | reload | migrate
 Config:   read-config [tmp] | save-config <tmp>
-Subscr.:  subscription-json | set-subscription <url> <hours|''> | update-subscription
+Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription
 Lists:    apply-lists <dst-tmp> <src-tmp> <direct-tmp> <direct-src-tmp> | update-lists
 Updates:  auto-update | dns-refresh | core-update | core-version-json
-Status:   status-json | service-state-json | logs-json [lines]
-Proxies:  proxies-json | select-proxy <group> <name> | group-delay <group> | dashboard-json
+Status:   status-json | service-state-json | profile-json | logs-json [lines]
+Proxies:  proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
 EOF
 	exit 1
 }
@@ -54,6 +54,8 @@ migrate) with_lock migrate ;;
 read-config) config_read_json "${1:-}" ;;
 save-config)
 	need_args $# 1
+	# Wait for a starting Mihomo before taking the lock.
+	settings_load >/dev/null 2>&1 && config_api_wait
 	with_lock config_save "$1"
 	;;
 subscription-json) subscription_json ;;
@@ -72,6 +74,7 @@ dns-refresh) with_lock dns_refresh ;;
 core-update) core_update_cmd ;;
 core-version-json) core_version_json ;;
 status-json) status_json ;;
+profile-json) profile_json ;;
 service-state-json) service_state_json ;;
 logs-json) logs_json "${1:-200}" ;;
 proxies-json) settings_load && api_proxies_json ;;

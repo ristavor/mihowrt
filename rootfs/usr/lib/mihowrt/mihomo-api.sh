@@ -29,21 +29,32 @@ api_dns_probe() {
 		jq -e 'has("Status")' >/dev/null 2>&1
 }
 
+# The controller answers (Mihomo is up, whatever its DNS does).
+api_alive() {
+	api_request GET /version "" 2 >/dev/null 2>&1
+}
+
 api_reload() {
 	api_request PUT "/configs?force=true" "$(jq -nc --arg p "$1" '{path: $p}')" 60 >/dev/null
 }
 
-# Selector groups the user can switch: [{name, now, all}].
+# Proxy groups: [{name, type, now, all, fixed}]. URLTest/Fallback can be
+# pinned to a server ("fixed"); LoadBalance cannot be switched.
 api_proxies_json() {
 	api_request GET /proxies | jq -c '
 		[.proxies | to_entries[]
 		 | select(.key != "GLOBAL" and (.value.hidden | not)
 		     and (.value.type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))
-		 | {name: .key, now: .value.now, all: .value.all, auto: (.value.type != "Selector")}]'
+		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // "")}]'
 }
 
+# An empty name unpins a URLTest/Fallback group (automatic choice again).
 api_select() {
-	api_request PUT "/proxies/$(uri_encode "$1")" "$(jq -nc --arg n "$2" '{name: $n}')" >/dev/null
+	if [ -z "$2" ]; then
+		api_request DELETE "/proxies/$(uri_encode "$1")" >/dev/null
+	else
+		api_request PUT "/proxies/$(uri_encode "$1")" "$(jq -nc --arg n "$2" '{name: $n}')" >/dev/null
+	fi
 }
 
 api_group_delay() {

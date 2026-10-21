@@ -72,6 +72,8 @@ dns_restart_dnsmasq() {
 }
 
 dns_apply() {
+	settings_require || return 1
+
 	local dir="" tmp="" changed=0
 
 	tmp="$PKG_TMP_DIR/dns.conf.$$"

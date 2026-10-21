@@ -47,6 +47,8 @@ cache_db_persist() {
 }
 
 policy_apply() {
+	settings_require || return 1
+
 	if nft_apply && route_setup && dns_apply; then
 		log "Policy applied ($POLICY_MODE)"
 		return 0
@@ -109,6 +111,8 @@ runtime_config_build() {
 }
 
 cron_update() {
+	settings_require || return 1
+
 	local enabled=0
 
 	[ "$SUBSCRIPTION_INTERVAL" -gt 0 ] && [ -n "$SUBSCRIPTION_URL" ] && enabled=1

@@ -261,6 +261,8 @@ nft_render() {
 }
 
 nft_apply() {
+	settings_require || return 1
+
 	local dir="$PKG_TMP_DIR/nft" rc=0
 
 	ensure_dir "$dir" || return 1

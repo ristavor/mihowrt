@@ -11,6 +11,16 @@ is_uint() {
 	[ "${#1}" -le 18 ]
 }
 
+# Decimal digits only; callers validate with is_uint before normalization.
+uint_norm() {
+	local value="$1"
+
+	while [ "${value#0}" != "$value" ]; do
+		value="${value#0}"
+	done
+	printf '%s' "${value:-0}"
+}
+
 is_valid_port() {
 	is_uint "$1" && [ "$1" -ge 1 ] && [ "$1" -le 65535 ]
 }

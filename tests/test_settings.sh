@@ -12,6 +12,43 @@ load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
 setup_runtime_paths "$tmpdir"
 
 
+# Run numeric regressions in ash, where leading zeros otherwise mean octal.
+ash -c '
+ . "$MIHOWRT_LIB_DIR/validate.sh"
+ for pair in 0:0 000:0 08:8 0113920:113920 24:24; do
+  actual="$(uint_norm "${pair%:*}")" || exit 1
+  [ "$actual" = "${pair#*:}" ] || exit 1
+ done
+' || fail "uint_norm strips leading zeros in ash"
+pass "uint_norm decimal normalization"
+
+fake_uci_set mihowrt.settings.lists_interval 08
+fake_uci_set mihowrt.settings.netbird_mark 0113920
+fake_uci_set mihowrt.settings.cron_minute 07
+ash -c '
+ for module in constants helpers validate settings mihomo-config; do
+  . "$MIHOWRT_LIB_DIR/$module.sh"
+ done
+ PROFILE_FILE="$1/profile"
+ CLASH_CONFIG="$1/source.yaml"
+ settings_load || exit 1
+ [ "$LISTS_INTERVAL:$NETBIRD_MARK:$CRON_MINUTE" = "8:113920:7" ]
+' ash "$tmpdir" || fail "leading zeros in UCI load as decimal in ash"
+settings_load || fail "leading-zero settings must load"
+assert_eq '8:113920:7' "$LISTS_INTERVAL:$NETBIRD_MARK:$CRON_MINUTE" "normalized UCI settings"
+assert_eq 1 "$SETTINGS_LOADED" "successful load sets guard"
+fake_uci_set mihowrt.settings.lists_interval 24
+settings_require
+assert_eq 8 "$LISTS_INTERVAL" "require preserves loaded settings"
+settings_load
+assert_eq 24 "$LISTS_INTERVAL" "explicit load refreshes settings"
+fake_uci_reset
+unset SETTINGS_LOADED
+settings_require
+assert_eq 0 "$LISTS_INTERVAL" "require loads when guard is absent"
+pass "settings normalized and lazy loaded without suppressing refresh"
+
+
 settings_load || fail "empty UCI must load"
 assert_eq "proxy-first" "$POLICY_MODE" "default policy mode"
 assert_eq redir-host "$DNS_MODE" "no YAML defaults to redir-host"
@@ -115,12 +152,14 @@ done
 for auto in missing 1 0; do
  fake_uci_set mihowrt.settings.subscription_auto_update "$auto"
  [ "$auto" != missing ] || uci delete mihowrt.settings.subscription_auto_update
- for header in 12 0 9999 abc missing; do
+ for header in 12 08 000 0 9999 abc missing; do
   printf '{"header_interval":"%s"}\n' "$header" >"$tmpdir/meta"
   SUBSCRIPTION_META_FILE="$tmpdir/meta"
   [ "$header" != missing ] || echo '{}' >"$SUBSCRIPTION_META_FILE"
   expected=0
-  if [ "$auto" != 0 ] && [ "$header" = 12 ]; then expected=12; fi
+  if [ "$auto" != 0 ]; then
+   case "$header" in 12) expected=12 ;; 08) expected=8 ;; esac
+  fi
   assert_eq "$expected" "$(settings_subscription_interval)" "auto=$auto header=$header"
  done
 done

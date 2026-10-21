@@ -32,7 +32,7 @@ settings_hours() {
 
 	value="$(settings_value "$1" 0)"
 	is_uint "$value" && [ "$value" -le 8760 ] || return 1
-	printf '%s' "$((value))"
+	uint_norm "$value"
 }
 
 lan_device_detect() {
@@ -52,7 +52,10 @@ settings_check_netbird_mark() {
 	local mark="$1" intercept=$((NFT_INTERCEPT_MARK))
 
 	is_valid_uint32_mark "$mark" || return 1
-	mark=$((mark))
+	case "$mark" in
+	0x* | 0X*) mark=$((mark)) ;;
+	*) mark="$(uint_norm "$mark")" ;;
+	esac
 	[ $((mark & 255)) -eq 0 ] || return 1
 	[ $((mark & intercept)) -eq 0 ] || return 1
 	[ $((mark & ZAPRET_DESYNC_MARK)) -eq 0 ] || return 1
@@ -71,7 +74,7 @@ settings_subscription_interval() {
 	}
 	header="$(jq -r '.header_interval // empty' "${SUBSCRIPTION_META_FILE:-/etc/mihowrt/subscription.json}" 2>/dev/null)"
 	if is_uint "$header" && [ "$header" -gt 0 ] && [ "$header" -le 8760 ]; then
-		echo "$((header))"
+		uint_norm "$header"
 	else
 		echo 0
 	fi
@@ -88,6 +91,10 @@ settings_list_source() {
 settings_invalid() {
 	err "Invalid $1: $2"
 	return 1
+}
+
+settings_require() {
+	[ "${SETTINGS_LOADED:-0}" = 1 ] || settings_load
 }
 
 settings_load() {
@@ -124,7 +131,10 @@ settings_load() {
 
 	NETBIRD_MARK="$(uci_get netbird_mark "$NETBIRD_DEFAULT_MARK")"
 	settings_check_netbird_mark "$NETBIRD_MARK" || settings_invalid netbird_mark "$NETBIRD_MARK" || return 1
-	NETBIRD_MARK=$((NETBIRD_MARK))
+	case "$NETBIRD_MARK" in
+	0x* | 0X*) NETBIRD_MARK=$((NETBIRD_MARK)) ;;
+	*) NETBIRD_MARK="$(uint_norm "$NETBIRD_MARK")" ;;
+	esac
 	NETBIRD_INTERFACE="$(uci_get netbird_interface "$NETBIRD_DEFAULT_IFACE")"
 	is_valid_iface_name "$NETBIRD_INTERFACE" || settings_invalid netbird_interface "$NETBIRD_INTERFACE" || return 1
 
@@ -139,6 +149,8 @@ settings_load() {
 	esac
 	CRON_MINUTE="$(uci_get cron_minute 17)"
 	is_uint "$CRON_MINUTE" && [ "$CRON_MINUTE" -le 59 ] || CRON_MINUTE=17
+	CRON_MINUTE="$(uint_norm "$CRON_MINUTE")"
+	SETTINGS_LOADED=1
 	return 0
 }
 

@@ -18,6 +18,15 @@ SRC_LIST_FILE="$LIST_DIR/src.txt"
 DIRECT_DST_LIST_FILE="$LIST_DIR/direct.txt"
 POLICY_CACHE_DIR="$tmpdir/cache"
 lists_ensure_files
+(
+ unset SETTINGS_LOADED
+ fake_uci_set mihowrt.settings.source_network_interfaces 'br-test wg-test'
+ nft() { cp "$2" "$tmpdir/implicit.nft"; }
+ nft_apply || fail "nft_apply must load settings implicitly"
+ assert_file_contains "$tmpdir/implicit.nft" 'source_ifaces { "br-test" }' "implicit apply uses first UCI source interface"
+ assert_file_contains "$tmpdir/implicit.nft" 'source_ifaces { "wg-test" }' "implicit apply uses second UCI source interface"
+)
+fake_uci_reset
 settings_load
 POLICY_MODE=direct-first
 out="$tmpdir/ruleset.nft"

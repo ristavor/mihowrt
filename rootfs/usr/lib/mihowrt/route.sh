@@ -58,6 +58,8 @@ route_allocate() {
 }
 
 route_setup() {
+	settings_require || return 1
+
 	local fam="" mark="$NFT_INTERCEPT_MARK"
 
 	route_state_read || route_allocate || return 1

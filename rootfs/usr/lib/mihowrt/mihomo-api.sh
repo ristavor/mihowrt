@@ -38,12 +38,15 @@ api_reload() {
 	api_request PUT "/configs?force=true" "$(jq -nc --arg p "$1" '{path: $p}')" 60 >/dev/null
 }
 
-# Proxy groups: [{name, type, now, all, fixed}]. URLTest/Fallback can be
+# Proxy groups: [{name, type, now, all, fixed}] in config order (GLOBAL
+# lists them so; the proxies map is sorted by name). URLTest/Fallback can be
 # pinned to a server ("fixed"); LoadBalance cannot be switched.
 api_proxies_json() {
 	api_request GET /proxies | jq -c '
-		[.proxies | to_entries[]
-		 | select(.key != "GLOBAL" and (.value.hidden | not)
+		.proxies as $p
+		| reduce ((($p.GLOBAL.all // []) + ($p | keys))[]) as $k ([]; if index([$k]) then . else . + [$k] end)
+		| [.[] | select(. != "GLOBAL") | {key: ., value: $p[.]}
+		 | select(.value != null and (.value.hidden | not)
 		     and (.value.type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))
 		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // "")}]'
 }

@@ -8,7 +8,7 @@ usage() {
 Usage: mihowrt <command>
 Service:  prepare | run-service | wait-stopped | recover | reload | migrate
 Config:   read-config [tmp] | save-config <tmp>
-Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription
+Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    apply-lists <dst-tmp> <src-tmp> <direct-tmp> <direct-src-tmp> | update-lists
 Updates:  auto-update | dns-refresh | core-update | core-version-json
 Status:   status-json | service-state-json | profile-json | logs-json [lines]
@@ -63,7 +63,10 @@ set-subscription)
 	need_args $# 2
 	with_lock subscription_set "$1" "$2"
 	;;
-update-subscription) subscription_update ;;
+update-subscription)
+	[ $# -le 1 ] || usage
+	subscription_update "${1:-}"
+	;;
 apply-lists)
 	need_args $# 4
 	lists_apply "$1" "$2" "$3" "$4"

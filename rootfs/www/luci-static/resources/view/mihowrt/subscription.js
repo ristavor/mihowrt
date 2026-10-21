@@ -11,17 +11,21 @@ return view.extend({
 	]),
 
 	render: function([ sub, config ]) {
-		const url = E('input', { id: 'mw-url', type: 'url', class: 'cbi-input-text', style: 'width: 100%',
+		// type=text: some themes (openwrt-2020) style only text inputs.
+		const url = E('input', { id: 'mw-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
+			class: 'cbi-input-text', style: 'width: 100%',
 			value: sub.url || '', placeholder: 'https://provider.example/sub/…' });
 		const auto = E('input', { id: 'mw-auto', type: 'checkbox', checked: sub.auto_update !== false ? '' : null });
 		const autoHint = E('div', { class: 'cbi-value-description' });
 		// The header period also counts while auto-update is still off.
 		const header = Number(sub.header_interval);
 		const period = sub.effective_interval > 0 ? sub.effective_interval : (header >= 1 && header <= 8760 ? header : 0);
+		const savedAuto = sub.auto_update !== false;
 		const describeAuto = () => {
-			autoHint.textContent = !auto.checked ? _('Only when you press Update now.')
+			autoHint.textContent = (!auto.checked ? _('Only when you press Update now.')
 				: period > 0 ? _('Your provider decides how often (now every %d h).').format(period)
-				: _('Your provider does not set an update period, so the subscription is updated only when you press Update now.');
+				: _('Your provider does not set an update period, so the subscription is updated only when you press Update now.'))
+				+ (auto.checked !== savedAuto ? ' ' + _('Not saved yet: press Save or Update now.') : '');
 		};
 		describeAuto();
 		auto.addEventListener('change', describeAuto);
@@ -40,8 +44,20 @@ return view.extend({
 		update.addEventListener('click', () => api.busy(update, async () => {
 			if (yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
 				return;
-			await saveSettings();
-			const res = await api.write('update-subscription');
+			const link = url.value.trim();
+			const changed = link !== (sub.url || '');
+			let res;
+			if (!changed)
+				await saveSettings();
+			// A new link is saved only after it downloads and passes the check.
+			try {
+				res = await api.write('update-subscription', ...(changed ? [ link ] : []));
+			}
+			catch (e) {
+				throw new Error(api.subscriptionError(e.message) + (changed && sub.url ? ' ' + _('The previous link is kept.') : ''));
+			}
+			if (changed)
+				await saveSettings();
 			api.notify(res.action === 'unchanged' ? _('Subscription is up to date.')
 				: res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated. Start MihoWRT to use it.'));
 			location.reload();
@@ -69,11 +85,13 @@ return view.extend({
 				E('div', { class: 'cbi-value' }, [ E('label', { class: 'cbi-value-title' }, []),
 					E('div', { class: 'cbi-value-field' }, [ E('div', { class: 'mw-row' }, [ save, update ]) ]) ])
 			]),
-			E('details', { class: 'cbi-section' }, [
-				E('summary', text(_('Advanced: edit the Mihomo YAML'))),
-				E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
-				yaml,
-				E('div', { class: 'mw-row' }, [ apply ])
+			E('div', { class: 'cbi-section' }, [
+				E('h3', text(_('Advanced: edit the Mihomo YAML'))),
+				api.toggle(_('Show the YAML editor'), _('Hide the YAML editor'), E('div', {}, [
+					E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
+					yaml,
+					E('div', { class: 'mw-row' }, [ apply ])
+				]))
 			])
 		]);
 	},

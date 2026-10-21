@@ -10,7 +10,9 @@ function modeLabel(mode) {
 
 function firstRunCard() {
 	const url = E('input', {
-		id: 'mw-sub-url', type: 'url', class: 'cbi-input-text', style: 'flex: 1 1 16em; min-width: 0; width: auto',
+		// type=text: some themes (openwrt-2020) style only text inputs.
+		id: 'mw-sub-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
+		class: 'cbi-input-text', style: 'flex: 1 1 16em; min-width: 0; width: auto',
 		placeholder: 'https://provider.example/sub/…', 'aria-label': _('Subscription URL')
 	});
 	const connect = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Connect')));
@@ -19,8 +21,14 @@ function firstRunCard() {
 		const value = url.value.trim();
 		if (!/^https?:\/\//i.test(value))
 			throw new Error(_('Enter the subscription link that starts with https://'));
+		// The link is saved only after a successful download.
+		try {
+			await api.write('update-subscription', value);
+		}
+		catch (e) {
+			throw new Error(api.subscriptionError(e.message));
+		}
 		await api.write('set-subscription', value, '1');
-		await api.write('update-subscription');
 		await api.service('enable');
 		await api.service('restart');
 		api.notify(_('Subscription connected. MihoWRT is starting.'));
@@ -32,6 +40,16 @@ function firstRunCard() {
 		E('p', text(_('Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
 		E('label', { for: 'mw-sub-url' }, text(_('Subscription URL'))),
 		E('div', { class: 'mw-row' }, [ url, connect ])
+	]);
+}
+
+// Running on a YAML entered by hand: no big card, just a pointer.
+function subscriptionHint() {
+	return E('div', { class: 'cbi-section' }, [
+		E('p', { class: 'mw-muted' }, [
+			text(_('No subscription: MihoWRT uses the YAML entered on the Subscription page.'))[0], ' ',
+			E('a', { href: L.url('admin/services/mihowrt/subscription') }, text(_('Connect a subscription')))
+		])
 	]);
 }
 
@@ -69,9 +87,11 @@ function statusSection(status) {
 	let headline = status.running ? _('Running') : _('Stopped');
 	if (status.running && status.dns_ok === false)
 		headline = _('Running, but DNS does not answer — see Diagnostics');
+	else if (!status.running && status.config_valid === false)
+		headline = _('Stopped: the configuration has errors — see Diagnostics');
 
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-status', role: 'status' }, [
+		E('div', { class: 'mw-status' }, [
 			E('strong', text(headline)),
 			E('span', { class: 'mw-muted' }, text(modeLabel(status.mode))),
 			E('span', { class: 'mw-muted' }, text(status.enabled ? _('Starts at boot') : _('Does not start at boot')))
@@ -86,6 +106,24 @@ function announce(value) {
 		(i % 2) ? (api.safeLink(part, part) || part) : part).filter((part) => part !== '');
 }
 
+// Expiry within 3 days or 90 % of the traffic used: the provider's limits
+// are the usual reason a working router suddenly stops proxying.
+function subscriptionWarning(sub) {
+	const now = Date.now() / 1000;
+	const expire = Number(sub.expire);
+	const total = Number(sub.total);
+	const used = (Number(sub.upload) || 0) + (Number(sub.download) || 0);
+	if (expire > 0 && expire < now)
+		return _('The subscription has expired. Renew it with your provider.');
+	if (expire > 0 && expire - now < 3 * 86400)
+		return _('The subscription expires on %s. Renew it with your provider.').format(api.formatDate(expire));
+	if (total > 0 && used >= total)
+		return _('The subscription traffic is used up.');
+	if (total > 0 && used >= total * 0.9)
+		return _('Over 90% of the subscription traffic is used.');
+	return '';
+}
+
 function subscriptionSection(sub) {
 	const update = E('button', { class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
 	const rows = [
@@ -94,10 +132,17 @@ function subscriptionSection(sub) {
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
 		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval) : _('Off') ]
 	];
-	const links = [ api.safeLink(sub.support_url, _('Support')), api.safeLink(sub.web_page_url, _('Website')) ].filter(Boolean);
+	const links = [ api.safeLink(sub.support_url, _('Support'), 'cbi-button'), api.safeLink(sub.web_page_url, _('Website'), 'cbi-button') ].filter(Boolean);
+	const warning = subscriptionWarning(sub);
 
 	update.addEventListener('click', () => api.busy(update, async () => {
-		const res = await api.write('update-subscription');
+		let res;
+		try {
+			res = await api.write('update-subscription');
+		}
+		catch (e) {
+			throw new Error(api.subscriptionError(e.message));
+		}
 		api.notify(res.action === 'unchanged' ? _('Subscription is up to date.')
 			: res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.'));
 		location.reload();
@@ -105,6 +150,7 @@ function subscriptionSection(sub) {
 
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(sub.profile_title || _('Subscription'))),
+		warning ? E('div', { class: 'alert-message warning' }, text(warning)) : '',
 		sub.announce ? E('p', { class: 'mw-announce' }, announce(sub.announce)) : '',
 		E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ])),
 		E('div', { class: 'mw-row' }, [ update ].concat(links))
@@ -122,14 +168,17 @@ function groupOptions(select, group, delays) {
 		const ms = delays[name];
 		return ms ? '%s — %d ms'.format(name, ms) : '%s — %s'.format(name, _('timeout'));
 	};
-	const options = (auto ? [ E('option', { value: '' }, text(_('Auto — %s').format(group.now || '…'))) ] : [])
+	// LoadBalance has no current server: it uses all of them in turn.
+	const first = group.type === 'LoadBalance' ? _('All servers in turn')
+		: auto ? _('Auto — %s').format(group.now || '…') : null;
+	const options = (first != null ? [ E('option', { value: '' }, text(first)) ] : [])
 		.concat(group.all.map((name) => E('option', { value: name }, text(label(name)))));
 
 	while (select.firstChild)
 		select.removeChild(select.firstChild);
 	options.forEach((o) => select.appendChild(o));
-	select.value = current;
-	return current;
+	select.value = group.type === 'LoadBalance' ? '' : current;
+	return select.value;
 }
 
 function groupsSection(groups) {
@@ -138,16 +187,21 @@ function groupsSection(groups) {
 
 	return E('div', { class: 'cbi-section mw-groups' }, [
 		E('h3', text(_('Proxy servers'))),
-		E('div', { class: 'mw-grid' }, groups.flatMap((group) => {
-			const id = 'mw-group-' + group.name.replace(/[^A-Za-z0-9_-]/g, '_');
+		E('div', { class: 'mw-grid' }, groups.flatMap((group, index) => {
+			// Position, not name: Cyrillic/emoji names would collide.
+			const id = 'mw-group-' + index;
 			// Mihomo cannot pin a LoadBalance group: show it, allow a test.
 			const fixedOnly = group.type === 'LoadBalance';
 			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null });
-			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group') }, text(_('Test')));
+			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
+				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
 			let previous = groupOptions(select, group, null);
 
 			select.addEventListener('change', async () => {
 				const value = select.value;
+				// Themes with custom dropdowns (footstrap) may repeat "change".
+				if (value === previous)
+					return;
 				const ok = await api.busy(select, async () => {
 					await api.write('select-proxy', group.name, value);
 					return true;
@@ -165,6 +219,9 @@ function groupsSection(groups) {
 				const fresh = await api.read('proxies-json').catch(() => []);
 				Object.assign(group, (Array.isArray(fresh) ? fresh : []).find((g) => g.name === group.name) || {});
 				previous = groupOptions(select, group, delays);
+				const best = Object.entries(delays || {}).filter(([ , ms ]) => ms > 0).sort((a, b) => a[1] - b[1])[0];
+				api.notify(best ? _('%s: fastest is %s (%d ms).').format(group.name, best[0], best[1])
+					: _('%s: no server answered.').format(group.name));
 			}));
 			const row = [ select, test ];
 			if (fixedOnly)
@@ -210,10 +267,13 @@ return view.extend({
 	render: ([ status, sub, groups ]) => {
 		const body = [ api.style(), E('h2', text(_('MihoWRT'))) ];
 
-		if (!status.core_installed)
+		// Without the core nothing else can work yet: only the install card.
+		if (!status.core_installed) {
 			body.push(coreMissingCard());
-		else if (!status.subscription_configured)
-			body.push(firstRunCard());
+			return E('div', { class: 'mw-page' }, body);
+		}
+		if (!status.subscription_configured)
+			body.push(status.running ? subscriptionHint() : firstRunCard());
 		body.push(statusSection(status));
 		if (status.subscription_configured)
 			body.push(subscriptionSection(sub));

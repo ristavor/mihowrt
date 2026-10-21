@@ -56,16 +56,16 @@ return view.extend({
 			return this.listOption(s, tab, kind, title);
 
 		const name = kind + '_list_source';
-		let o = s.taboption(tab, form.ListValue, name, title, _('Set by your provider.'));
-		o.value('provider', _('Provider list (%d entries)').format(info.provider_count || 0));
+		const n = info.provider_count || 0;
+		const own = info.own_count || 0;
+		let o = s.taboption(tab, form.ListValue, name, title, own > 0
+			? N_(own, 'Set by your provider. You also have %d own entry: it applies with "Provider list + mine" or "Only mine".',
+				'Set by your provider. You also have %d own entries: they apply with "Provider list + mine" or "Only mine".').format(own)
+			: _('Set by your provider.'));
+		o.value('provider', N_(n, 'Provider list (%d entry)', 'Provider list (%d entries)').format(n));
 		o.value('merge', _('Provider list + mine'));
 		o.value('own', _('Only mine'));
 		o.default = 'provider';
-		if (info.own_count > 0) {
-			o = s.taboption(tab, form.DummyValue, '_' + kind + '_note', ' ');
-			o.cfgvalue = () => _('%d of your entries are not applied.').format(info.own_count);
-			o.depends(name, 'provider');
-		}
 		o = this.listOption(s, tab, kind, _('My entries'));
 		o.depends(name, 'merge');
 		o.depends(name, 'own');
@@ -81,13 +81,23 @@ return view.extend({
 
 		const overrides = () => [].concat(uci.get('mihowrt', 'settings', 'provider_override') || []);
 		const real = make();
-		let o = s.taboption(tab, form.DummyValue, '_prov_' + name, real.title, _('Set by your provider.'));
-		o.cfgvalue = () => (real instanceof form.Flag)
+		const title = real.title;
+		const value = () => (real instanceof form.Flag)
 			? (provider[name] === '1' ? _('Enabled') : _('Disabled'))
 			: String(provider[name]);
+		// The provider value stays visible; its note says whether it applies.
+		let o = s.taboption(tab, form.DummyValue, '_prov_' + name, title, _('Set by your provider.'));
+		o.cfgvalue = value;
 		o.depends('_own_' + name, '0');
+		o = s.taboption(tab, form.DummyValue, '_provoff_' + name, title, _('Provider value, not used: your own value applies.'));
+		o.cfgvalue = value;
+		o.depends('_own_' + name, '1');
 
 		o = s.taboption(tab, form.Flag, '_own_' + name, _('Use my own value'));
+		this.extendWidget(o, (node) => {
+			node.querySelector('input')?.setAttribute('aria-label', _('Use my own value for "%s"').format(title));
+			return node;
+		});
 		o.default = '0';
 		o.cfgvalue = () => overrides().includes(name) ? '1' : '0';
 		o.write = (sid, value) => {
@@ -101,6 +111,7 @@ return view.extend({
 		};
 		o.remove = (sid) => o.write(sid, '0');
 
+		real.title = _('My value');
 		real.depends('_own_' + name, '1');
 		// Hidden while the provider value applies: keep the user's value.
 		const remove = real.remove;
@@ -123,25 +134,28 @@ return view.extend({
 		s.tab('basic', _('Basic'));
 		s.tab('advanced', _('Advanced'));
 
-		// The mode follows the subscription DNS settings; it is not a setting.
+		// The mode follows the DNS settings of the YAML; it is not a setting.
 		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'));
-		o.cfgvalue = () => proxyFirst
-			? _('All traffic via proxy except exclusions (subscription DNS: %s)').format(this.profile.dns || 'redir-host')
-			: _('Only selected traffic via proxy (set by the subscription: fake-IP whitelist)');
+		o.cfgvalue = () => (proxyFirst ? _('All traffic via proxy except exclusions') : _('Only selected traffic via proxy')) + ' ' +
+			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
 		// Only the lists of the active mode: the others keep their files.
 		if (proxyFirst) {
 			this.providerList(s, 'basic', 'direct', this.titles.direct);
-			const devices = this.listOption(s, 'basic', 'direct_src', this.titles.direct_src,
-				fakeip ? _('Needs subscription DNS mode redir-host or normal.')
-					: _('All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change.'));
 			if (fakeip) {
-				devices.readonly = true;
-				devices.write = devices.remove = () => {};
+				// With fake-IP DNS the devices could not reach anything directly:
+				// say so in plain text; the saved file is kept as it is.
+				const saved = this.lists.direct_src.split('\n').filter((l) => l.trim() && !/^\s*#/.test(l)).length;
+				o = s.taboption('basic', form.DummyValue, '_direct_src_off', this.titles.direct_src);
+				o.cfgvalue = () => _('Not available with this subscription (it uses fake-IP DNS).') +
+					(saved ? ' ' + N_(saved, 'Saved: %d entry.', 'Saved: %d entries.').format(saved) : '');
 			}
-			else
+			else {
+				const devices = this.listOption(s, 'basic', 'direct_src', this.titles.direct_src,
+					_('All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change.'));
 				this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+			}
 		}
 		else {
 			this.providerList(s, 'basic', 'dst', this.titles.dst);
@@ -195,14 +209,13 @@ return view.extend({
 		return refresh;
 	},
 
-	// Number field (with arrows) like the subscription interval, with the
+	// Numeric field with the
 	// "Update remote lists" button next to it.
 	intervalField: function(node, refresh) {
 		const input = node.querySelector('input');
 		if (input) {
-			input.setAttribute('type', 'number');
-			input.setAttribute('min', '0');
-			input.setAttribute('max', '8760');
+			// No type=number: some themes (openwrt-2020) style only text inputs.
+			input.setAttribute('inputmode', 'numeric');
 			input.style.width = '8em';
 		}
 		return E('div', { class: 'mw-row' }, [ node, refresh ]);

@@ -10,6 +10,13 @@ function modeLabel(mode) {
 		: _('Only selected traffic via proxy');
 }
 
+// Only Mihomo's error messages, without timestamps and temp paths.
+function coreError(raw) {
+	const msgs = [ ...String(raw).matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ].map((m) => m[1].replace(/\\"/g, '"'));
+	return msgs.length ? msgs.join('\n')
+		: String(raw).split('\n').filter((l) => l && !/level=(info|debug|warning)/.test(l) && !/test failed$/.test(l)).join('\n');
+}
+
 // Each check: passed? (null = unknown), label, hint shown when it fails.
 function checks(st) {
 	const list = [
@@ -17,9 +24,9 @@ function checks(st) {
 			_('Open Overview and install the core.') ],
 		st.config_valid == null
 			? [ null, _('Configuration not checked yet (it is checked at start)'), '' ]
-			: [ st.config_valid, _('Configuration is valid'),
+			: [ st.config_valid, st.config_valid ? _('Configuration is valid') : _('Configuration has errors'),
 				_('Update the subscription or fix the YAML on the Subscription page.') +
-				(st.config_error ? '\n' + _('Mihomo says: %s').format(st.config_error) : '') ],
+				(st.config_error ? '\n' + _('Mihomo says: %s').format(coreError(st.config_error)) : '') ],
 		[ st.subscription_configured, _('Subscription configured'),
 			_('Without a subscription only the YAML you entered is used.') ],
 		[ st.running, _('Service is running'), _('Press Start on Overview. If it stops again, check the log below.') ]
@@ -36,9 +43,10 @@ function checks(st) {
 }
 
 function checklist(st) {
-	return E('ul', { class: 'mw-check' }, checks(st).map(([ ok, label, hint ]) => E('li', [
+	// Plain blocks, not a list: some themes draw bullets next to the marks.
+	return E('div', { class: 'mw-check' }, checks(st).map(([ ok, label, hint ]) => E('div', [
 		E('span', { class: 'mw-mark', 'aria-hidden': 'true' }, text(ok == null ? '–' : ok ? '✓' : '✗')),
-		E('span', { class: 'mw-sr', style: 'position:absolute;left:-9999px' }, text(ok == null ? _('Unknown:') : ok ? _('OK:') : _('Problem:'))),
+		E('span', { class: 'mw-sr' }, text(ok == null ? _('Unknown:') : ok ? _('OK:') : _('Problem:'))),
 		E('strong', text(label)),
 		(ok || ok == null) ? '' : E('div', { class: 'mw-muted', style: 'margin-left:1.6em; white-space:pre-wrap' }, text(hint))
 	])));
@@ -59,11 +67,11 @@ function details(st, profile) {
 		[ _('MihoWRT version'), st.version ],
 		[ _('Mode'), modeLabel(st.mode) ],
 		[ _('DNS mode'), st.dns_mode || '' ],
-		[ _('Provider settings'), String(Object.keys(profile?.provider || {}).length) ],
+		[ _('Provider settings'), Object.keys(profile?.provider || {}).join(', ') || _('none') ],
 		[ _('Provider lists'), providerLists(profile) ],
 		[ _('Client interfaces'), (st.interfaces || []).join(', ') ],
 		[ _('List entries'), _('proxy %d, devices %d, direct %d, direct devices %d').format(st.lists?.dst || 0, st.lists?.src || 0, st.lists?.direct || 0, st.lists?.direct_src || 0) ],
-		[ _('Routing table'), st.route?.table ? '%s (priority %s)'.format(st.route.table, st.route.priority) : _('not active') ],
+		[ _('Routing table'), st.route?.table ? _('%s (priority %s)').format(st.route.table, st.route.priority) : _('not active') ],
 		[ _('Starts at boot'), st.enabled ? _('yes') : _('no') ]
 	];
 	return E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ]));
@@ -76,8 +84,7 @@ return view.extend({
 	]),
 
 	render: ([ st, profile ]) => {
-		const logBox = E('pre', { class: 'mw-log' }, text(_('Open to load the log.')));
-		const logDetails = E('details', { class: 'cbi-section' }, [ E('summary', text(_('Log'))), logBox ]);
+		const logBox = E('pre', { class: 'mw-log' }, text(_('Loading…')));
 		const loadLog = () => api.read('logs-json', '300')
 			.then((res) => {
 				logBox.textContent = res.available ? (res.lines.join('\n') || _('No MihoWRT log lines yet.')) : _('System log is not available.');
@@ -86,7 +93,6 @@ return view.extend({
 			.catch((e) => { logBox.textContent = _('Cannot read the log: %s').format(e.message); });
 		const refresh = E('button', { class: 'cbi-button' }, text(_('Check again')));
 
-		logDetails.addEventListener('toggle', () => logDetails.open && loadLog());
 		refresh.addEventListener('click', () => location.reload());
 
 		return E('div', { class: 'mw-page' }, [
@@ -94,8 +100,10 @@ return view.extend({
 			E('h2', text(_('Diagnostics'))),
 			E('div', { class: 'cbi-section' }, [ checklist(st), E('div', { class: 'mw-row' }, [ refresh ]) ]),
 			(st.errors || []).length ? E('div', { class: 'alert-message warning' }, text(st.errors.join('; '))) : '',
-			E('details', { class: 'cbi-section' }, [ E('summary', text(_('Details'))), details(st, profile) ]),
-			logDetails
+			E('div', { class: 'cbi-section' }, [ E('h3', text(_('Details'))),
+				api.toggle(_('Show details'), _('Hide details'), details(st, profile)) ]),
+			E('div', { class: 'cbi-section' }, [ E('h3', text(_('Log'))),
+				api.toggle(_('Show the log'), _('Hide the log'), logBox, loadLog) ])
 		]);
 	},
 

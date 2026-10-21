@@ -113,12 +113,12 @@ http_fetch() {
 			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
 			-A "mihowrt/$PKG_VERSION" -H "x-hwid: $(device_hwid)" -H "x-device-os: OpenWrt" \
 			-H "x-ver-os: $(device_os_version)" -H "x-device-model: $(device_model)" \
-			-D "$FETCH_HDR" -o "$out" "$url" || rc=$?
+			-D "$FETCH_HDR" -o "$out" "$url" 2>/dev/null || rc=$?
 		;;
 	*)
 		curl -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
 			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
-			-A "mihowrt/$PKG_VERSION" -D "$FETCH_HDR" -o "$out" "$url" || rc=$?
+			-A "mihowrt/$PKG_VERSION" -D "$FETCH_HDR" -o "$out" "$url" 2>/dev/null || rc=$?
 		;;
 	esac
 	FETCH_HTTP_STATUS="$(awk '/^HTTP\// { s = $2 } END { print s }' "$FETCH_HDR" 2>/dev/null)"
@@ -253,10 +253,19 @@ subscription_is_clash() {
 }
 
 # Download the subscription, validate and install it, update metadata.
+# With a URL argument that link is tried and saved only if it works, so a
+# typo never replaces the working link.
 subscription_update() {
-	local candidate="$PKG_TMP_DIR/subscription.$$.yaml" meta="" result="" bypass="" rc=0
+	local new_url="${1:-}" candidate="$PKG_TMP_DIR/subscription.$$.yaml" meta="" result="" bypass="" rc=0
 
 	settings_load || return 1
+	if [ -n "$new_url" ]; then
+		is_http_url "$new_url" || {
+			err "Subscription download failed: invalid_url"
+			return 1
+		}
+		SUBSCRIPTION_URL="$new_url"
+	fi
 	[ -n "$SUBSCRIPTION_URL" ] || {
 		err "Subscription URL is not set"
 		return 1
@@ -307,6 +316,9 @@ subscription_update() {
 		warn "Subscription metadata could not be parsed; keeping the previous one"
 	fi
 	rm -f "$FETCH_HDR"
+	if [ -n "$new_url" ] && [ "$new_url" != "$(uci_get subscription_url)" ]; then
+		uci_set subscription_url "$new_url" && uci_commit || warn "Failed to save the subscription URL"
+	fi
 	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
 	# Reload: the period header and provider lists may be new.
 	settings_load || return 1

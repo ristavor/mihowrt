@@ -9,6 +9,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh kernel.sh
+setup_runtime_paths "$tmpdir"
+
 PKG_TMP_DIR="$tmpdir/tmp"
 KERNEL_TMP_DIR="$tmpdir/tmp/kernel"
 CLASH_DIR="$tmpdir/clash"

@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh dns.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh dns.sh
+setup_runtime_paths "$tmpdir"
+
 
 PKG_TMP_DIR="$tmpdir/tmp"
 DNS_AUTO_RESOLVFILE="$tmpdir/resolv.conf.auto"

@@ -9,6 +9,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh route.sh
+setup_runtime_paths "$tmpdir"
+
 
 ROUTE_STATE_FILE="$tmpdir/route.state"
 calls="$tmpdir/calls"

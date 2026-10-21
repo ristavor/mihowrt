@@ -182,3 +182,22 @@ fake_uci_reset() {
 fake_uci_set() {
 	uci set "$1=$2"
 }
+
+# Keep provider profiles, check state and the fourth list inside each fixture.
+# Runtime ash does not use nounset; initialize values read before settings_load.
+setup_runtime_paths() {
+	local dir="$1"
+
+	API_SECRET=""
+	DST_LIST_SOURCE=provider
+	DIRECT_LIST_SOURCE=provider
+	CLASH_CONFIG="$dir/source.yaml"
+	PROFILE_FILE="$dir/profile"
+	DIRECT_SRC_LIST_FILE="$dir/direct_src.txt"
+	PKG_TMP_DIR="$dir/tmp"
+	PKG_STATE_DIR="$dir/run"
+	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
+	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
+	NFT_APPLIED_FILE="$dir/nft.applied"
+	mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR"
+}

@@ -105,3 +105,15 @@ assert_eq lists-json "$(sh "$tmpdir/cli.sh" lists-json)" 'lists-json CLI dispatc
 assert_false 'lists-json backend extra args rejected' sh "$tmpdir/cli.sh" lists-json x >/dev/null 2>&1
 assert_eq 'lists:-:/tmp/mihowrt-policy-list.a:-:-' "$(sh "$tmpdir/cli.sh" apply-lists - /tmp/mihowrt-policy-list.a - -)" 'CLI forwards unchanged sentinels'
 pass 'lists-json and partial apply CLI boundary'
+
+assert_eq 'backend job-status' "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" job-status)" 'active job read wrapper'
+assert_eq 'backend job-status 123-456' "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" job-status 123-456)" 'specific job read wrapper'
+for bad in 'job-start update-lists' 'job-run 1-2 update-lists' 'job-status ../x' 'job-status 1-2 x' 'job-status 1-x'; do
+ # shellcheck disable=SC2086
+ assert_false "read wrapper rejects $bad" env MIHOWRT_BACKEND="$backend" sh "$read_cli" $bad >/dev/null 2>&1
+done
+sed -i '/^case "$cmd" in/i job_start() { printf "job-start:%s\\n" "$*"; }; job_status() { printf "job-status:%s\\n" "$*"; }; job_run() { printf "job-run:%s\\n" "$*"; }' "$tmpdir/cli.sh"
+assert_eq 'job-start:update-lists' "$(sh "$tmpdir/cli.sh" job-start update-lists)" 'job-start CLI dispatch'
+assert_eq 'job-status:1-2' "$(sh "$tmpdir/cli.sh" job-status 1-2)" 'job-status CLI dispatch'
+assert_eq 'job-run:1-2 service stop' "$(sh "$tmpdir/cli.sh" job-run 1-2 service stop)" 'internal job-run CLI dispatch'
+pass 'job CLI boundary'

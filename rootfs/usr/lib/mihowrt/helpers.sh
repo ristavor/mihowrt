@@ -179,7 +179,7 @@ mihowrt_lib_dir() {
 }
 
 # Modules are small; loading all of them keeps command dispatch trivial.
-MIHOWRT_MODULES="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh dns.sh nft.sh route.sh config.sh core.sh service.sh status.sh migration.sh"
+MIHOWRT_MODULES="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh dns.sh nft.sh route.sh config.sh core.sh service.sh status.sh migration.sh job.sh"
 
 mihowrt_load_modules() {
 	local module="" dir=""

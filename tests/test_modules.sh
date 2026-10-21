@@ -4,8 +4,9 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 load_modules constants.sh helpers.sh
 
-expected="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh dns.sh nft.sh route.sh config.sh core.sh service.sh status.sh migration.sh"
+expected="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh dns.sh nft.sh route.sh config.sh core.sh service.sh status.sh migration.sh job.sh"
 assert_eq "$expected" "$MIHOWRT_MODULES" "runtime module order"
+assert_eq "$PKG_STATE_DIR/jobs" "$JOBS_DIR" 'jobs use volatile package state'
 assert_false "kernel.sh removed" test -e "$MIHOWRT_LIB_DIR/kernel.sh"
 assert_false "KERNEL_ constants removed" grep -rn KERNEL_ "$ROOT_DIR/rootfs"
 for module in $MIHOWRT_MODULES; do

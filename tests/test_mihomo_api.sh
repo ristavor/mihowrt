@@ -57,3 +57,8 @@ assert_eq '{}' "$(CURL_CODE=504 CURL_BODY='{"message":"get delay: all proxies ti
 if CURL_CODE=401 CURL_BODY='{"message":"Unauthorized"}' api_group_delay G >/dev/null 2>&1; then fail "other HTTP errors must fail"; fi
 if CURL_EXIT=7 CURL_BODY='' api_group_delay G >/dev/null 2>&1; then fail "socket failure must fail"; fi
 pass 'GLOBAL group ordering'
+
+: >"$CURL_LOG"
+CURL_BODY='{}' api_group_delay G >/dev/null
+assert_file_contains "$CURL_LOG" '-m 15 ' 'group-delay stays below browser timeout'
+pass 'group-delay timeout'

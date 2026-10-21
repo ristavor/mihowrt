@@ -189,6 +189,18 @@ subscription_update() {
 	printf '%s\n' "$result"
 }
 
+# Connect only after a successful install. Init owns its runtime lock in a
+# separate process, so enable/restart must remain outside with_lock.
+subscription_connect() {
+	local result=""
+
+	result="$(subscription_update "$1")" || return 1
+	with_lock subscription_set "$1" 1 >/dev/null || return 1
+	/etc/init.d/mihowrt enable 9>&- >/dev/null &&
+		/etc/init.d/mihowrt restart 9>&- >/dev/null || return 1
+	printf '%s\n' "$result"
+}
+
 subscription_due() {
 	local stamp="$PKG_STATE_DIR/subscription.stamp"
 

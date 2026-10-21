@@ -12,6 +12,7 @@ Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
 Updates:  auto-update | net-refresh | core-update | core-version-json
 Status:   status-json | service-state-json | profile-json | logs-json [lines]
+Jobs:     job-start <op> [args] | job-status [id]
 Proxies:  proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
 EOF
 	exit 1
@@ -52,6 +53,9 @@ core_update_cmd() {
 cmd="${1:-}"
 [ $# -gt 0 ] && shift
 case "$cmd" in
+job-start) job_start "$@" ;;
+job-run) job_run "$@" ;;
+job-status) job_status "$@" ;;
 prepare) with_lock service_prepare ;;
 run-service) run_service ;;
 wait-stopped) service_wait_stopped ;;

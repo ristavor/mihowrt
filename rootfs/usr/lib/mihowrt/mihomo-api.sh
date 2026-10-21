@@ -67,7 +67,7 @@ api_select() {
 api_group_delay() {
 	local out code
 
-	out="$(curl -sS -m 30 --unix-socket "$MIHOMO_SOCKET_TMPFS" -H "Authorization: Bearer $API_SECRET" -w '\n%{http_code}' \
+	out="$(curl -sS -m 15 --unix-socket "$MIHOMO_SOCKET_TMPFS" -H "Authorization: Bearer $API_SECRET" -w '\n%{http_code}' \
 		"http://localhost/group/$(uri_encode "$1")/delay?url=$(uri_encode "$API_DELAY_URL")&timeout=5000")" || return 1
 	code="${out##*
 }"

@@ -108,3 +108,29 @@ for DST_LIST_SOURCE in provider merge own; do
 done
 assert_eq "$DIRECT_SRC_LIST_FILE" "$(lists_file direct_src)" "fourth kind"
 pass "provider list source selection and validation"
+
+# Both successful and failed list URLs release their response headers.
+lists_urls() {
+ case "$outcome" in
+ success) echo https://ok.example/list ;;
+ failure) echo https://fail.example/list ;;
+ mixed) printf '%s\n' https://ok.example/list https://fail.example/list ;;
+ esac
+}
+http_fetch() {
+ FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+ echo headers >"$FETCH_HDR"
+ case "$1" in
+ *fail.example*) FETCH_ERROR=network; return 1 ;;
+ *) echo 9.9.9.9 >"$2" ;;
+ esac
+}
+for outcome in success failure mixed; do
+ if [ "$outcome" = success ]; then
+  lists_update_remote 1 >/dev/null
+ else
+  assert_false "$outcome list update reports failure" lists_update_remote 1 >/dev/null 2>&1
+ fi
+ assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after $outcome list fetches"
+done
+pass 'list response headers cleaned'

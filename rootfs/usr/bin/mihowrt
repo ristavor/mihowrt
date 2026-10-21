@@ -29,16 +29,23 @@ dashboard_json() {
 }
 
 core_update_cmd() {
-	local result="" rc=0
+	local result="" rc=0 restarted=false restart_error=""
 
 	# The download can take minutes: no runtime lock (nothing in the
 	# runtime state changes until the service restarts).
 	result="$(core_update_json)" || rc=$?
-	printf '%s\n' "$result"
 	# Restart outside the lock: stop waits for run-service, which needs it.
 	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | jq -r .updated)" = true ] && service_running; then
-		/etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1 &
+		if /etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1; then
+			restarted=true
+		else
+			restart_error="Mihomo core updated, but the service restart failed"
+			err "$restart_error"
+			rc=1
+		fi
 	fi
+	printf '%s\n' "$result" | jq -c --argjson restarted "$restarted" --arg e "$restart_error" \
+		'. + {restarted: $restarted} | if $e == "" then . else .error = $e end'
 	return "$rc"
 }
 

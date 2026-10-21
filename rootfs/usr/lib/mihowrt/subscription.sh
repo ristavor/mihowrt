@@ -140,11 +140,12 @@ subscription_update() {
 	# shellcheck disable=SC2086
 	[ -z "$bypass" ] || nft_bypass delete $bypass
 	if [ "$rc" -ne 0 ]; then
+		rm -f "${FETCH_HDR:-}"
 		err "Subscription download failed: $FETCH_ERROR"
 		return 1
 	fi
 	[ -s "$candidate" ] || {
-		rm -f "$candidate"
+		rm -f "$candidate" "${FETCH_HDR:-}"
 		err "Subscription returned an empty config"
 		return 1
 	}

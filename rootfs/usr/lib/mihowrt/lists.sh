@@ -196,10 +196,12 @@ lists_update_remote() {
 		cache="$(lists_cache_file "$url")"
 		[ "$force" = "1" ] || lists_remote_due "$cache" || continue
 		if ! http_fetch "$url" "$tmp" "$LISTS_REMOTE_MAX_BYTES" "$LISTS_REMOTE_TIMEOUT" 0; then
+			rm -f "${FETCH_HDR:-}"
 			warn "Remote list fetch failed: $(url_host "$url") ($FETCH_ERROR)"
 			failed=1
 			continue
 		fi
+		rm -f "${FETCH_HDR:-}"
 		lists_clean_lines "$tmp" | lists_classify | cut -d' ' -f2- >"$tmp.clean"
 		if cmp -s "$tmp.clean" "$cache"; then
 			touch "$cache"

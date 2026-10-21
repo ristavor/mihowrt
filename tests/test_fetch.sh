@@ -179,3 +179,27 @@ assert_eq https://new.example/sub "$(uci_get subscription_url)" 'download failur
 assert_false 'invalid URL rejects' subscription_update javascript:evil >/dev/null 2>&1
 assert_eq https://new.example/sub "$(uci_get subscription_url)" 'invalid URL keeps old URL'
 pass 'replacement subscription URL transaction'
+
+# Each subscription exit owns and removes its response headers.
+for outcome in download_failure empty non_clash success; do
+ http_fetch() {
+  FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+  printf 'HTTP/1.1 200 OK\r\nProfile-Title: kept\r\n' >"$FETCH_HDR"
+  case "$outcome" in
+  download_failure) FETCH_ERROR=network; return 1 ;;
+  empty) : >"$2" ;;
+  non_clash) printf '<html>' >"$2" ;;
+  success) printf 'proxies: []\n' >"$2" ;;
+  esac
+ }
+ config_install() { echo '{"action":"saved"}'; }
+ rm -f "$PKG_TMP_DIR"/fetch.headers.*
+ if [ "$outcome" = success ]; then
+  subscription_update >/dev/null
+  assert_eq kept "$(jq -r .profile_title "$SUBSCRIPTION_META_FILE")" 'headers parsed before cleanup'
+ else
+  assert_false "$outcome rejected" subscription_update >/dev/null 2>&1
+ fi
+ assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after subscription $outcome"
+done
+pass 'subscription response headers cleaned on every exit'

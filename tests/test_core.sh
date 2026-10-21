@@ -36,6 +36,9 @@ asset_size="$(wc -c <"$tmpdir/asset.gz" | tr -d ' ')"
 asset_digest="sha256:$asset_sha"
 
 http_fetch() {
+	FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+	mkdir -p "$PKG_TMP_DIR"
+	echo headers >"$FETCH_HDR"
 	case "$1" in
 	*api.github.com*)
 		jq -nc --arg d "$asset_digest" --arg s "$asset_size" \
@@ -52,6 +55,7 @@ if core_update 2>/dev/null; then fail "low space must fail"; fi
 [[ "$CORE_ERROR" == "not enough flash"* ]] || fail "space error: $CORE_ERROR"
 [[ ! -e "$CLASH_BIN.new" ]] || fail "no partial binary left"
 assert_eq "v1.19.30" "$(core_version)" "old core kept"
+assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after core_fail"
 pass "insufficient space"
 
 free_kb=1000000
@@ -65,10 +69,20 @@ assert_eq "sha256 mismatch" "$CORE_ERROR" "digest error"
 asset_digest="sha256:$asset_sha"
 pass "digest mismatch"
 
-core_update || fail "update must succeed"
+# A killed update must not consume space during the next free-space check.
+mkdir -p "$CORE_TMP_DIR"
+echo stale >"$CORE_TMP_DIR/x"
+dd if=/dev/zero of="$CLASH_BIN.new" bs=1048576 count=5 2>/dev/null
+core_free_kb() {
+ [ ! -e "$CORE_TMP_DIR/x" ] && [ ! -e "$CLASH_BIN.new" ] || { echo 0; return; }
+ echo "$free_kb"
+}
+core_update || fail "update must succeed after stale leftovers are removed"
+assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after core success"
 assert_eq "1:v1.19.32" "$CORE_UPDATED:$(core_version)" "core replaced"
 core_update
 assert_eq 0 "$CORE_UPDATED" "same version is a no-op"
+assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after up-to-date core"
 assert_eq '{"updated":false,"version":"v1.19.32","error":null}' "$(core_update_json)" "json result"
 pass "core update"
 

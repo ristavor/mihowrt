@@ -11,6 +11,7 @@ RUN apk add --no-cache \
     gawk \
     grep \
     jq \
+    make \
     nodejs \
     sed \
     shellcheck

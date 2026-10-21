@@ -251,8 +251,11 @@ stop_service
 assert_true "Stop creates sticky flag" test -f "$USER_STOP_FILE"
 start_service
 assert_false "Start clears sticky flag" test -f "$USER_STOP_FILE"
-# Rewrite only absolute device paths, then execute the real hotplug logic.
-sed -e "s|/var/run/mihowrt|$tmpdir/hotplug|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init-hotplug|g" \
+# Rewrite constants and absolute device paths, then execute real hotplug logic.
+mkdir -p "$tmpdir/lib"
+sed -e "s|/var/run/mihowrt|$tmpdir/hotplug|g" -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" \
+ "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/lib/constants.sh"
+sed -e "s|/usr/lib/mihowrt/constants.sh|$tmpdir/lib/constants.sh|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init-hotplug|g" \
  -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" "$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt" >"$tmpdir/hotplug.sh"
 printf '#!/bin/sh\n[ "$1" != start ] || touch "%s"\n' "$tmpdir/hotplug.started" >"$tmpdir/init-hotplug"
 chmod +x "$tmpdir/init-hotplug"

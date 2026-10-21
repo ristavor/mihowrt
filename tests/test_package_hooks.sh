@@ -23,6 +23,24 @@ skip_start="$tmpdir/skip-start"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
+assert_file_contains "$ROOT_DIR/Makefile" 'MIHOWRT_LISTS:=always_proxy_dst always_proxy_src direct_dst direct_src' "list names should have one Makefile definition"
+render_package_define conffiles >"$tmpdir/conffiles"
+if grep -q '^$' "$tmpdir/conffiles"; then
+	fail "conffiles should not contain empty lines"
+fi
+render_package_define preinst >"$tmpdir/preinst.expanded"
+render_package_define postinst >"$tmpdir/postinst.expanded"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	grep -Fxq "/opt/clash/lst/$list.txt" "$tmpdir/conffiles" || fail "conffiles should preserve $list on its own exact line"
+	assert_file_contains "$ROOT_DIR/rootfs/etc/apk/protected_paths.d/mihowrt.list" "/opt/clash/lst/$list.txt" "APK should preserve $list"
+done
+assert_file_contains "$tmpdir/preinst.expanded" 'for list in always_proxy_dst always_proxy_src direct_dst direct_src' "preinst should back up all list files"
+assert_file_contains "$tmpdir/postinst.expanded" 'for list in always_proxy_dst always_proxy_src direct_dst direct_src' "postinst should restore all list files"
+assert_file_contains "$keep_file" '/opt/clash/lst' "sysupgrade should preserve list directory"
+assert_file_contains "$tmpdir/postinst.expanded" '. /usr/lib/mihowrt/constants.sh' "postinst should source constants"
+assert_file_contains "$tmpdir/postinst.expanded" 'pgrep -f "$SUPERVISOR_CMD"' "postinst should use supervisor constant"
+pass "list files consistent and postinst constants sourced"
+
 extract_hook() {
 	local hook="$1"
 
@@ -35,27 +53,24 @@ extract_hook() {
 
 rewrite_package_paths() {
 	sed \
-		-e "s|\$(PKG_CONFIG_BACKUP_FILE)|$backup_path|g" \
-		-e "s|\$(PKG_POLICY_LIST_BACKUP_DIR)|$list_backup_dir|g" \
+		-e "s|/tmp/luci-app-mihowrt.config.yaml.bak|$backup_path|g" \
+		-e "s|/tmp/luci-app-mihowrt.policy-lists.bak|$list_backup_dir|g" \
 		-e "s|/opt/clash/config.yaml|$live_config|g" \
-		-e "s|/opt/clash/lst/always_proxy_dst.txt|$live_dst_list|g" \
-		-e "s|/opt/clash/lst/always_proxy_src.txt|$live_src_list|g" \
-		-e "s|/opt/clash/lst/direct_dst.txt|$live_direct_list|g" \
-		-e "s|/opt/clash/lst/direct_src.txt|$live_direct_src_list|g" \
-		-e 's/\$\$/\$/g'
+		-e "s|/opt/clash/lst|$live_list_dir|g"
 }
 
 extract_preinst() {
-	extract_hook "preinst" |
+	render_package_define preinst |
 		rewrite_package_paths |
 		sed -e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g"
 }
 
 extract_postinst() {
-	extract_hook "postinst" |
+	render_package_define postinst |
 		rewrite_package_paths |
 		sed \
 			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
+			-e "s|/usr/lib/mihowrt/constants.sh|$MIHOWRT_LIB_DIR/constants.sh|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
 			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/rpcd reload|true|g'
@@ -75,14 +90,10 @@ mkdir -p "$(dirname "$live_config")" "$live_list_dir"
 extract_hook "preinst" >"$tmpdir/preinst.raw"
 assert_file_contains "$tmpdir/preinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)' "preinst should stage policy list backups before package payload install"
 assert_file_contains "$tmpdir/preinst.raw" "backup_mihowrt_file" "preinst should use fail-fast backup helper"
-assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_dst.txt" "preinst should back up destination policy list"
-assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/always_proxy_src.txt" "preinst should back up source policy list"
-assert_file_contains "$tmpdir/preinst.raw" "/opt/clash/lst/direct_dst.txt" "preinst should back up direct destination policy list"
+assert_file_contains "$tmpdir/preinst.raw" '/opt/clash/lst/$$list.txt' "preinst should back up policy list paths from its loop"
 extract_hook "postinst" >"$tmpdir/postinst.raw"
 assert_file_contains "$tmpdir/postinst.raw" "/tmp/luci-app-mihowrt.skip-start" "postinst should clear the skip marker"
-assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt' "postinst should restore destination policy list backup"
-assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt' "postinst should restore source policy list backup"
-assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt' "postinst should restore direct destination policy list backup"
+assert_file_contains "$tmpdir/postinst.raw" '$(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt' "postinst should restore policy list backups from its loop"
 assert_file_contains "$tmpdir/postinst.raw" "/usr/bin/mihowrt migrate" "postinst should run package migrations on package upgrade"
 
 cat >"$tmpdir/mihowrt" <<EOF
@@ -248,10 +259,10 @@ assert_file_contains "$ROOT_DIR/Makefile" 'rm -rf /opt/clash/ruleset' "package r
 assert_file_contains "$ROOT_DIR/Makefile" 'rm -rf /opt/clash/proxy_providers' "package removal should remove proxy provider directory safely"
 assert_file_not_contains "$ROOT_DIR/Makefile" 'rm -f /opt/clash/ruleset' "package removal should not use file-only removal for ruleset directory"
 assert_file_not_contains "$ROOT_DIR/Makefile" 'rm -f /opt/clash/proxy_providers' "package removal should not use file-only removal for proxy provider directory"
-assert_file_contains "$ROOT_DIR/Makefile" '/opt/clash/lst/direct_dst.txt' "package conffiles should include direct destination list"
-assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/direct_dst.txt' "package should install direct destination list"
+assert_file_contains "$tmpdir/conffiles" '/opt/clash/lst/direct_dst.txt' "package conffiles should include direct destination list"
+assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "package should install direct destination list"
 assert_file_contains "$ROOT_DIR/Makefile" 'restore_mihowrt_backup_file $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml || exit 1' "postinst should fail if saved config cannot be restored"
-assert_file_contains "$ROOT_DIR/Makefile" 'restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1' "postinst should fail if saved policy lists cannot be restored"
+assert_file_contains "$ROOT_DIR/Makefile" 'restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt /opt/clash/lst/$$list.txt || exit 1' "postinst should fail if saved policy lists cannot be restored"
 assert_file_contains "$ROOT_DIR/Makefile" '/opt/clash/mihomo.sock' "package removal should delete Mihomo socket symlink"
 assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt subscription auto-update' "package removal should delete subscription cron entry"
 assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt policy remote auto-update' "package removal should delete policy remote cron entry"
@@ -297,4 +308,4 @@ assert_file_contains "$hook_log" "procd:open" "next start should launch the serv
 pass "default postinst start skipped once"
 
 assert_eq '["read"]' "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_src.txt"]' "$acl_file")" "fourth list read ACL"
-assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/direct_src.txt' "fourth list packaged"
+assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "fourth list packaged"

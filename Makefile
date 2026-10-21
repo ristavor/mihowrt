@@ -8,9 +8,10 @@ PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 PKG_POLICY_LIST_BACKUP_DIR:=/tmp/$(PKG_NAME).policy-lists.bak
+MIHOWRT_LISTS:=always_proxy_dst always_proxy_src direct_dst direct_src
 
 LUCI_TITLE:=LuCI Support for MihoWRT
-LUCI_DEPENDS:=+luci-base +jq +nftables +kmod-nft-tproxy +curl
+LUCI_DEPENDS:=+luci-base +cgi-io +jq +nftables +kmod-nft-tproxy +curl
 LUCI_PKGARCH:=all
 
 PKG_BUILD_DEPENDS:=luci-base/host
@@ -41,10 +42,7 @@ endef
 define Package/$(PKG_NAME)/conffiles
 /etc/config/mihowrt
 /opt/clash/config.yaml
-/opt/clash/lst/always_proxy_dst.txt
-/opt/clash/lst/always_proxy_src.txt
-/opt/clash/lst/direct_dst.txt
-/opt/clash/lst/direct_src.txt
+$(subst $(space),$(newline),$(addprefix /opt/clash/lst/,$(addsuffix .txt,$(MIHOWRT_LISTS))))
 endef
 
 define Package/$(PKG_NAME)/install
@@ -66,6 +64,7 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/lib/mihowrt
 	$(CP) ./rootfs/usr/lib/mihowrt/* $(1)/usr/lib/mihowrt/
+	sed -i 's/^PKG_VERSION=.*/PKG_VERSION="$(PKG_VERSION)"/' $(1)/usr/lib/mihowrt/constants.sh
 
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./rootfs/usr/share/luci/menu.d/luci-app-mihowrt.json $(1)/usr/share/luci/menu.d/
@@ -82,10 +81,9 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/opt/clash/bin
 	$(INSTALL_DIR) $(1)/opt/clash/lst
 	$(INSTALL_DATA) ./rootfs/opt/clash/config.yaml $(1)/opt/clash/
-	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_dst.txt $(1)/opt/clash/lst/
-	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_src.txt $(1)/opt/clash/lst/
-	$(INSTALL_DATA) ./rootfs/opt/clash/lst/direct_dst.txt $(1)/opt/clash/lst/
-	$(INSTALL_DATA) ./rootfs/opt/clash/lst/direct_src.txt $(1)/opt/clash/lst/
+	for list in $(MIHOWRT_LISTS); do \
+		$(INSTALL_DATA) ./rootfs/opt/clash/lst/$$$$list.txt $(1)/opt/clash/lst/ || exit 1; \
+	done
 
 	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./rootfs/lib/upgrade/keep.d/mihowrt $(1)/lib/upgrade/keep.d/
@@ -112,10 +110,9 @@ define Package/$(PKG_NAME)/preinst
 	rm -f $(PKG_CONFIG_BACKUP_FILE) || exit 1
 	rm -rf $(PKG_POLICY_LIST_BACKUP_DIR) || exit 1
 	backup_mihowrt_file /opt/clash/config.yaml $(PKG_CONFIG_BACKUP_FILE) || exit 1
-	backup_mihowrt_file /opt/clash/lst/always_proxy_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt || exit 1
-	backup_mihowrt_file /opt/clash/lst/always_proxy_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt || exit 1
-	backup_mihowrt_file /opt/clash/lst/direct_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt || exit 1
-	backup_mihowrt_file /opt/clash/lst/direct_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_src.txt || exit 1
+	for list in $(MIHOWRT_LISTS); do
+		backup_mihowrt_file /opt/clash/lst/$$list.txt $(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt || exit 1
+	done
 }
 exit 0
 endef
@@ -123,6 +120,7 @@ endef
 define Package/$(PKG_NAME)/postinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
+	. /usr/lib/mihowrt/constants.sh
 	restore_mihowrt_backup_file() {
 		backup_file="$$1"
 		target_file="$$2"
@@ -135,16 +133,15 @@ define Package/$(PKG_NAME)/postinst
 		fi
 	}
 	restore_mihowrt_backup_file $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml || exit 1
-	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt || exit 1
-	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || exit 1
-	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1
-	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_src.txt /opt/clash/lst/direct_src.txt || exit 1
+	for list in $(MIHOWRT_LISTS); do
+		restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt /opt/clash/lst/$$list.txt || exit 1
+	done
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	rm -f /tmp/luci-app-mihowrt.skip-start
 	# An upgrade leaves the old service running from memory: stop it so
 	# it removes its own state, migrate, then start the new version.
 	was_running=0
-	pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1 && was_running=1
+	pgrep -f "$$SUPERVISOR_CMD" >/dev/null 2>&1 && was_running=1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || exit 1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1

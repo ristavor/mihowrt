@@ -1,5 +1,7 @@
 #!/bin/sh
 
+. /usr/lib/mihowrt/constants.sh
+
 # WAN came up: refresh the NTP/subscription DNS bypass, or restart an
 # enabled service that procd gave up on (e.g. watchdog during a long outage).
 # A service stopped by the user (Stop) stays stopped until Start or reboot.
@@ -8,9 +10,9 @@ ifup | ifupdate) ;;
 *) exit 0 ;;
 esac
 
-if [ -f /var/run/mihowrt/running ]; then
+if [ -f "$RUNNING_MARKER" ]; then
 	/usr/bin/mihowrt dns-refresh >/dev/null 2>&1 &
-elif [ "$ACTION" = ifup ] && [ ! -f /var/run/mihowrt/stopped ] && /etc/init.d/mihowrt enabled &&
-	! pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
+elif [ "$ACTION" = ifup ] && [ ! -f "$USER_STOP_FILE" ] && /etc/init.d/mihowrt enabled &&
+	! pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1; then
 	/etc/init.d/mihowrt start >/dev/null 2>&1 &
 fi

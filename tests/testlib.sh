@@ -102,7 +102,7 @@ source_mihowrt_cli_lib() {
 source_init_mihowrt_lib() {
 	local fixture_path
 	fixture_path="$(make_temp_dir)/init.sh"
-	sed '1d' "$ROOT_DIR/rootfs/etc/init.d/mihowrt" >"$fixture_path"
+	sed -e '1d' -e "s|/usr/lib/mihowrt/constants.sh|$MIHOWRT_LIB_DIR/constants.sh|g" "$ROOT_DIR/rootfs/etc/init.d/mihowrt" >"$fixture_path"
 	# shellcheck disable=SC1090
 	source "$fixture_path"
 	rm -f "$fixture_path"
@@ -200,4 +200,33 @@ setup_runtime_paths() {
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"
 	mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR"
+}
+
+# Evaluate package defines with GNU make, without loading the SDK build system.
+package_makefile() {
+	# Whitespace helpers normally supplied by the SDK's rules.mk.
+	cat <<'EOF'
+empty:=
+space:= $(empty) $(empty)
+define newline
+
+
+endef
+EOF
+	sed -e '/^include /d' -e '/^$(eval $(call BuildPackage,/d' "$ROOT_DIR/Makefile"
+}
+
+render_package_define() {
+	local name="$1" fixture_dir
+	fixture_dir="$(make_temp_dir)"
+	package_makefile >"$fixture_dir/package.mk"
+	cat >>"$fixture_dir/package.mk" <<'EOF'
+.PHONY: render
+render:
+	$(file >$(OUTPUT),$(Package/$(PKG_NAME)/$(DEFINE)))
+	@:
+EOF
+	make -s -f "$fixture_dir/package.mk" render DEFINE="$name" OUTPUT="$fixture_dir/output"
+	cat "$fixture_dir/output"
+	rm -rf "$fixture_dir"
 }

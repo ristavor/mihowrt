@@ -1,5 +1,6 @@
 PKG_NAME="mihowrt"
-PKG_VERSION="0.9.1"
+PKG_VERSION="dev"
+SUPERVISOR_CMD="/usr/bin/mihowrt run-service"
 PKG_CONFIG="mihowrt"
 PKG_TMP_DIR="/tmp/mihowrt"
 PKG_STATE_DIR="/var/run/mihowrt"

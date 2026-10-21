@@ -1,6 +1,6 @@
 #!/bin/ash
 
-# One-time upgrade steps from 0.7.x. Every step is idempotent.
+# One-time upgrade steps from 0.7.x and 0.8.x. Every step is idempotent.
 
 OLD_DNS_BACKUP_FILE="${OLD_DNS_BACKUP_FILE:-/etc/mihowrt/dns.backup}"
 OLD_SUBSCRIPTION_OPTIONS="subscription_interval_override subscription_update_interval subscription_header_interval subscription_profile_title subscription_userinfo subscription_support_url subscription_web_page_url subscription_announce"
@@ -56,6 +56,19 @@ migrate_settings() {
 	for option in $OLD_SUBSCRIPTION_OPTIONS; do
 		uci -q delete "${PKG_CONFIG:-mihowrt}.settings.$option"
 	done
+
+	# 0.9: auto-update is on/off, the provider sets the period. The mode
+	# follows the YAML DNS settings.
+	if uci -q get "${PKG_CONFIG:-mihowrt}.settings.subscription_interval" >/dev/null 2>&1; then
+		if [ "$(uci_get subscription_interval)" = "0" ]; then
+			uci_set subscription_auto_update 0
+		else
+			uci_set subscription_auto_update 1
+		fi
+		uci -q delete "${PKG_CONFIG:-mihowrt}.settings.subscription_interval"
+	fi
+	[ -n "$(uci_get subscription_auto_update)" ] || uci_set subscription_auto_update 1
+	uci -q delete "${PKG_CONFIG:-mihowrt}.settings.policy_mode"
 
 	# The API secret is not taken from the YAML: the read ACL can read that
 	# file. settings_ensure_generated creates a fresh one.

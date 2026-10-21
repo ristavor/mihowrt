@@ -1,9 +1,27 @@
 #!/bin/ash
 
-# Load UCI settings into shell variables and validate them once.
+# Load UCI settings into shell variables and validate them once. Provider
+# values from the profile (x-mihowrt) replace UCI values unless the user
+# overrides that setting (list provider_override).
+
+# UCI value, or the provider's when it sets the option and it is not overridden.
+settings_value() {
+	case " $PROVIDER_KEYS " in
+	*" $1 "*)
+		case " $PROVIDER_OVERRIDES " in
+		*" $1 "*) ;;
+		*)
+			profile_get "set $1"
+			return 0
+			;;
+		esac
+		;;
+	esac
+	uci_get "$1" "$2"
+}
 
 settings_bool() {
-	case "$(uci_get "$1" "$2")" in
+	case "$(settings_value "$1" "$2")" in
 	1 | on | true | yes | enabled) printf '1' ;;
 	*) printf '0' ;;
 	esac
@@ -12,7 +30,7 @@ settings_bool() {
 settings_hours() {
 	local value=""
 
-	value="$(uci_get "$1" 0)"
+	value="$(settings_value "$1" 0)"
 	is_uint "$value" && [ "$value" -le 8760 ] || return 1
 	printf '%s' "$((value))"
 }
@@ -42,22 +60,29 @@ settings_check_netbird_mark() {
 	[ "$MIHOMO_ROUTING_MARK" -lt "$mark" ] || [ "$MIHOMO_ROUTING_MARK" -gt $((mark + 255)) ]
 }
 
-# Empty means automatic: the provider's profile-update-interval, else 24 h.
+# Auto-update on: the provider's profile-update-interval (no valid header =
+# no automatic updates, the provider's choice). Off: 0.
 settings_subscription_interval() {
-	local value="" header=""
+	local header=""
 
-	value="$(uci_get subscription_interval)"
-	if [ -n "$value" ]; then
-		is_uint "$value" && [ "$value" -le 8760 ] || return 1
-		echo "$((value))"
+	[ "$(uci_get subscription_auto_update 1)" = "0" ] && {
+		echo 0
 		return 0
-	fi
+	}
 	header="$(jq -r '.header_interval // empty' "${SUBSCRIPTION_META_FILE:-/etc/mihowrt/subscription.json}" 2>/dev/null)"
 	if is_uint "$header" && [ "$header" -gt 0 ] && [ "$header" -le 8760 ]; then
-		echo "$header"
+		echo "$((header))"
 	else
-		echo 24
+		echo 0
 	fi
+}
+
+settings_list_source() {
+	case "$(uci_get "$1" provider)" in
+	merge) printf 'merge' ;;
+	own) printf 'own' ;;
+	*) printf 'provider' ;;
+	esac
 }
 
 settings_invalid() {
@@ -68,11 +93,22 @@ settings_invalid() {
 settings_load() {
 	local iface=""
 
-	POLICY_MODE="$(uci_get policy_mode direct-first)"
+	# The mode follows the YAML DNS settings; no profile = no YAML yet.
+	profile_ensure 2>/dev/null || true
+	POLICY_MODE="$(profile_get mode)"
 	case "$POLICY_MODE" in
 	direct-first | proxy-first) ;;
-	*) settings_invalid policy_mode "$POLICY_MODE" || return 1 ;;
+	*) POLICY_MODE="proxy-first" ;;
 	esac
+	DNS_MODE="$(profile_get dns)"
+	case "$DNS_MODE" in
+	fake-ip | redir-host | normal) ;;
+	*) DNS_MODE="redir-host" ;;
+	esac
+	PROVIDER_KEYS="$(profile_entries set | cut -d' ' -f1 | tr '\n' ' ')"
+	PROVIDER_OVERRIDES="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.provider_override" 2>/dev/null)" || PROVIDER_OVERRIDES=""
+	DST_LIST_SOURCE="$(settings_list_source dst_list_source)"
+	DIRECT_LIST_SOURCE="$(settings_list_source direct_list_source)"
 
 	SOURCE_INTERFACES="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.source_network_interfaces" 2>/dev/null)" || SOURCE_INTERFACES=""
 	[ -n "$SOURCE_INTERFACES" ] || SOURCE_INTERFACES="$(lan_device_detect)"
@@ -94,8 +130,8 @@ settings_load() {
 
 	SUBSCRIPTION_URL="$(uci_get subscription_url)"
 	[ -z "$SUBSCRIPTION_URL" ] || is_http_url "$SUBSCRIPTION_URL" || settings_invalid subscription_url "$SUBSCRIPTION_URL" || return 1
-	SUBSCRIPTION_INTERVAL="$(settings_subscription_interval)" || settings_invalid subscription_interval "$(uci_get subscription_interval)" || return 1
-	LISTS_INTERVAL="$(settings_hours lists_interval)" || settings_invalid lists_interval "$(uci_get lists_interval)" || return 1
+	SUBSCRIPTION_INTERVAL="$(settings_subscription_interval)"
+	LISTS_INTERVAL="$(settings_hours lists_interval)" || settings_invalid lists_interval "$(settings_value lists_interval)" || return 1
 
 	API_SECRET="$(uci_get api_secret)"
 	case "$API_SECRET" in

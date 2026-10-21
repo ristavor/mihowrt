@@ -30,7 +30,18 @@ function E(tag, attrs, children) {
  Object.defineProperty(n, 'firstChild', { get: () => n.children[0] });
  return n;
 }
-const ui = { addNotification() {} };
+const textareaOptions = [];
+const ui = { addNotification() {}, Textarea: class {
+ constructor(value, options) { this.value = value; this.options = options; textareaOptions.push(options); }
+ render() {
+  const area = E('textarea', { id: 'widget.' + this.options.id, class: 'cbi-input-textarea' }, [this.value]);
+  area.value = this.value;
+  area.classList.add = cls => { area.attrs.class = [area.attrs.class, cls].filter(Boolean).join(' '); };
+  const wrapper = E('div', { id: this.options.id }, [area]);
+  wrapper.querySelector = selector => selector === 'textarea' ? area : null;
+  return wrapper;
+ }
+} };
 const api = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {} }).module;
 // Historical proof mode accumulates assertion failures instead of stopping at
 // the first old behaviour. Missing helpers get deliberately non-working stubs
@@ -205,6 +216,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  }).module;
  const renderTraffic = async p => {
   await tv.render(['dst', 'src', 'direct', 'devices', p, {}]);
+  for (const name of ['_dst', '_src', '_direct', '_direct_src']) {
+   if (tv.map.options[name]) h.assertEq(tv.map.options[name].monospace, true, name + ' native TextValue monospace');
+  }
   return tv.map.options;
  };
  let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
@@ -230,6 +244,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(opts.dst_list_source.description, 'Set by your provider. You also have 3 own entries: they apply with "Provider list + mine" or "Only mine".', 'own entries description');
  h.assertEq(JSON.stringify(opts._dst.dependencies), '[["dst_list_source","merge"],["dst_list_source","own"]]', 'textarea visible for merge and own');
  h.assert(!opts.src_list_source, 'devices always user-owned');
+ h.assertEq(opts._dst.title, 'My entries', 'provider-owned list editor caption');
  opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', lists: { dst: { provided: true, own_count: 0 } } });
  h.assert(!opts._dst_note, 'no empty-own note');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
@@ -265,7 +280,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  }
  const subCalls = [], notices = [];
  const subview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
-  E: DOM, view: { extend: v => v }, location: { reload() {} },
+  E: DOM, ui, view: { extend: v => v }, location: { reload() {} },
   api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s) })
  }).module;
  for (const [on, period, hint] of [
@@ -286,6 +301,36 @@ Promise.resolve(dash.listeners.click()).then(() => {
   h.assert(texts(p).includes('Link to a Clash/Mihomo (YAML) subscription from your provider. Leave empty to manage the YAML yourself.'), 'Clash URL hint');
   h.assert(texts(p).includes('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'), 'Advanced update warning');
  }
+ // Exercise the widget contract and handlers using the actual returned textarea.
+ const yamlUploads = [], confirmations = [];
+ let allowUpdate = false;
+ const yamlView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: DOM, ui, view: { extend: v => v }, location: { reload() {} },
+  confirm: message => { confirmations.push(message); return allowUpdate; },
+  api: { ...api, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
+   write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message) }
+ }).module;
+ const yamlNodes = collect(yamlView.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
+ const yaml = yamlNodes.find(n => n.tag === 'textarea');
+ h.assertEq(textareaOptions.at(-1)?.monospace, true, 'YAML ui.Textarea monospace');
+ h.assertEq(textareaOptions.at(-1)?.wrap, false, 'YAML ui.Textarea no wrap');
+ h.assert(yamlNodes.some(n => n.attrs.id === 'mw-yaml' && n.children.includes(yaml)), 'YAML widget id');
+ h.assertEq(yaml.attrs.id, 'widget.mw-yaml', 'LuCI textarea id');
+ h.assert(yaml.attrs.class.split(' ').includes('mw-yaml'), 'YAML editor class');
+ h.assertEq(yaml.value, 'proxies: []\n', 'YAML content initialized');
+ yaml.value = 'proxies: []\n# edited';
+ await yamlNodes.find(n => n.tag === 'button' && texts(n).includes('Check and apply')).listeners.click();
+ h.assertEq(yamlUploads.at(-1).join(','), 'mihowrt-config,' + yaml.value, 'apply uploads live YAML textarea value');
+ h.assertEq(subCalls.at(-1).join(','), 'save-config,/tmp/yaml', 'apply saves uploaded YAML');
+ h.assertEq(notices.at(-1), 'Configuration is unchanged.', 'unchanged apply notice');
+ subCalls.length = 0;
+ const updateYaml = yamlNodes.find(n => n.tag === 'button' && texts(n).includes('Update now'));
+ await updateYaml.listeners.click();
+ h.assertEq(confirmations.at(-1), 'Updating replaces your unsaved YAML edits. Continue?', 'Update now detects unsaved YAML');
+ h.assertEq(subCalls.length, 0, 'cancel leaves YAML edits intact');
+ allowUpdate = true; await updateYaml.listeners.click();
+ h.assert(subCalls.some(c => c[0] === 'update-subscription'), 'confirmed update proceeds');
+ console.log('ok - YAML native monospace widget, live upload and unsaved edits');
  console.log('ok - subscription checkbox, hints, save and unchanged notice');
 
  const calls = [];
@@ -391,7 +436,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  await collect(gp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
  h.assertEq(notices.at(-1), 'G: fastest is B (2 ms).', 'fastest server feedback');
  const subCalls = [], errors = []; let fail = false;
- const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { E: (tag, attrs, children) => {
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;
  }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); if (fail && args[0] === 'update-subscription') throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
  for (const changed of [false, true]) {

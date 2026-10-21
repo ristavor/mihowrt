@@ -116,33 +116,6 @@ is_ipv6() {
 	esac
 }
 
-is_ipv4_cidr() {
-	case "$1" in
-	*/*)
-		is_ipv4 "${1%/*}" || return 1
-		case "${1#*/}" in
-		[0-9] | [12][0-9] | 3[0-2]) return 0 ;;
-		esac
-		return 1
-		;;
-	esac
-	is_ipv4 "$1"
-}
-
-is_ipv6_cidr() {
-	local prefix=""
-
-	case "$1" in
-	*/*)
-		is_ipv6 "${1%/*}" || return 1
-		prefix="${1#*/}"
-		is_uint "$prefix" && [ "$prefix" -le 128 ]
-		return
-		;;
-	esac
-	is_ipv6 "$1"
-}
-
 is_http_url() {
 	case "$1" in
 	http://?* | https://?*) ;;

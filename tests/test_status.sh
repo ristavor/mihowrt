@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh lists.sh dns.sh nft.sh route.sh kernel.sh service.sh status.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh lists.sh dns.sh nft.sh route.sh core.sh service.sh status.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"

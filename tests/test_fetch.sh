@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh subscription.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"
@@ -89,7 +89,7 @@ pass "auto interval"
 
 # E: concurrent downloads use their own temp files.
 grep -q 'fetch.headers.\$\$' "$MIHOWRT_LIB_DIR/fetch.sh" || fail "header dump must be per process"
-grep -q 'subscription.\$\$.yaml' "$MIHOWRT_LIB_DIR/fetch.sh" || fail "subscription candidate must be per process"
+grep -q 'subscription.\$\$.yaml' "$MIHOWRT_LIB_DIR/subscription.sh" || fail "subscription candidate must be per process"
 pass "per-process temp files"
 
 # Subscription download bypasses Mihomo only while it runs.

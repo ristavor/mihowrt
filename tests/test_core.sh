@@ -8,11 +8,11 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh kernel.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh subscription.sh core.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"
-KERNEL_TMP_DIR="$tmpdir/tmp/kernel"
+CORE_TMP_DIR="$tmpdir/tmp/kernel"
 CLASH_DIR="$tmpdir/clash"
 CLASH_BIN="$CLASH_DIR/bin/clash"
 CLASH_CONFIG="$CLASH_DIR/config.yaml"

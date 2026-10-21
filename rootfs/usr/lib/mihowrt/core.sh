@@ -57,7 +57,7 @@ core_free_kb() {
 core_fail() {
 	CORE_ERROR="$*"
 	err "Core update: $*"
-	rm -rf "$KERNEL_TMP_DIR" "$CLASH_BIN.new"
+	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
 	return 1
 }
 
@@ -71,15 +71,15 @@ core_update() {
 	CORE_VERSION="$(core_version)"
 	settings_load 2>/dev/null || true
 	arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
-	ensure_dir "$KERNEL_TMP_DIR" || return 1
-	json="$KERNEL_TMP_DIR/release.json"
-	gz="$KERNEL_TMP_DIR/mihomo.gz"
+	ensure_dir "$CORE_TMP_DIR" || return 1
+	json="$CORE_TMP_DIR/release.json"
+	gz="$CORE_TMP_DIR/mihomo.gz"
 	current="$CORE_VERSION"
-	if http_fetch "$MIHOMO_RELEASES_API" "$json" "$KERNEL_RELEASE_JSON_MAX_BYTES" 30 0; then
+	if http_fetch "$MIHOMO_RELEASES_API" "$json" "$CORE_RELEASE_JSON_MAX_BYTES" 30 0; then
 		tag="$(jq -r '.tag_name // empty' "$json")"
 		[ -n "$tag" ] || core_fail "release has no tag" || return 1
 		[ "$current" != "$tag" ] || {
-			rm -rf "$KERNEL_TMP_DIR"
+			rm -rf "$CORE_TMP_DIR"
 			return 0
 		}
 		for name in $(core_asset_names "$arch" "$tag"); do
@@ -90,19 +90,19 @@ core_update() {
 		url="$(printf '%s' "$meta" | cut -f1)"
 		digest="$(printf '%s' "$meta" | cut -f2)"
 		size="$(printf '%s' "$meta" | cut -f3)"
-		http_fetch "$url" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+		http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
 	else
 		# API blocked or rate-limited: tag from the github.com redirect and
 		# direct download URLs (no published digest on this path).
 		warn "Core update: GitHub API unavailable ($FETCH_ERROR); using github.com"
 		tag="$(github_latest_tag "$MIHOMO_REPO")" || core_fail "cannot reach GitHub" || return 1
 		[ "$current" != "$tag" ] || {
-			rm -rf "$KERNEL_TMP_DIR"
+			rm -rf "$CORE_TMP_DIR"
 			return 0
 		}
 		url=""
 		for name in $(core_asset_names "$arch" "$tag"); do
-			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$KERNEL_ASSET_MAX_BYTES" 300 0; then
+			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0; then
 				url="$name"
 				break
 			fi
@@ -133,7 +133,7 @@ core_update() {
 		config_check_record ok
 	fi
 	mv -f "$CLASH_BIN.new" "$CLASH_BIN" || core_fail "cannot replace binary" || return 1
-	rm -rf "$KERNEL_TMP_DIR" "$config" "$config.profile"
+	rm -rf "$CORE_TMP_DIR" "$config" "$config.profile"
 	CORE_UPDATED=1
 	CORE_VERSION="$tag"
 	log "Mihomo core updated: ${current:-none} -> $tag"

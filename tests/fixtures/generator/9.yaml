@@ -1,0 +1,47 @@
+ipv6: true
+proxy-groups:
+  - name: "🚀 Proxy"
+
+# --- MihoWRT managed: generated, edits here are discarded ---
+dns:
+  enable: true
+  listen: 0.0.0.0:7874
+  ipv6: true
+  enhanced-mode: redir-host
+  default-nameserver:
+    - https://1.1.1.1/dns-query
+    - https://9.9.9.9/dns-query
+    - https://8.8.8.8/dns-query
+  proxy-server-nameserver:
+    - https://1.1.1.1/dns-query
+    - https://9.9.9.9/dns-query
+    - https://8.8.8.8/dns-query
+  direct-nameserver:
+    - https://common.dot.dns.yandex.net/dns-query
+  nameserver:
+    - "https://cloudflare-dns.com/dns-query#🚀 Proxy"
+    - "https://dns.google/dns-query#🚀 Proxy"
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+    TLS:
+      ports: [443, 8443]
+tproxy-port: 7894
+routing-mark: 2
+allow-lan: true
+bind-address: "*"
+tun:
+  enable: false
+profile:
+  store-selected: true
+  store-fake-ip: true
+external-controller: 127.0.0.1:9090
+external-controller-unix: /tmp/clash/mihomo.sock
+secret: "s3cr3t-value-0001"
+external-ui: ui
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"

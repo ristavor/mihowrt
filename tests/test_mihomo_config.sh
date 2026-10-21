@@ -16,6 +16,23 @@ API_SECRET="s3cr3t-value-0001"
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
 
+# Lock every successful fixture in this test to the pre-split generator bytes.
+eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"
+printf '0\n' >"$tmpdir/generator-count"
+mihomo_config_generate() {
+ local index rc=0 golden
+ index="$(cat "$tmpdir/generator-count")"
+ index=$((index + 1))
+ printf '%s\n' "$index" >"$tmpdir/generator-count"
+ generator_under_test "$@" || rc=$?
+ if [ "$rc" -eq 0 ]; then
+  golden="$ROOT_DIR/tests/fixtures/generator/$index"
+  cmp -s "$2" "$golden.yaml" || fail "generator golden $index runtime differs"
+  cmp -s "$2.profile" "$golden.profile" || fail "generator golden $index profile differs"
+ fi
+ return "$rc"
+}
+
 count() {
 	grep -c -- "$1" "$out" || true
 }

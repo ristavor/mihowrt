@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh service.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh subscription.sh service.sh
 setup_runtime_paths "$tmpdir"
 
 
@@ -123,7 +123,7 @@ with_lock nested
 pass "lock is re-entrant"
 
 # Network fetches must not hold the runtime lock (LuCI saves would time out).
-load_modules fetch.sh config.sh
+load_modules fetch.sh subscription.sh config.sh
 lock_seen=""
 http_fetch() {
 	lock_seen="$lock_seen $(readlink "$RUNTIME_LOCK_FILE" 2>/dev/null || echo free)"

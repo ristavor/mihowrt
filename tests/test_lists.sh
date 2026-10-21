@@ -20,14 +20,6 @@ POLICY_CACHE_DIR="$tmpdir/cache"
 PKG_TMP_DIR="$tmpdir/tmp"
 lists_ensure_files
 
-assert_eq 4 "$(list_entry_family 10.0.0.0/8)" "IPv4 CIDR"
-assert_eq 6 "$(list_entry_family '2001:db8::/32;443')" "IPv6 with port"
-assert_eq any "$(list_entry_family ';53')" "port-only entry"
-assert_false "invalid v4" list_entry_family 999.1.1.1
-assert_false "invalid v6" list_entry_family 'gggg::'
-assert_false "invalid port" list_entry_family '1.1.1.1;70000'
-pass "entry families"
-
 cat >"$DST_LIST_FILE" <<'L'
 # comment
 1.1.1.1

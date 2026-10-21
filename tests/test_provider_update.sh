@@ -5,7 +5,7 @@ source "$(dirname "$0")/testlib.sh"
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"; rm -f /tmp/mihowrt-policy-list.test-provider-"$$".*' EXIT
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh lists.sh nft.sh config.sh service.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh nft.sh config.sh service.sh
 API_SECRET=""
 PKG_TMP_DIR="$tmpdir/tmp"
 PKG_STATE_DIR="$tmpdir/run"

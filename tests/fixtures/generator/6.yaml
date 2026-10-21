@@ -1,0 +1,75 @@
+# Mihomo config used without a subscription.
+# MihoWRT sets these itself, so they are not needed here: tproxy-port,
+# routing-mark, allow-lan, bind-address, tun, profile, external-controller*,
+# secret, external-ui* (dashboard) and dns enable/listen/fake-ip-range.
+# fake-ip with a whitelist filter: only selected traffic goes via the proxy.
+mode: rule
+ipv6: false
+log-level: warning
+unified-delay: true
+tcp-concurrent: true
+find-process-mode: off
+
+dns:
+  ipv6: false
+  enhanced-mode: fake-ip
+  fake-ip-ttl: 60
+  fake-ip-filter-mode: whitelist
+  fake-ip-filter:
+    - rule-set:ru-bundle
+  default-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  proxy-server-nameserver:
+    - https://77.88.8.8/dns-query
+    - https://8.8.8.8/dns-query
+  nameserver:
+    - 77.88.8.8
+    - 77.88.8.1
+
+  enable: true
+  listen: 0.0.0.0:7874
+  fake-ip-range: 198.18.0.0/16
+proxy-groups:
+  - name: FALLBACK
+    type: select
+    proxies:
+      - DIRECT
+
+rule-providers:
+  ru-bundle:
+    type: http
+    behavior: domain
+    format: mrs
+    url: https://github.com/legiz-ru/mihomo-rule-sets/raw/main/ru-bundle/rule.mrs
+    path: ./ruleset/ru-bundle.mrs
+    interval: 86400
+
+rules:
+  - MATCH,FALLBACK
+
+# --- MihoWRT managed: generated, edits here are discarded ---
+sniffer:
+  enable: true
+  force-dns-mapping: true
+  parse-pure-ip: true
+  override-destination: false
+  sniff:
+    HTTP:
+      ports: [80, 8080-8880]
+    TLS:
+      ports: [443, 8443]
+tproxy-port: 7894
+routing-mark: 2
+allow-lan: true
+bind-address: "*"
+tun:
+  enable: false
+profile:
+  store-selected: true
+  store-fake-ip: true
+external-controller: 127.0.0.1:9090
+external-controller-unix: /tmp/clash/mihomo.sock
+secret: "s3cr3t-value-0001"
+external-ui: ui
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"

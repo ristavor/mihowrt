@@ -6,7 +6,7 @@ source "$(dirname "$0")/testlib.sh"
 
 # Stock OpenWrt 25.12 BusyBox (verified on the VM) lacks od and base64, and
 # its sort has no -o. Runtime code must not depend on them.
-runtime=("$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh "$ROOT_DIR/rootfs/usr/bin/mihowrt" "$ROOT_DIR/rootfs/usr/bin/mihowrt-read")
+runtime=("$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.sh "$ROOT_DIR"/rootfs/usr/lib/mihowrt/*.awk "$ROOT_DIR/rootfs/usr/bin/mihowrt" "$ROOT_DIR/rootfs/usr/bin/mihowrt-read")
 
 check_absent() {
 	local pattern="$1" message="$2" hits

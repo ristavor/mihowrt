@@ -294,14 +294,6 @@ service_reload() {
 	policy_apply
 }
 
-subscription_due() {
-	local stamp="$PKG_STATE_DIR/subscription.stamp"
-
-	[ "$SUBSCRIPTION_INTERVAL" -gt 0 ] && [ -n "$SUBSCRIPTION_URL" ] || return 1
-	[ -f "$stamp" ] || return 0
-	[ -n "$(find "$stamp" -mmin +$((SUBSCRIPTION_INTERVAL * 60 - 5)) 2>/dev/null)" ]
-}
-
 # Hourly cron entry: downloads run unlocked, applying takes the runtime lock.
 auto_update() {
 	settings_load || return 1
@@ -312,68 +304,4 @@ auto_update() {
 		with_lock nft_apply
 	fi
 	return 0
-}
-
-# Install edited lists uploaded by LuCI (/tmp/mihowrt-policy-list.*) after
-# validating every line. Runs under the runtime lock; prints 1 if changed.
-lists_install() {
-	local kind="" tmp="" bad="" url="" changed=0 dst=""
-
-	for kind in dst src direct direct_src; do
-		tmp="$1"
-		shift
-		upload_path_allowed /tmp/mihowrt-policy-list. "$tmp" || {
-			err "List path not allowed: $tmp"
-			return 1
-		}
-		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 | tr '\n' ' ')"
-		for url in $(lists_clean_lines "$tmp" | sed -n '/^https\?:\/\//p'); do
-			is_http_url "${url%%;*}" && { [ "${url%%;*}" = "$url" ] || is_port_spec "${url#*;}"; } || bad="$bad$url "
-		done
-		[ -z "$bad" ] || {
-			err "Invalid $kind entries: $bad"
-			return 1
-		}
-		eval "LIST_TMP_$kind=\"\$tmp\""
-	done
-	for kind in dst src direct direct_src; do
-		eval "tmp=\"\$LIST_TMP_$kind\""
-		dst="$(lists_file "$kind")"
-		if ! cmp -s "$tmp" "$dst"; then
-			# Copy next to the target and rename: a full flash cannot leave
-			# a half-written list.
-			if ! { cp "$tmp" "$dst.new" && mv -f "$dst.new" "$dst"; }; then
-				rm -f "$dst.new"
-				return 1
-			fi
-			changed=1
-		fi
-	done
-	settings_load && cron_update
-	echo "$changed"
-}
-
-# apply-lists: install under the lock, fetch new remote URLs without it,
-# then rebuild nft under the lock.
-lists_apply() {
-	local changed="" rc=0
-
-	changed="$(with_lock lists_install "$@")" || rc=1
-	rm -f "$1" "$2" "$3" "$4"
-	[ "$rc" -eq 0 ] || return 1
-	if service_ready; then
-		settings_load || return 1
-		lists_update_remote 0 >/dev/null || warn "Some remote lists could not be fetched"
-		with_lock nft_apply || return 1
-	fi
-	jq -nc --arg c "$changed" '{changed: ($c == "1")}'
-}
-
-lists_refresh() {
-	local result=""
-
-	settings_load || return 1
-	result="$(lists_update_remote 1)" || warn "Some remote lists could not be fetched"
-	[ "$result" = changed ] && service_ready && { with_lock nft_apply || return 1; }
-	jq -nc --arg r "$result" '{changed: ($r == "changed")}'
 }

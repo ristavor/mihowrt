@@ -64,7 +64,7 @@ function coreMissingCard() {
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
 		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 60 MB on flash).'))),
-		install
+		E('div', { class: 'mw-row' }, [ install ])
 	]);
 }
 
@@ -100,6 +100,15 @@ function statusSection(status) {
 	]);
 }
 
+// Provider links as theme buttons (some themes leave a.cbi-button unstyled).
+function linkButton(url, label) {
+	if (!/^https?:\/\//i.test(String(url || '')))
+		return null;
+	const button = E('button', { class: 'cbi-button', type: 'button' }, text(label));
+	button.addEventListener('click', () => window.open(String(url), '_blank', 'noopener,noreferrer'));
+	return button;
+}
+
 // Provider text stays text; only http(s) runs become safe links.
 function announce(value) {
 	return String(value).split(/(https?:\/\/\S+)/i).map((part, i) =>
@@ -132,7 +141,7 @@ function subscriptionSection(sub) {
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
 		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval) : _('Off') ]
 	];
-	const links = [ api.safeLink(sub.support_url, _('Support'), 'cbi-button'), api.safeLink(sub.web_page_url, _('Website'), 'cbi-button') ].filter(Boolean);
+	const links = [ linkButton(sub.support_url, _('Support')), linkButton(sub.web_page_url, _('Website')) ].filter(Boolean);
 	const warning = subscriptionWarning(sub);
 
 	update.addEventListener('click', () => api.busy(update, async () => {
@@ -153,7 +162,7 @@ function subscriptionSection(sub) {
 		warning ? E('div', { class: 'alert-message warning' }, text(warning)) : '',
 		sub.announce ? E('p', { class: 'mw-announce' }, announce(sub.announce)) : '',
 		E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ])),
-		E('div', { class: 'mw-row' }, [ update ].concat(links))
+		E('div', { class: 'mw-row mw-actions' }, [ update ].concat(links))
 	]);
 }
 
@@ -223,10 +232,11 @@ function groupsSection(groups) {
 				api.notify(best ? _('%s: fastest is %s (%d ms).').format(group.name, best[0], best[1])
 					: _('%s: no server answered.').format(group.name));
 			}));
-			const row = [ select, test ];
+			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, test ]) ];
+			// The note gets its own grid row: a wrapped row would push the label off its select.
 			if (fixedOnly)
-				row.push(E('span', { class: 'mw-muted' }, text(_('Mihomo spreads connections across these servers'))));
-			return [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, row) ];
+				cells.push(E('span'), E('span', { class: 'mw-muted' }, text(_('Mihomo spreads connections across these servers'))));
+			return cells;
 		}))
 	]);
 }

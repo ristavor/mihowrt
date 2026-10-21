@@ -13,9 +13,10 @@ const CSS = `
 #tabmenu > .tabs { max-width: 100%; }
 .mw-page { display: flex; flex-direction: column; gap: 16px; }
 .mw-page [hidden] { display: none; }
-.mw-page > h2, .mw-page > .cbi-section { margin: 0; }
+.mw-page > h2 { margin-bottom: 0; }
+.mw-page > .cbi-section { margin: 0; }
 .mw-page h3 { margin-top: 0; }
-.mw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
+.mw-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0; }
 .mw-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .mw-row:first-child, .mw-grid .mw-row { margin-top: 0; }
 .mw-grid { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 8px 16px; align-items: center; }
@@ -24,10 +25,13 @@ const CSS = `
 .mw-check > div { padding: 4px 0; }
 .mw-mark { display: inline-block; min-width: 1.6em; }
 .mw-announce { white-space: pre-wrap; overflow-wrap: anywhere; }
+.mw-announce + .mw-grid { margin-top: 12px; }
+.mw-toggle > .mw-row + * { margin-top: 12px; }
+.mw-groups .mw-row > select { flex: 1 1 12em; min-width: 0; max-width: 28em; }
 .mw-yaml { width: 100%; min-height: 24em; }
 .mw-log { max-height: 30em; overflow: auto; white-space: pre-wrap; }
 .mw-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } }
+@media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } .mw-actions > .cbi-button { flex: 1 1 auto; } }
 `;
 
 function errorText(res) {
@@ -137,7 +141,7 @@ function toggle(showLabel, hideLabel, content, onOpen) {
 		if (!content.hidden && onOpen)
 			onOpen();
 	});
-	return E('div', {}, [ E('div', { class: 'mw-row' }, [ button ]), content ]);
+	return E('div', { class: 'mw-toggle' }, [ E('div', { class: 'mw-row' }, [ button ]), content ]);
 }
 
 // Disable a button while an async action runs; report failures.

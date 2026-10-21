@@ -38,7 +38,12 @@ layout_init() {
 cache_db_persist() {
 	[ -f "$CACHE_DB_TMPFS" ] || return 0
 	cmp -s "$CACHE_DB_TMPFS" "$PKG_PERSIST_DIR/cache.db" && return 0
-	ensure_dir "$PKG_PERSIST_DIR" && cp "$CACHE_DB_TMPFS" "$PKG_PERSIST_DIR/cache.db"
+	# Copy next to the target and rename: a power cut never leaves a torn file.
+	ensure_dir "$PKG_PERSIST_DIR" || return 1
+	if ! { cp "$CACHE_DB_TMPFS" "$PKG_PERSIST_DIR/cache.db.new" && mv -f "$PKG_PERSIST_DIR/cache.db.new" "$PKG_PERSIST_DIR/cache.db"; }; then
+		rm -f "$PKG_PERSIST_DIR/cache.db.new"
+		return 1
+	fi
 }
 
 policy_apply() {

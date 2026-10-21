@@ -24,7 +24,10 @@ function createContext(globals = {}) {
 		clearTimeout,
 		setTimeout,
 		baseclass: { extend: value => value },
-		_: value => value
+		_: value => value,
+		N_: (n, singular, plural) => n === 1 ? singular : plural,
+		L: { url: path => "/cgi-bin/luci/" + path },
+		document: { documentElement: { lang: "en" } }
 	}, globals);
 
 	vm.createContext(context);

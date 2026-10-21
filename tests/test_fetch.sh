@@ -31,6 +31,7 @@ while [ $# -gt 0 ]; do
 done
 printf '%b' "${CURL_HEADERS:-HTTP/1.1 200 OK\r\n}" >"$hdr"
 printf '%s' "${CURL_BODY:-}" >"$out"
+printf '%s' "${CURL_STDERR:-}" >&2
 exit "${CURL_EXIT:-0}"
 C
 chmod +x "$tmpdir/bin/curl"
@@ -59,6 +60,8 @@ if CURL_EXIT=63 http_fetch https://example.com/s "$tmpdir/o" 100 10 0; then fail
 assert_eq too_large "$FETCH_ERROR" "curl max-filesize exit"
 if CURL_EXIT=22 CURL_HEADERS='HTTP/1.1 403 Forbidden\r\n' http_fetch https://example.com/s "$tmpdir/o" 100 10 0; then fail "403 must fail"; fi
 assert_eq http_403 "$FETCH_ERROR" "http error kind"
+if CURL_STDERR='curl: private diagnostic' CURL_EXIT=7 http_fetch https://example.com/s "$tmpdir/o" 100 10 0 2>"$tmpdir/curl.err"; then fail "network failure must fail"; fi
+assert_eq '' "$(cat "$tmpdir/curl.err")" 'curl stderr suppressed'
 pass "fetch errors"
 
 assert_eq "Личная 🚀" "$(subscription_decode_metadata_value 'base64:0JvQuNGH0L3QsNGPIPCfmoA=')" "UTF-8 decoded"
@@ -158,3 +161,21 @@ done
 assert_false "numeric interval rejected" subscription_set https://sub.example/x 5 2>"$tmpdir/set.err"
 assert_file_contains "$tmpdir/set.err" 'Auto-update must be 0 or 1' "auto-update validation message"
 pass "metadata limits, subscription format gate and on/off setter"
+
+# A replacement URL is committed only after installation succeeds.
+settings_load() { SUBSCRIPTION_URL="$(uci_get subscription_url)"; BYPASS_SUBSCRIPTION_DNS=0; }
+fake_uci_set mihowrt.settings.subscription_url https://old.example/sub
+http_fetch() { printf '%s\n' "$1" >"$tmpdir/request-url"; printf 'proxies: []\n' >"$2"; }
+config_install() { assert_eq https://old.example/sub "$(uci_get subscription_url)" 'old URL until install'; echo '{"action":"saved"}'; }
+subscription_update https://new.example/sub >/dev/null
+assert_eq https://new.example/sub "$(uci_get subscription_url)" 'successful URL saved'
+assert_eq https://new.example/sub "$(cat "$tmpdir/request-url")" 'new URL downloaded'
+config_install() { return 1; }
+assert_false 'install failure rejects' subscription_update https://broken.example/sub >/dev/null 2>&1
+assert_eq https://new.example/sub "$(uci_get subscription_url)" 'install failure keeps old URL'
+http_fetch() { FETCH_ERROR=network; return 1; }
+assert_false 'download failure rejects' subscription_update https://offline.example/sub >/dev/null 2>&1
+assert_eq https://new.example/sub "$(uci_get subscription_url)" 'download failure keeps old URL'
+assert_false 'invalid URL rejects' subscription_update javascript:evil >/dev/null 2>&1
+assert_eq https://new.example/sub "$(uci_get subscription_url)" 'invalid URL keeps old URL'
+pass 'replacement subscription URL transaction'

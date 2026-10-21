@@ -30,7 +30,7 @@ assert_file_contains "$CURL_LOG" "Authorization: Bearer secret-0001" "secret sen
 assert_file_contains "$CURL_LOG" "/dns/query?name=openwrt.org&type=A" "probe path"
 pass "dns probe"
 
-body='{"proxies":{"GLOBAL":{"type":"Selector","now":"A","all":["A"]},"Proxy":{"type":"Selector","now":"B","all":["A","B"]},"Auto":{"type":"URLTest","now":"A","all":["A"]},"FB":{"type":"Fallback","now":"A","all":["A"]},"Hid":{"type":"Selector","hidden":true,"now":"A","all":["A"]},"A":{"type":"Vless"}}}'
+body='{"proxies":{"GLOBAL":{"type":"Selector","now":"A","all":["Proxy","Auto","FB","A"]},"Proxy":{"type":"Selector","now":"B","all":["A","B"]},"Auto":{"type":"URLTest","now":"A","all":["A"]},"FB":{"type":"Fallback","now":"A","all":["A"]},"Hid":{"type":"Selector","hidden":true,"now":"A","all":["A"]},"A":{"type":"Vless"}}}'
 result="$(CURL_BODY="$body" api_proxies_json)"
 assert_eq '[{"name":"Proxy","type":"Selector","now":"B","all":["A","B"],"fixed":""},{"name":"Auto","type":"URLTest","now":"A","all":["A"],"fixed":""},{"name":"FB","type":"Fallback","now":"A","all":["A"],"fixed":""}]' "$result" "group type and fixed fields"
 pass "proxies filtered"
@@ -47,3 +47,7 @@ assert_file_contains "$CURL_LOG" 'DELETE' "unfix method"
 assert_file_contains "$CURL_LOG" '/proxies/My%20Group' "unfix encoded path"
 
 CURL_BODY='{"proxies":{"G":{"type":"URLTest","now":"B","fixed":"A","all":["A","B"]}}}' api_proxies_json | jq -e '.[0].type == "URLTest" and .[0].fixed == "A" and (.[0] | has("auto") | not)' >/dev/null || fail "pinned URLTest API fields"
+
+body='{"proxies":{"GLOBAL":{"all":["FB","Auto","A"]},"Proxy":{"type":"Selector","all":["A"]},"Auto":{"type":"URLTest","all":["A"]},"FB":{"type":"Fallback","all":["A"]},"A":{"type":"Direct"}}}'
+assert_eq 'FB,Auto,Proxy' "$(CURL_BODY="$body" api_proxies_json | jq -r 'map(.name)|join(",")')" 'GLOBAL order then missing groups'
+pass 'GLOBAL group ordering'

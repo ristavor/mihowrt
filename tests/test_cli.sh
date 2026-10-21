@@ -38,3 +38,7 @@ for n in 1 2 3 4; do printf '%s\n' "$n" >"$tmpdir/list$n"; done
 sed -i '/^case "$cmd" in/i lists_apply() { printf "lists:%s:%s:%s:%s\\n" "$1" "$2" "$3" "$4"; }' "$tmpdir/cli.sh"
 assert_eq "lists:$tmpdir/list1:$tmpdir/list2:$tmpdir/list3:$tmpdir/list4" "$(sh "$tmpdir/cli.sh" apply-lists "$tmpdir/list1" "$tmpdir/list2" "$tmpdir/list3" "$tmpdir/list4")" "four list CLI args"
 assert_false "three lists rejected" sh "$tmpdir/cli.sh" apply-lists a b c >/dev/null 2>&1
+sed -i '/^case "$cmd" in/i subscription_update() { printf "update:%s\\n" "$1"; }' "$tmpdir/cli.sh"
+assert_eq 'update:https://new.example/sub' "$(sh "$tmpdir/cli.sh" update-subscription https://new.example/sub)" 'update URL forwarded'
+assert_false 'extra update args rejected' sh "$tmpdir/cli.sh" update-subscription a b >/dev/null 2>&1
+pass 'optional subscription URL CLI boundary'

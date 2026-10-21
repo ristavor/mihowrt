@@ -23,6 +23,7 @@ function E(tag, attrs, children) {
 	if (typeof children === 'string')
 		throw new Error(`E('${tag}') got a string child: ${children}`);
 	const n = { tag, attrs: attrs || {}, children: children || [], listeners: {}, classList: { add() {}, remove() {} } };
+ n.setAttribute = (k, v) => { n.attrs[k] = v; };
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);
  n.removeChild = c => n.children.splice(n.children.indexOf(c), 1);
@@ -119,7 +120,7 @@ const hours = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, style: {} 
 const hoursWidget = { querySelector: (q) => q === 'input' ? hours : null };
 const refreshBtn = { tag: 'button' };
 const intervalRow = traffic.intervalField(hoursWidget, refreshBtn);
-h.assertEq(JSON.stringify(hours.attrs), '{"type":"number","min":"0","max":"8760"}', 'list interval is a number field like the subscription one');
+h.assertEq(JSON.stringify(hours.attrs), '{"inputmode":"numeric"}', 'list interval is a number field like the subscription one');
 h.assert(intervalRow.children[0] === hoursWidget && intervalRow.children[1] === refreshBtn, 'refresh button sits next to the interval');
 console.log('ok - traffic interval field');
 
@@ -166,7 +167,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
   value(k, label) { this.values.push([k, label]); }
   remove() {}
   isActive() { return true; }
-  renderWidget() { return E('input'); }
+  renderWidget() { const n = E('input'); n.querySelector = () => n; return n; }
  }
  class Flag extends Option {}
  class Map {
@@ -193,10 +194,16 @@ Promise.resolve(dash.listeners.click()).then(() => {
   return tv.map.options;
  };
  let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
- h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (set by the subscription: fake-IP whitelist)', 'direct mode reason');
+ h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'direct mode reason');
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
  h.assertEq(opts._prov_disable_quic.cfgvalue(), 'Disabled', 'provider value rendered');
  h.assertEq(opts._prov_disable_quic.description, 'Set by your provider.', 'provider explanation');
+ h.assertEq(opts._provoff_disable_quic.cfgvalue(), 'Disabled', 'provider visible with override');
+ h.assertEq(JSON.stringify(opts._provoff_disable_quic.dependencies), '[["_own_disable_quic","1"]]', 'override provider dependency');
+ h.assertEq(opts.disable_quic.title, 'My value', 'own option title');
+ // The native widget is wrapped by extendWidget; inspect its rendered input.
+ const flagNode = opts._own_disable_quic.renderWidget();
+ h.assertEq(flagNode.attrs['aria-label'], 'Use my own value for "Block QUIC for proxied traffic"', 'flag accessible name');
  h.assertEq(JSON.stringify(opts.disable_quic.dependencies), '[["_own_disable_quic","1"]]', 'own field dependency');
  h.assertEq(JSON.stringify(opts._prov_disable_quic.dependencies), '[["_own_disable_quic","0"]]', 'provider field dependency');
  h.assert(!opts._own_dns_hijack, 'nonprovider scalar stays plain');
@@ -205,18 +212,19 @@ Promise.resolve(dash.listeners.click()).then(() => {
  opts._own_disable_quic.write('settings', '0');
  h.assertEq(overrides.join(','), 'bypass_ntp', 'own flag removes only its entry');
  h.assertEq(JSON.stringify(opts.dst_list_source.values), '[["provider","Provider list (12 entries)"],["merge","Provider list + mine"],["own","Only mine"]]', 'provider sources');
- h.assertEq(opts._dst_note.cfgvalue(), '3 of your entries are not applied.', 'unapplied own entries note');
+ h.assert(!opts._dst_note, 'no separate note row');
+ h.assertEq(opts.dst_list_source.description, 'Set by your provider. You also have 3 own entries: they apply with "Provider list + mine" or "Only mine".', 'own entries description');
  h.assertEq(JSON.stringify(opts._dst.dependencies), '[["dst_list_source","merge"],["dst_list_source","own"]]', 'textarea visible for merge and own');
  h.assert(!opts.src_list_source, 'devices always user-owned');
  opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', lists: { dst: { provided: true, own_count: 0 } } });
  h.assert(!opts._dst_note, 'no empty-own note');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
- h.assertEq(opts._mode.cfgvalue(), 'All traffic via proxy except exclusions (subscription DNS: redir-host)', 'proxy mode reason');
+ h.assertEq(opts._mode.cfgvalue(), 'All traffic via proxy except exclusions (chosen by your subscription)', 'proxy mode reason');
  h.assert(!Object.keys(opts).some(k => k.startsWith('_own_') || k.endsWith('_list_source')), 'no override controls without provider keys');
  h.assert(!opts._direct_src.readonly && !opts._dst && !opts._src, 'redir-host direct devices editable, inactive lists absent');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip' });
- h.assert(opts._direct_src.readonly, 'fake-IP direct devices read-only');
- h.assertEq(opts._direct_src.description, 'Needs subscription DNS mode redir-host or normal.', 'fake-IP hint');
+ h.assert(!opts._direct_src && opts._direct_src_off instanceof form.DummyValue, 'fake-IP has no textarea');
+ h.assertEq(opts._direct_src_off.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
  const uploads = [], writes = [];
  const saved = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
   E, api: Object.assign({}, api, { upload: async (prefix, content) => { uploads.push(content); return content; }, write: async (...args) => writes.push(args) }),
@@ -305,5 +313,86 @@ Promise.resolve(dash.listeners.click()).then(() => {
   for (const label of ['Mode','DNS mode','Provider settings','Provider lists']) h.assert(t.includes(label), 'diagnostic detail ' + label);
  }
  console.log('ok - diagnostics unknown/error and profile details');
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
+// Design-review regression cases use the rendered DOM and real event handlers.
+(async () => {
+ h.assertEq(api.safeLink('https://example.org', 'Support', 'cbi-button').attrs.class, 'cbi-button', 'safeLink theme class');
+ const messages = {
+  http_404: 'not found (HTTP 404)', http_401: 'refused access (HTTP 401)', http_403: 'refused access (HTTP 403)',
+  http_500: 'error (HTTP 500)', network: 'cannot reach', too_large: 'too large', invalid_url: 'starts with https://'
+ };
+ for (const [code, expected] of Object.entries(messages))
+  h.assert(api.subscriptionError('Subscription download failed: ' + code).includes(expected), 'subscription error ' + code);
+ h.assertEq(api.subscriptionError('unrelated'), 'unrelated', 'unrelated errors preserved');
+ const content = E('pre'); let opens = 0;
+ const toggle = api.toggle('Show', 'Hide', content, () => opens++), button = collect(toggle).find(n => n.tag === 'button');
+ h.assert(content.hidden && button.attrs['aria-expanded'] === 'false', 'toggle initially hidden');
+ button.listeners.click(); h.assert(!content.hidden && button.attrs['aria-expanded'] === 'true' && opens === 1, 'toggle opens and loads');
+ button.listeners.click(); h.assert(content.hidden && opens === 1, 'toggle closes without loading');
+ button.listeners.click(); h.assertEq(opens, 2, 'toggle reloads on reopen');
+ const dates = [];
+ class LocaleDate extends Date { toLocaleString(...args) { dates.push(args); return 'date'; } }
+ const dateApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {}, Date: LocaleDate, document: { documentElement: { lang: 'ru' } } }).module;
+ dateApi.formatDate(1700000000);
+ h.assertEq(JSON.stringify(dates[0]), '["ru",{"dateStyle":"medium","timeStyle":"short"}]', 'date uses document language');
+ const active = { ...base, subscription_configured: true, running: true };
+ const groups = ['⚖️ Балансировка', '⚡ Самый быстрый'].map(name => ({ name, type: 'LoadBalance', now: null, all: ['A'] }));
+ const groupNodes = collect(overview.render([active, {}, groups]));
+ h.assertEq(groupNodes.filter(n => n.tag === 'select').map(n => n.attrs.id).join(','), 'mw-group-0,mw-group-1', 'unique indexed ids');
+ h.assert(groupNodes.filter(n => n.tag === 'select').every(n => n.value === '' && texts(n.children[0])[0] === 'All servers in turn'), 'LoadBalance placeholder selected');
+ h.assert(groupNodes.filter(n => n.tag === 'button' && texts(n).includes('Test')).every((n, i) => n.attrs['aria-label'] === 'Test servers of ' + groups[i].name), 'Test accessible names');
+ const missing = overview.render([{ ...base, core_installed: false }, {}, []]);
+ h.assertEq(collect(missing).filter(n => n.tag === 'button').length, 1, 'missing core only install button');
+ const manual = overview.render([{ ...active, subscription_configured: false }, {}, []]);
+ h.assert(texts(manual).includes('No subscription: MihoWRT uses the YAML entered on the Subscription page.') && !collect(manual).some(n => n.attrs.id === 'mw-sub-url'), 'manual YAML one-line hint');
+ h.assert(texts(overview.render([{ ...base, config_valid: false }, {}, []])).includes('Stopped: the configuration has errors — see Diagnostics'), 'invalid config headline');
+ for (const [sub, expected] of [
+  [{ expire: 1 }, 'The subscription has expired. Renew it with your provider.'],
+  [{ expire: Date.now()/1000 + 86400 }, 'The subscription expires on'],
+  [{ total: 100, download: 90 }, 'Over 90% of the subscription traffic is used.'],
+  [{ total: 100, upload: 100 }, 'The subscription traffic is used up.']
+ ]) h.assert(texts(overview.render([active, sub, []])).some(t => t.includes(expected)), 'subscription warning ' + expected);
+ h.assert(!collect(diag.render([base, {}])).some(n => n.tag === 'ul' || n.tag === 'li'), 'checklist without bullets');
+ const translated = [];
+ const dv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, api, view: { extend: v => v }, _: s => { translated.push(s); return s; } }).module;
+ const dp = dv.render([{ ...base, config_valid: false, config_error: 'level=info msg="noise"\nlevel=error msg="bad proxy"\nconfiguration file /tmp/x test failed', route: { table: 100, priority: 10 } }, { provider: { dns_hijack: '1', disable_quic: '0' } }]);
+ h.assert(texts(dp).includes('Configuration has errors'), 'negative config wording');
+ h.assert(texts(dp).some(t => t.includes('Mihomo says: bad proxy') && !t.includes('noise') && !t.includes('/tmp/')), 'core error extraction');
+ h.assert(texts(dp).includes('dns_hijack, disable_quic'), 'provider names');
+ h.assert(translated.includes('%s (priority %s)'), 'priority translated');
+ const calls = [], notices = [];
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
+  busy: (el, fn) => fn(), write: async (...args) => { calls.push(args); return { A: 10, B: 2 }; }, read: async () => [], notify: s => notices.push(s)
+ } }).module;
+ const gp = ov.render([active, {}, [{ name: 'G', type: 'Selector', now: 'A', all: ['A','B'] }]]);
+ const gs = collect(gp).find(n => n.tag === 'select');
+ gs.value = 'B'; await gs.listeners.change(); await gs.listeners.change();
+ h.assertEq(calls.length, 1, 'footstrap repeated change ignored'); h.assertEq(notices.length, 1, 'one change notification');
+ await collect(gp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
+ h.assertEq(notices.at(-1), 'G: fastest is B (2 ms).', 'fastest server feedback');
+ const subCalls = [], errors = []; let fail = false;
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { E: (tag, attrs, children) => {
+  const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;
+ }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); if (fail && args[0] === 'update-subscription') throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
+ for (const changed of [false, true]) {
+  const p = sv.render([{ url: 'https://old.example', auto_update: true }, { content: 'yaml' }]);
+  const ns = collect(p); ns.find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
+  const auto = ns.find(n => n.attrs.id === 'mw-auto'); auto.checked = false; auto.listeners.change();
+  h.assert(ns.some(n => String(n.textContent).includes('Not saved yet: press Save or Update now.')), 'unsaved hint');
+  subCalls.length = 0; await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
+  h.assertEq(subCalls.map(c => c[0]).join(','), changed ? 'update-subscription,set-subscription' : 'set-subscription,update-subscription', 'update order changed=' + changed);
+  if (changed) {
+   h.assertEq(subCalls[0][1], 'https://new.example', 'new link passed to updater');
+   fail = true; subCalls.length = 0; await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
+   h.assertEq(subCalls.length, 1, 'failed new link never set'); h.assert(errors.at(-1).includes('The previous link is kept.'), 'previous link explanation');
+  }
+ }
+ let logReads = 0;
+ const logs = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api, read: async () => { logReads++; return { available: true, lines: ['hello'] }; } } }).module;
+ const lp = logs.render([base, {}]); h.assertEq(logReads, 0, 'log lazy');
+ collect(lp).find(n => n.tag === 'button' && texts(n).includes('Show the log')).listeners.click();
+ await Promise.resolve(); h.assertEq(logReads, 1, 'log loads on open');
+ console.log('ok - design-review DOM and event regressions');
 })().catch(err => { console.error(err); process.exitCode = 1; });
 NODE

@@ -27,6 +27,35 @@ printf '#!/bin/sh\nexec sleep 30\n' >"$CLASH_BIN"
 chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$RUNTIME_CONFIG"
 
+# Persist through a sibling temporary file, leaving the old database intact
+# until rename and preserving it if the copy fails.
+(
+	mkdir -p "$PKG_PERSIST_DIR"
+	printf old >"$PKG_PERSIST_DIR/cache.db"
+	printf selected >"$CACHE_DB_TMPFS"
+	cp() {
+		assert_eq "$PKG_PERSIST_DIR/cache.db.new" "$2" "copy targets sibling staging file"
+		assert_eq old "$(cat "$PKG_PERSIST_DIR/cache.db")" "old database survives copy"
+		command cp "$@"
+	}
+	mv() {
+		assert_eq "$PKG_PERSIST_DIR/cache.db.new" "$2" "rename source is staging file"
+		assert_eq "$PKG_PERSIST_DIR/cache.db" "$3" "rename replaces database"
+		command mv "$@"
+	}
+	cache_db_persist
+	assert_eq selected "$(cat "$PKG_PERSIST_DIR/cache.db")" "selected proxies persisted"
+	assert_false "staging file removed by rename" test -e "$PKG_PERSIST_DIR/cache.db.new"
+	cp() { fail "unchanged database must not be copied"; }
+	cache_db_persist
+	printf changed >"$CACHE_DB_TMPFS"
+	cp() { printf partial >"$2"; return 1; }
+	if cache_db_persist; then fail "failed copy must report failure"; fi
+	assert_eq selected "$(cat "$PKG_PERSIST_DIR/cache.db")" "failed copy preserves database"
+	assert_false "failed staging file cleaned" test -e "$PKG_PERSIST_DIR/cache.db.new"
+)
+pass "cache_db_persist atomically replaces changed database"
+
 events="$tmpdir/events"
 reset_events() {
 	: >"$events"

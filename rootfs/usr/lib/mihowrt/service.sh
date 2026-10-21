@@ -50,6 +50,12 @@ policy_apply() {
 	return 1
 }
 
+# run_service is long-lived: reload settings, a cron update or a UCI change
+# may have switched mode, DNS or lists since it started.
+policy_reapply() {
+	settings_load && policy_apply
+}
+
 policy_cleanup() {
 	dns_cleanup
 	nft_cleanup
@@ -174,7 +180,7 @@ run_service() {
 	pid=$!
 	echo "$pid" >"$SERVICE_PID_FILE"
 
-	if wait_for_ready "$pid" && with_lock policy_apply; then
+	if wait_for_ready "$pid" && with_lock policy_reapply; then
 		echo "$$" >"$RUNNING_MARKER"
 		log "MihoWRT ready (Mihomo pid $pid)"
 		rc=0
@@ -187,7 +193,7 @@ run_service() {
 			if api_dns_probe; then
 				fails=0
 				[ "$degraded" -eq 1 ] || continue
-				if with_lock policy_apply; then
+				if with_lock policy_reapply; then
 					echo "$$" >"$RUNNING_MARKER"
 					degraded=0
 					log "watchdog: Mihomo DNS recovered, policy restored"
@@ -297,7 +303,7 @@ auto_update() {
 	if subscription_due; then
 		subscription_update && touch "$PKG_STATE_DIR/subscription.stamp"
 	fi
-	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ] && service_running; then
+	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ] && service_ready; then
 		with_lock nft_apply
 	fi
 	return 0
@@ -363,6 +369,6 @@ lists_refresh() {
 
 	settings_load || return 1
 	result="$(lists_update_remote 1)" || warn "Some remote lists could not be fetched"
-	[ "$result" = changed ] && service_running && { with_lock nft_apply || return 1; }
+	[ "$result" = changed ] && service_ready && { with_lock nft_apply || return 1; }
 	jq -nc --arg r "$result" '{changed: ($r == "changed")}'
 }

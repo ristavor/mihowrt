@@ -65,20 +65,40 @@ mihomo_config_generate() {
 		# Value after "key:" without a trailing comment.
 		function value_of(text) {
 			sub(/^[^:]*:[[:space:]]*/, "", text)
+			sub(/^#.*/, "", text)
 			sub(/[[:space:]]+#.*/, "", text)
 			sub(/[[:space:]]+$/, "", text)
 			return text
 		}
 		function unquote(text) {
-			if (text ~ /^".*"$/ || text ~ /^\047.*\047$/)
+			if (text ~ /^".*"$/)
 				text = substr(text, 2, length(text) - 2)
+			else if (text ~ /^\047.*\047$/) {
+				text = substr(text, 2, length(text) - 2)
+				gsub(/\047\047/, "\047", text)
+			}
 			return text
+		}
+		# First "- name:" item of the block-style proxy-groups list.
+		function group_item(line) {
+			if (in_groups && group == "" && line ~ /^[[:space:]]*-[[:space:]]+["\047]?name["\047]?[[:space:]]*:/) {
+				group = unquote(value_of(substr(line, index(line, "-") + 1)))
+				if (group == "")
+					group = "-"
+			}
 		}
 		function indent_of(text) {
 			match(text, /^[[:space:]]*/)
 			return RLENGTH
 		}
 		function flush_dns(ind) {
+			# "dns:" without children is null: the managed block is used.
+			if (dns_pending) {
+				dns_pending = 0
+				seen_dns = 0
+				in_dns = 0
+				return
+			}
 			ind = (child == "") ? "  " : child
 			print ind "enable: true"
 			print ind "listen: 0.0.0.0:" dns_port
@@ -154,6 +174,13 @@ mihomo_config_generate() {
 			if (NR == 1)
 				sub(/^\357\273\277/, "")
 			line = $0
+			# Indentless list item ("key:\n- a"): part of the previous key.
+			if (line ~ /^-([[:space:]]|$)/) {
+				group_item(line)
+				if (!skip)
+					print line
+				next
+			}
 			if (line ~ /^[^[:space:]#]/) {
 				if (in_dns)
 					flush_dns()
@@ -180,7 +207,8 @@ mihomo_config_generate() {
 					in_dns = 1
 					child = ""
 					dskip = 0
-					print line
+					dns_line = line
+					dns_pending = 1
 					next
 				}
 				if (!skip)
@@ -189,14 +217,14 @@ mihomo_config_generate() {
 			}
 			if (in_x)
 				x_line(line)
-			if (in_groups && group == "" && line ~ /^[[:space:]]*-[[:space:]]+["\047]?name["\047]?[[:space:]]*:/) {
-				group = unquote(value_of(substr(line, index(line, "-") + 1)))
-				if (group == "")
-					group = "-"
-			}
+			group_item(line)
 			if (skip)
 				next
 			if (in_dns && line ~ /^[[:space:]]+[^[:space:]#]/) {
+				if (dns_pending) {
+					print dns_line
+					dns_pending = 0
+				}
 				match(line, /^[[:space:]]+/)
 				ind = substr(line, 1, RLENGTH)
 				if (child == "")

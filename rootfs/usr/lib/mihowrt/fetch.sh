@@ -109,14 +109,14 @@ http_fetch() {
 	# Device headers identify the router to the provider; only over HTTPS.
 	case "$device:$url" in
 	1:https://*)
-		curl -fsSL --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
+		curl -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
 			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
 			-A "mihowrt/$PKG_VERSION" -H "x-hwid: $(device_hwid)" -H "x-device-os: OpenWrt" \
 			-H "x-ver-os: $(device_os_version)" -H "x-device-model: $(device_model)" \
 			-D "$FETCH_HDR" -o "$out" "$url" || rc=$?
 		;;
 	*)
-		curl -fsSL --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
+		curl -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
 			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
 			-A "mihowrt/$PKG_VERSION" -D "$FETCH_HDR" -o "$out" "$url" || rc=$?
 		;;

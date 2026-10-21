@@ -193,6 +193,8 @@ lists_update_remote() {
 	ensure_dir "$POLICY_CACHE_DIR" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
+	# URLs come from providers too: no pathname expansion.
+	set -f
 	for url in $(lists_urls); do
 		count=$((count + 1))
 		[ "$count" -le "$LISTS_REMOTE_MAX_URLS" ] || {
@@ -213,6 +215,7 @@ lists_update_remote() {
 			mv -f "$tmp.clean" "$cache" && changed=1
 		fi
 	done
+	set +f
 	rm -f "$tmp" "$tmp.clean"
 	if [ "$changed" -eq 1 ]; then
 		echo changed

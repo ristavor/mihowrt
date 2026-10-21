@@ -76,17 +76,19 @@ config_install() {
 		rm -f "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
 	fi
+	# Before the YAML changes: an unlocked profile_ensure (status) would
+	# otherwise rebuild the live profile from the new YAML first.
+	rm -f "$old_profile"
+	[ -f "$PROFILE_FILE" ] && cp "$PROFILE_FILE" "$old_profile"
 	[ -f "$CLASH_CONFIG" ] && cp -p "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"
 	if ! { cp "$candidate" "$CLASH_CONFIG.tmp" && chmod 600 "$CLASH_CONFIG.tmp" && mv -f "$CLASH_CONFIG.tmp" "$CLASH_CONFIG"; }; then
-		rm -f "$CLASH_CONFIG.tmp" "$runtime_candidate" "$runtime_candidate.profile"
+		rm -f "$CLASH_CONFIG.tmp" "$runtime_candidate" "$runtime_candidate.profile" "$old_profile"
 		err "Cannot write $CLASH_CONFIG"
 		return 1
 	fi
 	config_check_record ok
 	# Only x-mihowrt changed: Mihomo keeps running without a reload pause.
 	cmp -s "$runtime_candidate" "$RUNTIME_CONFIG" && same_runtime=1
-	rm -f "$old_profile"
-	[ -f "$PROFILE_FILE" ] && cp "$PROFILE_FILE" "$old_profile"
 	mv -f "$runtime_candidate" "$RUNTIME_CONFIG"
 	mv -f "$runtime_candidate.profile" "$PROFILE_FILE" && touch "$PROFILE_FILE"
 

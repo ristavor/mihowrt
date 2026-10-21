@@ -1,5 +1,6 @@
 'use strict';
 'require view';
+'require poll';
 'require mihowrt.api as api';
 
 function firstRunCard() {
@@ -9,7 +10,7 @@ function firstRunCard() {
 		class: 'cbi-input-text', style: 'flex: 1 1 16em; min-width: 0; width: auto',
 		placeholder: 'https://provider.example/sub/…', 'aria-label': _('Subscription URL')
 	});
-	const connect = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Connect')));
+	const connect = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action important' }, text(_('Connect')));
 
 	connect.addEventListener('click', () => api.busy(connect, async () => {
 		const value = url.value.trim();
@@ -17,14 +18,11 @@ function firstRunCard() {
 			throw new Error(_('Enter the subscription link that starts with https://'));
 		// The link is saved only after a successful download.
 		try {
-			await api.write('update-subscription', value);
+			await api.job('connect', value);
 		}
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
 		}
-		await api.write('set-subscription', value, '1');
-		await api.service('enable');
-		await api.service('restart');
 		api.notify(_('Subscription connected. MihoWRT is starting.'));
 		window.setTimeout(() => location.reload(), 1500);
 	}));
@@ -48,10 +46,10 @@ function subscriptionHint() {
 }
 
 function coreMissingCard() {
-	const install = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Install Mihomo core')));
+	const install = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action important' }, text(_('Install Mihomo core')));
 
 	install.addEventListener('click', () => api.busy(install, async () => {
-		const res = await api.write('core-update');
+		const res = await api.job('core-update');
 		api.notify(_('Mihomo core %s installed.').format(res.version || ''));
 		location.reload();
 	}));
@@ -63,35 +61,75 @@ function coreMissingCard() {
 }
 
 function statusSection(status) {
-	const toggle = E('button', { class: 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action') },
+	const toggle = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action') },
 		text(status.running ? _('Stop') : _('Start')));
-	const restart = E('button', { class: 'cbi-button' }, text(_('Restart')));
+	const restart = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Restart')));
 
 	toggle.addEventListener('click', () => api.busy(toggle, async () => {
 		if (!status.running && !status.enabled)
 			await api.service('enable');
-		await api.service(status.running ? 'stop' : 'start');
+		await api.job('service', status.running ? 'stop' : 'start');
 		location.reload();
 	}));
 	restart.addEventListener('click', () => api.busy(restart, async () => {
-		await api.service('restart');
+		await api.job('service', 'restart');
 		location.reload();
 	}));
 
-	let headline = status.running ? _('Running') : _('Stopped');
-	if (status.running && status.dns_ok === false)
-		headline = _('Running, but DNS does not answer — see Diagnostics');
-	else if (!status.running && status.config_valid === false)
-		headline = _('Stopped: the configuration has errors — see Diagnostics');
-
-	return E('div', { class: 'cbi-section' }, [
+	const headline = E('strong', { 'aria-live': 'polite' });
+	const boot = E('span', { class: 'mw-muted' });
+	const block = E('div', { class: 'cbi-section' }, [
 		E('div', { class: 'mw-status' }, [
-			E('strong', text(headline)),
+			headline,
 			E('span', { class: 'mw-muted' }, text(api.modeLabel(status.mode))),
-			E('span', { class: 'mw-muted' }, text(status.enabled ? _('Starts at boot') : _('Does not start at boot')))
+			boot
 		]),
 		E('div', { class: 'mw-row' }, [ toggle, restart ])
 	]);
+	const update = fresh => {
+		status = Object.assign({}, status, fresh);
+		const state = status.state || (status.running ? 'running' : 'stopped');
+		let label = _('Stopped');
+		if (state === 'starting')
+			label = _('Starting…');
+		else if (state === 'degraded')
+			label = _('Mihomo DNS does not answer: traffic goes direct until it recovers');
+		else if (state === 'failed')
+			label = status.last_error ? _('Stopped after an error: %s').format(status.last_error) : _('Stopped');
+		else if (state === 'running')
+			label = status.dns_ok === false ? _('Running, but DNS does not answer — see Diagnostics') : _('Running');
+		else if (status.config_valid === false)
+			label = _('Stopped: the configuration has errors — see Diagnostics');
+		if (headline.textContent !== label)
+			headline.textContent = label;
+		boot.textContent = status.enabled ? _('Starts at boot') : _('Does not start at boot');
+		toggle.textContent = status.running ? _('Stop') : _('Start');
+		toggle.setAttribute('class', 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action'));
+	};
+	update(status);
+	return { block, update };
+}
+
+function liveStatus(status) {
+	const section = statusSection(status);
+	let pollFailed = false;
+	poll.add(async () => {
+		if (api.jobRunning)
+			return;
+		try {
+			const fresh = await api.read('service-state-json');
+			pollFailed = false;
+			if (api.jobRunning)
+				return;
+			section.update(fresh);
+		}
+		catch (e) {
+			if (!pollFailed)
+				api.notify(api.errorText(e), 'error');
+			pollFailed = true;
+		}
+	}, 5);
+	return section.block;
 }
 
 // Provider text stays text; only http(s) runs become safe links.
@@ -119,7 +157,7 @@ function subscriptionWarning(sub) {
 }
 
 function subscriptionSection(sub) {
-	const update = E('button', { class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
+	const update = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
 	const rows = [
 		[ _('Traffic'), api.trafficSummary(sub) ],
 		[ _('Expires'), sub.expire ? api.formatDate(sub.expire) : _('Never') ],
@@ -132,7 +170,7 @@ function subscriptionSection(sub) {
 	update.addEventListener('click', () => api.busy(update, async () => {
 		let res;
 		try {
-			res = await api.write('update-subscription');
+			res = await api.job('update-subscription');
 		}
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
@@ -213,7 +251,7 @@ function groupsSection(groups) {
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
 			let previous = groupOptions(select, group);
 			const refresh = async () => {
-				const fresh = await api.read('proxies-json').catch(() => []);
+				const fresh = await api.readLarge('proxies-json').catch(() => []);
 				Object.assign(group, (Array.isArray(fresh) ? fresh : []).find((g) => g.name === group.name) || {});
 			};
 			const show = () => {
@@ -276,7 +314,7 @@ function groupsSection(groups) {
 
 function toolsSection(status) {
 	const dashboard = E('button', { class: 'cbi-button' }, text(_('Open dashboard')));
-	const core = E('button', { class: 'cbi-button' }, text(_('Update Mihomo core')));
+	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
 
 	dashboard.addEventListener('click', () => api.busy(dashboard, async () => {
 		const d = await api.write('dashboard-json');
@@ -288,7 +326,7 @@ function toolsSection(status) {
 		window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
 	}));
 	core.addEventListener('click', () => api.busy(core, async () => {
-		const res = await api.write('core-update');
+		const res = await api.job('core-update');
 		api.notify(res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version));
 	}));
 
@@ -304,11 +342,11 @@ return view.extend({
 	load: () => Promise.all([
 		api.read('status-json'),
 		api.read('subscription-json').catch(() => ({})),
-		api.read('proxies-json').catch(() => [])
+		api.readLarge('proxies-json').catch(e => ({ error: api.errorText(e) }))
 	]),
 
 	render: ([ status, sub, groups ]) => {
-		const body = [ api.style(), E('h2', text(_('MihoWRT'))) ];
+		const body = [ api.style(), E('h2', text(_('MihoWRT'))), api.jobNotice() ];
 
 		// Without the core nothing else can work yet: only the install card.
 		if (!status.core_installed) {
@@ -317,11 +355,15 @@ return view.extend({
 		}
 		if (!status.subscription_configured)
 			body.push(status.running ? subscriptionHint() : firstRunCard());
-		body.push(statusSection(status));
+		body.push(liveStatus(status));
 		if (status.subscription_configured)
 			body.push(subscriptionSection(sub));
 		if (status.running)
-			body.push(groupsSection(Array.isArray(groups) ? groups : []));
+			body.push(groups.error && status.state === 'starting'
+				? E('div', { class: 'cbi-section cbi-section-descr' }, text(_('Mihomo is starting. Reload the page in a moment to see the proxy groups.')))
+				: groups.error ? E('div', { class: 'cbi-section alert-message error' },
+				text(_('Cannot load the proxy groups: %s').format(groups.error)))
+				: groupsSection(Array.isArray(groups) ? groups : []));
 		body.push(toolsSection(status));
 		return E('div', { class: 'mw-page' }, body);
 	},

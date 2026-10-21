@@ -29,6 +29,7 @@ function E(tag, attrs, children) {
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);
  n.removeChild = c => n.children.splice(n.children.indexOf(c), 1);
+ Object.defineProperty(n, 'textContent', { get: () => n.children.filter(c => typeof c === 'string').join(''), set: value => { n.children = [value]; } });
  Object.defineProperty(n, 'firstChild', { get: () => n.children[0] });
  return n;
 }
@@ -64,7 +65,9 @@ function texts(node) {
 	return collect(node).flatMap((n) => n.children.filter((c) => typeof c === 'string'));
 }
 
-const overview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+api.jobNotice = () => E('div', { 'aria-live': 'polite' });
+
+const overview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
 	E, api, view: { extend: (v) => v }, location: {}, window: {}
 }).module;
 const base = { core_installed: true, subscription_configured: false, running: false, enabled: false, mode: 'direct-first', version: '0.8.0', core: 'v1.19.32' };
@@ -163,7 +166,7 @@ console.log('ok - traffic interval field');
 // Dashboard link: the setup route makes zashboard use the given secret even
 // when the browser stores an older backend for the same host and port.
 let opened = '';
-const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
 	E: EL, view: { extend: (v) => v }, location: {}, window: { open: (url) => { opened = url; } },
 	api: Object.assign({}, api, { busy: (b, fn) => fn(), write: async () => ({ host: '192.168.1.1', port: 9090, secret: 'a b', running: true }) })
 }).module;
@@ -325,12 +328,12 @@ Promise.resolve(dash.listeners.click()).then(() => {
 
  const calls = [];
  let reject = false;
- const groupsView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+ const groupsView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
   E, view: { extend: v => v }, location: {}, window: {},
   api: Object.assign({}, api, {
    busy: async (el, fn) => { try { return await fn(); } catch (_) { return undefined; } },
    write: async (...args) => { calls.push(args); if (reject) throw new Error('failed'); return { A: 12, B: 20 }; },
-   read: async cmd => { calls.push([cmd]); return [{ name: 'G', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'] }]; }, notify() {}
+   readLarge: async cmd => { calls.push([cmd]); return [{ name: 'G', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'] }]; }, notify() {}
   })
  }).module;
  for (const type of ['URLTest', 'Fallback']) {
@@ -416,8 +419,8 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assert(texts(dp).includes('dns_hijack, disable_quic'), 'provider names');
  h.assert(translated.includes('%s (priority %s)'), 'priority translated');
  const calls = [], notices = [];
- const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
-  busy: (el, fn) => fn(), write: async (...args) => { calls.push(args); return { A: 10, B: 2 }; }, read: async () => [], notify: s => notices.push(s)
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
+  busy: (el, fn) => fn(), write: async (...args) => { calls.push(args); return { A: 10, B: 2 }; }, readLarge: async () => [], notify: s => notices.push(s)
  } }).module;
  const gp = ov.render([active, {}, [{ name: 'G', type: 'Selector', now: 'A', all: ['A','B'] }]]);
  const gs = collect(gp).find(n => n.tag === 'select');
@@ -430,7 +433,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(shown(pingOf(gp)), '2 ms', 'ping of the current server after test');
  h.assertEq(texts(gs.children.find(o => o.attrs.value === 'A')).join(''), 'A — 10 ms', 'options keep per-server latency');
  h.assertEq(gs.attrs['aria-describedby'], pingOf(gp).attrs.id, 'select described by its ping');
- const live = collect(gp).find(n => n.attrs['aria-live'] === 'polite');
+ const live = collect(gp).find(n => n.attrs['aria-live'] === 'polite' && /\bmw-sr\b/.test(n.attrs.class || ''));
  h.assert(live && /\bmw-sr\b/.test(live.attrs.class), 'one invisible live region');
  h.assertEq(shown(live), 'G: B — 2 ms', 'test result announced');
  // Mihomo history: shown before any test, nothing when absent.
@@ -461,9 +464,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(calls.filter(c => c[0] === 'group-delay').length, 1, 'switch does not re-test');
  // Back to Auto: re-read the group so "Auto — X" and the ping are current.
  const ov2calls = [];
- const ov2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
+ const ov2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
   busy: (el, fn) => fn(), write: async (...args) => { ov2calls.push(args); return {}; },
-  read: async (...args) => { ov2calls.push(args); return [{ name: 'U', type: 'URLTest', now: 'B', fixed: '', all: ['A', 'B'], delays: { B: 30 } }]; }, notify: s => notices.push(s)
+  readLarge: async (...args) => { ov2calls.push(args); return [{ name: 'U', type: 'URLTest', now: 'B', fixed: '', all: ['A', 'B'], delays: { B: 30 } }]; }, notify: s => notices.push(s)
  } }).module;
  const up = ov2.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'], delays: { A: 12 } }]]);
  const us = collect(up).find(n => n.tag === 'select');
@@ -473,8 +476,8 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(texts(us.children[0]).join(''), 'Auto — B', 'Auto shows the server Mihomo chose now');
  h.assertEq(shown(pingOf(up)), '30 ms', 'ping of the new automatic choice');
  h.assertEq(notices.length, 0, 'no notifications at all');
- const ov3 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
-  busy: (el, fn) => fn(), write: async () => ({ A: 12 }), read: async () => { throw new Error('down'); }, notify: s => notices.push(s)
+ const ov3 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
+  busy: (el, fn) => fn(), write: async () => ({ A: 12 }), readLarge: async () => { throw new Error('down'); }, notify: s => notices.push(s)
  } }).module;
  const fp = ov3.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'] }]]);
  const fs3 = collect(fp).find(n => n.tag === 'select');
@@ -508,4 +511,130 @@ Promise.resolve(dash.listeners.click()).then(() => {
  await Promise.resolve(); h.assertEq(logReads, 1, 'log loads on open');
  console.log('ok - design-review DOM and event regressions');
 })().catch(err => { console.error(err); process.exitCode = 1; });
+
+(async () => {
+ const polls = [], notices = []; let fail = true;
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, view: { extend: v => v }, poll: { add: fn => polls.push(fn) }, api: { ...api,
+   read: async () => { if (fail) throw Error('down'); return { state: 'stopped' }; }, notify: s => notices.push(s)
+  }
+ }).module;
+ ov.render([base, {}, []]);
+ await polls[0](); await polls[0](); h.assertEq(notices.length, 1, 'poll error notified once');
+ fail = false; await polls[0](); fail = true; await polls[0]();
+ h.assertEq(notices.length, 2, 'successful poll resets error notification');
+ console.log('ok - overview poll notification recovery');
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
+for (const [name, check] of [
+ ['empty failure headline', () => h.assert(texts(overview.render([{ ...base, state: 'failed', last_error: '' }, {}, []])).includes('Stopped'), 'failed without detail is Stopped')],
+ ['starting groups notice', () => h.assert(texts(overview.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }])).includes('Mihomo is starting. Reload the page in a moment to see the proxy groups.'), 'starting groups failure is informational')],
+ ['headline-only live region', () => { const p = overview.render([base, {}, []]); const headline = collect(p).find(n => n.tag === 'strong'); h.assertEq(headline.attrs['aria-live'], 'polite', 'headline itself is live'); }]
+]) { try { check(); console.log('ok - overview ' + name); } catch (e) { console.error(e); process.exitCode = 1; } }
+(async () => {
+ const polls = [];
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, poll: { add: fn => polls.push(fn) }, api: { ...api, read: async () => ({ state: 'running', running: true }) } }).module;
+ const p = ov.render([base, {}, []]); const buttons = collect(p).filter(n => n.tag === 'button');
+ await polls[0](); h.assert(buttons.every(b => collect(p).includes(b)), 'status buttons stay mounted to preserve keyboard focus');
+ console.log('ok - overview stable status controls');
+})().catch(e => { console.error(e); process.exitCode = 1; });
+
+// Task 17: long actions, service state polling and partial group failures.
+(async () => {
+ const calls = [], polls = [];
+ let fresh = { running: true, enabled: true, state: 'running', dns_ok: true };
+ let failGroups = false;
+ const bridge = { ...api, jobRunning: false,
+  busy: (button, fn) => fn(),
+  job: async (...args) => { calls.push(['job', ...args]); return { version: 'v1', action: 'unchanged' }; },
+  service: async (...args) => calls.push(['service', ...args]),
+  write: async (...args) => { throw Error('unexpected synchronous write: ' + args); },
+  read: async cmd => { calls.push(['read', cmd]); return cmd === 'service-state-json' ? fresh : cmd === 'status-json' ? { ...base, running: true, state: 'running' } : {}; },
+  readLarge: async cmd => { calls.push(['readLarge', cmd]); if (failGroups) throw Error('x'); return []; },
+  notify() {}
+ };
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, api: bridge, poll: { add: (fn, seconds) => polls.push({ fn, seconds }) },
+  view: { extend: v => v }, location: { reload() {} }, window: { setTimeout: fn => fn() }
+ }).module;
+ const click = async (status, label) => {
+  const p = ov.render([status, {}, []]);
+  if (label === 'Connect') collect(p).find(n => n.attrs.id === 'mw-sub-url').value = ' https://p.example/sub ';
+  await collect(p).find(n => n.tag === 'button' && texts(n).includes(label)).listeners.click();
+ };
+ for (const [status, label, expected] of [
+  [base, 'Connect', [['job', 'connect', 'https://p.example/sub']]],
+  [{ ...base, core_installed: false }, 'Install Mihomo core', [['job', 'core-update']]],
+  [base, 'Update Mihomo core', [['job', 'core-update']]],
+  [{ ...base, subscription_configured: true }, 'Update subscription', [['job', 'update-subscription']]],
+  [base, 'Start', [['service', 'enable'], ['job', 'service', 'start']]],
+  [{ ...base, enabled: true }, 'Start', [['job', 'service', 'start']]],
+  [{ ...base, running: true }, 'Stop', [['job', 'service', 'stop']]],
+  [base, 'Restart', [['job', 'service', 'restart']]]
+ ]) {
+  calls.length = 0; await click(status, label);
+  h.assertEq(JSON.stringify(calls), JSON.stringify(expected), 'jobs used: ' + label);
+ }
+ console.log('ok - overview jobs used');
+ h.assert(collect(ov.render([base, {}, []])).filter(n => n.attrs['data-mw-job'] != null).every(n => n.attrs.disabled == null), 'idle buttons omit disabled attribute (LuCI stringifies false)');
+ bridge.jobRunning = true;
+ h.assert(collect(ov.render([base, {}, []])).filter(n => n.attrs['data-mw-job'] != null).every(n => n.attrs.disabled === true), 'already-running job disables buttons at render');
+ bridge.jobRunning = false;
+ const marked = ov.render([{ ...base, subscription_configured: true }, {}, []]);
+ for (const label of ['Start', 'Restart', 'Update subscription', 'Update Mihomo core'])
+  h.assert(collect(marked).find(n => n.tag === 'button' && texts(n).includes(label)).attrs['data-mw-job'] != null, label + ' marked as job starter');
+ for (const [details, expected] of [
+  [{ state: 'starting' }, 'Starting…'],
+  [{ state: 'degraded', running: true }, 'Mihomo DNS does not answer: traffic goes direct until it recovers'],
+  [{ state: 'failed', last_error: 'x' }, 'Stopped after an error: x'],
+  [{ state: 'failed', last_error: '' }, 'Stopped'],
+  [{ state: 'stopped', config_valid: false }, 'Stopped: the configuration has errors — see Diagnostics'],
+  [{ state: 'running', running: true, dns_ok: false }, 'Running, but DNS does not answer — see Diagnostics']
+ ]) {
+  const p = ov.render([{ ...base, ...details }, {}, []]);
+  h.assert(texts(p).includes(expected), 'headline per state: ' + details.state);
+  h.assert(collect(p).some(n => n.attrs['aria-live'] === 'polite' && texts(n).includes(expected)), 'headline is polite');
+ }
+ console.log('ok - overview headline per state');
+ polls.length = 0;
+ const p = ov.render([{ ...base, state: 'stopped', config_valid: false }, {}, []]);
+ h.assertEq(polls.length, 1, 'one status poll'); h.assertEq(polls[0].seconds, 5, 'poll every 5 seconds');
+ const before = collect(p).find(n => n.tag === 'strong');
+ calls.length = 0; bridge.jobRunning = true; await polls[0].fn();
+ h.assertEq(calls.length, 0, 'poll paused during job');
+ bridge.jobRunning = false; await polls[0].fn();
+ h.assertEq(JSON.stringify(calls), JSON.stringify([['read', 'service-state-json']]), 'poll uses cheap state read');
+ h.assert(collect(p).includes(before), 'status headline stays mounted (focus-safe update)');
+ h.assertEq(before.textContent, 'Running', 'headline updated in place');
+ await collect(p).find(n => n.tag === 'button' && texts(n).includes('Stop')).listeners.click();
+ h.assertEq(JSON.stringify(calls.at(-1)), JSON.stringify(['job', 'service', 'stop']), 'preserved control uses fresh service state');
+ h.assertEq(before.attrs['aria-live'], 'polite', 'only headline announces status');
+ h.assert(!collect(p).some(n => n.attrs['aria-live'] && collect(n).some(c => c.tag === 'button')), 'live region excludes buttons');
+ fresh = { ...fresh, dns_ok: false }; await polls[0].fn();
+ h.assert(texts(p).includes('Running, but DNS does not answer — see Diagnostics'), 'same-state DNS change updates headline');
+ fresh = { running: false, state: 'stopped', enabled: false }; await polls[0].fn();
+ h.assert(texts(p).includes('Stopped: the configuration has errors — see Diagnostics'), 'poll preserves full status fields');
+ console.log('ok - overview poll');
+ failGroups = true; calls.length = 0;
+ const loaded = await ov.load();
+ h.assert(calls.some(c => c[0] === 'readLarge' && c[1] === 'proxies-json'), 'groups use readLarge');
+ h.assert(texts(ov.render(loaded)).includes('Cannot load the proxy groups: x'), 'groups error visible');
+ console.log('ok - overview groups error');
+ const starting = ov.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }]);
+ h.assert(texts(starting).includes('Mihomo is starting. Reload the page in a moment to see the proxy groups.'), 'starting groups failure is a notice');
+ h.assert(!collect(starting).some(n => /alert-message error/.test(n.attrs.class || '')), 'starting has no red groups error');
+ const noticeApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', {
+  E, ui, fs: {}, setTimeout() {}, location: { reload() {} }
+ }).module;
+ noticeApi.read = async cmd => { h.assertEq(cmd, 'job-status', 'notice reads current job'); return { state: 'running', op: 'core-update', id: '1' }; };
+ const noticeView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, api: noticeApi, poll: { add() {} }, view: { extend: v => v }
+ }).module;
+ for (const status of [base, { ...base, core_installed: false }]) {
+  const p = noticeView.render([status, {}, []]); await Promise.resolve(); await Promise.resolve();
+  h.assert(texts(p).includes('"Update Mihomo core" is running…'), 'job notice shown on page');
+ }
+ console.log('ok - overview job notice');
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
 NODE

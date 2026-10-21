@@ -582,3 +582,18 @@ msgstr "Файл загружен не полностью. Попробуйте 
 
 msgid "Unexpected response from the router."
 msgstr "Неожиданный ответ роутера."
+
+msgid "Starting…"
+msgstr "Запускается…"
+
+msgid "Mihomo DNS does not answer: traffic goes direct until it recovers"
+msgstr "DNS Mihomo не отвечает: до восстановления трафик идёт напрямую"
+
+msgid "Stopped after an error: %s"
+msgstr "Остановлен после ошибки: %s"
+
+msgid "Cannot load the proxy groups: %s"
+msgstr "Не удалось загрузить группы прокси: %s"
+
+msgid "Mihomo is starting. Reload the page in a moment to see the proxy groups."
+msgstr "Mihomo запускается. Через некоторое время обновите страницу, чтобы увидеть группы прокси."

@@ -29,6 +29,30 @@ async function tick(timers) {
 }
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
+test('job buttons lock together through busy preparation and job completion', async () => {
+ const buttons = [false, false, true].map(disabled => ({ disabled, hasAttribute: () => true, classList: { add() {}, remove() {} } }));
+ const { api, timers } = setup({ document: { querySelectorAll: () => buttons } });
+ api.read = async () => ({ state: 'ok', result: {} });
+ let prepare;
+ const preparation = new Promise(resolve => { prepare = resolve; });
+ const pending = api.busy(buttons[0], async () => { await preparation; return api.job('service', 'start'); });
+ assert(buttons.every(b => b.disabled), 'all job buttons disabled before async preparation');
+ let invoked = false; await api.busy(buttons[1], () => { invoked = true; });
+ assert.equal(invoked, false, 'disabled job button cannot start another action');
+ prepare(); await tick(timers); await pending;
+ assert.deepEqual(buttons.map(b => b.disabled), [false, false, true]);
+ const direct = api.job('core-update'); assert(buttons.every(b => b.disabled));
+ await tick(timers); await direct;
+ assert.deepEqual(buttons.map(b => b.disabled), [false, false, true]);
+});
+test('jobNotice locks all job starters until reload', async () => {
+ const buttons = [{ disabled: false }]; let reloads = 0;
+ const { api, timers } = setup({ document: { querySelectorAll: () => buttons }, location: { reload: () => reloads++ } });
+ let reads = 0; api.read = async () => ++reads === 1 ? { id: '1', op: 'service', state: 'running' } : { state: 'ok' };
+ api.jobNotice(); await flush();
+ assert.equal(api.jobRunning, true); assert.equal(buttons[0].disabled, true);
+ await tick(timers); assert.equal(reloads, 1);
+});
 test('job ok: three polls spaced 1000 ms, running flag', async () => {
 	let polls = 0;
 	const { api, timers, calls } = setup();
@@ -189,11 +213,14 @@ test('no shared helper copies in views', () => {
 		assert(!source.includes("res.action === 'hot_reloaded' ? _('Subscription"), name + ': action notice copy');
 	}
 });
-// TODO Tasks 17–20: enable once those views switch long operations to api.job.
-const longOperations = /(?:api\.write|fs\.exec)\([^;]*(?:core-update|update-subscription|update-lists|apply-lists|save-config)|api\.service\(|fs\.exec\([^;]*\/etc\/init\.d\/mihowrt[^;]*(?:start|stop|restart)/;
-const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt'));
+test('overview has no long synchronous operations', () => {
+	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/overview.js')));
+});
+// TODO Tasks 18–20: enable once those views switch long operations to api.job.
+const longOperations = /(?:api\.write|fs\.exec)\([^;]*(?:core-update|update-subscription|update-lists|apply-lists|save-config)|api\.service\((?!'enable'\))|fs\.exec\([^;]*\/etc\/init\.d\/mihowrt[^;]*(?:start|stop|restart)/;
+const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => name !== 'overview.js');
 if (pendingViews.some(name => longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name))))
-	console.log('skip - no long synchronous operations in views (TODO Tasks 17–20)');
+	console.log('skip - no long synchronous operations in remaining views (TODO Tasks 18–20)');
 else test('no long synchronous operations in views', () => {
 	for (const name of pendingViews) assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name)));
 });

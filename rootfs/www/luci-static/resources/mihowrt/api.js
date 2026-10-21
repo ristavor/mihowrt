@@ -91,6 +91,26 @@ const JOB_LABELS = {
 
 const ACCESS_DENIED = _('Access denied. Log in to LuCI again.');
 let waitingJobs = 0;
+let jobButtonLocks = 0;
+const jobButtons = new Map();
+
+// Shared by job(), busy() preparation, and jobs discovered at page load.
+function lockJobButtons() {
+	jobButtonLocks++;
+	for (const button of document.querySelectorAll?.('[data-mw-job]') || []) {
+		if (!jobButtons.has(button))
+			jobButtons.set(button, button.disabled);
+		button.disabled = true;
+	}
+}
+
+function unlockJobButtons() {
+	if (--jobButtonLocks > 0)
+		return;
+	for (const [ button, disabled ] of jobButtons)
+		button.disabled = disabled;
+	jobButtons.clear();
+}
 
 async function waitJob(api, id) {
 	let failures = 0;
@@ -224,6 +244,11 @@ function toggle(showLabel, hideLabel, content, onOpen) {
 
 // Disable a button while an async action runs; report failures.
 async function busy(button, action) {
+	const startsJob = button?.hasAttribute('data-mw-job');
+	if (button?.disabled || (startsJob && this.jobRunning))
+		return null;
+	if (startsJob)
+		lockJobButtons();
 	if (button) {
 		button.disabled = true;
 		button.classList.add('spinning');
@@ -237,9 +262,12 @@ async function busy(button, action) {
 	}
 	finally {
 		if (button) {
-			button.disabled = false;
+			if (!startsJob)
+				button.disabled = false;
 			button.classList.remove('spinning');
 		}
+		if (startsJob)
+			unlockJobButtons();
 	}
 }
 
@@ -259,12 +287,14 @@ return baseclass.extend({
 	job: async function(op, ...args) {
 		waitingJobs++;
 		this.jobRunning = true;
+		lockJobButtons();
 		try {
 			const started = await this.write('job-start', op, ...args);
 			return await waitJob(this, started.id);
 		}
 		finally {
 			this.jobRunning = --waitingJobs > 0;
+			unlockJobButtons();
 		}
 	},
 	jobNotice: function() {
@@ -272,6 +302,8 @@ return baseclass.extend({
 		this.read('job-status').then(async status => {
 			if (status.state !== 'running')
 				return;
+			this.jobRunning = true;
+			lockJobButtons();
 			const alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(JOB_LABELS[status.op] || status.op)));
 			notice.appendChild(alert);
 			try {

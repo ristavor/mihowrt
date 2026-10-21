@@ -32,7 +32,7 @@ pass "dns probe"
 
 body='{"proxies":{"GLOBAL":{"type":"Selector","now":"A","all":["Proxy","Auto","FB","A"]},"Proxy":{"type":"Selector","now":"B","all":["A","B"]},"Auto":{"type":"URLTest","now":"A","all":["A"]},"FB":{"type":"Fallback","now":"A","all":["A"]},"Hid":{"type":"Selector","hidden":true,"now":"A","all":["A"]},"A":{"type":"Vless"}}}'
 result="$(CURL_BODY="$body" api_proxies_json)"
-assert_eq '[{"name":"Proxy","type":"Selector","now":"B","all":["A","B"],"fixed":""},{"name":"Auto","type":"URLTest","now":"A","all":["A"],"fixed":""},{"name":"FB","type":"Fallback","now":"A","all":["A"],"fixed":""}]' "$result" "group type and fixed fields"
+assert_eq '[{"name":"Proxy","type":"Selector","now":"B","all":["A","B"],"fixed":"","delays":{}},{"name":"Auto","type":"URLTest","now":"A","all":["A"],"fixed":"","delays":{}},{"name":"FB","type":"Fallback","now":"A","all":["A"],"fixed":"","delays":{}}]' "$result" "group type and fixed fields"
 pass "proxies filtered"
 
 : >"$CURL_LOG"
@@ -50,4 +50,5 @@ CURL_BODY='{"proxies":{"G":{"type":"URLTest","now":"B","fixed":"A","all":["A","B
 
 body='{"proxies":{"GLOBAL":{"all":["FB","Auto","A"]},"Proxy":{"type":"Selector","all":["A"]},"Auto":{"type":"URLTest","all":["A"]},"FB":{"type":"Fallback","all":["A"]},"A":{"type":"Direct"}}}'
 assert_eq 'FB,Auto,Proxy' "$(CURL_BODY="$body" api_proxies_json | jq -r 'map(.name)|join(",")')" 'GLOBAL order then missing groups'
+CURL_BODY='{"proxies":{"G":{"type":"Selector","now":"A","all":["A","B","C"],"history":[]},"A":{"type":"Http","history":[{"delay":5},{"delay":42}]},"B":{"type":"Http","history":[{"delay":0}]},"C":{"type":"Http","history":[]}}}' api_proxies_json | jq -e '.[0].delays == {"A":42,"B":0}' >/dev/null || fail "last Mihomo history delay per server, none when unchecked"
 pass 'GLOBAL group ordering'

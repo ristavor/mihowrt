@@ -214,12 +214,6 @@ msgstr "Измерить задержку каждого сервера этой
 msgid "Test"
 msgstr "Замерить"
 
-msgid "%s now uses %s."
-msgstr "%s теперь использует %s."
-
-msgid "timeout"
-msgstr "нет ответа"
-
 msgid "Open dashboard"
 msgstr "Открыть панель Mihomo"
 
@@ -355,9 +349,6 @@ msgstr "В поле «%s» неверные строки: %s"
 msgid "Overview"
 msgstr "Обзор"
 
-msgid "%s chooses the server automatically again."
-msgstr "%s снова выбирает сервер автоматически."
-
 msgid "All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change."
 msgstr "Весь трафик этих устройств идёт мимо Mihomo. Используйте статические DHCP-аренды, чтобы адреса не менялись."
 
@@ -450,12 +441,6 @@ msgstr "через прокси %d"
 
 msgid "%s (priority %s)"
 msgstr "%s (приоритет %s)"
-
-msgid "%s: fastest is %s (%d ms)."
-msgstr "%s: быстрее всех %s (%d мс)."
-
-msgid "%s: no server answered."
-msgstr "%s: ни один сервер не ответил."
 
 msgid "(chosen by your subscription)"
 msgstr "(выбрано подпиской)"
@@ -561,3 +546,12 @@ msgid_plural "Set by your provider. You also have %d own entries: they apply wit
 msgstr[0] "Задано подпиской. У вас есть %d своя запись: она применяется в режимах «Список из подписки + мой» и «Только мой список»."
 msgstr[1] "Задано подпиской. У вас есть %d свои записи: они применяются в режимах «Список из подписки + мой» и «Только мой список»."
 msgstr[2] "Задано подпиской. У вас есть %d своих записей: они применяются в режимах «Список из подписки + мой» и «Только мой список»."
+
+msgid "%d ms"
+msgstr "%d мс"
+
+msgid "no response"
+msgstr "нет ответа"
+
+msgid "Responding: %d of %d"
+msgstr "Отвечают: %d из %d"

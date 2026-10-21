@@ -168,14 +168,30 @@ function subscriptionSection(sub) {
 
 // Options of one group select. URLTest/Fallback start with "Auto — <now>"
 // (value "", unpins); a pinned server shows as selected.
-function groupOptions(select, group, delays) {
+// Latency text of one server, '' when it was never checked (0 = no response).
+function delayText(delays, name) {
+	const ms = (delays || {})[name];
+	return ms == null ? '' : ms > 0 ? _('%d ms').format(ms) : _('no response');
+}
+
+// What the ping next to the Test button shows: the current server's latency,
+// or for LoadBalance how many servers answer.
+function pingText(group) {
+	const delays = group.delays || {};
+	if (group.type === 'LoadBalance') {
+		const checked = group.all.filter((name) => delays[name] != null);
+		return checked.length ? _('Responding: %d of %d').format(checked.filter((name) => delays[name] > 0).length, group.all.length) : '';
+	}
+	return delayText(delays, group.now);
+}
+
+function groupOptions(select, group) {
 	const auto = group.type === 'URLTest' || group.type === 'Fallback';
 	const current = auto ? (group.fixed || '') : group.now;
+	// The disabled LoadBalance select cannot be opened: no per-server latency.
 	const label = (name) => {
-		if (!delays)
-			return name;
-		const ms = delays[name];
-		return ms ? '%s — %d ms'.format(name, ms) : '%s — %s'.format(name, _('timeout'));
+		const ms = group.type === 'LoadBalance' ? '' : delayText(group.delays, name);
+		return ms ? '%s — %s'.format(name, ms) : name;
 	};
 	// LoadBalance has no current server: it uses all of them in turn.
 	const first = group.type === 'LoadBalance' ? _('All servers in turn')
@@ -194,17 +210,29 @@ function groupsSection(groups) {
 	if (!groups.length)
 		return '';
 
+	// One live region for the section: a freshly filled ping is not announced reliably.
+	const live = E('p', { class: 'mw-sr', 'aria-live': 'polite' });
 	return E('div', { class: 'cbi-section mw-groups' }, [
 		E('h3', text(_('Proxy servers'))),
+		live,
 		E('div', { class: 'mw-grid' }, groups.flatMap((group, index) => {
 			// Position, not name: Cyrillic/emoji names would collide.
 			const id = 'mw-group-' + index;
 			// Mihomo cannot pin a LoadBalance group: show it, allow a test.
 			const fixedOnly = group.type === 'LoadBalance';
-			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null });
+			const ping = E('span', { id: id + '-ping', class: 'mw-muted mw-ping' }, text(pingText(group)));
+			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null, 'aria-describedby': id + '-ping' });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
-			let previous = groupOptions(select, group, null);
+			let previous = groupOptions(select, group);
+			const refresh = async () => {
+				const fresh = await api.read('proxies-json').catch(() => []);
+				Object.assign(group, (Array.isArray(fresh) ? fresh : []).find((g) => g.name === group.name) || {});
+			};
+			const show = () => {
+				previous = groupOptions(select, group);
+				ping.textContent = pingText(group);
+			};
 
 			select.addEventListener('change', async () => {
 				const value = select.value;
@@ -219,20 +247,33 @@ function groupsSection(groups) {
 					select.value = previous;
 					return;
 				}
-				previous = value;
-				api.notify(value ? _('%s now uses %s.').format(group.name, value) : _('%s chooses the server automatically again.').format(group.name));
+				if (value === '') {
+					// Unpinned: Mihomo picks the server now; "Auto — X" must show it.
+					await refresh();
+				}
+				else {
+					group.now = value;
+					group.fixed = value;
+				}
+				show();
 			});
-			test.addEventListener('click', () => api.busy(test, async () => {
-				const delays = await api.write('group-delay', group.name);
-				// A delay test can unpin URLTest/Fallback groups: read them again.
-				const fresh = await api.read('proxies-json').catch(() => []);
-				Object.assign(group, (Array.isArray(fresh) ? fresh : []).find((g) => g.name === group.name) || {});
-				previous = groupOptions(select, group, delays);
-				const best = Object.entries(delays || {}).filter(([ , ms ]) => ms > 0).sort((a, b) => a[1] - b[1])[0];
-				api.notify(best ? _('%s: fastest is %s (%d ms).').format(group.name, best[0], best[1])
-					: _('%s: no server answered.').format(group.name));
-			}));
-			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, test ]) ];
+			test.addEventListener('click', async () => {
+				const before = ping.textContent;
+				ping.textContent = '…';
+				const done = await api.busy(test, async () => {
+					const result = await api.write('group-delay', group.name) || {};
+					// A delay test can unpin URLTest/Fallback groups: read them again.
+					await refresh();
+					// Servers missing from the result timed out.
+					group.delays = Object.fromEntries(group.all.map((name) => [ name, result[name] || 0 ]));
+					show();
+					live.textContent = '%s: %s — %s'.format(group.name, group.type === 'LoadBalance' ? _('All servers in turn') : group.now, ping.textContent);
+					return true;
+				});
+				if (!done)
+					ping.textContent = before;
+			});
+			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, test, ping ]) ];
 			// The note gets its own grid row: a wrapped row would push the label off its select.
 			if (fixedOnly)
 				cells.push(E('span'), E('span', { class: 'mw-muted' }, text(_('Mihomo spreads connections across these servers'))));

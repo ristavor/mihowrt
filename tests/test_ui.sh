@@ -432,9 +432,55 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const gp = ov.render([active, {}, [{ name: 'G', type: 'Selector', now: 'A', all: ['A','B'] }]]);
  const gs = collect(gp).find(n => n.tag === 'select');
  gs.value = 'B'; await gs.listeners.change(); await gs.listeners.change();
- h.assertEq(calls.length, 1, 'footstrap repeated change ignored'); h.assertEq(notices.length, 1, 'one change notification');
+ h.assertEq(calls.length, 1, 'footstrap repeated change ignored'); h.assertEq(notices.length, 0, 'server switch adds no page notification');
  await collect(gp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
- h.assertEq(notices.at(-1), 'G: fastest is B (2 ms).', 'fastest server feedback');
+ h.assertEq(notices.length, 0, 'latency test adds no page notification');
+ const pingOf = (root, i = 0) => collect(root).filter(n => /\bmw-ping\b/.test(n.attrs.class || ''))[i];
+ const shown = n => n.textContent !== undefined ? n.textContent : texts(n).join('');
+ h.assertEq(shown(pingOf(gp)), '2 ms', 'ping of the current server after test');
+ h.assertEq(texts(gs.children.find(o => o.attrs.value === 'A')).join(''), 'A — 10 ms', 'options keep per-server latency');
+ h.assertEq(gs.attrs['aria-describedby'], pingOf(gp).attrs.id, 'select described by its ping');
+ const live = collect(gp).find(n => n.attrs['aria-live'] === 'polite');
+ h.assert(live && /\bmw-sr\b/.test(live.attrs.class), 'one invisible live region');
+ h.assertEq(shown(live), 'G: B — 2 ms', 'test result announced');
+ // Mihomo history: shown before any test, nothing when absent.
+ const hp = ov.render([active, {}, [
+  { name: 'U', type: 'URLTest', now: 'A', fixed: '', all: ['A', 'B'], delays: { A: 12, B: 0 } },
+  { name: 'S', type: 'Selector', now: 'B', all: ['A', 'B'], delays: { A: 7 } },
+  { name: 'N', type: 'Selector', now: 'C', all: ['C'] },
+  { name: 'L', type: 'LoadBalance', now: null, all: ['A', 'B', 'C'], delays: { A: 5, B: 0, C: 9 } }
+ ]]);
+ const hs = collect(hp).filter(n => n.tag === 'select');
+ h.assertEq(shown(pingOf(hp, 0)), '12 ms', 'history ping of the auto-chosen server');
+ h.assertEq(texts(hs[0].children[0]).join(''), 'Auto — A', 'Auto option without latency');
+ h.assertEq(texts(hs[0].children[2]).join(''), 'B — no response', 'failed history check');
+ h.assertEq(shown(pingOf(hp, 1)), '', 'no history for the current server: empty');
+ h.assertEq(texts(hs[1].children[0]).join(''), 'A — 7 ms', 'history latency in options');
+ h.assertEq(shown(pingOf(hp, 2)), '', 'no history: empty ping');
+ h.assertEq(shown(pingOf(hp, 3)), 'Responding: 2 of 3', 'LoadBalance summary');
+ h.assertEq(texts(hs[3].children[1]).join(''), 'A', 'LoadBalance options without latency');
+ // A test result without a server means it timed out.
+ calls.length = 0;
+ await collect(hp).filter(n => n.tag === 'button' && texts(n).includes('Test'))[2].listeners.click();
+ h.assertEq(shown(pingOf(hp, 2)), 'no response', 'current server missing from test result');
+ // Manual switch: ping from the last results, no new request.
+ hs[1].value = 'A'; await hs[1].listeners.change();
+ h.assertEq(shown(pingOf(hp, 1)), '7 ms', 'ping follows manual switch');
+ h.assertEq(calls.filter(c => c[0] === 'group-delay').length, 1, 'switch does not re-test');
+ // Back to Auto: re-read the group so "Auto — X" and the ping are current.
+ const ov2calls = [];
+ const ov2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
+  busy: (el, fn) => fn(), write: async (...args) => { ov2calls.push(args); return {}; },
+  read: async (...args) => { ov2calls.push(args); return [{ name: 'U', type: 'URLTest', now: 'B', fixed: '', all: ['A', 'B'], delays: { B: 30 } }]; }, notify: s => notices.push(s)
+ } }).module;
+ const up = ov2.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'], delays: { A: 12 } }]]);
+ const us = collect(up).find(n => n.tag === 'select');
+ h.assertEq(us.value, 'A', 'pinned server selected');
+ us.value = ''; await us.listeners.change();
+ h.assert(ov2calls.some(c => c[0] === 'proxies-json'), 'unpin re-reads groups');
+ h.assertEq(texts(us.children[0]).join(''), 'Auto — B', 'Auto shows the server Mihomo chose now');
+ h.assertEq(shown(pingOf(up)), '30 ms', 'ping of the new automatic choice');
+ h.assertEq(notices.length, 0, 'no notifications at all');
  const subCalls = [], errors = []; let fail = false;
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;

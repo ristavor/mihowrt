@@ -38,9 +38,10 @@ api_reload() {
 	api_request PUT "/configs?force=true" "$(jq -nc --arg p "$1" '{path: $p}')" 60 >/dev/null
 }
 
-# Proxy groups: [{name, type, now, all, fixed}] in config order (GLOBAL
+# Proxy groups: [{name, type, now, all, fixed, delays}] in config order (GLOBAL
 # lists them so; the proxies map is sorted by name). URLTest/Fallback can be
-# pinned to a server ("fixed"); LoadBalance cannot be switched.
+# pinned to a server ("fixed"); LoadBalance cannot be switched. delays: last
+# Mihomo check per server (0 = no response); unchecked servers are absent.
 api_proxies_json() {
 	api_request GET /proxies | jq -c '
 		.proxies as $p
@@ -48,7 +49,8 @@ api_proxies_json() {
 		| [.[] | select(. != "GLOBAL") | {key: ., value: $p[.]}
 		 | select(.value != null and (.value.hidden | not)
 		     and (.value.type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))
-		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // "")}]'
+		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // ""),
+		    delays: ([(.value.all // [])[] as $n | ($p[$n].history // []) | select(length > 0) | {($n): .[-1].delay}] | add // {})}]'
 }
 
 # An empty name unpins a URLTest/Fallback group (automatic choice again).

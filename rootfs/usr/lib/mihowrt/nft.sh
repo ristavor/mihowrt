@@ -91,6 +91,9 @@ nft_render_base() {
 	for set in proxy_dst6 proxy_src6 direct_dst6 direct_src6 localv6; do
 		nft_line "add set inet $t $set { type ipv6_addr; flags interval; auto-merge; }"
 	done
+	for set in proxy_src_mac direct_src_mac; do
+		nft_line "add set inet $t $set { type ether_addr; }"
+	done
 	nft_line "add set inet $t source_ifaces { type ifname; }"
 	# Filled only while the subscription downloads (router traffic only).
 	nft_line "add set inet $t bypass_dst { type ipv4_addr; flags timeout; }"
@@ -168,9 +171,10 @@ nft_render_direct_returns() {
 # Devices always direct (proxy-first). With fake-IP DNS their domains would
 # resolve to fake addresses that only Mihomo can reach, so they are skipped.
 nft_render_direct_devices() {
-	local chain="$1" f4="$2" f6="$3"
+	local chain="$1" f4="$2" f6="$3" fmac="$4"
 
 	[ "$DNS_MODE" = "fake-ip" ] && return 0
+	[ "$(nft_set_count "$fmac")" -gt 0 ] && nft_rule "$chain" "ether saddr @direct_src_mac return"
 	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip saddr @direct_src return"
 	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 saddr @direct_src6 return"
 	nft_port_rules "$chain" "$f4" ip saddr return
@@ -199,7 +203,7 @@ nft_render() {
 	NFT_MARK_SET="meta mark set meta mark | $NFT_INTERCEPT_MARK"
 	: >"$NFT_FILE" || return 1
 	for kind in dst src direct direct_src; do
-		lists_resolve "$kind" "$dir/$kind.4" "$dir/$kind.6" || return 1
+		lists_resolve "$kind" "$dir/$kind.4" "$dir/$kind.6" "$dir/$kind.mac" || return 1
 	done
 
 	nft_render_base
@@ -207,11 +211,13 @@ nft_render() {
 	nft_fill_set proxy_dst6 "$dir/dst.6"
 	nft_fill_set proxy_src "$dir/src.4"
 	nft_fill_set proxy_src6 "$dir/src.6"
+	nft_fill_set proxy_src_mac "$dir/src.mac"
 	nft_fill_set direct_dst "$dir/direct.4"
 	nft_fill_set direct_dst6 "$dir/direct.6"
 	if [ "$POLICY_MODE" = "proxy-first" ] && [ "$DNS_MODE" != "fake-ip" ]; then
 		nft_fill_set direct_src "$dir/direct_src.4"
 		nft_fill_set direct_src6 "$dir/direct_src.6"
+		nft_fill_set direct_src_mac "$dir/direct_src.mac"
 	fi
 
 	# DNS hijack and NetBird ingress exclusion.
@@ -228,11 +234,17 @@ nft_render() {
 	[ "$DNS_HIJACK" = "1" ] && nft_rule prerouting_policy "meta l4proto { tcp, udp } th dport 53 return"
 	if [ "$POLICY_MODE" = "proxy-first" ]; then
 		nft_render_direct_returns prerouting_policy "$dir/direct.4" "$dir/direct.6"
-		nft_render_direct_devices prerouting_policy "$dir/direct_src.4" "$dir/direct_src.6"
+		nft_render_direct_devices prerouting_policy "$dir/direct_src.4" "$dir/direct_src.6" "$dir/direct_src.mac"
 		nft_render_catch_all prerouting_policy
 	else
 		nft_render_list_marks prerouting_policy "$dir/dst.4" "$dir/dst.6" daddr proxy_dst
 		nft_render_list_marks prerouting_policy "$dir/src.4" "$dir/src.6" saddr proxy_src
+		# Ethernet source headers are available on received L2 frames here,
+		# never on the router-originated output path.
+		if [ -s "$dir/src.mac" ]; then
+			[ "$DISABLE_QUIC" = "1" ] && nft_rule prerouting_policy "ether saddr @proxy_src_mac udp dport 443 reject"
+			nft_rule prerouting_policy "ether saddr @proxy_src_mac meta l4proto { tcp, udp } $NFT_MARK_SET"
+		fi
 		nft_render_fakeip prerouting_policy
 	fi
 

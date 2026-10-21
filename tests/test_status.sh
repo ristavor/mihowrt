@@ -64,3 +64,8 @@ printf 'mode proxy-first\ndns redir-host\nset disable_quic 0\nhas proxy-ips\npro
 fake_uci_set mihowrt.settings.provider_override disable_quic
 profile_json | jq -e '.provider.disable_quic == "0" and .overrides == ["disable_quic"] and .lists.dst.provided and .lists.dst.source == "provider"' >/dev/null || fail "profile-json contract"
 pass "status check state, core not called and profile-json"
+
+printf '# Devices\naa:bb:cc:dd:ee:ff\n10.2.3.4\n' >"$SRC_LIST_FILE"
+printf 'aa:bb:cc:dd:ee:ff\n' >"$DIRECT_SRC_LIST_FILE"
+assert_eq '2:1' "$(status_json | jq -r '"\(.lists.src):\(.lists.direct_src)"')" 'status counts MAC and IP devices'
+pass 'status MAC device counts'

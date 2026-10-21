@@ -120,3 +120,36 @@ printf '8.8.8.8\n' >>"$DIRECT_DST_LIST_FILE"
 nft_apply
 assert_eq 3 "$(wc -l <"$tmpdir/nft.calls" | tr -d ' ')" "changed list reapplied"
 pass "NTP, direct devices, atomic and no-op nft apply"
+
+POLICY_MODE=direct-first
+DISABLE_QUIC=1
+printf 'AA:BB:CC:DD:EE:FF\n' >"$SRC_LIST_FILE"
+render
+assert_file_contains "$out" 'add set inet mihowrt proxy_src_mac { type ether_addr; }' 'proxy MAC set'
+assert_file_contains "$out" 'add set inet mihowrt direct_src_mac { type ether_addr; }' 'direct MAC set'
+assert_file_contains "$out" 'add element inet mihowrt proxy_src_mac { aa:bb:cc:dd:ee:ff }' 'MAC element'
+a=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac udp dport 443 reject' "$out" | cut -d: -f1)
+b=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000' "$out" | cut -d: -f1)
+assert_true 'MAC QUIC reject precedes mark' test "$a" -lt "$b"
+assert_file_not_contains "$out" 'mangle_output ether saddr' 'no Ethernet source matching for router output'
+DISABLE_QUIC=0
+render
+assert_file_not_contains "$out" 'ether saddr @proxy_src_mac udp dport 443 reject' 'MAC QUIC reject disabled'
+POLICY_MODE=proxy-first
+DNS_MODE=redir-host
+printf 'aa:bb:cc:dd:ee:ff\n' >"$DIRECT_SRC_LIST_FILE"
+render
+assert_file_contains "$out" 'add element inet mihowrt direct_src_mac { aa:bb:cc:dd:ee:ff }' 'direct MAC element'
+a=$(grep -n 'prerouting_policy ether saddr @direct_src_mac return' "$out" | cut -d: -f1)
+b=$(grep -n 'prerouting_policy meta l4proto { tcp, udp } meta mark set' "$out" | cut -d: -f1)
+assert_true 'MAC return precedes catch-all' test "$a" -lt "$b"
+# Use the external binary: nft() above is an apply spy.
+if type -P nft >/dev/null 2>&1; then
+ command nft -c -f "$out"
+else
+ printf 'skip - nft not installed; real syntax check deferred to Task 24 VM\n'
+fi
+DNS_MODE=fake-ip
+render
+assert_file_not_contains "$out" 'ether saddr @direct_src_mac return' 'fake-IP skips direct MAC devices'
+pass 'MAC device nft rules'

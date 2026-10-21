@@ -243,3 +243,44 @@ for outcome in success failure mixed; do
  assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after $outcome list fetches"
 done
 pass 'list response headers cleaned'
+
+assert_eq 'mac aa:bb:cc:dd:ee:ff' "$(printf 'AA:BB:CC:DD:EE:FF\n' | lists_classify)" 'classify mac lower-case'
+for entry in aa-bb-cc-dd-ee-ff aa:bb:cc:dd:ee 'aa:bb:cc:dd:ee:ff;443' 'aa:bb:cc:dd:ee:ff;' 'aa:bb:cc:dd:ee:ff/48'; do
+ assert_eq "$entry" "$(printf '%s\n' "$entry" | lists_classify 1)" "invalid MAC: $entry"
+done
+# Exercise the classifier with the actual BusyBox awk as well as the default awk.
+( awk() { busybox awk "$@"; }; assert_eq 'mac aa:bb:cc:dd:ee:ff' "$(printf 'AA:BB:CC:DD:EE:FF\n' | lists_classify)" 'BusyBox classifies MAC' )
+pass 'classify mac'
+for kind in dst direct; do
+ printf 'aa:bb:cc:dd:ee:ff\n' >"$upload"
+ args=(- - - -)
+ if [ "$kind" = dst ]; then args[0]="$upload"; else args[2]="$upload"; fi
+ rc=0
+ lists_apply "${args[@]}" >"$tmpdir/mac.out" 2>"$tmpdir/mac.err" || rc=$?
+ assert_eq 1 "$rc" 'MAC rejected in address list'
+ assert_eq "Error: Invalid $kind entries: aa:bb:cc:dd:ee:ff " "$(cat "$tmpdir/mac.err")" 'exact invalid MAC error'
+done
+for kind in src direct_src; do
+ printf 'AA:BB:CC:DD:EE:FF # Device\n10.2.3.4\n' >"$upload"
+ args=(- - - -)
+ if [ "$kind" = src ]; then args[1]="$upload"; else args[3]="$upload"; fi
+ assert_eq '{"changed":true}' "$(lists_apply "${args[@]}")" 'MAC accepted in device list'
+ assert_file_contains "$(lists_file "$kind")" 'aa:bb:cc:dd:ee:ff # Device' 'MAC stored lower-case, comment retained'
+ lists_resolve "$kind" "$tmpdir/m4" "$tmpdir/m6" "$tmpdir/mac"
+ assert_eq aa:bb:cc:dd:ee:ff "$(cat "$tmpdir/mac")" 'MAC resolved separately'
+ assert_eq 10.2.3.4 "$(cat "$tmpdir/m4")" 'MAC not in IPv4 output'
+done
+printf 'AA:BB:CC:DD:EE:FF\n' >"$(lists_cache_file https://mac.example/list)"
+for kind in dst direct src direct_src; do
+ printf 'https://mac.example/list\naa:bb:cc:dd:ee:ff\n' >"$(lists_file "$kind")"
+ lists_resolve "$kind" "$tmpdir/m4" "$tmpdir/m6" "$tmpdir/mac"
+ case "$kind" in
+ src|direct_src) assert_eq aa:bb:cc:dd:ee:ff "$(cat "$tmpdir/mac")" 'remote and own MACs deduplicated' ;;
+ *) assert_eq '' "$(cat "$tmpdir/mac")" 'address lists exclude remote and own MACs' ;;
+ esac
+done
+printf 'has proxy-ips\nproxy-ip aa:bb:cc:dd:ee:ff\n' >"$PROFILE_FILE"
+DST_LIST_SOURCE=provider
+lists_resolve dst "$tmpdir/m4" "$tmpdir/m6" "$tmpdir/mac"
+assert_eq '' "$(cat "$tmpdir/mac")" 'provider destination MAC excluded'
+pass 'mac only in device lists'

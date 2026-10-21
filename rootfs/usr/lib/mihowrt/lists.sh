@@ -1,6 +1,6 @@
 #!/bin/ash
 
-# Policy lists: one entry per line, IPv4 or IPv6.
+# Policy lists: one entry per line, IPv4, IPv6 or MAC (device lists only).
 #   addr[/prefix][;ports]   e.g. 1.1.1.1, 2001:db8::/32;443
 #   ;ports                  any address on these ports
 #   URL[;ports]             remote list (cached); a trailing "| hours" is ignored
@@ -137,10 +137,10 @@ lists_ensure_files() {
 }
 
 # One awk pass validates and classifies entries (a fork per entry is far too
-# slow on router CPUs). Prints "<family> <entry>", family 4, 6 or any; with
+# slow on router CPUs). Prints "<family> <entry>", family 4, 6, mac or any; with
 # -v bad=1 prints only the invalid lines.
 lists_classify() {
-	awk -v bad="${1:-0}" '
+	awk -v bad="${1:-0}" -v kind="${2:-}" '
 		function port_ok(p) { return p ~ /^[0-9]+$/ && p + 0 >= 1 && p + 0 <= 65535 }
 		function ports_ok(s,   n, i, a, r) {
 			if (s == "" || s ~ /^,|,$|,,/) return 0
@@ -157,6 +157,11 @@ lists_classify() {
 			if (index(s, "/")) { if (!prefix_ok(substr(s, index(s, "/") + 1), 32)) return 0; s = substr(s, 1, index(s, "/") - 1) }
 			if (split(s, a, ".") != 4) return 0
 			for (i = 1; i <= 4; i++) if (a[i] !~ /^[0-9][0-9]?[0-9]?$/ || a[i] + 0 > 255) return 0
+			return 1
+		}
+		function mac(s,   i, a) {
+			if (split(tolower(s), a, ":") != 6) return 0
+			for (i = 1; i <= 6; i++) if (a[i] !~ /^[0-9a-f][0-9a-f]$/) return 0
 			return 1
 		}
 		function v6(s,   n, i, a, g, dbl) {
@@ -177,6 +182,7 @@ lists_classify() {
 			else if (addr == "") fam = (ports != "") ? "any" : ""
 			else if (v4(addr)) fam = "4"
 			else if (v6(addr)) fam = "6"
+			else if (!index($0, ";") && mac(addr) && kind != "dst" && kind != "direct") { fam = "mac"; $0 = tolower($0) }
 			if (bad) { if (fam == "") print; next }
 			if (fam != "") print fam " " $0
 		}
@@ -229,18 +235,19 @@ lists_json() {
 	jq -nc "$@" '{dst: $dst, src: $src, direct: $direct, direct_src: $direct_src}'
 }
 
+# Optional fourth argument receives device MACs, separately from IP families.
 lists_resolve() {
-	local kind="$1" out4="$2" out6="$3" src="" line="" url="" ports="" cache="" bad=""
+	local kind="$1" out4="$2" out6="$3" outmac="${4:-}" src="" line="" url="" ports="" cache="" bad=""
 
 	src="$PKG_TMP_DIR/list.$kind.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	lists_source "$kind" >"$src" || return 1
-	if ! { : >"$out4" && : >"$out6"; }; then
+	if ! { : >"$out4" && : >"$out6" && { [ -z "$outmac" ] || : >"$outmac"; }; }; then
 		rm -f "$src"
 		return 1
 	fi
 	# User files are validated on save; provider entries only here.
-	bad="$({ grep -v '^https\?://' "$src" || true; } | lists_classify 1 | tr '\n' ' ')"
+	bad="$({ grep -v '^https\?://' "$src" || true; } | lists_classify 1 "$kind" | tr '\n' ' ')"
 	[ -z "$bad" ] || warn "Ignoring invalid $kind entries: $bad"
 	{
 		grep -v '^https\?://' "$src" || true
@@ -253,15 +260,20 @@ lists_resolve() {
 			[ -r "$cache" ] || continue
 			awk -v p="$ports" 'p != "" && !index($0, ";") { $0 = $0 ";" p } { print }' "$cache"
 		done
-	} | lists_classify | awk -v o4="$out4" -v o6="$out6" '
+	} | lists_classify 0 "$kind" | awk -v o4="$out4" -v o6="$out6" -v omac="$outmac" '
 		$1 == "4" { print $2 >o4 }
 		$1 == "6" { print $2 >o6 }
+		$1 == "mac" && omac != "" { print $2 >omac }
 		$1 == "any" { print $2 >o4; print $2 >o6 }
 	'
 	rm -f "$src"
 	# BusyBox sort on OpenWrt has no -o.
 	sort -u "$out4" >"$out4.sorted" && mv -f "$out4.sorted" "$out4" &&
-		sort -u "$out6" >"$out6.sorted" && mv -f "$out6.sorted" "$out6"
+		sort -u "$out6" >"$out6.sorted" && mv -f "$out6.sorted" "$out6" || return 1
+	if [ -n "$outmac" ]; then
+		sort -u "$outmac" >"$outmac.sorted" && mv -f "$outmac.sorted" "$outmac" || return 1
+	fi
+	return 0
 }
 
 # True when the cache for a URL is missing or older than LISTS_INTERVAL hours.
@@ -351,7 +363,7 @@ lists_install() {
 			err "List $kind is larger than 1 MiB."
 			return 1
 		}
-		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 | tr '\n' ' ')"
+		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 "$kind" | tr '\n' ' ')"
 		for url in $(lists_clean_lines "$tmp" | sed -n '/^https\?:\/\//p'); do
 			is_http_url "${url%%;*}" && { [ "${url%%;*}" = "$url" ] || is_port_spec "${url#*;}"; } || bad="$bad$url "
 		done
@@ -364,6 +376,28 @@ lists_install() {
 		eval "tmp=\"\$LIST_TMP_$kind\""
 		[ "$tmp" != - ] || continue
 		dst="$(lists_file "$kind")"
+		case "$kind" in
+		src | direct_src)
+			# Only MAC lines are case-normalized; preserve comments and IP text.
+			if ! { awk '
+				{
+					entry = $0; sub(/#.*/, "", entry); gsub(/[[:space:]]/, "", entry)
+					if (split(entry, a, ":") == 6) {
+						valid = 1
+						for (i = 1; i <= 6; i++) if (a[i] !~ /^[0-9A-Fa-f][0-9A-Fa-f]$/) valid = 0
+						if (valid) {
+							comment = index($0, "#")
+							$0 = comment ? tolower(substr($0, 1, comment - 1)) substr($0, comment) : tolower($0)
+						}
+					}
+					print
+				}
+			' "$tmp" >"$tmp.normalized" && mv -f "$tmp.normalized" "$tmp"; }; then
+				rm -f "$tmp.normalized"
+				return 1
+			fi
+			;;
+		esac
 		if ! cmp -s "$tmp" "$dst"; then
 			# Copy next to the target and rename: a full flash cannot leave
 			# a half-written list.

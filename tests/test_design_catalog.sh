@@ -30,4 +30,8 @@ const api = fs.readFileSync(files[0], 'utf8');
 const css = api.match(/const CSS = `([\s\S]*?)`;/)[1].replace(/\.mw-sr\s*\{[^}]*\}/g, '');
 assert(!/(?:font(?:-[\w-]+)?|opacity|color|background(?:-[\w-]+)?|border(?:-[\w-]+)?|outline(?:-[\w-]+)?)\s*:/.test(css), 'MihoWRT CSS must leave visual styles to the theme');
 console.log('ok - layout-only MihoWRT CSS');
+// Material gives the LuCI page tabs negative margins; cap their width so the
+// MihoWRT menu cannot extend beyond a 390px viewport (398px before this cap).
+assert(/#tabmenu\s*>\s*\.tabs\s*\{[^}]*max-width:\s*100%/.test(css), 'page tabs must fit the viewport despite theme negative margins');
+console.log('ok - bounded page tab layout');
 NODE

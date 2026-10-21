@@ -53,9 +53,9 @@ printf '#!/bin/sh\necho "apk $*" >>"%s"\n' "$calls" >"$tmpdir/bin/apk"
 chmod +x "$tmpdir/bin/apk"
 PATH="$tmpdir/bin:$PATH"
 installed="luci-app-mihowrt luci-i18n-mihowrt-ru"
-do_remove >/dev/null
+(MIHOWRT_ACTION=remove main) >/dev/null
 assert_eq $'apk del luci-i18n-mihowrt-ru\napk del luci-app-mihowrt' "$(cat "$calls")" "translation removed before the app"
-[[ ! -e "$CORE" ]] || fail "core removed"
+[[ -e "$CORE" ]] || fail "installer must leave core cleanup to prerm"
 pass "remove"
 
 # Installer: API down -> tag from the github.com redirect, direct asset URLs.

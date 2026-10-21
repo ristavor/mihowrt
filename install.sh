@@ -199,11 +199,8 @@ do_install() {
 
 do_remove() {
 	log "Removing MihoWRT..."
-	[ -x /etc/init.d/mihowrt ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt recover >/dev/null 2>&1
 	package_installed "$I18N_PKG" && apk del "$I18N_PKG" >/dev/null
 	package_installed "$PKG" && apk del "$PKG" >/dev/null
-	rm -f "$CORE"
 	log "MihoWRT and the Mihomo core are removed. Your configs stay in /opt/clash."
 }
 

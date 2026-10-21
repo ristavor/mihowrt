@@ -78,12 +78,11 @@ extract_postinst() {
 }
 
 extract_prerm() {
-	extract_hook "prerm" |
+	render_package_define prerm |
 		sed \
 			-e "s|/etc/init.d/mihowrt-recover|$tmpdir/init-recover|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
-			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
-			-e 's/\$\$/\$/g'
+			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g"
 }
 
 mkdir -p "$(dirname "$live_config")" "$live_list_dir"
@@ -241,8 +240,7 @@ chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt" "$tmpdir/init-recover"
 
 : >"$hook_log"
 IPKG_INSTROOT="" "$prerm_path"
-assert_file_contains "$hook_log" "init:stop" "prerm should stop service before package files are removed"
-assert_file_contains "$hook_log" "mihowrt:recover" "prerm should clean runtime state before package files are removed"
+assert_file_contains "$hook_log" "mihowrt:uninstall" "prerm runs uninstall before package files are removed"
 assert_file_contains "$hook_log" "recover:disable" "prerm should disable recover init hook before package files are removed"
 
 : >"$hook_log"
@@ -271,17 +269,28 @@ assert_file_contains "$ROOT_DIR/Makefile" './rootfs/www/luci-static/resources/vi
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/www/luci-static/resources/mihowrt/*' "package should install LuCI helper assets on upgrade"
 assert_file_contains "$ROOT_DIR/Makefile" 'rm -f /tmp/luci-indexcache' "postinst should clear LuCI index cache after upgrade"
 assert_file_contains "$ROOT_DIR/Makefile" 'rm -rf /tmp/luci-modulecache' "postinst should clear LuCI module cache after upgrade"
-assert_file_contains "$ROOT_DIR/Makefile" 'rm -rf /opt/clash/ruleset' "package removal should remove ruleset directory safely"
-assert_file_contains "$ROOT_DIR/Makefile" 'rm -rf /opt/clash/proxy_providers' "package removal should remove proxy provider directory safely"
-assert_file_not_contains "$ROOT_DIR/Makefile" 'rm -f /opt/clash/ruleset' "package removal should not use file-only removal for ruleset directory"
-assert_file_not_contains "$ROOT_DIR/Makefile" 'rm -f /opt/clash/proxy_providers' "package removal should not use file-only removal for proxy provider directory"
 assert_file_contains "$tmpdir/conffiles" '/opt/clash/lst/direct_dst.txt' "package conffiles should include direct destination list"
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "package should install direct destination list"
 assert_file_contains "$ROOT_DIR/Makefile" 'restore_mihowrt_backup_file $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml || exit 1' "postinst should fail if saved config cannot be restored"
 assert_file_contains "$ROOT_DIR/Makefile" 'restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt /opt/clash/lst/$$list.txt || exit 1' "postinst should fail if saved policy lists cannot be restored"
-assert_file_contains "$ROOT_DIR/Makefile" '/opt/clash/mihomo.sock' "package removal should delete Mihomo socket symlink"
-assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt subscription auto-update' "package removal should delete subscription cron entry"
-assert_file_contains "$ROOT_DIR/Makefile" '# mihowrt policy remote auto-update' "package removal should delete policy remote cron entry"
+render_package_define postrm >"$tmpdir/postrm.expanded"
+for forbidden in cron dnsmasq sed /etc/init.d/mihowrt; do
+	assert_file_not_contains "$tmpdir/postrm.expanded" "$forbidden" "postrm has no runtime logic: $forbidden"
+done
+for leftover in /tmp/mihowrt /var/run/mihowrt /tmp/clash; do
+	assert_file_contains "$tmpdir/postrm.expanded" "$leftover" "postrm removes $leftover"
+done
+postrm_root="$tmpdir/postrm-root"
+mkdir -p "$postrm_root/tmp/mihowrt" "$postrm_root/var/run/mihowrt" "$postrm_root/tmp/clash"
+sed -e "s|/tmp/|@ROOT@/tmp/|g" -e "s|/var/run/|@ROOT@/var/run/|g" \
+	-e "s|/opt/|@ROOT@/opt/|g" -e "s|/etc/|@ROOT@/etc/|g" \
+	-e "s|@ROOT@|$postrm_root|g" "$tmpdir/postrm.expanded" >"$tmpdir/postrm.sh"
+IPKG_INSTROOT="$tmpdir/image" ash "$tmpdir/postrm.sh"
+[[ -d "$postrm_root/tmp/clash" ]] || fail "postrm skips image builds"
+IPKG_INSTROOT="" ash "$tmpdir/postrm.sh"
+for leftover in tmp/mihowrt var/run/mihowrt tmp/clash; do
+	[[ ! -e "$postrm_root/$leftover" ]] || fail "postrm removes $leftover"
+done
 assert_file_contains "$ROOT_DIR/Makefile" '+curl' "package should depend on curl for Mihomo API hot reload"
 installer_deps="$(sed -n 's/^DEPS="\(.*\)"$/\1/p' "$ROOT_DIR/install.sh")"
 for dep in $installer_deps; do
@@ -327,3 +336,94 @@ assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_sr
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "fourth list packaged"
 assert_file_not_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" LIST_FILES 'traffic uses lists-json, not direct files'
 assert_file_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" "api.read('lists-json')" 'traffic reads JSON through existing helper'
+
+# Exercise the actual CLI/modules in ash, with all system paths in a fixture.
+uninstall_root="$tmpdir/uninstall"
+mkdir -p "$uninstall_root/lib" "$uninstall_root/opt/clash/bin" "$uninstall_root/opt/clash/ui" \
+	"$uninstall_root/opt/clash/lst" "$uninstall_root/etc/mihowrt/policy-cache" \
+	"$uninstall_root/etc/config" "$uninstall_root/etc/init.d" "$uninstall_root/tmp/dnsmasq.test.d" \
+	"$uninstall_root/tmp/clash/ruleset" "$uninstall_root/tmp/clash/proxy_providers" \
+	"$uninstall_root/var/run/mihowrt" "$uninstall_root/tmp/mihowrt" "$uninstall_root/etc/crontabs"
+for module in "$MIHOWRT_LIB_DIR"/*.sh; do
+	sed -e "s|/opt/clash|@ROOT@/opt/clash|g" \
+		-e "s|/etc/|@ROOT@/etc/|g" \
+		-e "s|/tmp/|@ROOT@/tmp/|g" \
+		-e "s|/var/run/mihowrt|@ROOT@/var/run/mihowrt|g" \
+		-e "s|@ROOT@|$uninstall_root|g" \
+		"$module" >"$uninstall_root/lib/${module##*/}"
+done
+# Recovery still uses real dns_cleanup; nft/routes have no host effects.
+cat >>"$uninstall_root/lib/service.sh" <<'EOF'
+service_pid() { return 1; }
+nft_cleanup() { :; }
+route_cleanup() { :; }
+EOF
+cat >"$uninstall_root/etc/init.d/mihowrt" <<EOF
+#!/bin/ash
+[ ! -e /proc/self/fd/9 ] || exit 1
+printf 'init:%s\n' "\$*" >>"$uninstall_root/actions"
+EOF
+for daemon in cron dnsmasq; do
+	printf '#!/bin/ash\necho "%s:$*" >>"%s/actions"\n' "$daemon" "$uninstall_root" >"$uninstall_root/etc/init.d/$daemon"
+done
+chmod +x "$uninstall_root/etc/init.d/"*
+for removed in bin/clash ui/index.html GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do
+	touch "$uninstall_root/opt/clash/$removed"
+done
+for removed in subscription.json cache.db policy-cache/x dns.backup; do
+	touch "$uninstall_root/etc/mihowrt/$removed"
+done
+for kept in opt/clash/config.yaml opt/clash/config.yaml.bak opt/clash/lst/custom.txt opt/clash/manual.txt etc/config/mihowrt etc/mihowrt/hwid; do
+	printf 'keep\n' >"$uninstall_root/$kept"
+done
+for name in ruleset proxy_providers cache.db mihomo.sock; do
+	touch "$uninstall_root/tmp/clash/$name/fixture" 2>/dev/null || touch "$uninstall_root/tmp/clash/$name"
+	ln -s "$uninstall_root/tmp/clash/$name" "$uninstall_root/opt/clash/$name"
+done
+printf '0 * * * * user-job\n0 * * * * /usr/bin/mihowrt auto-update # mihowrt auto-update\n' >"$uninstall_root/etc/crontabs/root"
+touch "$uninstall_root/tmp/dnsmasq.test.d/mihowrt.conf"
+sed "s|/etc/init.d/mihowrt|$uninstall_root/etc/init.d/mihowrt|g" "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$uninstall_root/cli"
+MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
+assert_eq 'init:stop' "$(head -n 1 "$uninstall_root/actions")" "uninstall stops first, outside runtime lock"
+for removed in bin/clash ui GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb ruleset proxy_providers cache.db mihomo.sock; do
+	[[ ! -e "$uninstall_root/opt/clash/$removed" && ! -L "$uninstall_root/opt/clash/$removed" ]] || fail "uninstall removes $removed"
+done
+for removed in etc/mihowrt/subscription.json etc/mihowrt/cache.db etc/mihowrt/policy-cache etc/mihowrt/dns.backup tmp/mihowrt var/run/mihowrt tmp/clash tmp/dnsmasq.test.d/mihowrt.conf; do
+	[[ ! -e "$uninstall_root/$removed" ]] || fail "uninstall removes $removed"
+done
+for kept in opt/clash/config.yaml opt/clash/config.yaml.bak opt/clash/lst/custom.txt opt/clash/manual.txt etc/config/mihowrt etc/mihowrt/hwid; do
+	assert_file_contains "$uninstall_root/$kept" keep "uninstall keeps $kept"
+done
+assert_eq '0 * * * * user-job' "$(cat "$uninstall_root/etc/crontabs/root")" "uninstall keeps unrelated cron jobs"
+assert_eq 1 "$(grep -c '^cron:restart$' "$uninstall_root/actions")" "uninstall restarts cron once"
+assert_eq 1 "$(grep -c '^dnsmasq:restart$' "$uninstall_root/actions")" "uninstall restores DNS once"
+pass "uninstall removes generated assets and keeps user files"
+
+# A lingering supervisor must not leave the router pointing at a deleted core.
+# Keep markers outside removed directories to prove their explicit removal.
+cat >>"$uninstall_root/lib/service.sh" <<'EOF_STUBS'
+pgrep() { return 0; }
+RUNNING_MARKER="$CLASH_DIR/test-running"
+SERVICE_PID_FILE="$CLASH_DIR/test-pid"
+dns_cleanup() { [ -e /proc/self/fd/9 ] || return 1; echo dns >>"$CLASH_DIR/cleanup-calls"; }
+nft_cleanup() { echo nft >>"$CLASH_DIR/cleanup-calls"; }
+route_cleanup() { echo route >>"$CLASH_DIR/cleanup-calls"; }
+EOF_STUBS
+touch "$uninstall_root/opt/clash/test-running" "$uninstall_root/opt/clash/test-pid"
+MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
+assert_eq $'dns\nnft\nroute' "$(cat "$uninstall_root/opt/clash/cleanup-calls" 2>/dev/null || true)" "lingering supervisor still restores DNS/nft/routes under lock"
+for marker in test-running test-pid; do
+	[[ ! -e "$uninstall_root/opt/clash/$marker" ]] || fail "uninstall explicitly removes $marker"
+done
+pass "uninstall restores router state despite lingering supervisor"
+
+cat >>"$uninstall_root/lib/service.sh" <<'EOF_STUBS'
+cron_sync() { return 1; }
+EOF_STUBS
+touch "$uninstall_root/opt/clash/bin/clash" "$uninstall_root/opt/clash/GeoIP.dat"
+rc=0
+MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall || rc=$?
+assert_eq 1 "$rc" "uninstall reports cron cleanup failure"
+[[ ! -e "$uninstall_root/opt/clash/bin/clash" ]] || fail "cron failure must not skip core deletion"
+[[ ! -e "$uninstall_root/opt/clash/GeoIP.dat" ]] || fail "cron failure must not skip geodata deletion"
+pass "uninstall continues deletions after cron failure"

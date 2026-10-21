@@ -6,7 +6,7 @@ LIB="${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
 usage() {
 	cat >&2 <<'EOF'
 Usage: mihowrt <command>
-Service:  prepare | run-service | wait-stopped | recover | reload | migrate
+Service:  prepare | run-service | wait-stopped | recover | reload | migrate | uninstall
 Config:   read-config [tmp] | save-config <tmp> | restore-config
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
@@ -60,6 +60,12 @@ prepare) with_lock service_prepare ;;
 run-service) run_service ;;
 wait-stopped) service_wait_stopped ;;
 recover) with_lock service_recover ;;
+uninstall)
+	need_args $# 0
+	# Stop waits for run-service, which needs the runtime lock for cleanup.
+	/etc/init.d/mihowrt stop 9>&- >/dev/null 2>&1 || true
+	with_lock uninstall_cleanup
+	;;
 reload) with_lock service_reload ;;
 migrate) with_lock migrate ;;
 read-config) config_read_json "${1:-}" ;;

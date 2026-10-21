@@ -158,8 +158,7 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt recover >/dev/null 2>&1 || true
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt uninstall >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover disable >/dev/null 2>&1 || true
 }
 exit 0
@@ -168,46 +167,12 @@ endef
 define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
-	/etc/init.d/mihowrt stop >/dev/null 2>&1 || true
-	rm -f /etc/apk/protected_paths.d/mihowrt.list
-	cron_file=/etc/crontabs/root
-	if [ -f "$$cron_file" ] && grep -qE '# mihowrt (subscription |policy remote )?auto-update' "$$cron_file" 2>/dev/null; then
-		cron_tmp="$${cron_file}.mihowrt.$$$$"
-		if sed -e '/# mihowrt subscription auto-update/d' -e '/# mihowrt policy remote auto-update/d' -e '/# mihowrt auto-update/d' "$$cron_file" >"$$cron_tmp"; then
-			if ! cmp -s "$$cron_tmp" "$$cron_file"; then
-				if mv -f "$$cron_tmp" "$$cron_file"; then
-					/etc/init.d/cron restart >/dev/null 2>&1 || true
-				else
-					rm -f "$$cron_tmp"
-				fi
-			else
-				rm -f "$$cron_tmp"
-			fi
-		else
-			rm -f "$$cron_tmp"
-		fi
-	fi
-	rm -rf /opt/clash/ruleset
-	rm -rf /opt/clash/proxy_providers
-	rm -f /opt/clash/cache.db
-	rm -f /opt/clash/mihomo.sock
-	rm -rf /tmp/clash/ruleset
-	rm -rf /tmp/clash/proxy_providers
-	rm -f /tmp/clash/cache.db
-	rm -f /tmp/clash/mihomo.sock
-	rmdir /tmp/clash 2>/dev/null || true
-	rm -rf /tmp/mihowrt
-	rm -rf /var/run/mihowrt
-	rm -f /etc/mihowrt/dns.backup /etc/mihowrt/subscription.json /etc/mihowrt/cache.db
-	if ls /tmp/dnsmasq*.d/mihowrt.conf >/dev/null 2>&1; then
-		rm -f /tmp/dnsmasq*.d/mihowrt.conf
-		/etc/init.d/dnsmasq restart >/dev/null 2>&1 || true
-	fi
-	rm -rf /etc/mihowrt/policy-cache
-	rmdir /etc/mihowrt 2>/dev/null || true
-	rm -rf /www/luci-static/resources/view/mihowrt
-	rm -rf /www/luci-static/resources/mihowrt
+	rm -rf /tmp/mihowrt /var/run/mihowrt /tmp/clash
+	rmdir /opt/clash/bin /opt/clash /etc/mihowrt 2>/dev/null || true
+	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
+	rm -rf /tmp/luci-modulecache 2>/dev/null || true
 }
+exit 0
 endef
 
 $(eval $(call BuildPackage,$(PKG_NAME)))

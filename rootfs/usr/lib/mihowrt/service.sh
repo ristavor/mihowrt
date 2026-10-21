@@ -99,6 +99,27 @@ service_recover() {
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE"
 }
 
+# Called under the runtime lock, after init stop was attempted outside it.
+uninstall_cleanup() {
+	local name="" rc=0
+
+	service_recover || rc=1
+	# Uninstall must restore direct routing even if run-service is still alive.
+	policy_cleanup || rc=1
+	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE" || rc=1
+	cron_sync "$CRON_MARKER" 0 "" || rc=1
+	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$CACHE_DB_LINK" || rc=1
+	rm -f "$CLASH_DIR/mihomo.sock" "$CLASH_BIN" || rc=1
+	rm -rf "$CLASH_DIR/ui" || rc=1
+	for name in GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do
+		rm -f "$CLASH_DIR/$name" || rc=1
+	done
+	rm -f "$PKG_PERSIST_DIR/subscription.json" "$PKG_PERSIST_DIR/cache.db" "$PKG_PERSIST_DIR/dns.backup" || rc=1
+	rm -rf "$POLICY_CACHE_DIR" || rc=1
+	rm -rf "$PKG_TMP_DIR" "$PKG_STATE_DIR" "${CACHE_DB_TMPFS%/*}" || rc=1
+	return "$rc"
+}
+
 # Build and check a runtime config from $CLASH_CONFIG; remember the result.
 runtime_config_build() {
 	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1

@@ -457,7 +457,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(shown(pingOf(hp, 1)), '', 'no history for the current server: empty');
  h.assertEq(texts(hs[1].children[0]).join(''), 'A — 7 ms', 'history latency in options');
  h.assertEq(shown(pingOf(hp, 2)), '', 'no history: empty ping');
- h.assertEq(shown(pingOf(hp, 3)), 'Responding: 2 of 3', 'LoadBalance summary');
+ const lbStatus = collect(hp).find(n => n.attrs.id === hs[3].attrs['aria-describedby']);
+ h.assertEq(shown(lbStatus), 'Responding: 2 of 3', 'LoadBalance summary');
+ h.assert(!/mw-ping/.test(lbStatus.attrs.class || '') && shown(pingOf(hp, 3)) === '', 'LoadBalance summary on the note line, row ping only keeps the column');
  h.assertEq(texts(hs[3].children[1]).join(''), 'A', 'LoadBalance options without latency');
  // A test result without a server means it timed out.
  calls.length = 0;

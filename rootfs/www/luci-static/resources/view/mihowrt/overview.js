@@ -220,7 +220,10 @@ function groupsSection(groups) {
 			const id = 'mw-group-' + index;
 			// Mihomo cannot pin a LoadBalance group: show it, allow a test.
 			const fixedOnly = group.type === 'LoadBalance';
-			const ping = E('span', { id: id + '-ping', class: 'mw-muted mw-ping' }, text(pingText(group)));
+			// LoadBalance: the wider "Responding: N of M" goes on the note line, so its
+			// empty ping only keeps the Test buttons in one column.
+			const status = E('span', { id: id + '-ping', class: fixedOnly ? null : 'mw-muted mw-ping' }, text(pingText(group)));
+			const ping = fixedOnly ? E('span', { class: 'mw-muted mw-ping' }) : status;
 			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null, 'aria-describedby': id + '-ping' });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
@@ -231,7 +234,7 @@ function groupsSection(groups) {
 			};
 			const show = () => {
 				previous = groupOptions(select, group);
-				ping.textContent = pingText(group);
+				status.textContent = pingText(group);
 			};
 
 			select.addEventListener('change', async () => {
@@ -259,8 +262,8 @@ function groupsSection(groups) {
 				show();
 			});
 			test.addEventListener('click', async () => {
-				const before = ping.textContent;
-				ping.textContent = '…';
+				const before = status.textContent;
+				status.textContent = '…';
 				// The test re-reads the group: a switch meanwhile would be overwritten.
 				select.disabled = true;
 				const done = await api.busy(test, async () => {
@@ -271,17 +274,17 @@ function groupsSection(groups) {
 					group.delays = Object.fromEntries(group.all.map((name) => [ name, result[name] || 0 ]));
 					show();
 					live.textContent = '';
-					live.textContent = '%s: %s — %s'.format(group.name, group.type === 'LoadBalance' ? _('All servers in turn') : group.now, ping.textContent);
+					live.textContent = '%s: %s — %s'.format(group.name, fixedOnly ? _('All servers in turn') : group.now, status.textContent);
 					return true;
 				});
 				select.disabled = fixedOnly;
 				if (!done)
-					ping.textContent = before;
+					status.textContent = before;
 			});
 			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, test, ping ]) ];
 			// The note gets its own grid row: a wrapped row would push the label off its select.
 			if (fixedOnly)
-				cells.push(E('span'), E('span', { class: 'mw-muted' }, text(_('Mihomo spreads connections across these servers'))));
+				cells.push(E('span'), E('span', { class: 'mw-muted' }, [ _('Mihomo spreads connections across these servers'), ' · ', status ]));
 			return cells;
 		}))
 	]);

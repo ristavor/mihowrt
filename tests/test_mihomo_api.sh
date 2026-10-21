@@ -18,6 +18,7 @@ cat >"$tmpdir/bin/curl" <<'C'
 printf '%s\n' "$*" >>"$CURL_LOG"
 [ "${CURL_EXIT:-0}" = 0 ] || exit "$CURL_EXIT"
 printf '%s' "$CURL_BODY"
+case " $* " in *" -w "*) printf '\n%s' "${CURL_CODE:-200}" ;; esac
 C
 chmod +x "$tmpdir/bin/curl"
 export CURL_LOG="$tmpdir/curl.log"
@@ -51,4 +52,8 @@ CURL_BODY='{"proxies":{"G":{"type":"URLTest","now":"B","fixed":"A","all":["A","B
 body='{"proxies":{"GLOBAL":{"all":["FB","Auto","A"]},"Proxy":{"type":"Selector","all":["A"]},"Auto":{"type":"URLTest","all":["A"]},"FB":{"type":"Fallback","all":["A"]},"A":{"type":"Direct"}}}'
 assert_eq 'FB,Auto,Proxy' "$(CURL_BODY="$body" api_proxies_json | jq -r 'map(.name)|join(",")')" 'GLOBAL order then missing groups'
 CURL_BODY='{"proxies":{"G":{"type":"Selector","now":"A","all":["A","B","C"],"history":[]},"A":{"type":"Http","history":[{"delay":5},{"delay":42}]},"B":{"type":"Http","history":[{"delay":0}]},"C":{"type":"Http","history":[]}}}' api_proxies_json | jq -e '.[0].delays == {"A":42,"B":0}' >/dev/null || fail "last Mihomo history delay per server, none when unchecked"
+assert_eq '{"A":12}' "$(CURL_BODY='{"A":12}' api_group_delay G)" "group delay result"
+assert_eq '{}' "$(CURL_CODE=504 CURL_BODY='{"message":"get delay: all proxies timeout"}' api_group_delay G)" "no server answered: empty result, not an error"
+if CURL_CODE=401 CURL_BODY='{"message":"Unauthorized"}' api_group_delay G >/dev/null 2>&1; then fail "other HTTP errors must fail"; fi
+if CURL_EXIT=7 CURL_BODY='' api_group_delay G >/dev/null 2>&1; then fail "socket failure must fail"; fi
 pass 'GLOBAL group ordering'

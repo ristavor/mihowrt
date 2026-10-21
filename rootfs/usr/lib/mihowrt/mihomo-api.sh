@@ -62,6 +62,19 @@ api_select() {
 	fi
 }
 
+# {server: ms} for servers that answered. Mihomo replies 504 when none did:
+# that is a result (all "no response"), not an error.
 api_group_delay() {
-	api_request GET "/group/$(uri_encode "$1")/delay?url=$(uri_encode "$API_DELAY_URL")&timeout=5000" "" 30
+	local out code
+
+	out="$(curl -sS -m 30 --unix-socket "$MIHOMO_SOCKET_TMPFS" -H "Authorization: Bearer $API_SECRET" -w '\n%{http_code}' \
+		"http://localhost/group/$(uri_encode "$1")/delay?url=$(uri_encode "$API_DELAY_URL")&timeout=5000")" || return 1
+	code="${out##*
+}"
+	case "$code" in
+	2??) printf '%s\n' "${out%
+*}" ;;
+	504) printf '{}\n' ;;
+	*) printf 'Mihomo API error: HTTP %s\n' "$code" >&2; return 1 ;;
+	esac
 }

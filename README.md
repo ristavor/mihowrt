@@ -8,7 +8,9 @@ updates and self-healing.
 
 Typical use:
 
-- **Most users** paste a subscription link and press *Connect*.
+- **Most users** paste a subscription link and press *Connect*. The
+  subscription decides the mode, DNS and router settings (provider-first);
+  every provider setting can be overridden on the router.
 - **Advanced users** edit the Mihomo YAML on the *Subscription* page.
 - Everyone can keep addresses or devices always via proxy or always direct on the *Traffic* page.
 
@@ -58,19 +60,62 @@ service is stopped, settings are migrated and the new version starts again.
 | Page | What it does |
 |---|---|
 | Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
-| Subscription | Subscription link and update interval; *Advanced* holds the YAML editor (*Check and apply*) |
-| Traffic | Mode, lists, devices from DHCP leases; *Advanced* holds interfaces, DNS redirect, QUIC block, NTP and subscription DNS bypass, NetBird |
+| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*) |
+| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases, provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, NTP and subscription DNS bypass, NetBird |
 | Diagnostics | Checklist with fixes (core, config, service, DNS answers, rules, conflicting dnsmasq servers), details and log |
 
 ### Modes
 
-- **Only selected traffic via proxy** (default): addresses and devices from the
-  lists, plus domains that Mihomo answers with a fake-IP (usually the blocked
-  sites of your subscription), go to Mihomo. Everything else is direct.
-- **All traffic via proxy except exclusions**: all TCP/UDP goes to Mihomo,
-  except the *Addresses always direct* list.
+The mode follows the DNS settings of your YAML; there is no switch:
+
+- **Only selected traffic via proxy**: only when `dns.enhanced-mode` is
+  `fake-ip` and `dns.fake-ip-filter-mode` is `whitelist`. Addresses and
+  devices from the lists, plus domains that Mihomo answers with a fake-IP
+  (usually the blocked sites of your subscription), go to Mihomo. Everything
+  else is direct.
+- **All traffic via proxy except exclusions**: every other case (blacklist or
+  rule filter, `redir-host`, `normal`, no `dns` section). All TCP/UDP goes to
+  Mihomo, except *Addresses always direct* and *Devices always direct*.
+  *Devices always direct* needs DNS mode `redir-host` or `normal`: with
+  fake-IP their domains would resolve to addresses only Mihomo can reach.
 
 In both modes Mihomo's own rules decide the outbound (proxy group or DIRECT).
+
+**Upgrade note (0.9.0):** subscriptions without a fake-IP whitelist now run in
+*All traffic via proxy* mode. The UCI option `policy_mode` is removed.
+
+### Provider settings (`x-mihowrt`)
+
+A provider (or you, in the YAML) can set router options in a top-level
+`x-mihowrt` section. It is removed from the config Mihomo gets:
+
+```yaml
+x-mihowrt:
+  disable-quic: true            # Block QUIC for proxied traffic
+  dns-hijack: true              # Redirect client DNS to Mihomo
+  bypass-ntp: true              # Time sync without Mihomo
+  bypass-subscription-dns: true # Subscription server without Mihomo
+  lists-interval: 24            # remote list refresh, hours (0-8760)
+  proxy-ips:                    # "Only selected" mode: always via Mihomo
+    - https://provider.example/telegram.txt
+    - 91.108.4.0/22
+  direct-ips:                   # "All traffic" mode: bypass Mihomo
+    - https://provider.example/ru.txt
+```
+
+Booleans: `true/false/yes/no/on/off/1/0`. Block style only; an invalid or
+unknown key is ignored with a warning in the log and never rejects the
+subscription. Without a key the router setting applies. NetBird, client
+interfaces, device lists and the update period are never provider-controlled.
+
+On the *Traffic* page a provider value is shown read-only with *Set by your
+provider*; *Use my own value* switches that one setting to your value (UCI
+`list provider_override`), even when the provider later drops or re-adds the
+key. A provider list offers *Provider list* (default), *Provider list + mine*
+and *Only mine* (UCI `dst_list_source` / `direct_list_source`). Your list file
+is never deleted; with *Provider list* the page says how many of your entries
+are not applied. Provider values are kept in tmpfs
+(`/tmp/mihowrt/config.yaml.profile`), never in UCI or flash.
 
 ### Lists
 
@@ -88,6 +133,8 @@ https://example.com/list.txt;443   # remote list, cached on flash
 
 Remote lists are refreshed every *Update remote lists every (hours)* or with the
 button. Applying policy never waits for the network: it uses the cache.
+Provider list entries are validated the same way; invalid ones are dropped
+with a warning.
 
 ## How it works
 
@@ -110,14 +157,24 @@ profile:                 # selected servers and fake-ip mappings survive restart
 external-controller: <LAN IP>:9090
 external-controller-unix: /tmp/clash/mihomo.sock
 secret: "<generated, stored in UCI>"
-# and inside dns: enable, listen 0.0.0.0:7874, enhanced-mode fake-ip,
-# fake-ip-range 198.18.0.0/16
+external-ui: ui          # dashboard (zashboard), owned by the router
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
+# and inside dns: enable, listen 0.0.0.0:7874, and fake-ip-range
+# 198.18.0.0/16 when enhanced-mode is fake-ip (fake-ip-range6 is dropped)
 ```
 
-`ipv6` and `dns.ipv6` stay as you set them. There is no YAML parser: top-level
-blocks are replaced line by line, so flow style (`dns: {…}`) is rejected with
-an error. Every change is validated with `mihomo -t` before it is used; Mihomo's
-own error message is shown in LuCI.
+`dns.enhanced-mode`, `ipv6`, `dns.ipv6` and other keys (`mixed-port` …) stay
+as you set them. Without a `dns` section MihoWRT adds one: `redir-host`, DoH
+servers 1.1.1.1/9.9.9.9/8.8.8.8 for bootstrap, Yandex DoH for direct domains,
+and Cloudflare/Google DoH queried through the first proxy group
+(`https://dns.google/dns-query#<group>`; plain when the group name has `#`,
+`&`, `"` or `\`). Without a `sniffer` section a default one sniffs HTTP
+(80, 8080-8880) and TLS (443, 8443); a provider sniffer is never touched.
+There is no YAML parser: top-level blocks are replaced line by line, so flow
+style (`dns: {…}`, `x-mihowrt: {…}`) is rejected with an error. Every change is validated with `mihomo -t` before it is used; Mihomo's
+own error message is shown in LuCI. The result is remembered in
+`/var/run/mihowrt/config.ok|config.err` for Diagnostics, so status never runs
+the core.
 
 ### DNS
 
@@ -145,14 +202,16 @@ download. Only the router's own traffic is affected, not LAN clients.
 ### Self-healing
 
 - **Watchdog:** every 15 s MihoWRT asks Mihomo to resolve `openwrt.org`
-  through its API. After 3 failures in a row (about 45–60 s), it removes the
-  DNS file, nft table and routes, so the network works directly, and exits.
-  procd restarts it after 5 s, and interception returns once Mihomo is ready.
+  through its API. After 3 failures in a row (about 45–60 s) it removes the
+  DNS file, nft table and routes, so the network works directly, and keeps
+  probing; the first good answer applies the policy again. If the Mihomo API
+  itself does not answer, the service exits and procd restarts it after 5 s.
   After 5 failed restarts in an hour procd gives up and the router stays
   direct until the WAN comes up again (hotplug restarts an enabled service)
   or you press Start.
 - **Stop** is synchronous: it returns after DNS, nft and routes are clean
-  (procd `term_timeout 30`).
+  (procd `term_timeout 30`). It is also sticky: WAN hotplug does not start
+  a stopped service again until Start or a reboot (`/var/run/mihowrt/stopped`).
 - **Boot:** `mihowrt-recover` clears leftovers even when autostart is off.
 - **Memory:** Mihomo runs with `GOMEMLIMIT` = half of RAM. This is the Go
   runtime's soft heap target: the garbage collector works harder near it
@@ -160,6 +219,14 @@ download. Only the router's own traffic is affected, not LAN clients.
   small routers. It is not a hard cap.
 - **Config changes** are hot-reloaded through the API. If Mihomo rejects the
   new config, the previous one is restored.
+- **Updates keep traffic flowing:** the nft table is replaced in one kernel
+  transaction (packets see the old or the new ruleset, never none) and an
+  identical ruleset is not applied again; a subscription with the same bytes
+  is not written or reloaded (`unchanged`); when only `x-mihowrt` changed,
+  Mihomo is not reloaded; dnsmasq restarts only when its file changes or the
+  DNS mode switches (to drop cached fake-IP answers). The remaining gap is
+  Mihomo's own reload, which pauses new connections until rules and
+  providers are loaded (usually well under a second).
 
 ### nftables and routing
 
@@ -183,14 +250,16 @@ direct until they reconnect. With zapret, keep zapret's own offload exclusions.
 ### Scheduled updates
 
 One cron line at a per-router random minute runs `mihowrt auto-update` hourly.
-It updates the subscription (provider interval by default, 24 h without one)
-and remote lists when they are due.
+With *Update automatically* on (default) the subscription is updated at the
+period the provider sets in the `profile-update-interval` header; without the
+header there are no automatic updates (the provider's choice), only *Update
+now*. Remote lists are refreshed when due.
 
 ## Command line
 
 ```text
 mihowrt status-json | logs-json [lines] | subscription-json | proxies-json
-mihowrt update-subscription | set-subscription <url> <hours|''>
+mihowrt update-subscription | set-subscription <url> <0|1> | profile-json
 mihowrt update-lists | core-update | recover | reload | dashboard-json
 /etc/init.d/mihowrt start | stop | restart | reload | enable | disable
 ```
@@ -201,10 +270,10 @@ mihowrt update-lists | core-update | recover | reload | dashboard-json
 |---|---|
 | `/etc/config/mihowrt` | Settings (UCI) |
 | `/opt/clash/config.yaml` | Your Mihomo YAML (backup: `config.yaml.bak`) |
-| `/opt/clash/lst/*.txt` | Policy lists |
+| `/opt/clash/lst/*.txt` | Policy lists (`direct_src.txt`: devices always direct) |
 | `/opt/clash/bin/clash` | Mihomo core |
 | `/etc/mihowrt/` | HWID, subscription metadata, remote list cache, saved proxy selection |
-| `/tmp/mihowrt/config.yaml` | Generated runtime config |
+| `/tmp/mihowrt/config.yaml` | Generated runtime config (`.profile`: mode and provider settings) |
 
 ## Development
 

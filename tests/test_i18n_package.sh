@@ -5,7 +5,7 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 
 # Check Makefile package version
-assert_file_contains "$ROOT_DIR/Makefile" "PKG_VERSION:=0.8.2" "Makefile PKG_VERSION should be 0.8.2"
+assert_file_contains "$ROOT_DIR/Makefile" "PKG_VERSION:=0.9.0" "Makefile PKG_VERSION should be 0.9.0"
 
 # Check Makefile package definitions
 assert_file_contains "$ROOT_DIR/Makefile" "define Package/luci-i18n-mihowrt-ru" "Makefile should define Package/luci-i18n-mihowrt-ru"

@@ -72,9 +72,6 @@ msgstr "Интерфейсы клиентов"
 msgid "List entries"
 msgstr "Записи в списках"
 
-msgid "proxy %d, devices %d, direct %d"
-msgstr "через прокси %d, устройств %d, напрямую %d"
-
 msgid "Routing table"
 msgstr "Таблица маршрутизации"
 
@@ -134,9 +131,6 @@ msgstr "Подписка подключена. MihoWRT запускается."
 
 msgid "Connect a subscription"
 msgstr "Подключите подписку"
-
-msgid "Paste the link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing."
-msgstr "Вставьте ссылку от вашего VPN-провайдера. MihoWRT скачает конфигурацию, проверит её и включит маршрутизацию."
 
 msgid "Install Mihomo core"
 msgstr "Установить ядро Mihomo"
@@ -228,9 +222,6 @@ msgstr "%s теперь использует %s."
 msgid "timeout"
 msgstr "нет ответа"
 
-msgid "Chosen automatically by Mihomo"
-msgstr "Выбирает Mihomo автоматически"
-
 msgid "Open dashboard"
 msgstr "Открыть панель"
 
@@ -251,9 +242,6 @@ msgstr "MihoWRT %s, Mihomo %s"
 
 msgid "MihoWRT"
 msgstr "MihoWRT"
-
-msgid "auto"
-msgstr "авто"
 
 msgid "Save"
 msgstr "Сохранить"
@@ -279,20 +267,8 @@ msgstr "Конфигурация проверена и применена."
 msgid "Configuration checked and saved."
 msgstr "Конфигурация проверена и сохранена."
 
-msgid "Link from your VPN provider. Leave empty to manage the YAML yourself."
-msgstr "Ссылка от VPN-провайдера. Оставьте пустой, если ведёте YAML вручную."
-
-msgid "Update every (hours)"
-msgstr "Обновлять каждые (часов)"
-
-msgid "Empty: use the provider's interval (now %d h). 0: never update automatically."
-msgstr "Пусто — интервал провайдера (сейчас %d ч). 0 — не обновлять автоматически."
-
 msgid "Advanced: edit the Mihomo YAML"
 msgstr "Дополнительно: редактировать YAML Mihomo"
-
-msgid "MihoWRT manages ports, routing mark, TUN and the controller itself; those keys are overridden. Updating the subscription replaces this file."
-msgstr "Порты, метку маршрутизации, TUN и контроллер MihoWRT задаёт сама — эти ключи переопределяются. Обновление подписки заменяет этот файл."
 
 msgid "One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments."
 msgstr "По одной записи в строке: IPv4- или IPv6-адрес либо подсеть, при необходимости с портами (1.1.1.1;443, 2001:db8::/32). Строка со ссылкой (https://…) подключает удалённый список. Строки с # — комментарии."
@@ -305,9 +281,6 @@ msgstr "Основное"
 
 msgid "Advanced"
 msgstr "Дополнительно"
-
-msgid "In the first mode only the lists below and blocked sites from your subscription use the proxy."
-msgstr "В первом режиме через прокси идут только списки ниже и заблокированные сайты из подписки."
 
 msgid "Addresses via proxy"
 msgstr "Адреса через прокси"
@@ -383,3 +356,111 @@ msgstr "В поле «%s» неверные строки: %s"
 
 msgid "Overview"
 msgstr "Обзор"
+
+msgid "%d of your entries are not applied."
+msgstr "%d ваших записей не применяются."
+
+msgid "%s chooses the server automatically again."
+msgstr "%s снова выбирает сервер автоматически."
+
+msgid "All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change."
+msgstr "Весь трафик этих устройств идёт мимо Mihomo. Используйте статические DHCP-аренды, чтобы адреса не менялись."
+
+msgid "All traffic via proxy except exclusions (subscription DNS: %s)"
+msgstr "Весь трафик через прокси, кроме исключений (DNS подписки: %s)"
+
+msgid "Auto — %s"
+msgstr "Авто — %s"
+
+msgid "Configuration is unchanged."
+msgstr "Конфигурация не изменилась."
+
+msgid "Configuration not checked yet (it is checked at start)"
+msgstr "Конфигурация ещё не проверялась (проверка при запуске)"
+
+msgid "DNS mode"
+msgstr "Режим DNS"
+
+msgid "Devices always direct"
+msgstr "Устройства всегда напрямую"
+
+msgid "Disabled"
+msgstr "Выключено"
+
+msgid "Enabled"
+msgstr "Включено"
+
+msgid "Link to a Clash/Mihomo (YAML) subscription from your provider. Leave empty to manage the YAML yourself."
+msgstr "Ссылка на подписку Clash/Mihomo (YAML) от провайдера. Оставьте пустой, чтобы вести YAML самостоятельно."
+
+msgid "MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file."
+msgstr "MihoWRT сам управляет портами, меткой маршрутизации, TUN, контроллером и панелью; эти ключи переопределяются. Обновление подписки, в том числе автоматическое, заменяет этот файл."
+
+msgid "Mihomo says: %s"
+msgstr "Ответ Mihomo: %s"
+
+msgid "Mihomo spreads connections across these servers"
+msgstr "Mihomo распределяет соединения по этим серверам"
+
+msgid "My entries"
+msgstr "Мои записи"
+
+msgid "Needs subscription DNS mode redir-host or normal."
+msgstr "Нужен режим DNS подписки redir-host или normal."
+
+msgid "Only mine"
+msgstr "Только мой"
+
+msgid "Only selected traffic via proxy (set by the subscription: fake-IP whitelist)"
+msgstr "Через прокси только выбранный трафик (задано подпиской: белый список fake-IP)"
+
+msgid "Only when you press Update now."
+msgstr "Только по кнопке «Обновить сейчас»."
+
+msgid "Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing."
+msgstr "Вставьте ссылку на подписку Clash/Mihomo (YAML) от VPN-провайдера. MihoWRT скачает конфигурацию, проверит её и включит маршрутизацию."
+
+msgid "Provider list (%d entries)"
+msgstr "Список провайдера (записей: %d)"
+
+msgid "Provider list + mine"
+msgstr "Список провайдера + мой"
+
+msgid "Provider lists"
+msgstr "Списки провайдера"
+
+msgid "Provider settings"
+msgstr "Настройки провайдера"
+
+msgid "Set by your provider."
+msgstr "Задано провайдером."
+
+msgid "Subscription is up to date."
+msgstr "Подписка уже актуальна."
+
+msgid "Unknown:"
+msgstr "Неизвестно:"
+
+msgid "Update automatically"
+msgstr "Обновлять автоматически"
+
+msgid "Use my own value"
+msgstr "Использовать своё значение"
+
+msgid "Your provider decides how often (now every %d h)."
+msgstr "Частоту задаёт провайдер (сейчас каждые %d ч)."
+
+msgid "Your provider does not set an update period, so the subscription is updated only when you press Update now."
+msgstr "Провайдер не задаёт период обновления, поэтому подписка обновляется только по кнопке «Обновить сейчас»."
+
+msgid "direct %d"
+msgstr "напрямую %d"
+
+msgid "none"
+msgstr "нет"
+
+msgid "proxy %d, devices %d, direct %d, direct devices %d"
+msgstr "прокси %d, устройства %d, напрямую %d, устройства напрямую %d"
+
+msgid "via proxy %d"
+msgstr "через прокси %d"

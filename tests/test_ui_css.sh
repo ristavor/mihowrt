@@ -23,7 +23,7 @@ assert(/\.mw-status\s*\{[^}]*flex-direction:\s*column/.test(css), 'status facts 
 assert(/\.mw-actions\s*>\s*\.cbi-button\s*\{[^}]*flex:\s*1 1 auto/.test(css), 'phone action buttons share the row');
 const overview = fs.readFileSync(path.join(root, 'rootfs/www/luci-static/resources/view/mihowrt/overview.js'), 'utf8');
 assert(/class: 'mw-toggle'/.test(api), 'toggle wrapper marked for spacing');
-assert(/function linkButton/.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');
+assert(/function linkButton/.test(api) && /api\.linkButton\(sub\./.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');
 assert(/cells\.push\(E\('span'\), E\('span', \{ class: 'mw-muted' \}/.test(overview), 'LoadBalance note on its own grid row');
 console.log('ok - layout review spacing and alignment');
 NODE

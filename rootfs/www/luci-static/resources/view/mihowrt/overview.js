@@ -2,12 +2,6 @@
 'require view';
 'require mihowrt.api as api';
 
-function modeLabel(mode) {
-	return mode === 'proxy-first'
-		? _('All traffic via proxy except exclusions')
-		: _('Only selected traffic via proxy');
-}
-
 function firstRunCard() {
 	const url = E('input', {
 		// type=text: some themes (openwrt-2020) style only text inputs.
@@ -93,20 +87,11 @@ function statusSection(status) {
 	return E('div', { class: 'cbi-section' }, [
 		E('div', { class: 'mw-status' }, [
 			E('strong', text(headline)),
-			E('span', { class: 'mw-muted' }, text(modeLabel(status.mode))),
+			E('span', { class: 'mw-muted' }, text(api.modeLabel(status.mode))),
 			E('span', { class: 'mw-muted' }, text(status.enabled ? _('Starts at boot') : _('Does not start at boot')))
 		]),
 		E('div', { class: 'mw-row' }, [ toggle, restart ])
 	]);
-}
-
-// Provider links as theme buttons (some themes leave a.cbi-button unstyled).
-function linkButton(url, label) {
-	if (!/^https?:\/\//i.test(String(url || '')))
-		return null;
-	const button = E('button', { class: 'cbi-button', type: 'button' }, text(label));
-	button.addEventListener('click', () => window.open(String(url), '_blank', 'noopener,noreferrer'));
-	return button;
 }
 
 // Provider text stays text; only http(s) runs become safe links.
@@ -141,7 +126,7 @@ function subscriptionSection(sub) {
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
 		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval) : _('Off') ]
 	];
-	const links = [ linkButton(sub.support_url, _('Support')), linkButton(sub.web_page_url, _('Website')) ].filter(Boolean);
+	const links = [ api.linkButton(sub.support_url, _('Support')), api.linkButton(sub.web_page_url, _('Website')) ].filter(Boolean);
 	const warning = subscriptionWarning(sub);
 
 	update.addEventListener('click', () => api.busy(update, async () => {
@@ -152,8 +137,7 @@ function subscriptionSection(sub) {
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
 		}
-		api.notify(res.action === 'unchanged' ? _('Subscription is up to date.')
-			: res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.'));
+		api.notify(api.actionNotice(res.action));
 		location.reload();
 	}));
 
@@ -161,7 +145,7 @@ function subscriptionSection(sub) {
 		E('h3', text(sub.profile_title || _('Subscription'))),
 		warning ? E('div', { class: 'alert-message warning' }, text(warning)) : '',
 		sub.announce ? E('p', { class: 'mw-announce' }, announce(sub.announce)) : '',
-		E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ])),
+		api.infoGrid(rows),
 		E('div', { class: 'mw-row mw-actions' }, [ update ].concat(links))
 	]);
 }

@@ -2,6 +2,8 @@
 'require baseclass';
 'require fs';
 'require ui';
+'require request';
+'require rpc';
 
 // Single bridge between the views and /usr/bin/mihowrt. Read calls go through
 // mihowrt-read so the LuCI read ACL can never run a mutating command.
@@ -36,14 +38,29 @@ const CSS = `
 `;
 
 function errorText(res) {
-	const text = String(res?.stderr || res?.stdout || '').replace(/^Error: /gm, '').trim();
-	return text || _('Unknown error');
+	const output = res?.stderr || res?.stdout;
+	const message = String(output || res?.message || (typeof res === 'string' ? res : '')).replace(/^Error: /gm, '').trim();
+	// Backend output is not a LuCI transport error, even if it mentions one.
+	if (output || res?.name === 'CommandError' || res?.name === 'JobError')
+		return message || _('Unknown error');
+	if (res?.name === 'TimeoutError' || (res?.name === 'Error' && message === 'XHR request timed out'))
+		return _('The router did not answer in time. The operation may still be running; check again in a minute.');
+	if (res?.name === 'PermissionError' || (res?.name === 'Error' && message === 'Access denied')
+		|| (res?.name === 'RPCError' && /failed with (?:ubus code 6:|HTTP error 403:)/.test(message)))
+		return _('Access denied. Log in to LuCI again.');
+	return message || _('Unknown error');
 }
 
 async function run(bin, args) {
-	const res = await fs.exec(bin, args);
+	let res;
+	try {
+		res = await fs.exec(bin, args);
+	}
+	catch (e) {
+		throw new Error(errorText(e));
+	}
 	if (res.code !== 0)
-		throw new Error(errorText(res));
+		throw Object.assign(new Error(errorText(res)), { name: 'CommandError' });
 	return res.stdout || '';
 }
 
@@ -58,7 +75,67 @@ async function json(bin, args) {
 }
 
 function randomSuffix() {
-	return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+	return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
+}
+
+const JOB_LABELS = {
+	'connect': _('Connect'),
+	'core-update': _('Update Mihomo core'),
+	'update-subscription': _('Update subscription'),
+	'update-lists': _('Update remote lists'),
+	'apply-lists': _('Save & Apply'),
+	'save-config': _('Check and apply'),
+	'restore-config': _('Restore the previous YAML'),
+	'service': _('Start / Stop / Restart')
+};
+
+const ACCESS_DENIED = _('Access denied. Log in to LuCI again.');
+let waitingJobs = 0;
+
+async function waitJob(api, id) {
+	let failures = 0;
+	for (;;) {
+		await new Promise(resolve => setTimeout(resolve, 1000));
+		let status;
+		try {
+			status = await api.read('job-status', id);
+			failures = 0;
+		}
+		catch (e) {
+			if (++failures < 10)
+				continue;
+			throw new Error(errorText(e) === ACCESS_DENIED ? ACCESS_DENIED
+				: _('Lost connection to the router while waiting for the result.'));
+		}
+		if (status.state === 'ok')
+			return status.result;
+		if (status.state === 'error')
+			throw Object.assign(new Error(status.error), { name: 'JobError' });
+	}
+}
+
+function modeLabel(mode) {
+	return mode === 'proxy-first'
+		? _('All traffic via proxy except exclusions')
+		: _('Only selected traffic via proxy');
+}
+
+// Provider links as theme buttons (some themes leave a.cbi-button unstyled).
+function linkButton(url, label) {
+	if (!safeLink(url, label))
+		return null;
+	const button = E('button', { class: 'cbi-button', type: 'button' }, text(label));
+	button.addEventListener('click', () => window.open(String(url), '_blank', 'noopener,noreferrer'));
+	return button;
+}
+
+function infoGrid(rows) {
+	return E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ]));
+}
+
+function actionNotice(action) {
+	return action === 'unchanged' ? _('Subscription is up to date.')
+		: action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.');
 }
 
 // Values from providers are untrusted: they always become text nodes.
@@ -155,7 +232,7 @@ async function busy(button, action) {
 		return await action();
 	}
 	catch (e) {
-		notify(e.message, 'error');
+		notify(errorText(e), 'error');
 		return null;
 	}
 	finally {
@@ -178,12 +255,88 @@ return baseclass.extend({
 	read: (cmd, ...args) => json(READ, [ cmd, ...args ]),
 	write: (cmd, ...args) => json(WRITE, [ cmd, ...args ]),
 	service: (action) => run(INIT, [ action ]),
+	jobRunning: false,
+	job: async function(op, ...args) {
+		waitingJobs++;
+		this.jobRunning = true;
+		try {
+			const started = await this.write('job-start', op, ...args);
+			return await waitJob(this, started.id);
+		}
+		finally {
+			this.jobRunning = --waitingJobs > 0;
+		}
+	},
+	jobNotice: function() {
+		const notice = E('div', { 'aria-live': 'polite' });
+		this.read('job-status').then(async status => {
+			if (status.state !== 'running')
+				return;
+			const alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(JOB_LABELS[status.op] || status.op)));
+			notice.appendChild(alert);
+			try {
+				await waitJob(this, status.id);
+			}
+			catch (e) {
+				// A terminal job error still requires fresh page data. A lost
+				// connection does not: keep its recovery message visible.
+				if ([ ACCESS_DENIED, _('Lost connection to the router while waiting for the result.') ].includes(e.message)) {
+					alert.textContent = errorText(e);
+					return;
+				}
+			}
+			location.reload();
+		}).catch(e => {
+			notice.appendChild(E('div', { class: 'alert-message notice' }, text(errorText(e))));
+		});
+		return notice;
+	},
 	upload: async (prefix, content) => {
+		if (![ 'mihowrt-config', 'mihowrt-policy-list' ].includes(prefix))
+			throw new Error(_('Invalid upload path.'));
 		const path = '/tmp/%s.%s'.format(prefix, randomSuffix());
-		await fs.write(path, content);
+		const blob = new Blob([ content ]);
+		const data = new FormData();
+		data.append('sessionid', rpc.getSessionID());
+		data.append('filename', path);
+		data.append('filedata', blob);
+		const response = await request.post(L.env.cgi_base + '/cgi-upload', data, { timeout: 0 });
+		if (!response.ok || response.status !== 200)
+			throw new Error(response.status === 403 ? ACCESS_DENIED : _('Unexpected response from the router.'));
+		let reply;
+		try {
+			reply = response.json();
+		}
+		catch (e) {
+			if (e.name === 'SyntaxError')
+				throw new Error(_('Unexpected response from the router.'));
+			throw e;
+		}
+		if (reply?.failure)
+			throw new Error(reply.message);
+		if (reply?.size !== blob.size)
+			throw new Error(_('The upload was incomplete. Try again.'));
 		return path;
 	},
+	readLarge: async (cmd, ...args) => {
+		let reply;
+		try {
+			reply = await fs.exec_direct(READ, [ cmd, ...args ], 'json');
+		}
+		catch (e) {
+			if (e.name === 'SyntaxError')
+				throw new Error(_('Unexpected response from the router.'));
+			throw e;
+		}
+		if (!reply || typeof reply !== 'object')
+			throw new Error(_('Unexpected response from the router.'));
+		return reply;
+	},
 	readFile: (path) => fs.read(path).catch(() => ''),
+	modeLabel,
+	linkButton,
+	infoGrid,
+	actionNotice,
 	errorText,
 	text,
 	formatBytes,

@@ -9,6 +9,8 @@ command -v node >/dev/null 2>&1 || {
 	exit 0
 }
 
+node "$ROOT_DIR/tests/js_api.js"
+
 node - "$ROOT_DIR" <<'NODE'
 const path = require('path');
 const h = require(path.join(process.argv[2], 'tests/js_luci_harness.js'));

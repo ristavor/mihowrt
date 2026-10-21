@@ -250,9 +250,6 @@ msgstr "Настройки подписки сохранены."
 msgid "Updating replaces your unsaved YAML edits. Continue?"
 msgstr "Обновление заменит несохранённые правки YAML. Продолжить?"
 
-msgid "Subscription updated. Start MihoWRT to use it."
-msgstr "Подписка обновлена. Запустите MihoWRT, чтобы её использовать."
-
 msgid "Configuration checked and applied."
 msgstr "Конфигурация проверена и применена."
 
@@ -555,3 +552,33 @@ msgstr "нет ответа"
 
 msgid "Responding: %d of %d"
 msgstr "Отвечают: %d из %d"
+
+msgid "The router did not answer in time. The operation may still be running; check again in a minute."
+msgstr "Роутер не ответил вовремя. Операция может ещё выполняться; проверьте снова через минуту."
+
+msgid "Access denied. Log in to LuCI again."
+msgstr "Доступ запрещён. Войдите в LuCI снова."
+
+msgid "Save & Apply"
+msgstr "Сохранить и применить"
+
+msgid "Restore the previous YAML"
+msgstr "Восстановить предыдущий YAML"
+
+msgid "Start / Stop / Restart"
+msgstr "Запустить / Остановить / Перезапустить"
+
+msgid "Lost connection to the router while waiting for the result."
+msgstr "Во время ожидания результата потеряна связь с роутером."
+
+msgid "\"%s\" is running…"
+msgstr "Выполняется «%s»…"
+
+msgid "Invalid upload path."
+msgstr "Недопустимый путь загрузки."
+
+msgid "The upload was incomplete. Try again."
+msgstr "Файл загружен не полностью. Попробуйте снова."
+
+msgid "Unexpected response from the router."
+msgstr "Неожиданный ответ роутера."

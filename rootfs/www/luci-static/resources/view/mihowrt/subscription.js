@@ -63,8 +63,7 @@ return view.extend({
 			}
 			if (changed)
 				await saveSettings();
-			api.notify(res.action === 'unchanged' ? _('Subscription is up to date.')
-				: res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated. Start MihoWRT to use it.'));
+			api.notify(api.actionNotice(res.action));
 			location.reload();
 		}));
 		apply.addEventListener('click', () => api.busy(apply, async () => {

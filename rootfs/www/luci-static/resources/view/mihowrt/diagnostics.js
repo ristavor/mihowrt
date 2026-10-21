@@ -4,12 +4,6 @@
 
 const text = api.text;
 
-function modeLabel(mode) {
-	return mode === 'proxy-first'
-		? _('All traffic via proxy except exclusions')
-		: _('Only selected traffic via proxy');
-}
-
 // Only Mihomo's error messages, without timestamps and temp paths.
 function coreError(raw) {
 	const msgs = [ ...String(raw).matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ].map((m) => m[1].replace(/\\"/g, '"'));
@@ -65,7 +59,7 @@ function providerLists(profile) {
 function details(st, profile) {
 	const rows = [
 		[ _('MihoWRT version'), st.version ],
-		[ _('Mode'), modeLabel(st.mode) ],
+		[ _('Mode'), api.modeLabel(st.mode) ],
 		[ _('DNS mode'), st.dns_mode || '' ],
 		[ _('Provider settings'), Object.keys(profile?.provider || {}).join(', ') || _('none') ],
 		[ _('Provider lists'), providerLists(profile) ],
@@ -74,7 +68,7 @@ function details(st, profile) {
 		[ _('Routing table'), st.route?.table ? _('%s (priority %s)').format(st.route.table, st.route.priority) : _('not active') ],
 		[ _('Starts at boot'), st.enabled ? _('yes') : _('no') ]
 	];
-	return E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ]));
+	return api.infoGrid(rows);
 }
 
 return view.extend({

@@ -2,14 +2,17 @@
 'require view';
 'require form';
 'require rpc';
+'require uci';
 'require tools.widgets as widgets';
 'require mihowrt.api as api';
 
 const text = api.text;
+const LIST_KINDS = [ 'dst', 'src', 'direct', 'direct_src' ];
 const LIST_FILES = {
 	dst: '/opt/clash/lst/always_proxy_dst.txt',
 	src: '/opt/clash/lst/always_proxy_src.txt',
-	direct: '/opt/clash/lst/direct_dst.txt'
+	direct: '/opt/clash/lst/direct_dst.txt',
+	direct_src: '/opt/clash/lst/direct_src.txt'
 };
 
 const callLeases = rpc.declare({ object: 'luci-rpc', method: 'getDHCPLeases', expect: { '': {} } });
@@ -25,19 +28,20 @@ return view.extend({
 			api.readFile(LIST_FILES.dst),
 			api.readFile(LIST_FILES.src),
 			api.readFile(LIST_FILES.direct),
+			api.readFile(LIST_FILES.direct_src),
+			api.read('profile-json').catch(() => ({})),
 			callLeases().catch(() => ({}))
 		]);
 	},
 
 	// Lists are files, not UCI: buffer edits and upload them on save.
-	listOption: function(s, tab, kind, title, mode) {
-		const o = s.taboption(tab, form.TextValue, '_' + kind, title, LIST_HELP);
+	listOption: function(s, tab, kind, title, description) {
+		const o = s.taboption(tab, form.TextValue, '_' + kind, title, description || LIST_HELP);
 		o.rows = 6;
 		o.monospace = true;
-		o.depends('policy_mode', mode);
 		o.cfgvalue = () => this.lists[kind];
 		o.write = (sid, value) => { this.edited[kind] = value; };
-		// Hidden by the other mode: keep the list. Visible and empty: cleared.
+		// Hidden (provider list only): keep the list. Visible and empty: cleared.
 		o.remove = (sid) => {
 			if (o.isActive(sid))
 				this.edited[kind] = '';
@@ -45,44 +49,127 @@ return view.extend({
 		return o;
 	},
 
-	render: function([ dst, src, direct, leases ]) {
-		this.lists = { dst: dst || '', src: src || '', direct: direct || '' };
+	// A list the provider ships: choose provider, provider + mine, or mine.
+	providerList: function(s, tab, kind, title) {
+		const info = this.profile.lists?.[kind];
+		if (!info?.provided)
+			return this.listOption(s, tab, kind, title);
+
+		const name = kind + '_list_source';
+		let o = s.taboption(tab, form.ListValue, name, title, _('Set by your provider.'));
+		o.value('provider', _('Provider list (%d entries)').format(info.provider_count || 0));
+		o.value('merge', _('Provider list + mine'));
+		o.value('own', _('Only mine'));
+		o.default = 'provider';
+		if (info.own_count > 0) {
+			o = s.taboption(tab, form.DummyValue, '_' + kind + '_note', ' ');
+			o.cfgvalue = () => _('%d of your entries are not applied.').format(info.own_count);
+			o.depends(name, 'provider');
+		}
+		o = this.listOption(s, tab, kind, _('My entries'));
+		o.depends(name, 'merge');
+		o.depends(name, 'own');
+		return o;
+	},
+
+	// A setting the provider may set (x-mihowrt): its value read-only, a
+	// "Use my own value" flag, and the normal option shown when it is checked.
+	providerScalar: function(s, tab, name, make) {
+		const provider = this.profile.provider || {};
+		if (!(name in provider))
+			return make();
+
+		const overrides = () => [].concat(uci.get('mihowrt', 'settings', 'provider_override') || []);
+		const real = make();
+		let o = s.taboption(tab, form.DummyValue, '_prov_' + name, real.title, _('Set by your provider.'));
+		o.cfgvalue = () => (real instanceof form.Flag)
+			? (provider[name] === '1' ? _('Enabled') : _('Disabled'))
+			: String(provider[name]);
+		o.depends('_own_' + name, '0');
+
+		o = s.taboption(tab, form.Flag, '_own_' + name, _('Use my own value'));
+		o.default = '0';
+		o.cfgvalue = () => overrides().includes(name) ? '1' : '0';
+		o.write = (sid, value) => {
+			const list = overrides().filter((v) => v !== name);
+			if (value === '1')
+				list.push(name);
+			if (list.length)
+				uci.set('mihowrt', 'settings', 'provider_override', list);
+			else
+				uci.unset('mihowrt', 'settings', 'provider_override');
+		};
+		o.remove = (sid) => o.write(sid, '0');
+
+		real.depends('_own_' + name, '1');
+		// Hidden while the provider value applies: keep the user's value.
+		const remove = real.remove;
+		real.remove = function(sid) {
+			return real.isActive(sid) ? remove.apply(this, arguments) : null;
+		};
+		// Keep it right after its flag in the form.
+		s.children.splice(s.children.indexOf(real), 1);
+		s.children.push(real);
+		return real;
+	},
+
+	render: function([ dst, src, direct, directSrc, profile, leases ]) {
+		this.lists = { dst: dst || '', src: src || '', direct: direct || '', direct_src: directSrc || '' };
+		this.profile = profile || {};
+		const proxyFirst = this.profile.mode === 'proxy-first';
+		const fakeip = this.profile.dns === 'fake-ip';
 		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Saving applies the changes immediately.'));
 		const s = m.section(form.NamedSection, 'settings', 'settings');
 		s.tab('basic', _('Basic'));
 		s.tab('advanced', _('Advanced'));
 
-		let o = s.taboption('basic', form.ListValue, 'policy_mode', _('Mode'));
-		o.widget = 'radio';
-		o.orientation = 'vertical';
-		o.value('direct-first', _('Only selected traffic via proxy'));
-		o.value('proxy-first', _('All traffic via proxy except exclusions'));
-		o.default = 'direct-first';
-		o.description = _('In the first mode only the lists below and blocked sites from your subscription use the proxy.');
+		// The mode follows the subscription DNS settings; it is not a setting.
+		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'));
+		o.cfgvalue = () => proxyFirst
+			? _('All traffic via proxy except exclusions (subscription DNS: %s)').format(this.profile.dns || 'redir-host')
+			: _('Only selected traffic via proxy (set by the subscription: fake-IP whitelist)');
 
-		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct') };
-		this.listOption(s, 'basic', 'dst', this.titles.dst, 'direct-first');
-		const devices = this.listOption(s, 'basic', 'src', this.titles.src, 'direct-first');
-		devices.description = _('All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change.');
-		this.listOption(s, 'basic', 'direct', this.titles.direct, 'proxy-first');
-		this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
+		// Only the lists of the active mode: the others keep their files.
+		if (proxyFirst) {
+			this.providerList(s, 'basic', 'direct', this.titles.direct);
+			const devices = this.listOption(s, 'basic', 'direct_src', this.titles.direct_src,
+				fakeip ? _('Needs subscription DNS mode redir-host or normal.')
+					: _('All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change.'));
+			if (fakeip) {
+				devices.readonly = true;
+				devices.write = devices.remove = () => {};
+			}
+			else
+				this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+		}
+		else {
+			this.providerList(s, 'basic', 'dst', this.titles.dst);
+			const devices = this.listOption(s, 'basic', 'src', this.titles.src,
+				_('All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change.'));
+			this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+		}
 
-		o = s.taboption('basic', form.Value, 'lists_interval', _('Update remote lists every (hours)'), _('0: only when you press "Update remote lists".'));
-		o.datatype = 'range(0,8760)';
-		o.placeholder = '0';
-		this.extendWidget(o, (node) => this.intervalField(node, this.refreshButton()));
+		this.providerScalar(s, 'basic', 'lists_interval', () => {
+			const v = s.taboption('basic', form.Value, 'lists_interval', _('Update remote lists every (hours)'), _('0: only when you press "Update remote lists".'));
+			v.datatype = 'range(0,8760)';
+			v.placeholder = '0';
+			this.extendWidget(v, (node) => this.intervalField(node, this.refreshButton()));
+			return v;
+		});
 
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));
 		o.multiple = true;
 		o.noaliases = true;
-		o = s.taboption('advanced', form.Flag, 'dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
-		o.default = '1';
-		o = s.taboption('advanced', form.Flag, 'disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
-		o.default = '1';
-		o = s.taboption('advanced', form.Flag, 'bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
-		o.default = '1';
-		o = s.taboption('advanced', form.Flag, 'bypass_subscription_dns', _('Subscription server without Mihomo'), _('While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected.'));
-		o.default = '1';
+		const flag = (name, title, description) => this.providerScalar(s, 'advanced', name, () => {
+			const f = s.taboption('advanced', form.Flag, name, title, description);
+			f.default = '1';
+			return f;
+		});
+		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
+		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
+		flag('bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
+		flag('bypass_subscription_dns', _('Subscription server without Mihomo'), _('While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected.'));
 		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through Mihomo'), _('NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched.'));
 		o.default = '0';
 
@@ -156,12 +243,12 @@ return view.extend({
 		const edited = this.edited;
 		if (Object.keys(edited).length) {
 			try {
-				const paths = await Promise.all([ 'dst', 'src', 'direct' ].map((kind) =>
+				const paths = await Promise.all(LIST_KINDS.map((kind) =>
 					api.upload('mihowrt-policy-list', kind in edited ? edited[kind] : this.lists[kind])));
 				await api.write('apply-lists', ...paths);
 			}
 			catch (e) {
-				const bad = /^Invalid (dst|src|direct) entries: (.*)$/.exec(e.message);
+				const bad = /^Invalid (direct_src|dst|src|direct) entries: (.*)$/.exec(e.message);
 				api.notify(bad ? _('"%s" has invalid lines: %s').format(this.titles[bad[1]], bad[2]) : e.message, 'danger');
 				throw e;
 			}

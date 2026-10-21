@@ -19,7 +19,7 @@ function firstRunCard() {
 		const value = url.value.trim();
 		if (!/^https?:\/\//i.test(value))
 			throw new Error(_('Enter the subscription link that starts with https://'));
-		await api.write('set-subscription', value, '');
+		await api.write('set-subscription', value, '1');
 		await api.write('update-subscription');
 		await api.service('enable');
 		await api.service('restart');
@@ -29,7 +29,7 @@ function firstRunCard() {
 
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Connect a subscription'))),
-		E('p', text(_('Paste the link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
+		E('p', text(_('Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
 		E('label', { for: 'mw-sub-url' }, text(_('Subscription URL'))),
 		E('div', { class: 'mw-row' }, [ url, connect ])
 	]);
@@ -80,6 +80,12 @@ function statusSection(status) {
 	]);
 }
 
+// Provider text stays text; only http(s) runs become safe links.
+function announce(value) {
+	return String(value).split(/(https?:\/\/\S+)/i).map((part, i) =>
+		(i % 2) ? (api.safeLink(part, part) || part) : part).filter((part) => part !== '');
+}
+
 function subscriptionSection(sub) {
 	const update = E('button', { class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
 	const rows = [
@@ -92,16 +98,38 @@ function subscriptionSection(sub) {
 
 	update.addEventListener('click', () => api.busy(update, async () => {
 		const res = await api.write('update-subscription');
-		api.notify(res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.'));
+		api.notify(res.action === 'unchanged' ? _('Subscription is up to date.')
+			: res.action === 'hot_reloaded' ? _('Subscription updated and applied.') : _('Subscription updated.'));
 		location.reload();
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(sub.profile_title || _('Subscription'))),
-		sub.announce ? E('p', { class: 'mw-announce' }, text(sub.announce)) : '',
+		sub.announce ? E('p', { class: 'mw-announce' }, announce(sub.announce)) : '',
 		E('div', { class: 'mw-grid' }, rows.flatMap(([ k, v ]) => [ E('span', { class: 'mw-muted' }, text(k)), E('span', text(v)) ])),
 		E('div', { class: 'mw-row' }, [ update ].concat(links))
 	]);
+}
+
+// Options of one group select. URLTest/Fallback start with "Auto — <now>"
+// (value "", unpins); a pinned server shows as selected.
+function groupOptions(select, group, delays) {
+	const auto = group.type === 'URLTest' || group.type === 'Fallback';
+	const current = auto ? (group.fixed || '') : group.now;
+	const label = (name) => {
+		if (!delays)
+			return name;
+		const ms = delays[name];
+		return ms ? '%s — %d ms'.format(name, ms) : '%s — %s'.format(name, _('timeout'));
+	};
+	const options = (auto ? [ E('option', { value: '' }, text(_('Auto — %s').format(group.now || '…'))) ] : [])
+		.concat(group.all.map((name) => E('option', { value: name }, text(label(name)))));
+
+	while (select.firstChild)
+		select.removeChild(select.firstChild);
+	options.forEach((o) => select.appendChild(o));
+	select.value = current;
+	return current;
 }
 
 function groupsSection(groups) {
@@ -112,26 +140,35 @@ function groupsSection(groups) {
 		E('h3', text(_('Proxy servers'))),
 		E('div', { class: 'mw-grid' }, groups.flatMap((group) => {
 			const id = 'mw-group-' + group.name.replace(/[^A-Za-z0-9_-]/g, '_');
-			// Fallback/URLTest/LoadBalance pick the server themselves: show
-			// the current one and allow a latency test, not a choice.
-			const select = E('select', { id, class: 'cbi-input-select', disabled: group.auto ? '' : null },
-				group.all.map((name) => E('option', { value: name, selected: name === group.now ? '' : null }, text(name))));
+			// Mihomo cannot pin a LoadBalance group: show it, allow a test.
+			const fixedOnly = group.type === 'LoadBalance';
+			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group') }, text(_('Test')));
+			let previous = groupOptions(select, group, null);
 
-			select.addEventListener('change', () => api.busy(select, async () => {
-				await api.write('select-proxy', group.name, select.value);
-				api.notify(_('%s now uses %s.').format(group.name, select.value));
-			}));
+			select.addEventListener('change', async () => {
+				const value = select.value;
+				const ok = await api.busy(select, async () => {
+					await api.write('select-proxy', group.name, value);
+					return true;
+				});
+				if (!ok) {
+					select.value = previous;
+					return;
+				}
+				previous = value;
+				api.notify(value ? _('%s now uses %s.').format(group.name, value) : _('%s chooses the server automatically again.').format(group.name));
+			});
 			test.addEventListener('click', () => api.busy(test, async () => {
 				const delays = await api.write('group-delay', group.name);
-				for (const option of select.options) {
-					const ms = delays[option.value];
-					option.textContent = ms ? '%s — %d ms'.format(option.value, ms) : '%s — %s'.format(option.value, _('timeout'));
-				}
+				// A delay test can unpin URLTest/Fallback groups: read them again.
+				const fresh = await api.read('proxies-json').catch(() => []);
+				Object.assign(group, (Array.isArray(fresh) ? fresh : []).find((g) => g.name === group.name) || {});
+				previous = groupOptions(select, group, delays);
 			}));
 			const row = [ select, test ];
-			if (group.auto)
-				row.push(E('span', { class: 'mw-muted' }, text(_('Chosen automatically by Mihomo'))));
+			if (fixedOnly)
+				row.push(E('span', { class: 'mw-muted' }, text(_('Mihomo spreads connections across these servers'))));
 			return [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, row) ];
 		}))
 	]);

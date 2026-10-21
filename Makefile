@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.8.2
+PKG_VERSION:=0.9.0
 PKG_RELEASE:=1
 PKG_MAINTAINER:=maintainer
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
@@ -44,6 +44,7 @@ define Package/$(PKG_NAME)/conffiles
 /opt/clash/lst/always_proxy_dst.txt
 /opt/clash/lst/always_proxy_src.txt
 /opt/clash/lst/direct_dst.txt
+/opt/clash/lst/direct_src.txt
 endef
 
 define Package/$(PKG_NAME)/install
@@ -84,6 +85,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_dst.txt $(1)/opt/clash/lst/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/always_proxy_src.txt $(1)/opt/clash/lst/
 	$(INSTALL_DATA) ./rootfs/opt/clash/lst/direct_dst.txt $(1)/opt/clash/lst/
+	$(INSTALL_DATA) ./rootfs/opt/clash/lst/direct_src.txt $(1)/opt/clash/lst/
 
 	$(INSTALL_DIR) $(1)/lib/upgrade/keep.d
 	$(INSTALL_DATA) ./rootfs/lib/upgrade/keep.d/mihowrt $(1)/lib/upgrade/keep.d/
@@ -113,6 +115,7 @@ define Package/$(PKG_NAME)/preinst
 	backup_mihowrt_file /opt/clash/lst/always_proxy_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt || exit 1
 	backup_mihowrt_file /opt/clash/lst/always_proxy_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt || exit 1
 	backup_mihowrt_file /opt/clash/lst/direct_dst.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt || exit 1
+	backup_mihowrt_file /opt/clash/lst/direct_src.txt $(PKG_POLICY_LIST_BACKUP_DIR)/direct_src.txt || exit 1
 }
 exit 0
 endef
@@ -135,6 +138,7 @@ define Package/$(PKG_NAME)/postinst
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_dst.txt /opt/clash/lst/always_proxy_dst.txt || exit 1
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/always_proxy_src.txt /opt/clash/lst/always_proxy_src.txt || exit 1
 	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_dst.txt /opt/clash/lst/direct_dst.txt || exit 1
+	restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/direct_src.txt /opt/clash/lst/direct_src.txt || exit 1
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	rm -f /tmp/luci-app-mihowrt.skip-start
 	# An upgrade leaves the old service running from memory: stop it so

@@ -5,7 +5,9 @@
 #   ;ports                  any address on these ports
 #   URL[;ports]             remote list (cached); a trailing "| hours" is ignored
 # Remote URLs are fetched by lists_update_remote and read from the cache, so
-# applying policy never waits on the network.
+# applying policy never waits on the network. The provider may ship dst and
+# direct lists (x-mihowrt proxy-ips/direct-ips); the user's list source
+# setting picks provider, provider + own file, or own file only.
 
 LISTS_REMOTE_MAX_BYTES="${LISTS_REMOTE_MAX_BYTES:-262144}"
 LISTS_REMOTE_MAX_URLS="${LISTS_REMOTE_MAX_URLS:-32}"
@@ -16,15 +18,50 @@ lists_file() {
 	dst) printf '%s' "$DST_LIST_FILE" ;;
 	src) printf '%s' "$SRC_LIST_FILE" ;;
 	direct) printf '%s' "$DIRECT_DST_LIST_FILE" ;;
+	direct_src) printf '%s' "$DIRECT_SRC_LIST_FILE" ;;
 	*) return 1 ;;
 	esac
+}
+
+# True when the provider ships this list (key present, even if empty).
+lists_provided() {
+	case "$1" in
+	dst) profile_has proxy-ips ;;
+	direct) profile_has direct-ips ;;
+	*) return 1 ;;
+	esac
+}
+
+lists_provider_entries() {
+	case "$1" in
+	dst) profile_entries proxy-ip | lists_clean_lines ;;
+	direct) profile_entries direct-ip | lists_clean_lines ;;
+	esac
+}
+
+# Cleaned entries that apply for one kind.
+lists_source() {
+	local kind="$1" file="" source="own"
+
+	file="$(lists_file "$kind")" || return 1
+	if lists_provided "$kind"; then
+		case "$kind" in
+		dst) source="${DST_LIST_SOURCE:-provider}" ;;
+		direct) source="${DIRECT_LIST_SOURCE:-provider}" ;;
+		esac
+	fi
+	case "$source" in
+	provider | merge) lists_provider_entries "$kind" ;;
+	esac
+	[ "$source" = provider ] || [ ! -r "$file" ] || lists_clean_lines "$file"
+	return 0
 }
 
 lists_ensure_files() {
 	local kind=""
 
 	ensure_dir "$LIST_DIR" || return 1
-	for kind in dst src direct; do
+	for kind in dst src direct direct_src; do
 		[ -f "$(lists_file "$kind")" ] || : >"$(lists_file "$kind")"
 	done
 }
@@ -98,24 +135,30 @@ lists_cache_file() {
 }
 
 lists_urls() {
-	local kind="" file=""
+	local kind=""
 
-	for kind in dst src direct; do
-		file="$(lists_file "$kind")"
-		[ -r "$file" ] && lists_clean_lines "$file"
+	for kind in dst src direct direct_src; do
+		lists_source "$kind"
 	done | sed -n 's/;.*//; /^https\?:\/\//p' | awk '!seen[$0]++'
 }
 
 lists_resolve() {
-	local kind="$1" out4="$2" out6="$3" file="" line="" url="" ports="" cache=""
+	local kind="$1" out4="$2" out6="$3" src="" line="" url="" ports="" cache="" bad=""
 
-	file="$(lists_file "$kind")" || return 1
-	: >"$out4" && : >"$out6" || return 1
-	[ -r "$file" ] || return 0
+	src="$PKG_TMP_DIR/list.$kind.$$"
+	ensure_dir "$PKG_TMP_DIR" || return 1
+	lists_source "$kind" >"$src" || return 1
+	: >"$out4" && : >"$out6" || {
+		rm -f "$src"
+		return 1
+	}
+	# User files are validated on save; provider entries only here.
+	bad="$({ grep -v '^https\?://' "$src" || true; } | lists_classify 1 | tr '\n' ' ')"
+	[ -z "$bad" ] || warn "Ignoring invalid $kind entries: $bad"
 	{
-		lists_clean_lines "$file" | grep -v '^https\?://' || true
+		grep -v '^https\?://' "$src" || true
 		# Remote entries inherit the URL's ports unless they carry their own.
-		lists_clean_lines "$file" | sed -n '/^https\?:\/\//p' | while IFS= read -r line; do
+		sed -n '/^https\?:\/\//p' "$src" | while IFS= read -r line; do
 			url="${line%%;*}"
 			ports=""
 			[ "$url" = "$line" ] || ports="${line#*;}"
@@ -128,6 +171,7 @@ lists_resolve() {
 		$1 == "6" { print $2 >o6 }
 		$1 == "any" { print $2 >o4; print $2 >o6 }
 	'
+	rm -f "$src"
 	# BusyBox sort on OpenWrt has no -o.
 	sort -u "$out4" >"$out4.sorted" && mv -f "$out4.sorted" "$out4" &&
 		sort -u "$out6" >"$out6.sorted" && mv -f "$out6.sorted" "$out6"
@@ -178,7 +222,13 @@ lists_update_remote() {
 	[ "$failed" -eq 0 ]
 }
 
+# Entries that apply (provider and/or own, per the list source).
 lists_count() {
+	lists_source "$1" | wc -l | tr -d ' '
+}
+
+# Entries in the user's own file.
+lists_own_count() {
 	local file=""
 
 	file="$(lists_file "$1")" || return 1

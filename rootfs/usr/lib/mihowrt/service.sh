@@ -278,7 +278,7 @@ auto_update() {
 lists_install() {
 	local kind="" tmp="" bad="" url="" changed=0 dst=""
 
-	for kind in dst src direct; do
+	for kind in dst src direct direct_src; do
 		tmp="$1"
 		shift
 		upload_path_allowed /tmp/mihowrt-policy-list. "$tmp" || {
@@ -295,7 +295,7 @@ lists_install() {
 		}
 		eval "LIST_TMP_$kind=\"\$tmp\""
 	done
-	for kind in dst src direct; do
+	for kind in dst src direct direct_src; do
 		eval "tmp=\"\$LIST_TMP_$kind\""
 		dst="$(lists_file "$kind")"
 		if ! cmp -s "$tmp" "$dst"; then
@@ -318,7 +318,7 @@ lists_apply() {
 	local changed="" rc=0
 
 	changed="$(with_lock lists_install "$@")" || rc=1
-	rm -f "$1" "$2" "$3"
+	rm -f "$1" "$2" "$3" "$4"
 	[ "$rc" -eq 0 ] || return 1
 	if service_ready; then
 		settings_load || return 1

@@ -6,7 +6,8 @@
 				"/usr/bin/mihowrt-read": [ "exec" ],
 				"/opt/clash/lst/always_proxy_dst.txt": [ "read" ],
 				"/opt/clash/lst/always_proxy_src.txt": [ "read" ],
-				"/opt/clash/lst/direct_dst.txt": [ "read" ]
+				"/opt/clash/lst/direct_dst.txt": [ "read" ],
+				"/opt/clash/lst/direct_src.txt": [ "read" ]
 			},
 			"ubus": {
 				"file": [ "read", "exec" ],

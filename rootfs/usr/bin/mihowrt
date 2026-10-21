@@ -9,7 +9,7 @@ Usage: mihowrt <command>
 Service:  prepare | run-service | wait-stopped | recover | reload | migrate
 Config:   read-config [tmp] | save-config <tmp>
 Subscr.:  subscription-json | set-subscription <url> <hours|''> | update-subscription
-Lists:    apply-lists <dst-tmp> <src-tmp> <direct-tmp> | update-lists
+Lists:    apply-lists <dst-tmp> <src-tmp> <direct-tmp> <direct-src-tmp> | update-lists
 Updates:  auto-update | dns-refresh | core-update | core-version-json
 Status:   status-json | service-state-json | logs-json [lines]
 Proxies:  proxies-json | select-proxy <group> <name> | group-delay <group> | dashboard-json
@@ -63,8 +63,8 @@ set-subscription)
 	;;
 update-subscription) subscription_update ;;
 apply-lists)
-	need_args $# 3
-	lists_apply "$1" "$2" "$3"
+	need_args $# 4
+	lists_apply "$1" "$2" "$3" "$4"
 	;;
 update-lists) lists_refresh ;;
 auto-update) auto_update ;;

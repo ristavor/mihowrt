@@ -262,9 +262,6 @@ msgstr "Дополнительно: редактировать YAML Mihomo"
 msgid "One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments."
 msgstr "По одной записи в строке: IPv4- или IPv6-адрес либо подсеть, при необходимости с портами (1.1.1.1;443, 2001:db8::/32). Строка со ссылкой (https://…) подключает удалённый список. Строки с # — комментарии."
 
-msgid "Choose which traffic goes through Mihomo. Saving applies the changes immediately."
-msgstr "Выберите, какой трафик идёт через Mihomo. Изменения применяются сразу после сохранения."
-
 msgid "Basic"
 msgstr "Основное"
 
@@ -279,9 +276,6 @@ msgstr "Устройства через прокси"
 
 msgid "Addresses always direct"
 msgstr "Адреса всегда напрямую"
-
-msgid "All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change."
-msgstr "Весь трафик этих устройств идёт через Mihomo. Закрепите за ними статические адреса DHCP, чтобы адреса не менялись."
 
 msgid "Update remote lists every (hours)"
 msgstr "Обновлять удалённые списки каждые (часов)"
@@ -345,9 +339,6 @@ msgstr "В поле «%s» неверные строки: %s"
 
 msgid "Overview"
 msgstr "Обзор"
-
-msgid "All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change."
-msgstr "Весь трафик этих устройств идёт мимо Mihomo. Используйте статические DHCP-аренды, чтобы адреса не менялись."
 
 msgid "Auto — %s"
 msgstr "Авто — %s"
@@ -612,3 +603,48 @@ msgstr "Автоматическое обновление снова замен�
 
 msgid "Mihomo YAML"
 msgstr "YAML Mihomo"
+
+msgid "Choose which traffic goes through Mihomo. Save & Apply applies the changes."
+msgstr "Выберите, какой трафик пойдёт через Mihomo. Кнопка «Сохранить и применить» применяет изменения."
+
+msgid "To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for \"Only selected\", anything else for \"All traffic\"."
+msgstr "Для режима «Только выбранный» в YAML нужны dns.enhanced-mode: fake-ip и dns.fake-ip-filter-mode: whitelist; любые другие значения включают режим «Весь трафик»."
+
+msgid "%s: %d saved entry, used in the other mode."
+msgid_plural "%s: %d saved entries, used in the other mode."
+msgstr[0] "%s: сохранена %d запись, используется в другом режиме."
+msgstr[1] "%s: сохранены %d записи, используются в другом режиме."
+msgstr[2] "%s: сохранено %d записей, используются в другом режиме."
+
+msgid "All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
+msgstr "Весь трафик этих устройств идёт в обход Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
+
+msgid "All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
+msgstr "Весь трафик этих устройств идёт через Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
+
+msgid "Cannot load the lists: %s"
+msgstr "Не удалось загрузить списки: %s"
+
+msgid "Reload the page to try again."
+msgstr "Перезагрузите страницу, чтобы попробовать снова."
+
+msgid "Not connected now: %s"
+msgstr "Сейчас не подключены: %s"
+
+msgid "Add as"
+msgstr "Добавить как"
+
+msgid "MAC address (IPv4 and IPv6)"
+msgstr "MAC-адрес (IPv4 и IPv6)"
+
+msgid "IP address"
+msgstr "IP-адрес"
+
+msgid "This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose \"Fixed\" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one."
+msgstr "Это устройство использует частный адрес Wi-Fi. Он работает, пока устройство сохраняет его для вашей сети: выберите «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся адрес."
+
+msgid "Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again."
+msgstr "Списки применены, но сохранить настройки не удалось: %s. Проверьте настройки и снова нажмите «Сохранить и применить»."
+
+msgid "Changes applied."
+msgstr "Изменения применены."

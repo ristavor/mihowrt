@@ -1,6 +1,7 @@
 'use strict';
 'require view';
 'require form';
+'require ui';
 'require rpc';
 'require uci';
 'require tools.widgets as widgets';
@@ -19,9 +20,13 @@ return view.extend({
 
 	load: function() {
 		return Promise.all([
-			api.read('lists-json'),
+			api.readLarge('lists-json').then((lists) => {
+				if (!LIST_KINDS.every((kind) => typeof lists?.[kind] === 'string'))
+					throw new Error(_('Unexpected response from the router.'));
+				return lists;
+			}).catch((e) => ({ error: api.errorText(e) })),
 			api.read('profile-json').catch(() => ({})),
-			callLeases().catch(() => ({}))
+			callLeases().catch(() => null)
 		]);
 	},
 
@@ -30,11 +35,15 @@ return view.extend({
 		const o = s.taboption(tab, form.TextValue, '_' + kind, title, description || LIST_HELP);
 		o.rows = 6;
 		o.monospace = true;
+		o.readonly = !!this.listsError;
 		o.cfgvalue = () => this.lists[kind];
-		o.write = (sid, value) => { this.edited[kind] = value; };
+		o.write = (sid, value) => {
+			if (!this.listsError)
+				this.edited[kind] = value;
+		};
 		// Hidden (provider list only): keep the list. Visible and empty: cleared.
 		o.remove = (sid) => {
-			if (o.isActive(sid))
+			if (!this.listsError && o.isActive(sid))
 				this.edited[kind] = '';
 		};
 		return o;
@@ -116,21 +125,31 @@ return view.extend({
 	},
 
 	render: function([ lists, profile, leases ]) {
-		this.lists = lists;
+		this.listsError = lists.error;
+		this.lists = this.listsError ? { dst: '', src: '', direct: '', direct_src: '' } : lists;
+		this.edited = {};
 		this.profile = profile || {};
 		const proxyFirst = this.profile.mode === 'proxy-first';
 		const fakeip = this.profile.dns === 'fake-ip';
-		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Saving applies the changes immediately.'));
+		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Save & Apply applies the changes.'));
 		const s = m.section(form.NamedSection, 'settings', 'settings');
 		s.tab('basic', _('Basic'));
 		s.tab('advanced', _('Advanced'));
 
 		// The mode follows the DNS settings of the YAML; it is not a setting.
 		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'));
-		o.cfgvalue = () => (proxyFirst ? _('All traffic via proxy except exclusions') : _('Only selected traffic via proxy')) + ' ' +
-			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
+		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' +
+			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)')) + ' ' +
+			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".');
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
+		for (const kind of proxyFirst ? [ 'dst', 'src' ] : [ 'direct', 'direct_src' ]) {
+			const count = this.lists[kind].split('\n').filter((line) => line.trim() && !/^\s*#/.test(line)).length;
+			if (count) {
+				o = s.taboption('basic', form.DummyValue, '_' + kind + '_inactive', this.titles[kind]);
+				o.cfgvalue = () => N_(count, '%s: %d saved entry, used in the other mode.', '%s: %d saved entries, used in the other mode.').format(this.titles[kind], count);
+			}
+		}
 		// Only the lists of the active mode: the others keep their files.
 		if (proxyFirst) {
 			this.providerList(s, 'basic', 'direct', this.titles.direct);
@@ -144,15 +163,15 @@ return view.extend({
 			}
 			else {
 				const devices = this.listOption(s, 'basic', 'direct_src', this.titles.direct_src,
-					_('All traffic of these devices bypasses Mihomo. Use static DHCP leases so addresses do not change.'));
-				this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+					_('All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'));
+				this.extendWidget(devices, (node) => this.listsError ? node : this.addLeasePicker(node, leases));
 			}
 		}
 		else {
 			this.providerList(s, 'basic', 'dst', this.titles.dst);
 			const devices = this.listOption(s, 'basic', 'src', this.titles.src,
-				_('All traffic of these devices goes through Mihomo. Use static DHCP leases so addresses do not change.'));
-			this.extendWidget(devices, (node) => this.addLeasePicker(node, leases));
+				_('All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'));
+			this.extendWidget(devices, (node) => this.listsError ? node : this.addLeasePicker(node, leases));
 		}
 
 		this.providerScalar(s, 'basic', 'lists_interval', () => {
@@ -179,7 +198,12 @@ return view.extend({
 		o.default = '0';
 
 		this.map = m;
-		return m.render().then((node) => E('div', {}, [ api.style(), node ]));
+		return m.render().then((node) => E('div', {}, [
+			api.style(), api.jobNotice(),
+			this.listsError ? E('div', { class: 'alert-message error' }, text(
+				_('Cannot load the lists: %s').format(this.listsError) + ' ' + _('Reload the page to try again.'))) : null,
+			node
+		]));
 	},
 
 	// LuCI re-renders the form after saving: extras are added inside the
@@ -192,9 +216,9 @@ return view.extend({
 	},
 
 	refreshButton: function() {
-		const refresh = E('button', { class: 'cbi-button', type: 'button' }, text(_('Update remote lists')));
+		const refresh = E('button', { class: 'cbi-button', type: 'button', 'data-mw-job': '', disabled: api.jobRunning || null }, text(_('Update remote lists')));
 		refresh.addEventListener('click', () => api.busy(refresh, async () => {
-			const res = await api.write('update-lists');
+			const res = await api.job('update-lists');
 			api.notify(res.changed ? _('Remote lists updated.') : _('Remote lists are up to date.'));
 		}));
 		return refresh;
@@ -212,52 +236,108 @@ return view.extend({
 		return E('div', { class: 'mw-row' }, [ node, refresh ]);
 	},
 
-	// "Add device" select under the devices list, filled from DHCP leases.
+	// A MAC covers both address families. DHCPv6 leases may have no MAC.
 	addLeasePicker: function(node, leases) {
 		const area = node.querySelector('textarea');
-		const all = (leases?.dhcp_leases || []).concat(leases?.dhcp6_leases || []);
-		if (!area || !all.length)
+		if (!area || leases == null)
 			return node;
+		const address = (lease) => lease.ipaddr || [...(lease.ip6addrs || []), lease.ip6addr]
+			.find((addr) => addr && (!addr.includes('/') || /\/128$/.test(addr)))?.replace(/\/128$/, '') || '';
+		const all = (leases.dhcp_leases || []).concat(leases.dhcp6_leases || [])
+			.filter((lease) => lease.macaddr || address(lease));
+		const entries = () => area.value.split('\n').map((line) => line.split('#')[0].trim().toLowerCase()).filter(Boolean);
+		const connected = new Set(all.flatMap((lease) => [ lease.macaddr?.toLowerCase(), lease.ipaddr ].filter(Boolean)));
+		const missing = E('div', { class: 'cbi-value-description', 'aria-live': 'polite' });
+		const updateMissing = () => {
+			const absent = [...new Set(entries())].filter((entry) =>
+				(/^(?:[0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(entry) || /^\d+\.\d+\.\d+\.\d+$/.test(entry)) && !connected.has(entry));
+			missing.textContent = absent.length ? _('Not connected now: %s').format(absent.join(', ')) : '';
+		};
+		area.addEventListener('change', updateMissing);
+		updateMissing();
 
-		const select = E('select', { class: 'cbi-input-select', 'aria-label': _('Add a device') }, [
+		const select = E('select', { class: 'cbi-input-select' }, [
 			E('option', { value: '' }, text(_('Add a device…')))
-		].concat(all.map((l) => {
-			const addr = l.ipaddr || (l.ip6addrs || [])[0] || '';
-			return E('option', { value: addr.replace(/\/\d+$/, '') }, text('%s (%s)'.format(l.hostname || _('unknown'), addr)));
-		})));
+		].concat(all.map((lease, index) => E('option', { value: String(index) },
+			text('%s (%s)'.format(lease.hostname || _('unknown'), address(lease) || lease.macaddr || ''))))));
+		select.value = '';
+		const addAs = E('select', { class: 'cbi-input-select' }, [
+			E('option', { value: 'mac' }, text(_('MAC address (IPv4 and IPv6)'))),
+			E('option', { value: 'ip' }, text(_('IP address')))
+		]);
+		addAs.value = 'mac';
+		const hint = E('div', { class: 'cbi-value-description', 'aria-live': 'polite' });
 		select.addEventListener('change', () => {
-			const addr = select.value;
-			if (!addr)
-				return;
+			const lease = select.value === '' ? null : all[select.value];
 			select.value = '';
-			// Themes with custom dropdowns may repeat "change": add each device once.
-			if (area.value.split('\n').some((l) => l.trim() === addr))
+			if (!lease)
 				return;
-			area.value = (area.value.replace(/\s*$/, '') + '\n' + addr).replace(/^\n/, '') + '\n';
+			const byMac = addAs.value === 'mac' && !!lease.macaddr;
+			const entry = byMac ? lease.macaddr.toLowerCase() : address(lease);
+			hint.textContent = byMac && /^[0-9a-f][26ae]:/.test(entry)
+				? _('This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.') : '';
+			if (!entry || entries().includes(entry.toLowerCase()))
+				return;
+			// Keep a hostname on one comment line, never as list syntax.
+			const hostname = (lease.hostname || '').replace(/[\r\n]+/g, ' ');
+			area.value = (area.value.replace(/\s*$/, '') + '\n' + entry + (hostname ? ' # ' + hostname : '')).replace(/^\n/, '') + '\n';
 			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
-		return E('div', {}, [ node, E('div', { class: 'mw-row' }, [ select ]) ]);
+		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row' }, [
+			E('label', {}, [ ...text(_('Add a device')), ' ', select ]),
+			E('label', {}, [ ...text(_('Add as')), ' ', addAs ])
+		]) : null, hint, missing ]);
 	},
 
-	// Lists first: if one is rejected, nothing is saved and the edits stay
-	// in the form (map.save() re-renders it from the saved values).
-	handleSave: async function(ev) {
-		this.edited = {};
-		await this.map.parse();
-		const edited = this.edited;
-		if (Object.keys(edited).length) {
+	handleSave: null,
+
+	// Lists first: a rejected list must not save or re-render the form.
+	handleSaveApply: async function(ev, mode) {
+		if (api.jobRunning) {
 			try {
-				const paths = await Promise.all(LIST_KINDS.map((kind) =>
-					api.upload('mihowrt-policy-list', kind in edited ? edited[kind] : this.lists[kind])));
-				await api.write('apply-lists', ...paths);
+				const status = await api.read('job-status');
+				api.notify(_('"%s" is running…').format(api.jobLabel(status.op)));
 			}
 			catch (e) {
-				const bad = /^Invalid (direct_src|dst|src|direct) entries: (.*)$/.exec(e.message);
-				api.notify(bad ? _('"%s" has invalid lines: %s').format(this.titles[bad[1]], bad[2]) : e.message, 'danger');
+				api.notify(api.errorText(e), 'error');
+			}
+			return;
+		}
+		if (this.saving)
+			return;
+		this.saving = true;
+		try {
+			this.edited = {};
+			await this.map.parse();
+			const edited = this.listsError ? [] : LIST_KINDS.filter((kind) =>
+				kind in this.edited && this.edited[kind] !== this.lists[kind]);
+			if (edited.length) {
+				const paths = await Promise.all(LIST_KINDS.map((kind) => edited.includes(kind)
+					? api.upload('mihowrt-policy-list', this.edited[kind]) : '-'));
+				await api.job('apply-lists', ...paths);
+				for (const kind of edited)
+					this.lists[kind] = this.edited[kind];
+			}
+			try {
+				await this.map.save(null, true);
+			}
+			catch (e) {
+				if (edited.length)
+					throw new Error(_('Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again.').format(api.errorText(e)));
 				throw e;
 			}
-			Object.assign(this.lists, edited);
+			const changes = await uci.changes();
+			if (Object.keys(changes).some((config) => changes[config].length))
+				return ui.changes.apply(mode == '0');
+			api.notify(_('Changes applied.'));
 		}
-		await this.map.save();
+		catch (e) {
+			const bad = /^Invalid (direct_src|dst|src|direct) entries: (.*)$/.exec(e.message);
+			api.notify(bad ? _('"%s" has invalid lines: %s').format(this.titles[bad[1]], bad[2]) : api.errorText(e), 'error');
+			throw e;
+		}
+		finally {
+			this.saving = false;
+		}
 	}
 });

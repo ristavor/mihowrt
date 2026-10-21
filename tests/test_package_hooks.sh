@@ -335,7 +335,7 @@ pass "default postinst start skipped once"
 assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/direct_src.txt"]' "$acl_file")" "fourth list read ACL"
 assert_file_contains "$ROOT_DIR/Makefile" './rootfs/opt/clash/lst/$$$$list.txt' "fourth list packaged"
 assert_file_not_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" LIST_FILES 'traffic uses lists-json, not direct files'
-assert_file_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" "api.read('lists-json')" 'traffic reads JSON through existing helper'
+assert_file_contains "$ROOT_DIR/rootfs/www/luci-static/resources/view/mihowrt/traffic.js" "api.readLarge('lists-json')" 'traffic reads large JSON through CGI helper'
 
 # Exercise the actual CLI/modules in ash, with all system paths in a fixture.
 uninstall_root="$tmpdir/uninstall"

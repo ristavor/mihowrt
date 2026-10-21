@@ -45,6 +45,11 @@ test('job buttons lock together through busy preparation and job completion', as
  await tick(timers); await direct;
  assert.deepEqual(buttons.map(b => b.disabled), [false, false, true]);
 });
+test('jobLabel reuses known labels and falls back to operation', () => {
+ const { api } = setup();
+ assert.equal(api.jobLabel('apply-lists'), 'Save & Apply');
+ assert.equal(api.jobLabel('custom-op'), 'custom-op');
+});
 test('jobNotice locks all job starters until reload', async () => {
  const buttons = [{ disabled: false }]; let reloads = 0;
  const { api, timers } = setup({ document: { querySelectorAll: () => buttons }, location: { reload: () => reloads++ } });
@@ -219,11 +224,14 @@ test('overview has no long synchronous operations', () => {
 test('subscription has no long synchronous operations', () => {
 	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/subscription.js')));
 });
-// TODO Tasks 19–20: enable once those views switch long operations to api.job.
+test('traffic has no long synchronous operations', () => {
+	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/traffic.js')));
+});
+// TODO Task 20: enable once the remaining views switch long operations to api.job.
 const longOperations = /(?:api\.write|fs\.exec)\([^;]*(?:core-update|update-subscription|update-lists|apply-lists|save-config)|api\.service\((?!'enable'\))|fs\.exec\([^;]*\/etc\/init\.d\/mihowrt[^;]*(?:start|stop|restart)/;
-const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => !['overview.js', 'subscription.js'].includes(name));
+const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => !['overview.js', 'subscription.js', 'traffic.js'].includes(name));
 if (pendingViews.some(name => longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name))))
-	console.log('skip - no long synchronous operations in remaining views (TODO Tasks 19–20)');
+	console.log('skip - no long synchronous operations in remaining views (TODO Task 20)');
 else test('no long synchronous operations in views', () => {
 	for (const name of pendingViews) assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name)));
 });

@@ -107,8 +107,7 @@ h.assert(all.some((t) => t.includes('9.9.9.9')), 'custom dnsmasq server warning'
 h.assert(all.includes('Problem:'), 'failures are announced in text, not only by symbol');
 console.log('ok - diagnostics checklist');
 
-// Device picker: themes with custom dropdowns (footstrap fs-select) re-send
-// "change" with the same value after the picker resets the select.
+// DOM helper shared by Traffic controls and dashboard events.
 function EL(tag, attrs, children) {
 	const n = E(tag, attrs, children);
 	n.listeners = {};
@@ -119,21 +118,6 @@ function EL(tag, attrs, children) {
 const traffic = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
 	E: EL, api, view: { extend: (v) => v }, form: {}, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }, Event
 }).module;
-const area = { value: '# devices\n192.168.1.5\n', dispatchEvent() {} };
-const widget = { querySelector: (q) => q === 'textarea' ? area : null };
-const picked = traffic.addLeasePicker(widget, { dhcp_leases: [ { hostname: 'pc', ipaddr: '192.168.1.151' }, { ipaddr: '192.168.1.5' } ] });
-h.assert(picked.children[0] === widget, 'picker wraps the LuCI widget (survives form re-render)');
-const select = picked.children[1].children[0];
-for (let i = 0; i < 2; i++) {
-	select.value = '192.168.1.151';
-	select.listeners.change();
-}
-select.value = '192.168.1.5';
-select.listeners.change();
-h.assertEq(area.value, '# devices\n192.168.1.5\n192.168.1.151\n', 'device added once, existing device not repeated');
-h.assertEq(select.value, '', 'picker resets to the prompt even for a repeated device');
-console.log('ok - traffic device picker');
-
 const hours = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, style: {} };
 const hoursWidget = { querySelector: (q) => q === 'input' ? hours : null };
 const refreshBtn = { tag: 'button' };
@@ -149,7 +133,7 @@ console.log('ok - traffic interval field');
 		E: EL, view: { extend: (v) => v }, form: {}, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }, Event,
 		api: Object.assign({}, api, {
 			upload: async (prefix, c) => { calls.push('upload'); return '/tmp/x'; },
-			write: async () => { calls.push('apply'); throw new Error('Invalid dst entries: abc'); },
+			job: async () => { calls.push('apply'); throw new Error('Invalid dst entries: abc'); },
 			notify: (msg, level) => calls.push('notify:' + level + ':' + msg)
 		})
 	}).module;
@@ -157,9 +141,9 @@ console.log('ok - traffic interval field');
 	tv.titles = { dst: 'Addresses via proxy' };
 	tv.map = { parse: async () => { tv.edited.dst = 'abc'; calls.push('parse'); }, save: async () => calls.push('save') };
 	let failed = false;
-	await tv.handleSave().catch(() => { failed = true; });
+	await tv.handleSaveApply().catch(() => { failed = true; });
 	h.assert(failed, 'save rejects when a list is invalid');
-	h.assertEq(calls.join(','), 'parse,upload,upload,upload,upload,apply,notify:danger:"Addresses via proxy" has invalid lines: abc', 'lists applied before map.save; error shown');
+	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc', 'lists applied before map.save; error shown');
 	console.log('ok - traffic save order');
 })();
 
@@ -215,7 +199,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
   return tv.map.options;
  };
  let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
- h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'direct mode reason');
+ h.assert(opts._mode.cfgvalue().startsWith('Only selected traffic via proxy (chosen by your subscription)'), 'direct mode reason');
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
  h.assertEq(opts._prov_disable_quic.cfgvalue(), 'Disabled', 'provider value rendered');
  h.assertEq(opts._prov_disable_quic.description, 'Set by your provider.', 'provider explanation');
@@ -241,7 +225,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', lists: { dst: { provided: true, own_count: 0 } } });
  h.assert(!opts._dst_note, 'no empty-own note');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
- h.assertEq(opts._mode.cfgvalue(), 'All traffic via proxy except exclusions (chosen by your subscription)', 'proxy mode reason');
+ h.assert(opts._mode.cfgvalue().startsWith('All traffic via proxy except exclusions (chosen by your subscription)'), 'proxy mode reason');
  h.assert(!Object.keys(opts).some(k => k.startsWith('_own_') || k.endsWith('_list_source')), 'no override controls without provider keys');
  h.assert(!opts._direct_src.readonly && !opts._dst && !opts._src, 'redir-host direct devices editable, inactive lists absent');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip' });
@@ -249,14 +233,14 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(opts._direct_src_off?.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
  const uploads = [], writes = [];
  const saved = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
-  E, api: Object.assign({}, api, { upload: async (prefix, content) => { uploads.push(content); return content; }, write: async (...args) => writes.push(args) }),
-  view: { extend: v => v }, form, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }
+  E, api: Object.assign({}, api, { upload: async (prefix, content) => { uploads.push(content); return content; }, job: async (...args) => writes.push(args), notify() {} }),
+  uci: { changes: async () => ({}) }, ui, view: { extend: v => v }, form, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }
  }).module;
  saved.lists = { dst: 'dst', src: 'src', direct: 'direct', direct_src: 'direct_src' };
  saved.map = { parse: async () => { saved.edited.dst = 'edited'; }, save: async () => {} };
- await saved.handleSave();
- h.assertEq(uploads.join(','), 'edited,src,direct,direct_src', 'four uploads in stable order');
- h.assertEq(writes[0].join(','), 'apply-lists,edited,src,direct,direct_src', 'four list paths sent');
+ await saved.handleSaveApply();
+ h.assertEq(uploads.join(','), 'edited', 'only edited list uploaded');
+ h.assertEq(writes[0].join(','), 'apply-lists,edited,-,-,-', 'unchanged list placeholders sent');
  for (const count of [1, 2, 5]) {
   const pluralOpts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip', lists: { direct: { provided: true, provider_count: count, own_count: count } } });
   h.assertEq(pluralOpts.direct_list_source.values[0][1], `Provider list (${count} ${count === 1 ? 'entry' : 'entries'})`, 'provider list plural ' + count);
@@ -754,6 +738,210 @@ for (const [name, check] of [
    calls = []; await button(p, 'Update now').listeners.click();
    h.assertEq(JSON.stringify(calls), JSON.stringify(changed ? [['job','update-subscription','https://new.example'],['write','set-subscription','https://new.example','1']] : [['write','set-subscription','https://old.example','1'],['job','update-subscription']]), 'update sequence');
   }
+ });
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
+// Task 19: one Save & Apply, partial file writes, and MAC-aware leases.
+(async () => {
+ class Option {
+  constructor(name, title, description) { Object.assign(this, { name, title, description, dependencies: [], values: [] }); }
+  depends(...args) { this.dependencies.push(args); }
+  value(...args) { this.values.push(args); }
+  isActive() { return true; }
+  remove() {}
+ }
+ class Map {
+  constructor(name, title, description) { Object.assign(this, { name, title, description, options: {} }); }
+  section() {
+   const section = { children: [], tab() {} };
+   section.taboption = (tab, Type, name, title, description) => {
+    const o = new Type(name, title, description); section.children.push(o); this.options[name] = o; return o;
+   };
+   return section;
+  }
+  render() { return Promise.resolve(E('form')); }
+ }
+ const form = { Map, Flag: class extends Option {}, Value: Option, DummyValue: Option, ListValue: Option, TextValue: Option, NamedSection: Option };
+ const lists = { dst: '', src: '', direct: '', direct_src: '' };
+ const setup = (overrides = {}, leasesRPC = async () => ({})) => {
+  const calls = [], notices = [], edits = {};
+  const bridge = { ...api, jobRunning: false, busy: (button, fn) => fn(),
+   readLarge: async cmd => { calls.push(['readLarge', cmd]); return { ...lists }; },
+   read: async () => ({}), upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-policy-list.test'; },
+   job: async (...args) => { calls.push(['job', ...args]); return {}; },
+   notify: (...args) => notices.push(args), jobNotice: () => { calls.push(['jobNotice']); return E('div', { 'aria-live': 'polite' }, ['JOB NOTICE']); },
+   ...overrides
+  };
+  const uci = { get() {}, changes: async () => { calls.push(['changes']); return {}; } };
+  const ui = { changes: { apply: checked => calls.push(['apply', checked]) } };
+  const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
+   E, api: bridge, form, uci, ui, Event, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
+  }).module;
+  const render = async (data = { ...lists }, profile = {}) => tv.render([data, profile, {}]);
+  const saving = () => {
+   tv.map.parse = async () => { calls.push(['parse']); Object.assign(tv.edited, edits); };
+   tv.map.save = async (...args) => { calls.push(['save', ...args]); await tv.map.parse(); };
+   calls.length = 0;
+  };
+  return { tv, bridge, calls, notices, edits, uci, render, saving };
+ };
+ async function check(name, fn) {
+  try { await fn(); console.log('ok - traffic ' + name); }
+  catch (e) { console.error('not ok - traffic ' + name, e); process.exitCode = 1; }
+ }
+ await check('buttons', async () => {
+  const t = setup(); const p = await t.render();
+  h.assertEq(t.tv.handleSave, null, 'no plain Save'); h.assertEq(typeof t.tv.handleSaveApply, 'function', 'Save & Apply defined');
+  h.assertEq(t.tv.map.description, 'Choose which traffic goes through Mihomo. Save & Apply applies the changes.', 'map description');
+  h.assert(texts(p).includes('JOB NOTICE'), 'job notice on page');
+ });
+ await check('save unchanged lists', async () => {
+  for (const snapshot of [lists, { ...lists, src: 'aa:bb:cc:dd:ee:ff # phone\n' }]) {
+   const t = setup(); await t.render({ ...snapshot }); t.saving();
+   // LuCI removes optional empty values even when they were already empty.
+   for (const [kind, value] of Object.entries(snapshot)) t.edits[kind] = value;
+   await t.tv.handleSaveApply(null, '0');
+   h.assert(!t.calls.some(c => ['upload', 'job', 'apply'].includes(c[0])), 'no uploads, list job, or UCI apply');
+   h.assertEq(JSON.stringify(t.calls.find(c => c[0] === 'save')), JSON.stringify(['save', null, true]), 'map saved silently');
+   h.assertEq(t.notices.at(-1)[0], 'Changes applied.', 'empty changes success notice');
+  }
+ });
+ await check('save one list', async () => {
+  const t = setup(); await t.render(); t.saving(); t.edits.src = '192.168.1.5';
+  await t.tv.handleSaveApply(null, '0');
+  h.assertEq(JSON.stringify(t.calls.filter(c => ['upload', 'job', 'save'].includes(c[0]))), JSON.stringify([
+   ['upload', 'mihowrt-policy-list', '192.168.1.5'], ['job', 'apply-lists', '-', '/tmp/mihowrt-policy-list.test', '-', '-'], ['save', null, true]
+  ]), 'one upload then partial job then map.save');
+  h.assertEq(t.tv.lists.src, '192.168.1.5', 'snapshot refreshed');
+ });
+ await check('apply with foreign changes', async () => {
+  for (const mode of ['0', '1']) for (const changedList of [false, true]) {
+   const t = setup(); await t.render(); t.saving();
+   if (changedList) t.edits.src = '192.168.1.5';
+   t.uci.changes = async () => ({ network: [['set', 'lan', 'ipaddr', '192.168.2.1']] });
+   await t.tv.handleSaveApply(null, mode);
+   h.assertEq(JSON.stringify(t.calls.filter(c => c[0] === 'apply')), JSON.stringify([['apply', mode === '0']]), 'foreign UCI changes applied like stock LuCI');
+  }
+  const t = setup(); await t.render(); t.saving(); t.uci.changes = async () => ({ mihowrt: [] });
+  await t.tv.handleSaveApply(null, '0'); h.assert(!t.calls.some(c => c[0] === 'apply'), 'empty change arrays do not apply');
+ });
+ await check('rejected list', async () => {
+  const t = setup({ job: async () => { throw Error('Invalid src entries: x'); } }); await t.render(); t.saving(); t.edits.src = 'x';
+  try { await t.tv.handleSaveApply(null, '0'); } catch (_) {}
+  h.assertEq(t.notices.at(-1)[0], '"Devices via proxy" has invalid lines: x', 'list title in notice');
+  h.assert(!t.calls.some(c => c[0] === 'save'), 'settings not saved');
+  h.assertEq(t.tv.edited.src, 'x', 'edits retained'); h.assertEq(t.tv.lists.src, '', 'installed snapshot unchanged');
+ });
+ await check('settings failure after lists', async () => {
+  const t = setup(); await t.render(); t.saving(); t.edits.src = '192.168.1.5';
+  t.tv.map.save = async () => { throw Error('disk full'); };
+  try { await t.tv.handleSaveApply(null, '0'); } catch (_) {}
+  h.assert(t.notices.at(-1)[0].includes('Lists were applied, but settings could not be saved: disk full'), 'partial success explained');
+  h.assertEq(t.tv.lists.src, '192.168.1.5', 'applied lists remembered');
+  h.assert(!t.calls.some(c => c[0] === 'apply'), 'no UCI apply after failed save');
+ });
+ await check('lists load failure', async () => {
+  for (const result of ['reject', null, {}, { ...lists, src: null }]) {
+   const t = setup({ readLarge: async cmd => { h.assertEq(cmd, 'lists-json', 'lists use readLarge'); if (result === 'reject') throw Error('read failed'); return result; } });
+   const p = await t.tv.render(await t.tv.load());
+   h.assert(collect(p).some(n => /alert-message error/.test(n.attrs.class || '')), 'load error box');
+   h.assert(texts(p).some(s => s.includes('Cannot load the lists:')), 'error cause shown');
+   for (const name of ['_dst', '_src']) h.assertEq(t.tv.map.options[name].readonly, true, name + ' read-only');
+   t.saving(); t.edits.src = 'accidental'; await t.tv.handleSaveApply(null, '0');
+   h.assert(!t.calls.some(c => c[0] === 'upload' || c[0] === 'job'), 'failed load never uploads');
+  }
+ });
+ await check('mode help and inactive lists', async () => {
+  const t = setup(); await t.render({ ...lists, dst: '# comment\n1.1.1.1\n\n2.2.2.2\n3.3.3.3' }, { mode: 'proxy-first' });
+  h.assert(t.tv.map.options._mode.cfgvalue().includes('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".'), 'mode help verbatim');
+  const rowText = Object.values(t.tv.map.options).map(o => o.cfgvalue?.()).filter(v => typeof v === 'string');
+  h.assert(rowText.includes('Addresses via proxy: 3 saved entries, used in the other mode.'), 'inactive list summary');
+ });
+ const lease = { hostname: 'phone', macaddr: 'AA:BB:CC:DD:EE:FF', ipaddr: '192.168.1.5' };
+ const picker = (t, leases, value = '') => {
+  const area = { value, listeners: {}, addEventListener(k, fn) { this.listeners[k] = fn; }, dispatchEvent(ev) { this.listeners[ev.type]?.(); } };
+  const widget = E('div'); widget.querySelector = q => q === 'textarea' ? area : null;
+  const p = t.tv.addLeasePicker(widget, leases), selects = collect(p).filter(n => n.tag === 'select');
+  return { p, area, select: selects[0], addAs: selects[1] };
+ };
+ const add = (p, index) => { p.select.value = p.select.children[index + 1].attrs.value; p.select.listeners.change(); };
+ await check('picker add as', async () => {
+  const t = setup();
+  const p = picker(t, { dhcp_leases: [lease], dhcp6_leases: [{ hostname: 'tv', ip6addrs: ['2001:db8::5/128'] }, { ip6addr: '2001:db8::6' }] });
+  h.assert(p.addAs, 'two selects'); h.assertEq(p.addAs.value, 'mac', 'MAC default');
+  h.assert(texts(p.p).includes('Add as') && texts(p.p).includes('MAC address (IPv4 and IPv6)') && texts(p.p).includes('IP address'), 'visible Add as choices');
+  h.assert(collect(p.p).filter(n => n.tag === 'label').length >= 2, 'visible select labels');
+  for (const label of collect(p.p).filter(n => n.tag === 'label')) h.assertEq(label.children.at(-2), ' ', 'space before select');
+  add(p, 0); add(p, 0); h.assertEq(p.select.value, '', 'picker resets after repeated selection');
+  h.assertEq(p.area.value, 'aa:bb:cc:dd:ee:ff # phone\n', 'MAC lower-case, hostname, once');
+  p.addAs.value = 'ip'; add(p, 0); add(p, 0);
+  h.assertEq(p.area.value, 'aa:bb:cc:dd:ee:ff # phone\n192.168.1.5 # phone\n', 'IP hostname, once');
+  for (const as of ['mac', 'ip']) { p.addAs.value = as; add(p, 1); }
+  h.assertEq(p.area.value.split('2001:db8::5').length - 1, 1, 'DHCPv6 fallback strips prefix and deduplicates');
+  h.assert(p.area.value.includes('2001:db8::5 # tv'), 'IPv6 hostname'); add(p, 2); h.assert(p.area.value.includes('2001:db8::6'), 'singular ip6addr fallback');
+ });
+ await check('DHCPv6 host address only', async () => {
+  const p = picker(setup(), { dhcp6_leases: [
+   { ip6addrs: ['2001:db8:1::/56', '2001:db8::7/128'] },
+   { ip6addrs: ['2001:db8:2::/64'], ip6addr: '2001:db8::8/128' },
+   { ip6addrs: ['2001:db8:3::/64'] },
+   { ip6addr: '2001:db8:4::/56' },
+   { macaddr: lease.macaddr, ip6addr: '2001:db8:5::/64' },
+   { ipaddr: '192.168.1.6', ip6addr: '2001:db8:6::/64' }
+  ] });
+  h.assertEq(p.select.children.length, 5, 'prefix-only leases without MAC or IPv4 omitted');
+  add(p, 0); add(p, 1); add(p, 2); add(p, 3);
+  h.assertEq(p.area.value, '2001:db8::7\n2001:db8::8\naa:bb:cc:dd:ee:ff\n192.168.1.6\n', 'host addresses chosen, never delegated prefixes');
+ });
+ await check('leases unavailable', async () => {
+  const t = setup({}, async () => { throw Error('RPC unavailable'); });
+  const data = await t.tv.load(); h.assertEq(data[2], null, 'failed leases remain unavailable');
+  const p = picker(t, data[2], '192.168.1.9\naa:bb:cc:dd:ee:ff');
+  h.assert(!texts(p.p).some(s => s.includes('Not connected now:')), 'no false offline note');
+  h.assert(!p.select, 'unavailable picker omitted');
+ });
+ await check('offline note changes only on change', async () => {
+  const p = picker(setup(), {}, '192.168.1.9');
+  const note = collect(p.p).find(n => n.textContent.startsWith('Not connected now:'));
+  h.assert(note, 'initial note'); p.area.value = '192.168.1.10';
+  p.area.listeners.input?.();
+  h.assertEq(note.textContent, 'Not connected now: 192.168.1.9', 'typing does not recompute');
+  p.area.listeners.change(); h.assertEq(note.textContent, 'Not connected now: 192.168.1.10', 'change recomputes');
+ });
+ await check('inactive list plurals', async () => {
+  for (const count of [1, 2, 5]) {
+   const t = setup(); await t.render({ ...lists, dst: Array(count).fill('1.1.1.1').join('\n') }, { mode: 'proxy-first' });
+   h.assertEq(t.tv.map.options._dst_inactive.cfgvalue(), `Addresses via proxy: ${count} saved ${count === 1 ? 'entry' : 'entries'}, used in the other mode.`, 'inactive plural ' + count);
+  }
+ });
+ await check('private mac hint', async () => {
+  const hint = 'This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.';
+  for (const [macaddr, as, expected] of [['da:a1:19:00:00:01', 'mac', true], ['00:11:22:33:44:55', 'mac', false], ['da:a1:19:00:00:01', 'ip', false]]) {
+   const p = picker(setup(), { dhcp_leases: [{ ...lease, macaddr }] }); p.addAs.value = as; add(p, 0);
+   h.assertEq(collect(p.p).some(n => !n.hidden && n.textContent === hint), expected, 'private hint only when adding private MAC');
+  }
+ });
+ await check('not connected now', async () => {
+  const value = 'aa:bb:cc:dd:ee:ff # phone\n192.168.1.9\n2001:db8::5';
+  for (const present of [false, true]) {
+   const leases = { dhcp_leases: [lease, ...(present ? [{ ipaddr: '192.168.1.9' }] : [])] };
+   const p = picker(setup(), leases, value);
+   const notes = collect(p.p).filter(n => !n.hidden && typeof n.textContent === 'string' && n.textContent.startsWith('Not connected now:'));
+   h.assertEq(notes.map(n => n.textContent).join(''), present ? '' : 'Not connected now: 192.168.1.9', 'only absent MAC and IPv4 listed');
+  }
+  const p = picker(setup(), {}, 'aa:bb:cc:dd:ee:ff # phone');
+  h.assert(texts(p.p).includes('Not connected now: aa:bb:cc:dd:ee:ff'), 'absence even without leases');
+ });
+ await check('update lists job', async () => {
+  const t = setup(); const b = t.tv.refreshButton();
+  h.assert(b.attrs['data-mw-job'] != null, 'update is a shared job starter');
+  await b.listeners.click(); h.assert(t.calls.some(c => c.join(',') === 'job,update-lists'), 'remote list job');
+  t.bridge.jobRunning = true; h.assertEq(t.tv.refreshButton().attrs.disabled, true, 'running job disables refresh at render');
+  await t.render(); t.saving(); t.bridge.read = async cmd => { h.assertEq(cmd, 'job-status', 'read running operation'); return { op: 'update-lists' }; };
+  await t.tv.handleSaveApply(null, '0'); h.assertEq(t.calls.length, 0, 'running jobs do not save');
+  h.assertEq(t.notices.at(-1)[0], '"Update remote lists" is running…', 'running job label shown');
+  t.bridge.read = async () => { throw Error('status unavailable'); };
+  await t.tv.handleSaveApply(null, '0'); h.assertEq(t.notices.at(-1)[0], 'status unavailable', 'status read errors visible');
  });
 })().catch(err => { console.error(err); process.exitCode = 1; });
 

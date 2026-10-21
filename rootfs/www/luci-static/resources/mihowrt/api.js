@@ -284,6 +284,7 @@ return baseclass.extend({
 	write: (cmd, ...args) => json(WRITE, [ cmd, ...args ]),
 	service: (action) => run(INIT, [ action ]),
 	jobRunning: false,
+	jobLabel: (op) => JOB_LABELS[op] || op,
 	job: async function(op, ...args) {
 		waitingJobs++;
 		this.jobRunning = true;
@@ -304,7 +305,7 @@ return baseclass.extend({
 				return;
 			this.jobRunning = true;
 			lockJobButtons();
-			const alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(JOB_LABELS[status.op] || status.op)));
+			const alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(this.jobLabel(status.op))));
 			notice.appendChild(alert);
 			try {
 				await waitJob(this, status.id);

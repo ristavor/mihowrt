@@ -14,17 +14,15 @@ const CSS = `
 .mw-page > h2, .mw-page > .cbi-section { margin: 0; }
 .mw-page h3 { margin-top: 0; }
 .mw-status { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; margin: 0; }
-.mw-status strong { font-size: 1.25em; }
 .mw-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .mw-row:first-child, .mw-grid .mw-row { margin-top: 0; }
 .mw-grid { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 8px 16px; align-items: center; }
 .mw-grid > * { min-width: 0; overflow-wrap: anywhere; }
 .mw-grid select { max-width: 100%; }
-.mw-muted { opacity: .75; }
 .mw-check > div { padding: 4px 0; }
 .mw-mark { display: inline-block; min-width: 1.6em; }
 .mw-announce { white-space: pre-wrap; overflow-wrap: anywhere; }
-.mw-yaml { width: 100%; min-height: 24em; font-family: monospace; }
+.mw-yaml { width: 100%; min-height: 24em; }
 .mw-log { max-height: 30em; overflow: auto; white-space: pre-wrap; }
 .mw-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } }

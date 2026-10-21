@@ -317,7 +317,9 @@ subscription_update() {
 	fi
 	rm -f "$FETCH_HDR"
 	if [ -n "$new_url" ] && [ "$new_url" != "$(uci_get subscription_url)" ]; then
-		uci_set subscription_url "$new_url" && uci_commit || warn "Failed to save the subscription URL"
+		if ! { uci_set subscription_url "$new_url" && uci_commit; }; then
+			warn "Failed to save the subscription URL"
+		fi
 	fi
 	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
 	# Reload: the period header and provider lists may be new.

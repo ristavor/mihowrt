@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh service.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh service.sh
+setup_runtime_paths "$tmpdir"
+
 
 PKG_STATE_DIR="$tmpdir/run"
 PKG_TMP_DIR="$tmpdir/tmp"
@@ -42,6 +44,7 @@ api_dns_probe() {
 	[ "${verdict:-1}" = 1 ]
 }
 
+api_alive() { return 1; }
 reset_events
 probe_script="000"
 rc=0
@@ -96,7 +99,7 @@ lock_seen=""
 http_fetch() {
 	lock_seen="$lock_seen $(readlink "$RUNTIME_LOCK_FILE" 2>/dev/null || echo free)"
 	mkdir -p "$(dirname "$2")"
-	printf 'mode: rule\n' >"$2"
+	printf 'proxies: []\n' >"$2"
 }
 config_install() {
 	[ "$(readlink "$RUNTIME_LOCK_FILE")" = "$$" ] || fail "config_install must run under the lock"
@@ -104,6 +107,8 @@ config_install() {
 }
 cron_update() { :; }
 subscription_metadata_from_headers() { echo '{}'; }
+FETCH_HDR="$tmpdir/headers"
+lists_urls() { :; }
 SUBSCRIPTION_META_FILE="$tmpdir/etc/sub.json"
 settings_load() { SUBSCRIPTION_URL=https://sub.example/x; SUBSCRIPTION_INTERVAL=1; LISTS_INTERVAL=1; }
 subscription_update >/dev/null
@@ -156,7 +161,7 @@ pass "hotplug re-arms service"
 # M: list upload paths cannot escape /tmp.
 mkdir -p /tmp/mihowrt-policy-list.dir
 : >/tmp/mihowrt-policy-list.dir/x
-if lists_apply /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x 2>/dev/null; then fail "nested list path must be rejected"; fi
+if lists_apply /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x /tmp/mihowrt-policy-list.dir/x 2>/dev/null; then fail "nested list path must be rejected"; fi
 rm -rf /tmp/mihowrt-policy-list.dir
 pass "list path check"
 
@@ -170,7 +175,67 @@ pass "list path check"
 	lists_update_remote() { :; }
 	nft_apply() { echo "nft:$NETBIRD_INTERFACE" >>"$events"; }
 	reset_events
-	lists_apply /tmp/mihowrt-policy-list.a /tmp/mihowrt-policy-list.b /tmp/mihowrt-policy-list.c >/dev/null
+	lists_apply /tmp/mihowrt-policy-list.a /tmp/mihowrt-policy-list.b /tmp/mihowrt-policy-list.c /tmp/mihowrt-policy-list.d >/dev/null
 	assert_file_contains "$events" "nft:wt9" "apply-lists must load settings before nft_apply"
 )
 pass "apply-lists loads settings"
+
+# Keep the core alive through degradation and recovery, then end via hung API.
+load_modules service.sh
+WATCHDOG_FAILS=3
+WATCHDOG_INTERVAL=0.01
+probe_count=0
+probe_script=0001000
+api_alive() { [ "$probe_count" -le 3 ]; }
+wait_for_ready() { :; }
+settings_load() { :; }
+policy_cleanup() { echo "cleanup:$([ -e "$RUNNING_MARKER" ] && echo yes || echo no)" >>"$events"; }
+policy_apply() { echo apply >>"$events"; }
+api_dns_probe() {
+ probe_count=$((probe_count + 1))
+ if [ "$probe_count" = 4 ]; then
+  assert_false "degraded marker absent before recovery" test -e "$RUNNING_MARKER"
+ fi
+ if [ "$probe_count" = 5 ]; then
+  assert_true "recovery restores marker" test -e "$RUNNING_MARKER"
+ fi
+ [ "$(printf '%s' "$probe_script" | cut -c"$probe_count")" = 1 ]
+}
+reset_events
+rc=0
+run_service 2>"$tmpdir/watchdog.err" || rc=$?
+assert_eq 1 "$rc" "hung core still exits for respawn"
+assert_eq 7 "$probe_count" "loop continues after degrade and recover"
+assert_eq $'apply\ncleanup:no\napply\ncleanup:no' "$(cat "$events")" "degrade cleans and recovery reapplies"
+pass "watchdog degrades in place and restores policy and marker"
+
+source_init_mihowrt_lib
+USER_STOP_FILE="$tmpdir/stopped"
+SKIP_START_FILE="$tmpdir/skip-start"
+MIHOWRT="$tmpdir/cli"
+printf '#!/bin/sh\nexit 0\n' >"$MIHOWRT"
+chmod +x "$MIHOWRT"
+procd_open_instance() { :; }
+procd_set_param() { :; }
+procd_close_instance() { :; }
+stop_service
+assert_true "Stop creates sticky flag" test -f "$USER_STOP_FILE"
+start_service
+assert_false "Start clears sticky flag" test -f "$USER_STOP_FILE"
+# Rewrite only absolute device paths, then execute the real hotplug logic.
+sed -e "s|/var/run/mihowrt|$tmpdir/hotplug|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init-hotplug|g" \
+ -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" "$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt" >"$tmpdir/hotplug.sh"
+printf '#!/bin/sh\n[ "$1" != start ] || touch "%s"\n' "$tmpdir/hotplug.started" >"$tmpdir/init-hotplug"
+chmod +x "$tmpdir/init-hotplug"
+printf '#!/bin/sh\nexit 1\n' >"$tmpdir/bin/pgrep"
+chmod +x "$tmpdir/bin/pgrep"
+mkdir -p "$tmpdir/hotplug"
+touch "$tmpdir/hotplug/stopped"
+ACTION=ifup sh "$tmpdir/hotplug.sh"
+sleep 0.1
+assert_false "hotplug respects Stop" test -f "$tmpdir/hotplug.started"
+rm "$tmpdir/hotplug/stopped"
+ACTION=ifup sh "$tmpdir/hotplug.sh"
+for i in {1..50}; do [ ! -e "$tmpdir/hotplug.started" ] || break; sleep 0.02; done
+assert_true "hotplug starts when not stopped" test -f "$tmpdir/hotplug.started"
+pass "sticky Stop and hotplug"

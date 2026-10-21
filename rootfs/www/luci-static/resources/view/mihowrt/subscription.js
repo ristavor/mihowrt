@@ -1,5 +1,6 @@
 'use strict';
 'require view';
+'require ui';
 'require mihowrt.api as api';
 
 const text = api.text;
@@ -31,7 +32,11 @@ return view.extend({
 		auto.addEventListener('change', describeAuto);
 		const save = E('button', { class: 'cbi-button cbi-button-save' }, text(_('Save')));
 		const update = E('button', { class: 'cbi-button cbi-button-action important' }, text(_('Update now')));
-		const yaml = E('textarea', { id: 'mw-yaml', class: 'mw-yaml', spellcheck: 'false', wrap: 'off' }, text(config.content));
+		// LuCI's own monospace textarea (as for code fields on stock pages).
+		const yamlWidget = new ui.Textarea(config.content || '', { id: 'mw-yaml', monospace: true, wrap: false, rows: 24 }).render();
+		const yaml = yamlWidget.querySelector('textarea');
+		yaml.classList.add('mw-yaml');
+		yaml.setAttribute('spellcheck', 'false');
 		const apply = E('button', { class: 'cbi-button cbi-button-apply' }, text(_('Check and apply')));
 		const original = config.content;
 
@@ -89,7 +94,7 @@ return view.extend({
 				E('h3', text(_('Advanced: edit the Mihomo YAML'))),
 				api.toggle(_('Show the YAML editor'), _('Hide the YAML editor'), E('div', {}, [
 					E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
-					yaml,
+					yamlWidget,
 					E('div', { class: 'mw-row' }, [ apply ])
 				]))
 			])

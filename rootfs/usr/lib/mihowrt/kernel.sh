@@ -130,9 +130,10 @@ core_update() {
 	[ -n "$(core_version "$CLASH_BIN.new")" ] || core_fail "new binary does not run on this router" || return 1
 	if [ -r "$CLASH_CONFIG" ] && mihomo_config_generate "$CLASH_CONFIG" "$config" 2>/dev/null; then
 		mihomo_config_test "$config" "$CLASH_BIN.new" || core_fail "new core rejects the current config" || return 1
+		config_check_record ok
 	fi
 	mv -f "$CLASH_BIN.new" "$CLASH_BIN" || core_fail "cannot replace binary" || return 1
-	rm -rf "$KERNEL_TMP_DIR" "$config"
+	rm -rf "$KERNEL_TMP_DIR" "$config" "$config.profile"
 	CORE_UPDATED=1
 	CORE_VERSION="$tag"
 	log "Mihomo core updated: ${current:-none} -> $tag"

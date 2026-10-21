@@ -26,8 +26,20 @@ dns_global_custom_servers() {
 	done
 }
 
+# Last recorded check of the installed YAML: true, false or null (unknown).
+# Status never runs the core itself (slow and memory-hungry on routers).
+config_valid_json() {
+	if [ -f "$CONFIG_OK_FILE" ] && ! [ "$CLASH_CONFIG" -nt "$CONFIG_OK_FILE" ]; then
+		echo true
+	elif [ -f "$CONFIG_ERR_FILE" ] && ! [ "$CLASH_CONFIG" -nt "$CONFIG_ERR_FILE" ]; then
+		echo false
+	else
+		echo null
+	fi
+}
+
 status_json() {
-	local running=false dns_ok=null policy=false config_valid=false errors=""
+	local running=false dns_ok=null policy=false config_valid=null config_error="" errors=""
 
 	settings_load 2>/dev/null || errors="Invalid MihoWRT settings"
 	service_running && running=true
@@ -35,14 +47,8 @@ status_json() {
 		dns_ok="$(json_bool api_dns_probe)"
 		nft_active && route_active && policy=true
 	fi
-	if [ -s "$RUNTIME_CONFIG" ]; then
-		config_valid=true
-	elif [ -r "$CLASH_CONFIG" ] && [ -x "$CLASH_BIN" ] &&
-		mihomo_config_generate "$CLASH_CONFIG" "$PKG_TMP_DIR/status.yaml" 2>/dev/null &&
-		mihomo_config_test "$PKG_TMP_DIR/status.yaml" 2>/dev/null; then
-		config_valid=true
-	fi
-	rm -f "$PKG_TMP_DIR/status.yaml"
+	config_valid="$(config_valid_json)"
+	[ "$config_valid" = false ] && config_error="$(cat "$CONFIG_ERR_FILE" 2>/dev/null)"
 	route_state_read 2>/dev/null
 
 	jq -nc \
@@ -51,6 +57,8 @@ status_json() {
 		--argjson dns_ok "$dns_ok" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \
+		--arg config_error "$config_error" \
+		--arg dns_mode "${DNS_MODE:-}" \
 		--arg version "$PKG_VERSION" \
 		--arg core "$(core_version)" \
 		--arg mode "${POLICY_MODE:-}" \
@@ -60,14 +68,15 @@ status_json() {
 		--arg priority "${ROUTE_PRIORITY:-}" \
 		--arg interfaces "${SOURCE_INTERFACES:-}" \
 		--arg dst "$(lists_count dst)" --arg src "$(lists_count src)" --arg direct "$(lists_count direct)" \
+		--arg direct_src "$(lists_count direct_src)" \
 		--arg errors "$errors" '
 		def words: split(" ") | map(select(length > 0));
 		{running: $running, enabled: $enabled, version: $version, core: $core,
 		 core_installed: ($core != ""), subscription_configured: ($url != ""),
-		 config_valid: $config_valid, dns_ok: $dns_ok, policy_active: $policy,
+		 config_valid: $config_valid, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
 		 mode: $mode, interfaces: ($interfaces | words),
 		 custom_dns_servers: ($custom | words),
-		 lists: {dst: ($dst | tonumber), src: ($src | tonumber), direct: ($direct | tonumber)},
+		 lists: {dst: ($dst | tonumber), src: ($src | tonumber), direct: ($direct | tonumber), direct_src: ($direct_src | tonumber)},
 		 route: {table: $table, priority: $priority},
 		 errors: ([$errors] | map(select(length > 0)))}'
 }

@@ -86,8 +86,15 @@ service_recover() {
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE"
 }
 
+# Build and check a runtime config from $CLASH_CONFIG; remember the result.
 runtime_config_build() {
-	mihomo_config_generate "$CLASH_CONFIG" "$1" && mihomo_config_test "$1"
+	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1
+	if mihomo_config_test "$1"; then
+		config_check_record ok
+		return 0
+	fi
+	config_check_record err
+	return 1
 }
 
 cron_update() {
@@ -242,7 +249,11 @@ service_reload() {
 	settings_load || return 1
 	cron_update || warn "Failed to update cron schedule"
 	service_ready || return 0
-	runtime_config_build "$candidate" || return 1
+	runtime_config_build "$candidate" || {
+		rm -f "$candidate" "$candidate.profile"
+		return 1
+	}
+	mv -f "$candidate.profile" "$PROFILE_FILE"
 	if ! cmp -s "$candidate" "$RUNTIME_CONFIG"; then
 		if ! { mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; then
 			err "Mihomo hot reload failed"

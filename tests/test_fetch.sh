@@ -8,7 +8,9 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh fetch.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh
+setup_runtime_paths "$tmpdir"
+
 PKG_TMP_DIR="$tmpdir/tmp"
 PKG_PERSIST_DIR="$tmpdir/etc"
 PKG_STATE_DIR="$tmpdir/run"
@@ -62,10 +64,10 @@ pass "fetch errors"
 assert_eq "Личная 🚀" "$(subscription_decode_metadata_value 'base64:0JvQuNGH0L3QsNGPIPCfmoA=')" "UTF-8 decoded"
 assert_eq "abc" "$(subscription_decode_metadata_value 'base64:YWJj')" "unpadded quartet"
 assert_eq "plain text" "$(subscription_decode_metadata_value 'plain text')" "plain text kept"
-assert_eq "base64:YWJj====" "$(subscription_decode_metadata_value 'base64:YWJj====')" "malformed padding kept"
-assert_eq "base64:YQBi" "$(subscription_decode_metadata_value 'base64:YQBi')" "NUL byte kept raw"
-assert_eq "base64://4=" "$(subscription_decode_metadata_value 'base64://4=')" "non-UTF-8 kept raw"
-assert_eq "base64:???" "$(subscription_decode_metadata_value 'base64:???')" "invalid chars kept"
+assert_eq "" "$(subscription_decode_metadata_value 'base64:YWJj====')" "malformed padding dropped"
+assert_eq "" "$(subscription_decode_metadata_value 'base64:YQBi')" "NUL byte dropped"
+assert_eq "" "$(subscription_decode_metadata_value 'base64://4=')" "non-UTF-8 dropped"
+assert_eq "" "$(subscription_decode_metadata_value 'base64:???')" "invalid chars dropped"
 pass "base64 metadata"
 
 CURL_HEADERS='HTTP/1.1 302 Found\r\nprofile-title: old\r\n\r\nHTTP/1.1 200 OK\r\nProfile-Title: base64:0JvQuNGH0L3QsNGPIPCfmoA=\r\nsubscription-userinfo: upload=1; download=2; expire=1700000000\r\nprofile-update-interval: 12\r\n' \
@@ -78,7 +80,7 @@ pass "subscription metadata"
 
 printf '%s\n' "$meta" >"$SUBSCRIPTION_META_FILE"
 assert_eq 12 "$(settings_subscription_interval)" "auto interval from provider header"
-fake_uci_set mihowrt.settings.subscription_interval 0
+fake_uci_set mihowrt.settings.subscription_auto_update 0
 assert_eq 0 "$(settings_subscription_interval)" "explicit 0 disables"
 pass "auto interval"
 
@@ -97,7 +99,9 @@ nslookup() { printf 'Server:\t\t127.0.0.1\nAddress:\t127.0.0.1:53\n\nName:\tsub.
 with_lock() { "$@"; }
 config_install() { echo "fetch-order" >>"$nft_log"; echo '{"action":"saved"}'; }
 cron_update() { :; }
-http_fetch() { echo "download" >>"$nft_log"; mkdir -p "$(dirname "$2")"; echo "mode: rule" >"$2"; }
+config_api_wait() { :; }
+lists_urls() { :; }
+http_fetch() { echo "download" >>"$nft_log"; mkdir -p "$(dirname "$2")"; echo "proxies: []" >"$2"; }
 settings_load() { SUBSCRIPTION_URL=https://sub.example.com/s; BYPASS_SUBSCRIPTION_DNS=1; }
 subscription_update >/dev/null
 assert_eq "nft add element inet mihowrt bypass_dst { 203.0.113.7 timeout 2m }
@@ -118,3 +122,39 @@ subscription_json | jq -e '.url != null' >/dev/null || fail "empty metadata file
 echo '{oops' >"$SUBSCRIPTION_META_FILE"
 subscription_json | jq -e '.url != null' >/dev/null || fail "invalid metadata file must be ignored"
 pass "subscription json tolerates broken metadata"
+
+payload="$(printf 'x%.0s' {1..12000} | busybox base64 | tr -d '\n')"
+assert_eq 12000 "$(subscription_decode_metadata_value "base64:$payload" | wc -c | tr -d ' ')" "large valid metadata decoded"
+assert_eq '' "$(subscription_decode_metadata_value "base64:${payload}AAAAA$(printf 'A%.0s' {1..400})")" "over limit metadata dropped"
+assert_eq '' "$(subscription_decode_metadata_value base64:@@@)" "malformed metadata dropped"
+assert_eq Hello "$(subscription_decode_metadata_value Hello)" "plain metadata"
+for body in 'YWJjZA==' 'vless://x' '{"outbounds":[]}' '<html>'; do
+ printf '%s\n' "$body" >"$tmpdir/body"
+ assert_false "non-Clash format $body" subscription_is_clash "$tmpdir/body"
+done
+for body in '"proxies": []' 'proxy-providers:' "'proxies': []"; do
+ printf '%s\n' "$body" >"$tmpdir/body"
+ assert_true "Clash format $body" subscription_is_clash "$tmpdir/body"
+done
+# Invalid downloads must fail before install, leaving the current source intact.
+http_fetch() { mkdir -p "$(dirname "$2")"; printf '%s' "$download" >"$2"; }
+printf 'keep source\n' >"$CLASH_CONFIG"
+config_install() { touch "$tmpdir/installed"; echo '{"action":"saved"}'; }
+for download in 'YWJjZA==' 'vless://x' '{"outbounds":[]}' '<html>'; do
+ assert_false "download gate rejects" subscription_update 2>"$tmpdir/gate.err"
+ assert_file_contains "$tmpdir/gate.err" 'not a Clash/Mihomo config' "actionable format message"
+ assert_eq 'keep source' "$(cat "$CLASH_CONFIG")" "installed source untouched"
+ assert_false "install not reached" test -e "$tmpdir/installed"
+done
+# Malformed extension values do not reject a Clash subscription.
+download=$'proxies: []\nx-mihowrt:\n  disable-quic: maybe\n  foo: 1\n  proxy-ips: [1.2.3.4]\n'
+subscription_update >/dev/null
+assert_true "broken extension still installs" test -f "$tmpdir/installed"
+# Set-subscription now accepts only the auto-update boolean.
+for auto in 1 0; do
+ subscription_set https://sub.example/x "$auto"
+ assert_eq "$auto" "$(uci_get subscription_auto_update)" "auto-update stored"
+done
+assert_false "numeric interval rejected" subscription_set https://sub.example/x 5 2>"$tmpdir/set.err"
+assert_file_contains "$tmpdir/set.err" 'Auto-update must be 0 or 1' "auto-update validation message"
+pass "metadata limits, subscription format gate and on/off setter"

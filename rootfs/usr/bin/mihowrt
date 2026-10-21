@@ -11,7 +11,7 @@ Config:   read-config [tmp] | save-config <tmp> | restore-config
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
 Updates:  auto-update | net-refresh | core-update | core-version-json
-Status:   status-json | service-state-json | profile-json | logs-json [lines]
+Status:   status-json | service-state-json | profile-json | diagnostics-json | logs-json [lines]
 Jobs:     job-start <op> [args] | job-status [id]
 Proxies:  proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
 EOF
@@ -92,6 +92,10 @@ auto-update) auto_update ;;
 net-refresh) with_lock net_refresh ;;
 core-update) core_update_cmd ;;
 core-version-json) core_version_json ;;
+diagnostics-json)
+	need_args $# 0
+	diagnostics_json
+	;;
 status-json) status_json ;;
 profile-json) profile_json ;;
 service-state-json) service_state_json ;;

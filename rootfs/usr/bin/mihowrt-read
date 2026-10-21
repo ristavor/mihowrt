@@ -28,11 +28,11 @@ job-status)
 	fi
 	;;
 logs-json) [ $# -le 2 ] || exit 1 ;;
-lists-json | status-json | service-state-json | subscription-json | core-version-json | proxies-json | profile-json)
+lists-json | status-json | service-state-json | subscription-json | core-version-json | proxies-json | profile-json | diagnostics-json)
 	[ $# -eq 1 ] || exit 1
 	;;
 *)
-	echo "Usage: $0 {read-config [tmp]|lists-json|status-json|service-state-json|subscription-json|core-version-json|proxies-json|profile-json|logs-json [lines]|job-status [id]}" >&2
+	echo "Usage: $0 {read-config [tmp]|lists-json|status-json|service-state-json|subscription-json|core-version-json|proxies-json|profile-json|diagnostics-json|logs-json [lines]|job-status [id]}" >&2
 	exit 1
 	;;
 esac

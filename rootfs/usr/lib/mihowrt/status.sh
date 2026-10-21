@@ -136,6 +136,52 @@ profile_json() {
 		         direct: list($direct_provided; $direct_provider; $direct_own; $direct_source)}}'
 }
 
+diagnostics_json() {
+	local package="" conflicts="" flash="" ram="" rss="" pid="" ports=""
+
+	for package in $CONFLICT_PACKAGES; do
+		if apk info -e "$package" >/dev/null 2>&1; then
+			conflicts="${conflicts}${package}
+"
+		fi
+	done
+	flash="$(df -kP /opt/clash 2>/dev/null | awk 'END { if (NR > 1 && $4 ~ /^[0-9]+$/) print $4 }')"
+	ram="$(awk '$1 == "MemAvailable:" && $2 ~ /^[0-9]+$/ { print $2; exit }' /proc/meminfo 2>/dev/null)"
+	if pid="$(service_pid)"; then
+		rss="$(awk '$1 == "VmRSS:" && $2 ~ /^[0-9]+$/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null)"
+	fi
+	ports="$(awk '
+		/^[[:space:]]*(#.*)?$/ { next }
+		/^[^[:space:]]/ { auth_block = 0 }
+		/^([\042\047]?authentication[\042\047]?)[[:space:]]*:/ {
+			value = $0
+			sub(/^[^:]*:[[:space:]]*/, "", value)
+			sub(/[[:space:]]+#.*$/, "", value)
+			sub(/[[:space:]]+$/, "", value)
+			if (value == "" || value == "null" || value == "~")
+				auth_block = 1
+			else if (value !~ /^\[[[:space:]]*\]$/)
+				auth = 1
+		}
+		auth_block && /^[[:space:]]+-[[:space:]]/ { auth = 1 }
+		/^(mixed-port|port|socks-port|redir-port)[[:space:]]*:/ {
+			value = $0
+			sub(/^[^:]*:[[:space:]]*/, "", value)
+			sub(/[[:space:]]+#.*$/, "", value)
+			gsub(/^[[:space:]\042\047]+|[[:space:]\042\047]+$/, "", value)
+			if (value ~ /^[0-9]+$/ && value + 0 > 0 && !seen[value + 0]++)
+				ports = ports sprintf("%.0f\n", value + 0)
+		}
+		END { if (!auth) printf "%s", ports }
+	' "$RUNTIME_CONFIG" 2>/dev/null)"
+	jq -nc --arg conflicts "$conflicts" --arg flash "$flash" --arg ram "$ram" \
+		--arg rss "$rss" --arg ports "$ports" '
+		def lines: split("\n") | map(select(length > 0));
+		{conflicts: ($conflicts | lines), flash_free_kb: ($flash | tonumber? // null),
+		 ram_available_kb: ($ram | tonumber? // null), mihomo_rss_kb: ($rss | tonumber? // null),
+		 open_proxy_ports: ($ports | lines | map(tonumber))}'
+}
+
 logs_json() {
 	local limit="${1:-200}" lines=""
 

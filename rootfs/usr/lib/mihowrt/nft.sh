@@ -1,7 +1,9 @@
 #!/bin/ash
 
 # nftables policy for IPv4 and IPv6. The whole table is rendered into one file
-# and replaced atomically with a single `nft -f`.
+# and replaced atomically with a single `nft -f` (one kernel transaction:
+# packets see the old or the new ruleset, never none). An identical ruleset
+# is not applied again.
 
 NFT_FILE=""
 
@@ -83,10 +85,10 @@ nft_render_base() {
 	nft_line "add table inet $t"
 	nft_line "delete table inet $t"
 	nft_line "add table inet $t"
-	for set in proxy_dst proxy_src direct_dst localv4; do
+	for set in proxy_dst proxy_src direct_dst direct_src localv4; do
 		nft_line "add set inet $t $set { type ipv4_addr; flags interval; auto-merge; }"
 	done
-	for set in proxy_dst6 proxy_src6 direct_dst6 localv6; do
+	for set in proxy_dst6 proxy_src6 direct_dst6 direct_src6 localv6; do
 		nft_line "add set inet $t $set { type ipv6_addr; flags interval; auto-merge; }"
 	done
 	nft_line "add set inet $t source_ifaces { type ifname; }"
@@ -113,7 +115,11 @@ nft_render_guards() {
 	nft_rule "$chain" "ip daddr @localv4 return"
 	nft_rule "$chain" "ip6 daddr @localv6 return"
 	nft_rule "$chain" "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK return"
-	[ "$BYPASS_NTP" = "1" ] && nft_rule "$chain" "udp dport 123 return"
+	# NTP to fake-IP addresses is a domain the user routes via Mihomo.
+	if [ "$BYPASS_NTP" = "1" ]; then
+		nft_rule "$chain" "meta nfproto ipv6 udp dport 123 return"
+		nft_rule "$chain" "ip daddr != $FAKEIP_RANGE udp dport 123 return"
+	fi
 	return 0
 }
 
@@ -159,6 +165,18 @@ nft_render_direct_returns() {
 	nft_port_rules "$chain" "$f6" ip6 daddr return
 }
 
+# Devices always direct (proxy-first). With fake-IP DNS their domains would
+# resolve to fake addresses that only Mihomo can reach, so they are skipped.
+nft_render_direct_devices() {
+	local chain="$1" f4="$2" f6="$3"
+
+	[ "$DNS_MODE" = "fake-ip" ] && return 0
+	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip saddr @direct_src return"
+	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 saddr @direct_src6 return"
+	nft_port_rules "$chain" "$f4" ip saddr return
+	nft_port_rules "$chain" "$f6" ip6 saddr return
+}
+
 nft_render_fakeip() {
 	local chain="$1"
 
@@ -180,7 +198,7 @@ nft_render() {
 	NFT_FILE="$file"
 	NFT_MARK_SET="meta mark set meta mark | $NFT_INTERCEPT_MARK"
 	: >"$NFT_FILE" || return 1
-	for kind in dst src direct; do
+	for kind in dst src direct direct_src; do
 		lists_resolve "$kind" "$dir/$kind.4" "$dir/$kind.6" || return 1
 	done
 
@@ -191,6 +209,10 @@ nft_render() {
 	nft_fill_set proxy_src6 "$dir/src.6"
 	nft_fill_set direct_dst "$dir/direct.4"
 	nft_fill_set direct_dst6 "$dir/direct.6"
+	if [ "$POLICY_MODE" = "proxy-first" ] && [ "$DNS_MODE" != "fake-ip" ]; then
+		nft_fill_set direct_src "$dir/direct_src.4"
+		nft_fill_set direct_src6 "$dir/direct_src.6"
+	fi
 
 	# DNS hijack and NetBird ingress exclusion.
 	nft_rule dns_hijack "iifname \"$NETBIRD_INTERFACE\" return"
@@ -206,6 +228,7 @@ nft_render() {
 	[ "$DNS_HIJACK" = "1" ] && nft_rule prerouting_policy "meta l4proto { tcp, udp } th dport 53 return"
 	if [ "$POLICY_MODE" = "proxy-first" ]; then
 		nft_render_direct_returns prerouting_policy "$dir/direct.4" "$dir/direct.6"
+		nft_render_direct_devices prerouting_policy "$dir/direct_src.4" "$dir/direct_src.6"
 		nft_render_catch_all prerouting_policy
 	else
 		nft_render_list_marks prerouting_policy "$dir/dst.4" "$dir/dst.6" daddr proxy_dst
@@ -241,13 +264,24 @@ nft_apply() {
 	local dir="$PKG_TMP_DIR/nft" rc=0
 
 	ensure_dir "$dir" || return 1
-	nft_render "$dir/ruleset.nft" "$dir" && nft -f "$dir/ruleset.nft" || rc=1
-	[ "$rc" -eq 0 ] || err "Failed to apply nftables policy (see $dir/ruleset.nft)"
-	[ "$rc" -ne 0 ] || rm -rf "$dir"
-	return "$rc"
+	nft_render "$dir/ruleset.nft" "$dir" || rc=1
+	if [ "$rc" -eq 0 ] && cmp -s "$dir/ruleset.nft" "$NFT_APPLIED_FILE" && nft_active; then
+		rm -rf "$dir"
+		return 0
+	fi
+	[ "$rc" -eq 0 ] && nft -f "$dir/ruleset.nft" || rc=1
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$NFT_APPLIED_FILE"
+		err "Failed to apply nftables policy (see $dir/ruleset.nft)"
+		return 1
+	fi
+	mv -f "$dir/ruleset.nft" "$NFT_APPLIED_FILE" || rm -f "$NFT_APPLIED_FILE"
+	rm -rf "$dir"
+	return 0
 }
 
 nft_cleanup() {
+	rm -f "$NFT_APPLIED_FILE"
 	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null
 	return 0
 }

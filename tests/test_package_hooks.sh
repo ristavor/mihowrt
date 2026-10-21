@@ -72,6 +72,7 @@ extract_postinst() {
 			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
 			-e "s|/usr/lib/mihowrt/constants.sh|$MIHOWRT_LIB_DIR/constants.sh|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
+			-e "s|/etc/init.d/mihowrt |$tmpdir/init-mihowrt |g" \
 			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/rpcd reload|true|g'
 }
@@ -181,13 +182,28 @@ assert_eq "$before_same_list_mtime" "$after_same_list_mtime" "postinst should sk
 [[ ! -e "$list_backup_dir/always_proxy_dst.txt" ]] || fail "postinst should remove identical policy list backup after skip"
 assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should run migrations"
 
+mkdir -p "$tmpdir/bin"
+cat >"$tmpdir/bin/pgrep" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+cat >"$tmpdir/init-mihowrt" <<EOF
+#!/bin/sh
+printf 'init:%s\n' "\$*" >>"$hook_log"
+EOF
+chmod +x "$tmpdir/bin/pgrep" "$tmpdir/init-mihowrt"
 : >"$hook_log"
 set +e
-TEST_FAIL_MIGRATE=1 IPKG_INSTROOT="" "$script_path"
+PATH="$tmpdir/bin:$PATH" TEST_FAIL_MIGRATE=1 IPKG_INSTROOT="" "$script_path"
 postinst_migrate_fail_rc=$?
 set -e
-[[ "$postinst_migrate_fail_rc" -ne 0 ]] || fail "postinst should fail when package migration fails"
+[[ "$postinst_migrate_fail_rc" -eq 1 ]] || fail "postinst should fail when package migration fails"
 assert_file_contains "$hook_log" "mihowrt:migrate" "postinst should attempt package migration before failing"
+
+assert_file_contains "$hook_log" "init:stop" "running service stopped before migration"
+assert_file_contains "$hook_log" "init:start" "service restarted despite migration failure"
+assert_eq "$(printf 'init:stop\nmihowrt:migrate\ninit:start')" "$(cat "$hook_log")" "postinst failure restart order"
+pass "postinst migrate failure restarts service"
 
 printf 'new-config\n' >"$backup_path"
 printf 'old-config\n' >"$live_config"

@@ -113,9 +113,9 @@ lists_classify() {
 	'
 }
 
-# Strip comments, spaces and the legacy " | hours" suffix.
+# Strip comments and whitespace.
 lists_clean_lines() {
-	sed -e 's/#.*//' -e 's/|.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$@"
+	sed -e 's/#.*//' -e 's/[[:space:]]//g' -e '/^$/d' "$@"
 }
 
 lists_url_key() {

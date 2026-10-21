@@ -140,15 +140,17 @@ define Package/$(PKG_NAME)/postinst
 	rm -f /tmp/luci-app-mihowrt.skip-start
 	# An upgrade leaves the old service running from memory: stop it so
 	# it removes its own state, migrate, then start the new version.
+	rc=0
 	was_running=0
 	pgrep -f "$$SUPERVISOR_CMD" >/dev/null 2>&1 && was_running=1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || exit 1
+	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
 	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
 	rm -rf /tmp/luci-modulecache 2>/dev/null || true
+	exit $$rc
 }
 exit 0
 endef

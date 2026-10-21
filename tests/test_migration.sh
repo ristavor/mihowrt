@@ -10,6 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh migration.sh
 setup_runtime_paths "$tmpdir"
+ROUTE_STATE_FILE="$PKG_STATE_DIR/route.state"
 
 OLD_DNS_BACKUP_FILE="$tmpdir/dns.backup"
 CLASH_DIR="$tmpdir/clash"
@@ -19,6 +20,7 @@ LIST_DIR="$tmpdir/lst"
 DST_LIST_FILE="$LIST_DIR/dst"
 SRC_LIST_FILE="$LIST_DIR/src"
 DIRECT_DST_LIST_FILE="$LIST_DIR/direct"
+DIRECT_SRC_LIST_FILE="$LIST_DIR/direct_src"
 mkdir -p "$CLASH_DIR" "$LIST_DIR"
 
 uci set 'dhcp.@dnsmasq[0].server=127.0.0.1#7874'
@@ -94,3 +96,116 @@ for old in 0 6 ''; do
  assert_false "manual mode deleted" uci -q get mihowrt.settings.policy_mode
 done
 pass "0.9 migration removes manual mode and interval"
+
+# A full migrate must read the hours before removing the suffix.
+fake_uci_reset
+printf '1.1.1.1 | 12\nhttps://x.example/l.txt | 6\n# c | x\n' >"$DST_LIST_FILE"
+printf '192.168.1.2 | 08\n  # note | 12\n' >"$DIRECT_SRC_LIST_FILE"
+migrate
+assert_eq 6 "$(uci_get lists_interval)" "legacy hours read before suffix rewrite"
+assert_eq "$(printf '1.1.1.1\nhttps://x.example/l.txt\n# c | x')" "$(cat "$DST_LIST_FILE")" "suffix stripped, comments kept"
+assert_eq "$(printf '192.168.1.2\n  # note | 12')" "$(cat "$DIRECT_SRC_LIST_FILE")" "fourth own list migrated"
+pass "migrate list suffix"
+
+calls="$tmpdir/ip.calls"
+ip() {
+ echo "ip $*" >>"$calls"
+ case "$*" in
+ '-4 rule show') echo '10001: from all fwmark 0x1000/0x1000 lookup 201' ;;
+ *'rule del'*) return 1 ;;
+ esac
+ return 0
+}
+printf 'ROUTE_TABLE_ID=201\nROUTE_RULE_PRIORITY=10001\n' >"$ROUTE_STATE_FILE"
+migrate
+assert_file_contains "$calls" 'ip -4 rule del fwmark 0x1000/0x1000 lookup 201 priority 10001' "0.7 rule removed"
+assert_file_contains "$calls" 'ip -4 route flush table 201' "0.7 table flushed"
+[[ ! -e "$ROUTE_STATE_FILE" ]] || fail "legacy route state removed"
+pass "migrate 0.7 routes"
+: >"$calls"
+printf 'TABLE=202\nPRIORITY=10002\n' >"$ROUTE_STATE_FILE"
+migrate_route_07
+assert_file_contains "$ROUTE_STATE_FILE" 'TABLE=202' "current route state preserved"
+assert_file_not_contains "$calls" 'flush table 202' "current table preserved"
+pass "migration preserves current route state"
+
+: >"$calls"
+rm -f "$ROUTE_STATE_FILE"
+migrate_route_07
+assert_file_contains "$calls" 'ip -4 rule del fwmark 0x1000/0x1000 lookup 201 priority 10001' "legacy mark found without state"
+assert_file_contains "$calls" 'ip -4 route flush table 201' "orphan legacy table flushed"
+pass "migration finds orphan 0.7 rules"
+
+ip() {
+ echo "ip $*" >>"$calls"
+ case "$*" in *'rule del'*) return 1 ;; esac
+ return 0
+}
+: >"$calls"
+printf 'ROUTE_TABLE_ID=00201\nROUTE_RULE_PRIORITY=010001\n' >"$ROUTE_STATE_FILE"
+migrate_route_07
+assert_file_contains "$calls" 'ip -4 rule del fwmark 0x00001000/0x00001000 lookup 201 priority 10001' "legacy state normalized without listing"
+assert_file_contains "$calls" 'ip -4 route flush table 201' "legacy state table flushed"
+[[ ! -e "$ROUTE_STATE_FILE" ]] || fail "legacy state removed without listing"
+: >"$calls"
+migrate_route_07
+assert_file_not_contains "$calls" 'rule del' "second migration deletes nothing"
+assert_file_not_contains "$calls" 'route flush' "second migration flushes nothing"
+pass "migration uses legacy state and is idempotent"
+
+ip() {
+ echo "ip $*" >>"$calls"
+ case "$*" in
+ *'rule show')
+  printf '%s\n' \
+   '10001: from all fwmark 0x1000/0x1000 lookup 254' \
+   '10002: from all fwmark 0x1000/0x1000 lookup main' \
+   '10003: from all fwmark 0x1000/0x1000 lookup 199' \
+   '10004: from all fwmark 0x1000/0x1000 lookup 253' \
+   '10005: from all fwmark 0x1000/0x1000 lookup 200' \
+   '10006: from all fwmark 0x1000/0x1000 lookup 252'
+  ;;
+ *'rule del'*) return 1 ;;
+ esac
+ return 0
+}
+: >"$calls"
+migrate_route_07
+for table in 254 main 199 253; do
+ assert_file_not_contains "$calls" "lookup $table priority" "foreign table $table rule left alone"
+ assert_file_not_contains "$calls" "flush table $table" "foreign table $table not flushed"
+done
+for table in 200 252; do
+ assert_file_contains "$calls" "lookup $table priority" "old auto range boundary $table rule removed"
+ assert_file_contains "$calls" "flush table $table" "old auto range boundary $table flushed"
+done
+pass "migration listing cleanup restricted to old auto range"
+
+ip() {
+ echo "ip $*" >>"$calls"
+ case "$*" in *'rule del'*) return 1 ;; esac
+ return 0
+}
+for table in 254 main 199 253; do
+ : >"$calls"
+ printf 'ROUTE_TABLE_ID=%s\nROUTE_RULE_PRIORITY=10001\n' "$table" >"$ROUTE_STATE_FILE"
+ migrate_route_07
+ assert_file_not_contains "$calls" 'rule del' "foreign state table $table rule left alone"
+ assert_file_not_contains "$calls" 'route flush' "foreign state table $table not flushed"
+ [[ -e "$ROUTE_STATE_FILE" ]] || fail "foreign state table $table preserved"
+done
+pass "migration state cleanup restricted to old auto range"
+
+printf '1.1.1.1\n# c | 12\n' >"$DST_LIST_FILE"
+touch -d '2024-01-01 00:00:00' "$DST_LIST_FILE"
+before_mtime="$(stat -c %Y "$DST_LIST_FILE")"
+migrate_list_suffix
+assert_eq "$before_mtime" "$(stat -c %Y "$DST_LIST_FILE")" "unchanged list mtime preserved"
+pass "suffix migration skips unchanged files"
+
+printf '1.1.1.1 | 12\n' >"$DIRECT_SRC_LIST_FILE"
+chmod 0600 "$DIRECT_SRC_LIST_FILE"
+migrate_list_suffix
+assert_eq '1.1.1.1' "$(cat "$DIRECT_SRC_LIST_FILE")" "private list suffix stripped"
+assert_eq 600 "$(stat -c %a "$DIRECT_SRC_LIST_FILE")" "private list mode preserved"
+pass "suffix migration preserves file mode"

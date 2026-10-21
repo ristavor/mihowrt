@@ -16,9 +16,6 @@ route_state_read() {
 	[ -r "$ROUTE_STATE_FILE" ] || return 1
 	ROUTE_TABLE="$(sed -n 's/^TABLE=//p' "$ROUTE_STATE_FILE")"
 	ROUTE_PRIORITY="$(sed -n 's/^PRIORITY=//p' "$ROUTE_STATE_FILE")"
-	# 0.7.x state keys, for upgrades while the old service is running.
-	[ -n "$ROUTE_TABLE" ] || ROUTE_TABLE="$(sed -n 's/^ROUTE_TABLE_ID=//p' "$ROUTE_STATE_FILE")"
-	[ -n "$ROUTE_PRIORITY" ] || ROUTE_PRIORITY="$(sed -n 's/^ROUTE_RULE_PRIORITY=//p' "$ROUTE_STATE_FILE")"
 	is_uint "$ROUTE_TABLE" && is_uint "$ROUTE_PRIORITY"
 }
 
@@ -80,13 +77,11 @@ route_setup() {
 }
 
 route_cleanup() {
-	local fam="" mark=""
+	local fam=""
 
 	route_state_read || return 0
 	for fam in $(route_families); do
-		for mark in "$NFT_INTERCEPT_MARK" "$OLD_NFT_INTERCEPT_MARK"; do
-			while ip -"$fam" rule del fwmark "$mark/$mark" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null; do :; done
-		done
+		while ip -"$fam" rule del fwmark "$NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null; do :; done
 		ip -"$fam" route flush table "$ROUTE_TABLE" 2>/dev/null
 	done
 	rm -f "$ROUTE_STATE_FILE"

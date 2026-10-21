@@ -46,12 +46,13 @@ pass "route v6 added with IPv6"
 
 : >"$calls"
 WITH_V6=1 route_cleanup
-assert_file_contains "$calls" "ip -4 rule del fwmark 0x00001000/0x00001000 lookup 202 priority 10001" "old mark rule removed"
+assert_file_contains "$calls" "ip -4 rule del fwmark 0x08000000/0x08000000 lookup 202 priority 10001" "current mark rule removed"
+assert_file_not_contains "$calls" "0x00001000" "runtime cleanup must not remove legacy mark rules"
 assert_file_contains "$calls" "ip -6 route flush table 202" "v6 table flushed"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "state removed"
 pass "route cleanup"
 
-printf 'ROUTE_TABLE_ID=210\nROUTE_RULE_PRIORITY=10500\n' >"$ROUTE_STATE_FILE"
-route_state_read || fail "0.7 state must be readable"
-assert_eq "210:10500" "$ROUTE_TABLE:$ROUTE_PRIORITY" "0.7 state keys"
-pass "old state format"
+for legacy in OLD_NFT_INTERCEPT_MARK 'ROUTE_TABLE_ID=' 'ROUTE_RULE_PRIORITY='; do
+ assert_file_not_contains "$MIHOWRT_LIB_DIR/route.sh" "$legacy" "route runtime has no legacy"
+done
+pass "route runtime has no legacy"

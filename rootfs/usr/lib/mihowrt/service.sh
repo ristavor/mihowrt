@@ -268,7 +268,7 @@ service_wait_stopped() {
 	local owner="" i=0
 
 	owner="$(cat "$RUNNING_MARKER" 2>/dev/null)"
-	# 0.7.x had no marker: also wait for its Mihomo to exit.
+	# Also wait for a live Mihomo, even when the supervisor marker is gone.
 	while { { is_uint "$owner" && kill -0 "$owner" 2>/dev/null; } || service_running; } && [ "$i" -lt 35 ]; do
 		sleep 1
 		i=$((i + 1))

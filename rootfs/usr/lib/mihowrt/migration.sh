@@ -82,6 +82,73 @@ migrate_settings() {
 	uci_commit
 }
 
+# Legacy route state is data, never shell code. Current state stays untouched.
+migrate_route_07() {
+	local table="" priority="" fam="" mark="" legacy_table="" legacy_priority="" old_mark="0x00001000"
+
+	if [ -r "$ROUTE_STATE_FILE" ]; then
+		legacy_table="$(sed -n 's/^ROUTE_TABLE_ID=//p' "$ROUTE_STATE_FILE")"
+		legacy_priority="$(sed -n 's/^ROUTE_RULE_PRIORITY=//p' "$ROUTE_STATE_FILE")"
+	fi
+	if is_uint "$legacy_table" && is_uint "$legacy_priority"; then
+		legacy_table="$(uint_norm "$legacy_table")"
+		legacy_priority="$(uint_norm "$legacy_priority")"
+		if [ "$legacy_table" -lt "$ROUTE_TABLE_ID_AUTO_MIN" ] || [ "$legacy_table" -gt "$ROUTE_TABLE_ID_AUTO_MAX" ]; then
+			legacy_table=""
+		fi
+	else
+		legacy_table=""
+	fi
+	for fam in 4 6; do
+		[ "$fam" = 4 ] || [ -e /proc/net/if_inet6 ] || continue
+		# ip-tiny supports listing all rules, not filtering by priority.
+		ip -"$fam" rule show 2>/dev/null | awk '
+			{
+				mark = table = ""
+				for (i = 1; i < NF; i++) {
+					if ($i == "fwmark") mark = $(i + 1)
+					if ($i == "lookup") table = $(i + 1)
+				}
+				priority = $1; sub(/:$/, "", priority)
+				if (mark ~ /^0x0*1000(\/0x0*1000)?$/ && table ~ /^[0-9]+$/ && priority ~ /^[0-9]+$/)
+					print priority, mark, table
+			}' | while read -r priority mark table; do
+			priority="$(uint_norm "$priority")"
+			table="$(uint_norm "$table")"
+			[ "$table" -ge "$ROUTE_TABLE_ID_AUTO_MIN" ] && [ "$table" -le "$ROUTE_TABLE_ID_AUTO_MAX" ] || continue
+			while ip -"$fam" rule del fwmark "$mark" lookup "$table" priority "$priority" 2>/dev/null; do :; done
+			ip -"$fam" route flush table "$table" 2>/dev/null
+		done
+		if [ -n "$legacy_table" ]; then
+			while ip -"$fam" rule del fwmark "$old_mark/$old_mark" lookup "$legacy_table" priority "$legacy_priority" 2>/dev/null; do :; done
+			ip -"$fam" route flush table "$legacy_table" 2>/dev/null
+		fi
+	done
+	[ -z "$legacy_table" ] || rm -f "$ROUTE_STATE_FILE"
+	return 0
+}
+
+migrate_list_suffix() {
+	local file=""
+
+	for file in "$DST_LIST_FILE" "$SRC_LIST_FILE" "$DIRECT_DST_LIST_FILE" "$DIRECT_SRC_LIST_FILE"; do
+		[ -f "$file" ] || continue
+		awk '
+			/^[[:space:]]*#/ { next }
+			/\|[[:space:]]*[0-9]+[[:space:]]*$/ { found = 1 }
+			END { exit !found }
+		' "$file" || continue
+		if cp -p "$file" "$file.tmp" &&
+			sed '/^[[:space:]]*#/!s/[[:space:]]*|[[:space:]]*[0-9][0-9]*[[:space:]]*$//' "$file" >"$file.tmp"; then
+			mv "$file.tmp" "$file" || return 1
+		else
+			rm -f "$file.tmp"
+			return 1
+		fi
+	done
+	return 0
+}
+
 migrate_cron() {
 	local file="${CRON_FILE:-/etc/crontabs/root}"
 
@@ -114,6 +181,8 @@ migrate_list_headers() {
 migrate() {
 	migrate_dns_uci
 	migrate_settings
+	migrate_route_07
+	migrate_list_suffix || return 1
 	migrate_cron
 	migrate_list_headers
 	rm -f "$CLASH_DIR/mihomo.sock"

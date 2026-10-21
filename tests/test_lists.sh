@@ -20,6 +20,12 @@ POLICY_CACHE_DIR="$tmpdir/cache"
 PKG_TMP_DIR="$tmpdir/tmp"
 lists_ensure_files
 
+printf '1.1.1.1 | 12\n' >"$DST_LIST_FILE"
+assert_eq '1.1.1.1|12' "$(lists_clean_lines "$DST_LIST_FILE")" "runtime keeps legacy pipe, making entry invalid"
+lists_resolve dst "$tmpdir/v4" "$tmpdir/v6" 2>/dev/null
+[[ ! -s "$tmpdir/v4" && ! -s "$tmpdir/v6" ]] || fail "pipe entry must be invalid"
+pass "lists runtime does not strip legacy suffix"
+
 cat >"$DST_LIST_FILE" <<'L'
 # comment
 1.1.1.1
@@ -27,7 +33,7 @@ cat >"$DST_LIST_FILE" <<'L'
 ;53
 999.1.1.1
 1.1.1.1
-https://lists.example.com/a.txt;80 | 24
+https://lists.example.com/a.txt;80
 L
 mkdir -p "$POLICY_CACHE_DIR"
 printf '8.8.8.0/24\n2606:4700::1;8443\n' >"$(lists_cache_file https://lists.example.com/a.txt)"

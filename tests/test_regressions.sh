@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Behavioral regressions for 196943ef; each named case also runs independently.
+# Behavioral regressions; each named case also runs independently.
 set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 

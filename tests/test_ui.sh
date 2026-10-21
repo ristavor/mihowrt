@@ -43,18 +43,6 @@ const ui = { addNotification() {}, Textarea: class {
  }
 } };
 const api = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {} }).module;
-// Historical proof mode accumulates assertion failures instead of stopping at
-// the first old behaviour. Missing helpers get deliberately non-working stubs
-// so their callers can report each failed contract as well.
-if (process.env.MIHOWRT_REGRESSION_PROOF) {
- api.subscriptionError ||= () => '';
- api.toggle ||= (show, hide, content) => {
-  const button = E('button', {}, [show]); button.addEventListener('click', () => {});
-  return E('div', {}, [button, content]);
- };
-}
-
-
 h.assertEq(api.trafficSummary({ upload: 1024, download: 1024 }), '2.0 KiB / Unlimited', 'missing total is unlimited');
 h.assertEq(api.trafficSummary({ upload: 0, download: 512, total: 2048 }), '512 B / 2.0 KiB', 'usage and total');
 h.assertEq(api.trafficSummary({}), 'Unlimited', 'no usage, no total');

@@ -8,11 +8,6 @@ export MIHOWRT_LIB_DIR
 
 fail() {
 	printf 'FAIL: %s\n' "$*" >&2
-	# Accumulate independent historical regressions when explicitly requested.
-	if [[ ${MIHOWRT_REGRESSION_PROOF:-0} == 1 ]]; then
-		trap 'exit 1' EXIT
-		return 0
-	fi
 	exit 1
 }
 

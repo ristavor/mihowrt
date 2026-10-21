@@ -69,7 +69,6 @@ function extractBetween(source, start, end, label = start) {
 
 function assert(condition, message) {
 	if (!condition) {
-		if (process.env.MIHOWRT_REGRESSION_PROOF) { console.error('REGRESSION: ' + message); process.exitCode = 1; return; }
 		throw new Error(message);
 	}
 }

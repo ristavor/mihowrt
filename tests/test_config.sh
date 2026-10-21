@@ -9,6 +9,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh config.sh
+setup_runtime_paths "$tmpdir"
+
 PKG_TMP_DIR="$tmpdir/tmp"
 CLASH_DIR="$tmpdir/clash"
 CLASH_CONFIG="$CLASH_DIR/config.yaml"
@@ -27,6 +29,9 @@ running=0
 service_running() { [ "$running" = 1 ]; }
 service_ready() { [ "$running" = 1 ]; }
 runtime_config_build() { mihomo_config_generate "$CLASH_CONFIG" "$1"; }
+cron_update() { :; }
+policy_apply() { :; }
+api_alive() { [ "$running" = 1 ]; }
 reload_ok=1
 api_reload() { [ "$reload_ok" = 1 ]; }
 
@@ -62,13 +67,58 @@ rm -f "$link"
 assert_eq "mode: direct" "$(config_read_json | jq -r .content | head -n1)" "read config"
 pass "config paths"
 
-# D: saving while Mihomo is still starting waits for readiness, no rollback.
-service_running() { return 0; }
-starting=1
-api_reload() { [ "$starting" = 0 ]; }
-service_ready() { starting=0; return 0; }
-echo "mode: rule" >"$CLASH_CONFIG"
-echo "mode: global" >"$tmpdir/cand"
-config_install "$tmpdir/cand" >/dev/null 2>&1 || true
-assert_eq "mode: global" "$(cat "$CLASH_CONFIG")" "config kept when saved during startup"
-pass "save during startup"
+
+running=1
+service_running() { [ "$running" = 1 ]; }
+service_ready() { [ "$running" = 1 ]; }
+api_reload() { echo reload >>"$tmpdir/events"; }
+policy_apply() { echo policy >>"$tmpdir/events"; }
+cron_update() { echo cron >>"$tmpdir/events"; }
+dns_restart_dnsmasq() { echo dns-restart >>"$tmpdir/events"; }
+printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n' >"$CLASH_CONFIG"
+mihomo_config_generate "$CLASH_CONFIG" "$RUNTIME_CONFIG"
+cp "$RUNTIME_CONFIG.profile" "$PROFILE_FILE"
+cp "$CLASH_CONFIG" "$tmpdir/cand"
+touch -d '2000-01-01' "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"
+: >"$tmpdir/events"
+assert_eq '{"action":"unchanged"}' "$(config_install "$tmpdir/cand")" "unchanged action"
+assert_eq 946684800 "$(stat -c %Y "$CLASH_CONFIG")" "unchanged preserves source mtime"
+assert_eq 946684800 "$(stat -c %Y "$CLASH_CONFIG_BACKUP")" "unchanged preserves backup mtime"
+assert_eq '' "$(cat "$tmpdir/events")" "unchanged no reload"
+sed -i 's/disable-quic: true/disable-quic: false/' "$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
+assert_eq $'cron\npolicy' "$(cat "$tmpdir/events")" "extension-only change applies profile without reload"
+# Whitelist -> blacklist updates mode and policy in place; DNS switch flushes once.
+printf 'dns:\n  enhanced-mode: fake-ip\n  fake-ip-filter-mode: whitelist\nproxies: []\n' >"$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
+: >"$tmpdir/events"
+sed -i 's/whitelist/blacklist/' "$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
+assert_eq $'reload\ncron\npolicy' "$(cat "$tmpdir/events")" "mode flip applies policy without DNS restart"
+assert_eq proxy-first "$(profile_get mode)" "blacklist flips mode"
+: >"$tmpdir/events"
+sed -i 's/fake-ip$/redir-host/' "$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
+assert_eq $'reload\ncron\npolicy\ndns-restart' "$(cat "$tmpdir/events")" "DNS mode flushes cache exactly once"
+: >"$tmpdir/events"
+printf 'log-level: warning\n' >>"$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
+assert_eq reload "$(cat "$tmpdir/events")" "same profile no policy or DNS restart"
+RUNTIME_LOCK_FILE="$tmpdir/lock"
+ln -s $$ "$RUNTIME_LOCK_FILE"
+api_checks=0
+api_alive() { api_checks=$((api_checks + 1)); [ "$api_checks" -ge 3 ]; }
+sleep() { assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "readiness wait retains other owner's lock"; }
+config_api_wait
+unset -f sleep
+assert_eq 3 "$api_checks" "readiness retries until API responds"
+assert_eq "$$" "$(readlink "$RUNTIME_LOCK_FILE")" "API wait does not acquire held lock"
+load_modules service.sh
+printf 'BROKEN\n' >"$CLASH_CONFIG"
+assert_false "prepare failure" runtime_config_build "$RUNTIME_CONFIG"
+assert_file_contains "$CONFIG_ERR_FILE" 'missing type' "prepare records error"
+printf 'proxies: []\n' >"$CLASH_CONFIG"
+runtime_config_build "$RUNTIME_CONFIG"
+assert_true "prepare records success" test -f "$CONFIG_OK_FILE"
+assert_false "prepare clears error" test -f "$CONFIG_ERR_FILE"
+pass "no-op install, reload/profile/DNS transitions, lock-free wait and prepare check records"

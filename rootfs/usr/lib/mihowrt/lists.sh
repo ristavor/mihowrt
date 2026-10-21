@@ -148,10 +148,10 @@ lists_resolve() {
 	src="$PKG_TMP_DIR/list.$kind.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	lists_source "$kind" >"$src" || return 1
-	: >"$out4" && : >"$out6" || {
+	if ! { : >"$out4" && : >"$out6"; }; then
 		rm -f "$src"
 		return 1
-	}
+	fi
 	# User files are validated on save; provider entries only here.
 	bad="$({ grep -v '^https\?://' "$src" || true; } | lists_classify 1 | tr '\n' ' ')"
 	[ -z "$bad" ] || warn "Ignoring invalid $kind entries: $bad"

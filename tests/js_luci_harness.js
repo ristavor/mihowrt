@@ -68,13 +68,15 @@ function extractBetween(source, start, end, label = start) {
 }
 
 function assert(condition, message) {
-	if (!condition)
+	if (!condition) {
+		if (process.env.MIHOWRT_REGRESSION_PROOF) { console.error('REGRESSION: ' + message); process.exitCode = 1; return; }
 		throw new Error(message);
+	}
 }
 
 function assertEq(actual, expected, message) {
 	if (actual !== expected)
-		throw new Error(`${message}: expected '${expected}', got '${actual}'`);
+		assert(false, `${message}: expected '${expected}', got '${actual}'`);
 }
 
 module.exports = {

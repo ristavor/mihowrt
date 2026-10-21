@@ -32,6 +32,17 @@ function E(tag, attrs, children) {
 }
 const ui = { addNotification() {} };
 const api = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {} }).module;
+// Historical proof mode accumulates assertion failures instead of stopping at
+// the first old behaviour. Missing helpers get deliberately non-working stubs
+// so their callers can report each failed contract as well.
+if (process.env.MIHOWRT_REGRESSION_PROOF) {
+ api.subscriptionError ||= () => '';
+ api.toggle ||= (show, hide, content) => {
+  const button = E('button', {}, [show]); button.addEventListener('click', () => {});
+  return E('div', {}, [button, content]);
+ };
+}
+
 
 h.assertEq(api.trafficSummary({ upload: 1024, download: 1024 }), '2.0 KiB / Unlimited', 'missing total is unlimited');
 h.assertEq(api.trafficSummary({ upload: 0, download: 512, total: 2048 }), '512 B / 2.0 KiB', 'usage and total');
@@ -198,8 +209,8 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
  h.assertEq(opts._prov_disable_quic.cfgvalue(), 'Disabled', 'provider value rendered');
  h.assertEq(opts._prov_disable_quic.description, 'Set by your provider.', 'provider explanation');
- h.assertEq(opts._provoff_disable_quic.cfgvalue(), 'Disabled', 'provider visible with override');
- h.assertEq(JSON.stringify(opts._provoff_disable_quic.dependencies), '[["_own_disable_quic","1"]]', 'override provider dependency');
+ h.assertEq(opts._provoff_disable_quic?.cfgvalue(), 'Disabled', 'provider visible with override');
+ h.assertEq(JSON.stringify(opts._provoff_disable_quic?.dependencies), '[["_own_disable_quic","1"]]', 'override provider dependency');
  h.assertEq(opts.disable_quic.title, 'My value', 'own option title');
  // The native widget is wrapped by extendWidget; inspect its rendered input.
  const flagNode = opts._own_disable_quic.renderWidget();
@@ -224,7 +235,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assert(!opts._direct_src.readonly && !opts._dst && !opts._src, 'redir-host direct devices editable, inactive lists absent');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip' });
  h.assert(!opts._direct_src && opts._direct_src_off instanceof form.DummyValue, 'fake-IP has no textarea');
- h.assertEq(opts._direct_src_off.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
+ h.assertEq(opts._direct_src_off?.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
  const uploads = [], writes = [];
  const saved = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
   E, api: Object.assign({}, api, { upload: async (prefix, content) => { uploads.push(content); return content; }, write: async (...args) => writes.push(args) }),
@@ -391,7 +402,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  let logReads = 0;
  const logs = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api, read: async () => { logReads++; return { available: true, lines: ['hello'] }; } } }).module;
  const lp = logs.render([base, {}]); h.assertEq(logReads, 0, 'log lazy');
- collect(lp).find(n => n.tag === 'button' && texts(n).includes('Show the log')).listeners.click();
+ const logButton = collect(lp).find(n => n.tag === 'button' && texts(n).includes('Show the log'));
+ h.assert(!!logButton, 'theme log toggle button');
+ logButton?.listeners.click();
  await Promise.resolve(); h.assertEq(logReads, 1, 'log loads on open');
  console.log('ok - design-review DOM and event regressions');
 })().catch(err => { console.error(err); process.exitCode = 1; });

@@ -481,6 +481,15 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(texts(us.children[0]).join(''), 'Auto — B', 'Auto shows the server Mihomo chose now');
  h.assertEq(shown(pingOf(up)), '30 ms', 'ping of the new automatic choice');
  h.assertEq(notices.length, 0, 'no notifications at all');
+ const ov3 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, api: { ...api,
+  busy: (el, fn) => fn(), write: async () => ({ A: 12 }), read: async () => { throw new Error('down'); }, notify: s => notices.push(s)
+ } }).module;
+ const fp = ov3.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'] }]]);
+ const fs3 = collect(fp).find(n => n.tag === 'select');
+ fs3.value = ''; await fs3.listeners.change();
+ h.assertEq(fs3.value, '', 'unpinned group stays on Auto when the re-read fails');
+ await collect(fp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
+ h.assertEq(fs3.disabled, false, 'select usable again after the test');
  const subCalls = [], errors = []; let fail = false;
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;

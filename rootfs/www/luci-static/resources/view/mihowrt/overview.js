@@ -166,8 +166,6 @@ function subscriptionSection(sub) {
 	]);
 }
 
-// Options of one group select. URLTest/Fallback start with "Auto — <now>"
-// (value "", unpins); a pinned server shows as selected.
 // Latency text of one server, '' when it was never checked (0 = no response).
 function delayText(delays, name) {
 	const ms = (delays || {})[name];
@@ -179,12 +177,14 @@ function delayText(delays, name) {
 function pingText(group) {
 	const delays = group.delays || {};
 	if (group.type === 'LoadBalance') {
-		const checked = group.all.filter((name) => delays[name] != null);
+		const checked = (group.all || []).filter((name) => delays[name] != null);
 		return checked.length ? _('Responding: %d of %d').format(checked.filter((name) => delays[name] > 0).length, group.all.length) : '';
 	}
 	return delayText(delays, group.now);
 }
 
+// Options of one group select. URLTest/Fallback start with "Auto — <now>"
+// (value "", unpins); a pinned server shows as selected.
 function groupOptions(select, group) {
 	const auto = group.type === 'URLTest' || group.type === 'Fallback';
 	const current = auto ? (group.fixed || '') : group.now;
@@ -249,6 +249,7 @@ function groupsSection(groups) {
 				}
 				if (value === '') {
 					// Unpinned: Mihomo picks the server now; "Auto — X" must show it.
+					group.fixed = '';
 					await refresh();
 				}
 				else {
@@ -260,6 +261,8 @@ function groupsSection(groups) {
 			test.addEventListener('click', async () => {
 				const before = ping.textContent;
 				ping.textContent = '…';
+				// The test re-reads the group: a switch meanwhile would be overwritten.
+				select.disabled = true;
 				const done = await api.busy(test, async () => {
 					const result = await api.write('group-delay', group.name) || {};
 					// A delay test can unpin URLTest/Fallback groups: read them again.
@@ -267,9 +270,11 @@ function groupsSection(groups) {
 					// Servers missing from the result timed out.
 					group.delays = Object.fromEntries(group.all.map((name) => [ name, result[name] || 0 ]));
 					show();
+					live.textContent = '';
 					live.textContent = '%s: %s — %s'.format(group.name, group.type === 'LoadBalance' ? _('All servers in turn') : group.now, ping.textContent);
 					return true;
 				});
+				select.disabled = fixedOnly;
 				if (!done)
 					ping.textContent = before;
 			});

@@ -58,6 +58,14 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
 - **`settings_load` does not reset `SETTINGS_LOADED` at the start.** Not reachable today.
 
 ### UI (theme-only rule kept)
+- **Lease picker row on Traffic (reported by the user, footstrap dark, RU):**
+  - The labels "Добавить устройство" and "Добавить как" show oddly wide gaps between words. They are rendered in monospace by the footstrap rule on `.cbi-value-field *`, unlike the rest of the row.
+  - "Добавить устройство" is shown twice: as the label and as the select placeholder ("Добавить устройство…").
+  - Fix direction: drop the visible label or the placeholder (keep an accessible name via `aria-label`/`.mw-sr`), and avoid plain-text label nodes inside the field that the theme turns monospace.
+- **The private-MAC hint is unclear and makes the layout jump (reported by the user).**
+  - The text "Это устройство использует частный адрес Wi-Fi. Запись будет работать, пока…" appears under the field only after a device with a private MAC was added. It does not name the device, so it is unclear which entry it is about.
+  - Inserting and removing the block shifts the whole page.
+  - Fix direction: name the device in the hint (e.g. `phone (da:a1:19:00:00:01) uses a private Wi-Fi address…`), and show it where it doesn't shift the layout, e.g. as a LuCI notification or in a placeholder reserved under the picker.
 - **The lease picker is cramped on Traffic at 390 px.** The "Add as" select is cut off (`MAC address (IPv4 and IPv6`) and the two picker labels wrap; on openwrt-2020 at 1440 "Add as" wraps under "Add a device". Seen in footstrap and openwrt-2020.
 - **The footstrap theme renders the Mode text and picker labels in monospace** (a theme rule on `.cbi-value-field *`). No MihoWRT action needed.
 - **`api.job`/`api.jobNotice` rely on `this`**, so a destructured call would break them. No such caller exists.

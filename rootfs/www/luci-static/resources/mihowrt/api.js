@@ -328,7 +328,7 @@ return baseclass.extend({
 		if (![ 'mihowrt-config', 'mihowrt-policy-list' ].includes(prefix))
 			throw new Error(_('Invalid upload path.'));
 		const path = '/tmp/%s.%s'.format(prefix, randomSuffix());
-		const blob = new Blob([ content ]);
+		const blob = new Blob([ content === '' ? '\n' : content ]); // cgi-upload refuses empty files; a blank line means an empty list/YAML to the backend
 		const data = new FormData();
 		data.append('sessionid', rpc.getSessionID());
 		data.append('filename', path);

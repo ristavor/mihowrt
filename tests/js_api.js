@@ -108,6 +108,13 @@ test('upload byte size, session, URL, ACL errors and allowed prefixes', async ()
 	await assert.rejects(api.upload('../etc/config', content));
 	reply = { size }; assert.match(await api.upload('mihowrt-policy-list', content), /^\/tmp\/mihowrt-policy-list\.[a-z0-9]+$/);
 });
+test('upload of empty content sends one newline because cgi-upload refuses empty files', async () => {
+	let seen;
+	const { api } = setup({ request: { post: async (...args) => { seen = args; return { ok: true, status: 200, json: () => ({ size: seen[1].get('filedata').size }) }; } } });
+	const path = await api.upload('mihowrt-policy-list', '');
+	assert.match(path, /^\/tmp\/mihowrt-policy-list\.[a-z0-9]+$/);
+	assert.equal(Buffer.from(await seen[1].get('filedata').arrayBuffer()).toString('utf8'), '\n');
+});
 test('readLarge uses cgi-exec JSON and rejects non-objects', async () => {
 	let reply = { content: 'yaml' }, seen;
 	const { api } = setup({ fs: { exec_direct: async (...args) => { seen = args; return reply; } } });

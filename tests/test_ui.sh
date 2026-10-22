@@ -814,6 +814,14 @@ for (const [name, check] of [
   ]), 'one upload then partial job then map.save');
   h.assertEq(t.tv.lists.src, '192.168.1.5', 'snapshot refreshed');
  });
+ await check('clearing a list uploads and applies it', async () => {
+  const t = setup(); await t.render({ ...lists, src: '192.168.1.5\n' }); t.saving(); t.edits.src = '';
+  await t.tv.handleSaveApply(null, '0');
+  h.assertEq(JSON.stringify(t.calls.filter(c => ['upload', 'job'].includes(c[0]))), JSON.stringify([
+   ['upload', 'mihowrt-policy-list', ''], ['job', 'apply-lists', '-', '/tmp/mihowrt-policy-list.test', '-', '-']
+  ]), 'cleared list uploaded and applied');
+  h.assertEq(t.tv.lists.src, '', 'snapshot cleared');
+ });
  await check('apply with foreign changes', async () => {
   for (const mode of ['0', '1']) for (const changedList of [false, true]) {
    const t = setup(); await t.render(); t.saving();

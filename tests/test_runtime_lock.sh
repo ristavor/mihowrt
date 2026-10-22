@@ -2,7 +2,7 @@
 # Each case runs in ash, with the router's BusyBox flock applet.
 set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
-cases=(killed_holder busy_timeout stop_abort reentrant children lock_busy failure_cleanup)
+cases=(killed_holder busy_timeout stop_abort reentrant children lock_busy failure_cleanup open_failure)
 if [ "$#" -eq 0 ]; then
  failed=0
  for name in "${cases[@]}"; do
@@ -103,6 +103,12 @@ failure_cleanup)
   [ "${LOCK_DEPTH:-0}" = 0 ] || exit 1
   [ ! -e /proc/$$/fd/9 ]
  ' 2>/dev/null || fail "failed acquisition must close fd 9 without changing depth"
+ ;;
+open_failure)
+ # A failed open of fd 9 must return 1; ash must not exit on the special builtin.
+ # The lock path is a directory: its parent exists, but opening it fails.
+ out="$(RUNTIME_LOCK_FILE="$tmpdir" run_ash 'lock_acquire 2>/dev/null; echo "rc=$?"')" || true
+ assert_eq 'rc=1' "$out" "failed lock open returns 1 and the shell continues"
  ;;
 esac
 pass "runtime lock: $name"

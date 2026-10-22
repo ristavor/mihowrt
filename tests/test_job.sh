@@ -57,7 +57,7 @@ config_lock_check() {
  fi
 }
 config_save() { config_lock_check || return 1; echo save >>"$JOB_TEST_DIR/order"; echo '{"action":"saved"}'; }
-config_restore() { config_lock_check || return 1; echo '{"action":"restored"}'; }
+config_restore() { config_lock_check || return 1; echo restore >>"$JOB_TEST_DIR/order"; echo '{"action":"restored"}'; }
 lists_apply() { echo '{"changed":false}'; }
 core_update_json() {
  if [ "$(cat "$JOB_TEST_DIR/mode")" = core-restart ]; then
@@ -243,6 +243,10 @@ rm -f "$config_file"
 assert_eq ok "$(jq -r .state <<<"$status")" "save holds runtime lock: $(jq -r .error <<<"$status")"
 assert_eq saved "$(jq -r .result.action <<<"$status")" 'save result'
 assert_eq $'wait\nsave' "$(cat "$tmpdir/order")" 'save waits before lock'
+config_file="$(mktemp /tmp/mihowrt-config.XXXXXX)"; rm -f "$config_file"
+: >"$tmpdir/order"; start_job restore-config; wait_job
+assert_eq ok "$(jq -r .state <<<"$status")" "restore holds runtime lock: $(jq -r .error <<<"$status")"
+assert_eq $'wait\nrestore' "$(cat "$tmpdir/order")" 'restore waits before lock'
 pass 'whitelisted operation dispatch'
 
 ids=()

@@ -89,7 +89,8 @@ return view.extend({
 			if (!confirm(_('Replace the current YAML with the previous one?')))
 				return;
 			const res = await api.job('restore-config');
-			api.notify(api.actionNotice(res.action));
+			api.notify(res.action === 'unchanged' ? _('Configuration is unchanged.')
+				: res.action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.'));
 			location.reload();
 		}));
 		const restoreNote = E('div', { class: 'cbi-value-description' },

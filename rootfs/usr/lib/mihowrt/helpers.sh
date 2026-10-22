@@ -79,7 +79,7 @@ lock_acquire() {
 	}
 	timeout="$(uint_norm "$timeout")"
 	ensure_dir "$(dirname "$lock")" || return 1
-	exec 9>>"$lock" || return 1
+	command exec 9>>"$lock" || return 1
 	while :; do
 		# run_service sets MIHOWRT_STOP from its signal trap.
 		[ "${MIHOWRT_STOP:-0}" = 0 ] || {

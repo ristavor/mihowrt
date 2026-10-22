@@ -118,8 +118,11 @@ net_refresh() {
 	# The marker exists only while policy is applied to a live Mihomo.
 	[ -f "$RUNNING_MARKER" ] && service_running || return 0
 	settings_load || return 1
-	dns_apply || return 1
-	nft_apply
+	local rc=0
+	dns_apply || rc=1
+	# New prefixes must reach nft even when dnsmasq could not be updated.
+	nft_apply || rc=1
+	return "$rc"
 }
 
 dns_custom_servers() {

@@ -419,7 +419,7 @@ lists_apply() {
 
 	changed="$(with_lock lists_install "$@")" || rc=1
 	for tmp in "$@"; do
-		[ "$tmp" = - ] || rm -f "$tmp"
+		[ "$tmp" = - ] || ! upload_path_allowed /tmp/mihowrt-policy-list. "$tmp" || rm -f "$tmp"
 	done
 	[ "$rc" -eq 0 ] || return 1
 	if service_ready; then

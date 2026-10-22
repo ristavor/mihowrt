@@ -216,6 +216,10 @@ awk 'BEGIN { for (i=0;i<144180;i++) print "8.8.8.8" }' >"$upload"
 assert_false 'oversize own list rejected' lists_apply - "$upload" - - 2>"$tmpdir/own.err"
 assert_file_contains "$tmpdir/own.err" 'List src is larger than 1 MiB.' 'exact own size error'
 assert_eq 10.2.3.4 "$(cat "$SRC_LIST_FILE")" 'oversize upload keeps installed list'
+victim="$(mktemp /tmp/somefile.XXXXXX)"
+assert_false 'apply-lists rejects foreign path' lists_apply "$victim" - - - 2>/dev/null
+assert_true 'rejected path is not deleted' test -f "$victim"
+rm -f "$victim"
 pass 'partial apply and own size'
 
 # Both successful and failed list URLs release their response headers.

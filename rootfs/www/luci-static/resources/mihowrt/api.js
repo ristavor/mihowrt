@@ -48,8 +48,9 @@ function errorText(res) {
 		return message || _('Unknown error');
 	if (res?.name === 'TimeoutError' || (res?.name === 'Error' && message === 'XHR request timed out'))
 		return _('The router did not answer in time. The operation may still be running; check again in a minute.');
-	if (res?.name === 'PermissionError' || (res?.name === 'Error' && message === 'Access denied')
-		|| (res?.name === 'RPCError' && /failed with (?:ubus code 6:|HTTP error 403:)/.test(message)))
+	// An expired session reaches us as SessionError, or as rpc error -32002.
+	if (res?.name === 'PermissionError' || res?.name === 'SessionError' || (res?.name === 'Error' && message === 'Access denied')
+		|| (res?.name === 'RPCError' && /failed with (?:ubus code 6:|HTTP error 403:|error -32002:)/.test(message)))
 		return _('Access denied. Log in to LuCI again.');
 	return message || _('Unknown error');
 }

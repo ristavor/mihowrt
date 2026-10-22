@@ -638,14 +638,14 @@ for (const [name, check] of [
   try { await fn(); console.log('ok - subscription ' + name); }
   catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
  }
- let calls = [], allow = false, reloads = 0, noticeCalls = 0, applyEvents = [];
+ const restoreNotices = []; let calls = [], allow = false, reloads = 0, noticeCalls = 0, applyEvents = [];
  const bridge = { ...api, jobRunning: false,
   busy: (b, fn) => fn(), read: async cmd => { calls.push(['read', cmd]); return cmd === 'status-json' ? { config_backup: true } : {}; },
   readLarge: async cmd => { calls.push(['readLarge', cmd]); throw Error('x'); },
   upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-config.test'; },
   job: async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; },
   write: async (...args) => { calls.push(['write', ...args]); return {}; },
-  jobNotice: () => { noticeCalls++; return E('div', { 'aria-live': 'polite' }); }, notify() {}
+  jobNotice: () => { noticeCalls++; return E('div', { 'aria-live': 'polite' }); }, notify: m => restoreNotices.push(m)
  };
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, api: bridge, view: { extend: v => v },
@@ -729,6 +729,11 @@ for (const [name, check] of [
   h.assert(texts(p).includes('Automatic updates replace it again with the subscription.'), 'automatic update warning');
   calls = []; allow = false; await restore.listeners.click(); h.assertEq(calls.length, 0, 'cancel restore');
   allow = true; await restore.listeners.click(); h.assertEq(calls[0].join(','), 'job,restore-config', 'restore job'); h.assertEq(reloads, 1, 'reload after restore');
+  for (const [action, msg] of [['unchanged', 'Configuration is unchanged.'], ['hot_reloaded', 'Configuration checked and applied.'], ['saved', 'Configuration checked and saved.']]) {
+   bridge.job = async () => ({ action }); restoreNotices.length = 0; await restore.listeners.click();
+   h.assertEq(restoreNotices[0], msg, 'restore notice ' + action);
+  }
+  bridge.job = async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; };
   h.assert(!button(render(false), 'Restore the previous YAML'), 'no restore without backup');
   const off = render(true, false), note = collect(off).find(n => n.textContent === 'Automatic updates replace it again with the subscription.');
   h.assert(note.hidden, 'automatic warning hidden when off');

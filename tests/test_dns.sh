@@ -77,3 +77,17 @@ settings_load() { :; }
 net_refresh
 [[ ! -e "$tmpdir/dnsmasq.d/mihowrt.conf" ]] || fail "refresh must not point dnsmasq at a Mihomo that is not running"
 pass "net refresh requires running service"
+
+# A failed dns_apply must not skip nft_apply (new prefixes), and still fails.
+echo "$$" >"$RUNNING_MARKER"
+service_running() { return 0; }
+settings_load() { :; }
+dns_apply() { return 1; }
+nft_calls=0
+nft_apply() { nft_calls=$((nft_calls + 1)); return 0; }
+assert_false "net refresh reports dns failure" net_refresh
+assert_eq 1 "$nft_calls" "nft_apply still runs after dns_apply failure"
+dns_apply() { return 0; }
+nft_apply() { return 1; }
+assert_false "net refresh reports nft failure" net_refresh
+pass "net refresh keeps nft"

@@ -171,7 +171,10 @@ job_execute() {
 		settings_load >/dev/null 2>&1 && config_api_wait
 		with_lock config_save "$1"
 		;;
-	restore-config) with_lock config_restore ;;
+	restore-config)
+		settings_load >/dev/null 2>&1 && config_api_wait
+		with_lock config_restore
+		;;
 	core-update) core_update_cmd ;;
 	service) /etc/init.d/mihowrt "$1" 9>&- >/dev/null && printf '{}\n' ;;
 	esac

@@ -86,6 +86,20 @@ test('poll access denied limit and recovery', async () => {
 		await checked; assert.equal(api.jobRunning, false);
 	}
 });
+test('poll expired session shapes map to access denied', async () => {
+	const shapes = [
+		() => Object.assign(Error('RPC call to file/exec failed with error -32002: Access denied'), { name: 'RPCError' }),
+		() => Object.assign(Error('Login session is expired'), { name: 'SessionError' })
+	];
+	for (const make of shapes) {
+		const { api, timers } = setup();
+		api.read = async () => { throw make(); };
+		const pending = api.job('core-update');
+		const checked = assert.rejects(pending, { message: 'Access denied. Log in to LuCI again.' });
+		for (let i = 0; i < 10; i++) await tick(timers);
+		await checked; assert.equal(api.jobRunning, false);
+	}
+});
 test('poll failures reset after successful poll; lost connection message', async () => {
 	const { api, timers } = setup(); let count = 0;
 	api.read = async () => { count++; if (count === 10) return { state: 'running' }; throw Error('network down'); };

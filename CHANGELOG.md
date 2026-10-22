@@ -23,7 +23,7 @@ Fixes
 - Traffic page: a single *Save & Apply* button applies lists and settings together.
 - `mihowrt dns-refresh` is now `net-refresh`; update scripts that call the old name.
 - The proxy group delay test times out after 15 seconds.
-- Overview page: error messages for timeouts and expired sessions are clear and translated.
+- All MihoWRT pages: error messages for timeouts and expired sessions are clear and translated.
 
 Project
 - CI runs the test suite on every push and pull request.

@@ -19,7 +19,7 @@ Typical use:
 - OpenWrt 25.12 or newer (APK package manager), fw4/nftables.
 - About 80 MiB of free flash for the Mihomo core (about 60 MiB unpacked) and
   128 MiB of RAM or more.
-- Dependencies installed automatically: `luci-base nftables jq kmod-nft-tproxy curl`.
+- Dependencies installed automatically: `luci-base cgi-io jq nftables kmod-nft-tproxy curl`.
 
 ## Install, update, remove
 
@@ -36,11 +36,16 @@ same file:
 curl -fsSL https://cdn.jsdelivr.net/gh/ristavor/mihowrt@main/install.sh | sh
 ```
 
-Release downloads (installer and `mihowrt core-update`) use the GitHub API
-first; if it is blocked or rate-limited, the latest tag is taken from the
-`github.com/<repo>/releases/latest` redirect and files are downloaded from
-`github.com/<repo>/releases/download/<tag>/`. Only on the API path is the
-SHA-256 published by GitHub checked.
+The installer downloads `SHA256SUMS` and the APKs from the latest GitHub
+release (`releases/latest/download/`, no GitHub API) and verifies every APK
+against `SHA256SUMS`; a mismatch or a missing entry aborts the install.
+APKs are not signed yet; `SHA256SUMS` protects against damaged downloads, not
+against a compromised release. `mihowrt core-update` (also run by the
+installer) asks the GitHub API for the Mihomo release and checks the download
+against the SHA-256 digest published there; if the API is blocked it takes the
+tag from the `releases/latest` redirect, downloads the core from
+`github.com/.../releases/download/` and only logs a warning, because no digest
+is available on that path.
 
 The installer asks for the action (install/update or remove) and, on a fresh
 install, for the language (English or Russian). Updates keep the language.
@@ -55,14 +60,66 @@ After a fresh install open **LuCI → Services → MihoWRT** and connect your
 subscription. Package updates through `apk` keep the service running: the old
 service is stopped, settings are migrated and the new version starts again.
 
+Removing the package (`apk del`, or the installer's remove action) stops the
+service and cleans up DNS, nftables, routes, cron and the state in `/tmp`. It
+removes the Mihomo core, the dashboard and the geodata. It keeps your
+`/opt/clash/config.yaml` (and `.bak`), the lists in `/opt/clash/lst/`,
+`/etc/config/mihowrt` and the device ID `/etc/mihowrt/hwid`, so the provider
+sees the same device after a reinstall.
+
 ## Pages
 
 | Page | What it does |
 |---|---|
 | Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
-| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*) |
-| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases, provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, NTP and subscription DNS bypass, NetBird |
-| Diagnostics | Checklist with fixes (core, config, service, DNS answers, rules, conflicting dnsmasq servers), details and log |
+| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MiB) and *Restore the previous YAML* |
+| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, NTP and subscription DNS bypass, NetBird. One *Save & Apply* button applies lists and settings together |
+| Diagnostics | Checklist with fixes (core, config, service state and last error, DNS answers, rules, conflicting dnsmasq servers, conflicting proxy packages, free flash and RAM, open proxy ports), details (including Mihomo memory) and log |
+
+### Background jobs
+
+Long actions (connect, core update, subscription update, list refresh, saving
+the YAML or the lists, start/stop/restart) run in the background, one at a
+time, so a slow router or a closed browser tab does not interrupt them. The page
+polls the result; every page shows a notice while a job is running. A second
+action during that time is refused with *Another operation is running*. If the
+router reboots mid-way, the job is reported as interrupted; every action is safe
+to run again. The status block of the Overview page refreshes by itself.
+
+### Editing the YAML
+
+The editor on the *Subscription* page takes a YAML up to 8 MiB. An empty YAML is
+refused and nothing is changed. *Restore the previous YAML* puts
+`config.yaml.bak` back (the current one becomes the new backup, so restore can
+be undone). A subscription update or an automatic update replaces the YAML
+again. If the YAML cannot be loaded, the editor is not shown, so a broken page
+can never overwrite it.
+
+### Devices
+
+*Devices via proxy* / *Devices always direct* take **MAC addresses**
+(`aa:bb:cc:dd:ee:ff`, any case) or **IP addresses**, mixed in one list. The
+lease picker has *Add as*: *MAC address (IPv4 and IPv6)* (default) or *IP
+address*. One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
+covers its IPv6 traffic, and IPv6 privacy addresses change daily anyway.
+Address lists (*Addresses ...*) accept no MAC.
+
+Phones and laptops use a private (random) Wi-Fi address per network:
+
+- Keep a fixed address for this network: iPhone, iPad, Mac: *Private Wi-Fi
+  Address* = *Fixed*; Android: *Use randomized MAC* (kept per network); Windows:
+  *Random hardware addresses*, not *Change daily*. Rotating modes (Apple
+  *Rotating*, Android non-persistent) break the entry.
+- The address changes after *Forget this network* or a reset. A new MAC also gets
+  a new DHCP lease, so IPv4 entries and static leases break the same way.
+- A device that changes its address drops out of the list and gets the
+  default of the mode: direct in *Only selected traffic via proxy*, via proxy in
+  *All traffic via proxy*. Nothing breaks. The page shows entries that are not in
+  the current DHCP leases as *Not connected now* (MAC and IPv4 only).
+- MAC entries work only for devices in the router's own L2 network. Behind
+  another router or a mesh node in router mode the router sees the MAC of that
+  router or node, not of the device, so MAC entries do not match; use IP entries
+  there.
 
 ### Modes
 
@@ -131,8 +188,9 @@ https://example.com/list.txt;443   # remote list, cached on flash
 # comment
 ```
 
-Remote lists are refreshed every *Update remote lists every (hours)* or with the
-button. Applying policy never waits for the network: it uses the cache.
+Remote lists (up to 1 MiB each, 32 URLs) are refreshed every *Update remote lists
+every (hours)* (24 for new installs; existing installs keep their value) or
+with the button. Applying policy never waits for the network: it uses the cache.
 Provider list entries are validated the same way; invalid ones are dropped
 with a warning.
 
@@ -236,7 +294,10 @@ zapret (`0x40000000`, `0x20000000`). An `ip rule` and `ip -6 rule` send marked
 packets to a local table, and TPROXY hands them to Mihomo on
 `127.0.0.1:7894` / `[::1]:7894`. Local destinations (`fib daddr type local`),
 private ranges, DNS, Mihomo's own traffic (routing mark 2) and, optionally,
-NTP are never intercepted. Incoming NetBird traffic is never touched; outbound
+NTP are never intercepted. Networks connected to the router (routes without
+`via` in the main table: LAN, guest, IoT, delegated IPv6 prefixes) are never
+intercepted either, so they cannot be sent into TPROXY or bypass the firewall
+zones; WAN link subnets keep their normal handling. Incoming NetBird traffic is never touched; outbound
 NetBird transport is captured only with *Route outbound NetBird through Mihomo*.
 
 ### Hardware/software flow offloading
@@ -258,9 +319,13 @@ now*. Remote lists are refreshed when due.
 ## Command line
 
 ```text
-mihowrt status-json | logs-json [lines] | subscription-json | proxies-json
-mihowrt update-subscription [url] | set-subscription <url> <0|1> | profile-json   # a new [url] is saved only if it downloads and passes the check
-mihowrt update-lists | core-update | recover | reload | dashboard-json
+mihowrt status-json | service-state-json | logs-json [lines] | subscription-json | proxies-json
+mihowrt lists-json | diagnostics-json | profile-json | dashboard-json
+mihowrt update-subscription [url] | set-subscription <url> <0|1>   # a new [url] is saved only if it downloads and passes the check
+mihowrt update-lists | apply-lists <dst|-> <src|-> <direct|-> <direct-src|-> | core-update
+mihowrt read-config | save-config <file> | restore-config
+mihowrt job-start <op> [args] | job-status [id]   # background jobs used by LuCI
+mihowrt recover | reload | net-refresh | uninstall
 /etc/init.d/mihowrt start | stop | restart | reload | enable | disable
 ```
 
@@ -313,6 +378,10 @@ GPL-3.0-or-later, see `LICENSE`.
 
 ## Known limits
 
+- The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
+  provider credentials), the subscription link and the Mihomo controller secret
+  (`uci mihowrt` via the read ACL) to every LuCI user with read access. Give such
+  access only to people you trust with them.
 - Connected-network exclusions read only the main routing table, not mwan3 or
   other policy tables. Public VPN routes without `via` with prefixes at least
   /16 (IPv4) or /32 (IPv6) are treated as local and go direct through the tunnel.

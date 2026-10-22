@@ -3,7 +3,7 @@
 include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-mihowrt
-PKG_VERSION:=0.9.1
+PKG_VERSION:=0.10.0
 PKG_RELEASE:=1
 PKG_MAINTAINER:=ristavor <90447432+ristavor@users.noreply.github.com>
 PKG_LICENSE:=GPL-3.0-or-later

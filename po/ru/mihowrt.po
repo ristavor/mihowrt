@@ -593,7 +593,7 @@ msgid "Cannot load the YAML: %s"
 msgstr "Не удалось загрузить YAML: %s"
 
 msgid "The YAML is larger than 8 MiB."
-msgstr "Размер YAML превышает 8 МиБ."
+msgstr "Размер YAML превышает 8 МБ."
 
 msgid "Replace the current YAML with the previous one?"
 msgstr "Заменить текущий YAML предыдущим?"
@@ -608,13 +608,13 @@ msgid "Choose which traffic goes through Mihomo. Save & Apply applies the change
 msgstr "Выберите, какой трафик пойдёт через Mihomo. Кнопка «Сохранить и применить» применяет изменения."
 
 msgid "To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for \"Only selected\", anything else for \"All traffic\"."
-msgstr "Для режима «Только выбранный» в YAML нужны dns.enhanced-mode: fake-ip и dns.fake-ip-filter-mode: whitelist; любые другие значения включают режим «Весь трафик»."
+msgstr "Для режима «Через прокси только выбранный трафик» в YAML нужны dns.enhanced-mode: fake-ip и dns.fake-ip-filter-mode: whitelist; любые другие значения включают режим «Весь трафик через прокси, кроме исключений»."
 
 msgid "%s: %d saved entry, used in the other mode."
 msgid_plural "%s: %d saved entries, used in the other mode."
-msgstr[0] "%s: сохранена %d запись, используется в другом режиме."
-msgstr[1] "%s: сохранены %d записи, используются в другом режиме."
-msgstr[2] "%s: сохранено %d записей, используются в другом режиме."
+msgstr[0] "%s: сохранена %d запись для другого режима."
+msgstr[1] "%s: сохранено %d записи для другого режима."
+msgstr[2] "%s: сохранено %d записей для другого режима."
 
 msgid "All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
 msgstr "Весь трафик этих устройств идёт в обход Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
@@ -641,7 +641,7 @@ msgid "IP address"
 msgstr "IP-адрес"
 
 msgid "This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose \"Fixed\" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one."
-msgstr "Это устройство использует частный адрес Wi-Fi. Он работает, пока устройство сохраняет его для вашей сети: выберите «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся адрес."
+msgstr "Это устройство использует частный адрес Wi-Fi. Запись будет работать, пока устройство сохраняет этот адрес для вашей сети: выберите «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся адрес."
 
 msgid "Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again."
 msgstr "Списки применены, но сохранить настройки не удалось: %s. Проверьте настройки и снова нажмите «Сохранить и применить»."
@@ -656,22 +656,22 @@ msgid "Other proxy packages are installed: %s"
 msgstr "Установлены другие прокси-пакеты: %s"
 
 msgid "They change DNS and firewall too. Use only one of them at a time."
-msgstr "Они тоже меняют DNS и межсетевой экран. Используйте только один из них одновременно."
+msgstr "Они тоже меняют DNS и межсетевой экран. Одновременно используйте только один из них."
 
 msgid "Little free flash: %d MiB"
-msgstr "Мало свободной flash-памяти: %d МиБ"
+msgstr "Мало свободной флеш-памяти: %d МБ"
 
 msgid "Free some space or the core update may fail."
 msgstr "Освободите место, иначе обновление ядра может не удаться."
 
 msgid "Little free memory: %d MiB"
-msgstr "Мало свободной памяти: %d МиБ"
+msgstr "Мало свободной памяти: %d МБ"
 
 msgid "Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration."
-msgstr "Когда память закончится, система может остановить Mihomo. Остановите другие службы или используйте меньшую конфигурацию."
+msgstr "Когда память закончится, система может остановить Mihomo. Остановите другие сервисы или используйте меньшую конфигурацию."
 
 msgid "Mihomo proxy ports %s accept any device in your network without a password"
-msgstr "Прокси-порты Mihomo %s принимают любое устройство в вашей сети без пароля"
+msgstr "Прокси-порты Mihomo %s принимают подключения от любого устройства в вашей сети без пароля"
 
 msgid "Add authentication to the YAML or remove these ports if you do not use them."
 msgstr "Добавьте авторизацию в YAML или уберите эти порты, если они не нужны."
@@ -680,7 +680,7 @@ msgid "Mihomo memory"
 msgstr "Память Mihomo"
 
 msgid "%d MiB"
-msgstr "%d МиБ"
+msgstr "%d МБ"
 
 msgid "Cannot load diagnostics: %s"
 msgstr "Не удалось загрузить диагностику: %s"

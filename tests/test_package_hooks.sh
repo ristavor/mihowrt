@@ -20,6 +20,7 @@ script_path="$tmpdir/postinst.sh"
 prerm_path="$tmpdir/prerm.sh"
 hook_log="$tmpdir/hook.log"
 skip_start="$tmpdir/skip-start"
+was_running_marker="$tmpdir/was-running"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
@@ -62,7 +63,9 @@ rewrite_package_paths() {
 extract_preinst() {
 	render_package_define preinst |
 		rewrite_package_paths |
-		sed -e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g"
+		sed \
+			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
+			-e "s|/tmp/luci-app-mihowrt.was-running|$was_running_marker|g"
 }
 
 extract_postinst() {
@@ -70,6 +73,7 @@ extract_postinst() {
 		rewrite_package_paths |
 		sed \
 			-e "s|/tmp/luci-app-mihowrt.skip-start|$skip_start|g" \
+			-e "s|/tmp/luci-app-mihowrt.was-running|$was_running_marker|g" \
 			-e "s|/usr/lib/mihowrt/constants.sh|$MIHOWRT_LIB_DIR/constants.sh|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
 			-e "s|/etc/init.d/mihowrt |$tmpdir/init-mihowrt |g" \
@@ -203,6 +207,39 @@ assert_file_contains "$hook_log" "init:stop" "running service stopped before mig
 assert_file_contains "$hook_log" "init:start" "service restarted despite migration failure"
 assert_eq "$(printf 'init:stop\nmihowrt:migrate\ninit:start')" "$(cat "$hook_log")" "postinst failure restart order"
 pass "postinst migrate failure restarts service"
+
+# default_postinst stops the service (skipped start_service) before our
+# postinst runs, so the running state is recorded by preinst.
+mkdir -p "$tmpdir/bin-running" "$tmpdir/bin-stopped"
+printf '#!/bin/sh\nexit 0\n' >"$tmpdir/bin-running/pgrep"
+printf '#!/bin/sh\nexit 1\n' >"$tmpdir/bin-stopped/pgrep"
+chmod +x "$tmpdir/bin-running/pgrep" "$tmpdir/bin-stopped/pgrep"
+
+rm -f "$was_running_marker"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
+[[ ! -e "$was_running_marker" ]] || fail "preinst should not mark a stopped service as running"
+PATH="$tmpdir/bin-running:$PATH" IPKG_INSTROOT="" "$preinst_path"
+[[ -e "$was_running_marker" ]] || fail "preinst should record a running supervisor"
+
+: >"$hook_log"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$script_path"
+assert_file_contains "$hook_log" "init:start" "marker restarts a service stopped by default_postinst"
+[[ ! -e "$was_running_marker" ]] || fail "postinst should remove the was-running marker"
+
+: >"$hook_log"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$script_path"
+assert_file_not_contains "$hook_log" "init:" "no marker and no supervisor must not start the service"
+
+: >"$was_running_marker"
+: >"$hook_log"
+set +e
+PATH="$tmpdir/bin-stopped:$PATH" TEST_FAIL_MIGRATE=1 IPKG_INSTROOT="" "$script_path"
+marker_fail_rc=$?
+set -e
+assert_eq 1 "$marker_fail_rc" "migrate failure with marker still exits 1"
+assert_file_contains "$hook_log" "init:start" "migrate failure with marker still starts the service"
+[[ ! -e "$was_running_marker" ]] || fail "marker removed after failed migrate"
+pass "was-running marker keeps service running across upgrade"
 
 printf 'new-config\n' >"$backup_path"
 printf 'old-config\n' >"$live_config"

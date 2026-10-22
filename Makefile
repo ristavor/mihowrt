@@ -99,6 +99,12 @@ endef
 define Package/$(PKG_NAME)/preinst
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
+	# default_postinst may stop the service (skipped start below), so
+	# record the running state now; the new constants.sh is not installed yet.
+	rm -f /tmp/luci-app-mihowrt.was-running
+	if pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
+		: >/tmp/luci-app-mihowrt.was-running
+	fi
 	backup_mihowrt_file() {
 		src="$$1"
 		backup_file="$$2"
@@ -144,7 +150,9 @@ define Package/$(PKG_NAME)/postinst
 	# it removes its own state, migrate, then start the new version.
 	rc=0
 	was_running=0
+	[ -e /tmp/luci-app-mihowrt.was-running ] && was_running=1
 	pgrep -f "$$SUPERVISOR_CMD" >/dev/null 2>&1 && was_running=1
+	rm -f /tmp/luci-app-mihowrt.was-running
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1

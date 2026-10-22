@@ -83,6 +83,7 @@ extract_postinst() {
 
 extract_prerm() {
 	render_package_define prerm |
+		rewrite_package_paths |
 		sed \
 			-e "s|/etc/init.d/mihowrt-recover|$tmpdir/init-recover|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
@@ -279,6 +280,32 @@ chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt" "$tmpdir/init-recover"
 IPKG_INSTROOT="" "$prerm_path"
 assert_file_contains "$hook_log" "mihowrt:uninstall" "prerm runs uninstall before package files are removed"
 assert_file_contains "$hook_log" "recover:disable" "prerm should disable recover init hook before package files are removed"
+
+# Removal: apk deletes package-owned files, so prerm parks the user's YAML and
+# lists as .keep copies and postrm moves them back (spec 11.1).
+printf 'user-yaml\0bytes\n' >"$live_config"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	printf 'user-%s\n1.2.3.4\n' "$list" >"$live_list_dir/$list.txt"
+done
+sums_before="$(cat "$live_config" "$live_list_dir"/{always_proxy_dst,always_proxy_src,direct_dst,direct_src}.txt | cksum)"
+IPKG_INSTROOT="" "$prerm_path"
+[[ -f "$live_config.keep" ]] || fail "prerm should park config.yaml as .keep"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	[[ -f "$live_list_dir/$list.txt.keep" ]] || fail "prerm should park $list.txt as .keep"
+done
+[[ -f "$live_config" ]] || fail "prerm aborted before postrm must not lose config.yaml"
+rm -f "$live_config"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	rm -f "$live_list_dir/$list.txt"
+done
+render_package_define postrm >"$tmpdir/postrm.keep.expanded"
+sed -e "s|/tmp/|@ROOT@/tmp/|g" -e "s|/var/run/|@ROOT@/var/run/|g" \
+	-e "s|/opt/|@ROOT@/opt/|g" -e "s|/etc/|@ROOT@/etc/|g" \
+	-e "s|@ROOT@|$tmpdir|g" "$tmpdir/postrm.keep.expanded" >"$tmpdir/postrm.keep.sh"
+IPKG_INSTROOT="" ash "$tmpdir/postrm.keep.sh"
+assert_eq "$sums_before" "$(cat "$live_config" "$live_list_dir"/{always_proxy_dst,always_proxy_src,direct_dst,direct_src}.txt | cksum)" "removal keeps config.yaml and lists byte-identical"
+[[ -z "$(find "$tmpdir/opt" -name '*.keep')" ]] || fail "no .keep file left after removal"
+pass "removal keeps YAML and lists"
 
 : >"$hook_log"
 IPKG_INSTROOT="$tmpdir/root" "$prerm_path"

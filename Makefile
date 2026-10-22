@@ -170,6 +170,12 @@ define Package/$(PKG_NAME)/prerm
 [ -n "$$IPKG_INSTROOT" ] || {
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt uninstall >/dev/null 2>&1 || true
 	/etc/init.d/mihowrt-recover disable >/dev/null 2>&1 || true
+	# apk deletes package-owned files on removal; park the user's copies for postrm.
+	# cp, not mv: if the removal aborts, the originals are still in place.
+	[ ! -f /opt/clash/config.yaml ] || cp -p /opt/clash/config.yaml /opt/clash/config.yaml.keep || true
+	for list in $(MIHOWRT_LISTS); do
+		[ ! -f /opt/clash/lst/$$list.txt ] || cp -p /opt/clash/lst/$$list.txt /opt/clash/lst/$$list.txt.keep || true
+	done
 }
 exit 0
 endef
@@ -178,6 +184,11 @@ define Package/$(PKG_NAME)/postrm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	rm -rf /tmp/mihowrt /var/run/mihowrt /tmp/clash
+	[ ! -f /opt/clash/config.yaml.keep ] || mv -f /opt/clash/config.yaml.keep /opt/clash/config.yaml
+	mkdir -p /opt/clash/lst
+	for list in $(MIHOWRT_LISTS); do
+		[ ! -f /opt/clash/lst/$$list.txt.keep ] || mv -f /opt/clash/lst/$$list.txt.keep /opt/clash/lst/$$list.txt
+	done
 	rmdir /opt/clash/bin /opt/clash /etc/mihowrt 2>/dev/null || true
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
 	rm -rf /tmp/luci-modulecache 2>/dev/null || true

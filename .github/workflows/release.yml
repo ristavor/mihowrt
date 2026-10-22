@@ -1,0 +1,100 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Check tag against PKG_VERSION
+        run: |
+          set -eu
+          version="$(sed -n 's/^PKG_VERSION:=//p' Makefile)"
+          if [ -z "$version" ] || [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Makefile PKG_VERSION v$version" >&2
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Build test image
+        run: docker build -t mihowrt-test:local -f Dockerfile.test .
+
+      - name: Run tests
+        run: docker run --rm -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash tests/run.sh
+
+      - name: Build APKs
+        run: ./tools/build-sdk.sh build
+
+      - name: Stage release assets and checksums
+        run: |
+          set -eu
+          mkdir -p release
+          for name in luci-app-mihowrt luci-i18n-mihowrt-ru; do
+            set -- dist/"$name"-[0-9]*.apk
+            if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+              echo "Expected exactly one dist/$name-<ver>.apk, found: $*" >&2
+              exit 1
+            fi
+            cp "$1" "release/$(basename "$1")"
+            cp "$1" "release/$name.apk"
+          done
+          cd release
+          sha256sum \
+            luci-app-mihowrt-[0-9]*.apk \
+            luci-i18n-mihowrt-ru-[0-9]*.apk \
+            luci-app-mihowrt.apk \
+            luci-i18n-mihowrt-ru.apk > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Extract release notes
+        run: |
+          set -eu
+          awk -v v="$VERSION" '
+            $0 == "## " v { found = 1; next }
+            found && /^## / { exit }
+            found { print }
+          ' CHANGELOG.md > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "CHANGELOG.md has no non-empty '## $VERSION' section" >&2
+            exit 1
+          fi
+
+      - name: Upload release files
+        uses: actions/upload-artifact@v4
+        with:
+          name: release
+          path: |
+            release/
+            release-notes.md
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release files
+        uses: actions/download-artifact@v4
+        with:
+          name: release
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md \
+            release/*.apk release/SHA256SUMS

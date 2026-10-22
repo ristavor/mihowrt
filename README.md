@@ -287,6 +287,18 @@ On macOS the SDK runs in a Linux container with a named volume
 (`mihowrt-sdk-25.12.6`) because APFS is case-insensitive. The package is noarch,
 so only `luci-base/host` (`po2lmo`) is compiled.
 
+Release order (the tag must equal `v` + `PKG_VERSION` from `Makefile`):
+
+```sh
+git tag vX && git push origin vX   # starts the release workflow
+# wait for the release workflow to finish (APKs + SHA256SUMS in the release)
+git push origin main
+```
+
+The release workflow runs the tests, builds both APKs, and publishes the
+versioned and fixed-name APKs with `SHA256SUMS`; the notes come from the
+matching `## X` section of `CHANGELOG.md`. APKs are not signed yet.
+
 Real-router checks run in an OpenWrt 25.12.6 x86/64 QEMU VM:
 
 ```sh
@@ -294,6 +306,10 @@ Real-router checks run in an OpenWrt 25.12.6 x86/64 QEMU VM:
 ./tests/router/run-smoke.sh --integration --watchdog   # install, start, DNS, nft, stop, watchdog
 ./tests/router/stop.sh
 ```
+
+## License
+
+GPL-3.0-or-later, see `LICENSE`.
 
 ## Known limits
 

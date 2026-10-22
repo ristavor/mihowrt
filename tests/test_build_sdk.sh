@@ -167,6 +167,93 @@ else
 	passed=$((passed + 1))
 fi
 
+# Test 14: CI and release workflows (static checks; first real run is on push)
+TEST_YML="${ROOT_DIR}/.github/workflows/test.yml"
+RELEASE_YML="${ROOT_DIR}/.github/workflows/release.yml"
+test_yml="$(cat "$TEST_YML" 2>/dev/null || true)"
+release_yml="$(cat "$RELEASE_YML" 2>/dev/null || true)"
+assert_contains "test.yml runs on push" "push:" "$test_yml"
+assert_contains "test.yml runs on pull_request" "pull_request:" "$test_yml"
+assert_contains "test.yml builds the test image" "docker build -t mihowrt-test:local -f Dockerfile.test ." "$test_yml"
+assert_contains "test.yml runs the suite" "bash tests/run.sh" "$test_yml"
+assert_contains "release.yml triggers on v* tags" "tags: ['v*']" "$release_yml"
+assert_contains "release.yml has contents: write" "contents: write" "$release_yml"
+assert_contains "release.yml has a build job" $'\n  build:' "$release_yml"
+assert_contains "release.yml has a publish job" $'\n  publish:' "$release_yml"
+assert_contains "release.yml publish needs build" "needs: build" "$release_yml"
+assert_contains "release.yml top-level permissions are empty" $'\npermissions: {}' "$release_yml"
+assert_contains "release.yml build job is read-only" $'  build:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read' "$release_yml"
+assert_contains "release.yml publish job can write" $'    needs: build\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write' "$release_yml"
+assert_contains "release.yml checkout drops credentials" "persist-credentials: false" "$release_yml"
+assert_contains "release.yml uploads artifacts" "actions/upload-artifact@v4" "$release_yml"
+assert_contains "release.yml downloads artifacts" "actions/download-artifact@v4" "$release_yml"
+assert_contains "release.yml names the repo for gh" '--repo "$GITHUB_REPOSITORY"' "$release_yml"
+assert_contains "test.yml checkout drops credentials" "persist-credentials: false" "$test_yml"
+assert_contains "release.yml compares the tag with PKG_VERSION" 'PKG_VERSION' "$release_yml"
+assert_contains "release.yml builds with build-sdk" "./tools/build-sdk.sh build" "$release_yml"
+assert_contains "release.yml writes SHA256SUMS with sha256sum" "sha256sum" "$release_yml"
+assert_contains "release.yml lists the fixed-name app APK" "luci-app-mihowrt.apk" "$release_yml"
+assert_contains "release.yml lists the fixed-name i18n APK" "luci-i18n-mihowrt-ru.apk" "$release_yml"
+assert_contains "release.yml creates the release" "gh release create" "$release_yml"
+assert_contains "release.yml uses the workflow token" "secrets.GITHUB_TOKEN" "$release_yml"
+for wf in "$TEST_YML" "$RELEASE_YML"; do
+	if [[ -f "$wf" ]] && ! grep -P '\t' "$wf" >/dev/null && ! grep -q '@master\|@main' "$wf"; then
+		printf 'ok - %s has no tabs and no floating action refs\n' "${wf##*/}"
+		passed=$((passed + 1))
+	else
+		printf 'not ok - %s missing, has tabs or floating action refs\n' "${wf##*/}" >&2
+		failed=$((failed + 1))
+	fi
+done
+
+# Test 14b: run the release staging step on fake dist files
+if [[ -n "$release_yml" ]]; then
+	stage_script="$(awk '/- name: Stage release assets/{f=1;next} f&&/run: \|/{r=1;next} r&&/^      - name:/{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+	stage_dir="$(mktemp -d)"
+	mkdir -p "$stage_dir/dist"
+	printf a > "$stage_dir/dist/luci-app-mihowrt-0.10.0-r1.apk"
+	printf b > "$stage_dir/dist/luci-i18n-mihowrt-ru-0.10.0-r1.apk"
+	(cd "$stage_dir" && bash -c "$stage_script" >/dev/null 2>&1) || true
+	sums="$(cat "$stage_dir/release/SHA256SUMS" 2>/dev/null || true)"
+	assert_contains "staging lists the versioned app APK by bare name" "  luci-app-mihowrt-0.10.0-r1.apk" "$sums"
+	assert_contains "staging lists the fixed-name i18n APK by bare name" "  luci-i18n-mihowrt-ru.apk" "$sums"
+	if [[ "$sums" == *"/"* || "$sums" == *"dist"* ]]; then
+		printf 'not ok - SHA256SUMS contains paths\n' >&2
+		failed=$((failed + 1))
+	else
+		printf 'ok - SHA256SUMS has no paths\n'
+		passed=$((passed + 1))
+	fi
+	if [[ -n "$sums" ]] && (cd "$stage_dir/release" && sha256sum -c SHA256SUMS >/dev/null 2>&1); then
+		printf 'ok - SHA256SUMS verifies inside release/\n'
+		passed=$((passed + 1))
+	else
+		printf 'not ok - SHA256SUMS does not verify inside release/\n' >&2
+		failed=$((failed + 1))
+	fi
+	rm -rf "$stage_dir"
+fi
+
+# Test 15: license and package metadata
+makefile_content="$(cat "${ROOT_DIR}/Makefile")"
+assert_contains "Makefile declares PKG_LICENSE" "PKG_LICENSE:=GPL-3.0-or-later" "$makefile_content"
+assert_contains "Makefile declares PKG_LICENSE_FILES" "PKG_LICENSE_FILES:=LICENSE" "$makefile_content"
+assert_contains "Makefile maintainer has an email" "PKG_MAINTAINER:=ristavor <90447432+ristavor@users.noreply.github.com>" "$makefile_content"
+if [[ "$script_content" == *"LICENSE"* ]]; then
+	printf 'not ok - build-sdk.sh must not copy LICENSE (PKG_LICENSE_FILES is metadata only)\n' >&2
+	failed=$((failed + 1))
+else
+	printf 'ok - build-sdk.sh does not copy LICENSE into the SDK\n'
+	passed=$((passed + 1))
+fi
+license_head="$(head -n 2 "${ROOT_DIR}/LICENSE" 2>/dev/null || true)"
+assert_contains "LICENSE is GPL" "GNU GENERAL PUBLIC LICENSE" "$license_head"
+assert_contains "LICENSE is version 3" "Version 3, 29 June 2007" "$license_head"
+changelog_content="$(cat "${ROOT_DIR}/CHANGELOG.md" 2>/dev/null || true)"
+assert_contains "CHANGELOG.md has a 0.10.0 section" "## 0.10.0" "$changelog_content"
+readme_content="$(cat "${ROOT_DIR}/README.md")"
+assert_contains "README documents the release order" "git tag vX && git push origin vX" "$readme_content"
+
 printf '\nSummary: %d passed, %d failed\n' "$passed" "$failed"
 if [[ "$failed" -gt 0 ]]; then
 	exit 1

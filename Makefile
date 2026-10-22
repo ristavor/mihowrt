@@ -5,7 +5,9 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-mihowrt
 PKG_VERSION:=0.9.1
 PKG_RELEASE:=1
-PKG_MAINTAINER:=maintainer
+PKG_MAINTAINER:=ristavor <90447432+ristavor@users.noreply.github.com>
+PKG_LICENSE:=GPL-3.0-or-later
+PKG_LICENSE_FILES:=LICENSE
 PKG_CONFIG_BACKUP_FILE:=/tmp/$(PKG_NAME).config.yaml.bak
 PKG_POLICY_LIST_BACKUP_DIR:=/tmp/$(PKG_NAME).policy-lists.bak
 MIHOWRT_LISTS:=always_proxy_dst always_proxy_src direct_dst direct_src

@@ -5,14 +5,14 @@
 set -eu
 
 REPO="ristavor/mihowrt"
-RELEASES_API="https://api.github.com/repos/$REPO/releases/latest"
+RELEASE_URL="https://github.com/$REPO/releases/latest/download"
 PKG="luci-app-mihowrt"
 I18N_PKG="luci-i18n-mihowrt-ru"
 DEPS="luci-base nftables jq kmod-nft-tproxy curl"
 CORE="/opt/clash/bin/clash"
 CORE_SPACE_KB=81920
-WORK="/tmp/mihowrt-install.$$"
-RELEASE_JSON=""
+MIHOWRT_BIN="/usr/bin/mihowrt"
+WORK=""
 
 log() { printf '%s\n' "$*"; }
 err() { printf 'Error: %s\n' "$*" >&2; }
@@ -23,7 +23,7 @@ die() {
 }
 
 cleanup() {
-	rm -rf "$WORK"
+	[ -z "$WORK" ] || rm -rf "$WORK"
 }
 
 can_prompt() {
@@ -94,62 +94,36 @@ check_space() {
 		die "not enough flash: need $((need / 1024)) MiB, free $((free / 1024)) MiB (the Mihomo core is about 60 MiB)"
 }
 
-# asset_url <release.json> <name-prefix>: download URL and sha256 digest.
-asset_info() {
-	jq -r --arg p "$2-" '.assets[] | select(.name | startswith($p) and endswith(".apk"))
-		| "\(.browser_download_url) \(.digest // "")"' "$1" | head -n 1
+# download_file <name> <out>: fixed-name release asset.
+download_file() {
+	curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "$2" "$RELEASE_URL/$1"
 }
 
-# Release info: GitHub API first (asset digests); if it is blocked or
-# rate-limited, the tag comes from the github.com/releases/latest redirect.
-fetch_release() {
-	RELEASE_JSON="$WORK/release.json"
-	curl -fsSL --retry 2 --connect-timeout 15 --max-time 60 -o "$RELEASE_JSON" "$RELEASES_API" 2>/dev/null &&
-		[ -n "$(jq -r '.tag_name // empty' "$RELEASE_JSON" 2>/dev/null)" ] && return 0
-	RELEASE_JSON=""
-	return 1
+# verify_asset <name> <file>: sha256 of <file> must match the SHA256SUMS line
+# for <name> ("<hash>  <name>"); a missing entry or a mismatch aborts.
+verify_asset() {
+	local want="" got=""
+
+	want="$(awk -v n="$1" '$2 == n || $2 == "*" n { print $1; exit }' "$WORK/SHA256SUMS")"
+	[ -n "$want" ] || die "no checksum for $1"
+	got="$(sha256sum "$2" | awk '{ print $1 }')"
+	[ "$got" = "$want" ] || die "sha256 mismatch for $1"
 }
 
-release_tag() {
-	local url=""
+# release_version: <version>-<release> from the versioned app APK line of
+# SHA256SUMS whose hash equals the hash of the fixed-name app APK.
+release_version() {
+	local hash="" name=""
 
-	[ -n "${RELEASE_JSON:-}" ] || fetch_release
-	if [ -n "${RELEASE_JSON:-}" ]; then
-		jq -r .tag_name "$RELEASE_JSON"
-		return 0
-	fi
-	url="$(curl -fsS -o /dev/null --connect-timeout 15 --max-time 30 -w '%{redirect_url}' \
-		"https://github.com/$REPO/releases/latest" 2>/dev/null)" || return 1
-	case "$url" in
-	*/releases/tag/?*) echo "${url##*/releases/tag/}" ;;
-	*) return 1 ;;
-	esac
-}
-
-# download_asset <name-prefix> <out>
-download_asset() {
-	local prefix="$1" out="$2" info="" url="" digest="" tag=""
-
-	if [ -n "${RELEASE_JSON:-}" ]; then
-		info="$(asset_info "$RELEASE_JSON" "$prefix")"
-		[ -n "$info" ] || return 1
-		url="${info%% *}"
-		digest="${info#* }"
-	else
-		tag="$(release_tag)" || return 1
-		url="https://github.com/$REPO/releases/download/$tag/$prefix-${tag#v}-r1.apk"
-	fi
-	curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "$out" "$url" || return 1
-	case "$digest" in
-	sha256:*)
-		[ "$(sha256sum "$out" | cut -d' ' -f1)" = "${digest#sha256:}" ] || die "sha256 mismatch for $prefix"
-		;;
-	*) warn "no published checksum for $prefix (GitHub API unavailable); installing without checksum verification" ;;
-	esac
+	hash="$(awk -v n="$PKG.apk" '{ f = $2; sub(/^\*/, "", f) } f == n { print $1; exit }' "$WORK/SHA256SUMS")"
+	[ -n "$hash" ] || return 0
+	name="$(awk -v p="$PKG-" -v h="$hash" '{ f = $2; sub(/^\*/, "", f) } $1 == h && index(f, p) == 1 && f ~ /\.apk$/ { print f; exit }' "$WORK/SHA256SUMS")"
+	name="${name#"$PKG"-}"
+	echo "${name%.apk}"
 }
 
 install_packages() {
-	local lang="$1" tag=""
+	local lang="$1" version="" with_ru=0
 
 	log "Installing dependencies..."
 	apk update >/dev/null || die "apk update failed"
@@ -158,34 +132,43 @@ install_packages() {
 	check_space
 
 	log "Downloading the latest MihoWRT release..."
-	fetch_release || log "GitHub API unavailable, using github.com directly"
-	tag="$(release_tag)" || die "cannot reach GitHub (api.github.com and github.com failed)"
-	download_asset "$PKG" "$WORK/$PKG.apk" || die "cannot download $PKG for $tag"
-	log "Installing $tag..."
-	apk add --allow-untrusted "$WORK/$PKG.apk" >/dev/null || die "package installation failed"
-
+	download_file SHA256SUMS "$WORK/SHA256SUMS" || die "cannot download the release checksums"
+	download_file "$PKG.apk" "$WORK/$PKG.apk" || die "cannot download $PKG.apk"
+	verify_asset "$PKG.apk" "$WORK/$PKG.apk"
 	if [ "$lang" = ru ]; then
-		if download_asset "$I18N_PKG" "$WORK/$I18N_PKG.apk"; then
-			apk add --allow-untrusted "$WORK/$I18N_PKG.apk" >/dev/null || err "Russian translation failed to install"
+		if download_file "$I18N_PKG.apk" "$WORK/$I18N_PKG.apk"; then
+			verify_asset "$I18N_PKG.apk" "$WORK/$I18N_PKG.apk"
+			with_ru=1
 		else
-			err "release has no Russian translation package"
+			warn "release has no Russian translation package"
 		fi
-	elif package_installed "$I18N_PKG"; then
+	fi
+
+	version="$(release_version)"
+	log "Installing ${version:-the latest release}..."
+	apk add --allow-untrusted "$WORK/$PKG.apk" >/dev/null || die "package installation failed"
+	if [ "$with_ru" = 1 ]; then
+		apk add --allow-untrusted "$WORK/$I18N_PKG.apk" >/dev/null || err "Russian translation failed to install"
+	elif [ "$lang" != ru ] && package_installed "$I18N_PKG"; then
 		apk del "$I18N_PKG" >/dev/null || true
 	fi
 }
 
 do_install() {
-	local lang="" fresh=1
+	local lang="" fresh=1 result="" reason=""
 
 	lang="$(resolve_language)"
 	package_installed "$PKG" && fresh=0
-	mkdir -p "$WORK"
+	WORK="$(mktemp -d /tmp/mihowrt-install.XXXXXX)" || die "cannot create a temporary directory"
 	install_packages "$lang"
 
 	if [ ! -x "$CORE" ]; then
 		log "Installing the Mihomo core..."
-		/usr/bin/mihowrt core-update >/dev/null || die "Mihomo core installation failed; retry from LuCI → Services → MihoWRT"
+		# stdout is the JSON; the backend's own "Error: ..." line stays on stderr.
+		result="$("$MIHOWRT_BIN" core-update)" || {
+			reason="$(printf '%s' "$result" | jq -r '.error // empty' 2>/dev/null)" || reason=""
+			die "Mihomo core installation failed${reason:+: $reason}; retry from LuCI → Services → MihoWRT"
+		}
 	fi
 	/etc/init.d/mihowrt enable
 

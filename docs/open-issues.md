@@ -62,6 +62,10 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
   - The labels "Добавить устройство" and "Добавить как" show oddly wide gaps between words. They are rendered in monospace by the footstrap rule on `.cbi-value-field *`, unlike the rest of the row.
   - "Добавить устройство" is shown twice: as the label and as the select placeholder ("Добавить устройство…").
   - Fix direction: drop the visible label or the placeholder (keep an accessible name via `aria-label`/`.mw-sr`), and avoid plain-text label nodes inside the field that the theme turns monospace.
+- **The "?" icon before field descriptions sits higher than the text (reported by the user, footstrap dark, see the picker screenshot).**
+  - Its vertical centre does not match the text line.
+  - Check whether this is the stock theme rendering of `.cbi-value-description` (then it is a theme issue; compare with a stock page such as Network → DHCP) or caused by our layout around the description (flex/line-height in `.mw-*` wrappers).
+  - Fix only the MihoWRT part, layout-only CSS.
 - **The private-MAC hint is unclear and makes the layout jump (reported by the user).**
   - The text "Это устройство использует частный адрес Wi-Fi. Запись будет работать, пока…" appears under the field only after a device with a private MAC was added. It does not name the device, so it is unclear which entry it is about.
   - Inserting and removing the block shifts the whole page.

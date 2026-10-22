@@ -392,3 +392,9 @@ GPL-3.0-or-later, see `LICENSE`.
 - The QEMU VM cannot test hardware offloading or real NetBird peers.
 - Device headers (HWID, model) are sent only over HTTPS, but curl repeats them
   if the provider redirects to another HTTPS host.
+- Updating the Mihomo core needs free flash for the new binary next to the old
+  one (about 55 MiB plus 4 MiB). On routers with less free space `core-update`
+  stops with `not enough flash` and keeps the current core.
+- Provider list URLs are checked before download only; curl follows redirects.
+
+Open and deferred issues: [`docs/open-issues.md`](docs/open-issues.md).

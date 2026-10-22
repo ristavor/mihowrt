@@ -57,7 +57,22 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
 - **A long hex `netbird_mark` can overflow the shell arithmetic.** A value over 16 hex digits overflows `$(( ))` in `is_valid_uint32_mark` (admin input only).
 - **`settings_load` does not reset `SETTINGS_LOADED` at the start.** Not reachable today.
 
+### Features requested
+- **Show the effective YAML (requested by the user).** This is the runtime config that MihoWRT generates and passes to Mihomo (`/tmp/mihowrt/config.yaml`):
+  - the user's YAML,
+  - the router-owned keys,
+  - the default DNS and sniffer,
+  - with `x-mihowrt` stripped.
+  - **Today:** it is visible only over SSH.
+  - **Proposal:** a read-only view on the Subscription page (e.g. a *Show the YAML passed to Mihomo* toggle with a monospace `ui.Textarea`, readonly), loaded via `readLarge` and a new read command (e.g. `runtime-config`).
+  - **Security:** it contains the controller secret and provider credentials, the same exposure as `read-config` today (README *Known limits*).
+
 ### UI (theme-only rule kept)
+- **Monospace text: checked on the router (footstrap, 2026-10-22, read-only Playwright font scan).**
+  - **Correct:** the YAML editor and the list textareas use the theme's monospace font. So do the theme's own inputs, selects and dropdowns; footstrap does the same on stock pages (Network → DHCP, System). The Diagnostics log `<pre>` is monospace, as the stock syslog view is.
+  - **Not correct (MihoWRT):** on Traffic, the picker labels "Add a device"/"Add as" and the Mode line text are monospace.
+  - **Cause:** they are plain text nodes inside `.cbi-value-field`, and footstrap applies its mono font to everything in the field except `.btn`, `.cbi-button` and `.cbi-value-description`.
+  - **Fix direction:** put the explanatory text in `.cbi-value-description` (the Mode line) or make the labels accessible-only. Do not add our own font CSS.
 - **Lease picker row on Traffic (reported by the user, footstrap dark, RU):**
   - The labels "Добавить устройство" and "Добавить как" show oddly wide gaps between words. They are rendered in monospace by the footstrap rule on `.cbi-value-field *`, unlike the rest of the row.
   - "Добавить устройство" is shown twice: as the label and as the select placeholder ("Добавить устройство…").

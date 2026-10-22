@@ -265,7 +265,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const subCalls = [], notices = [];
  const subview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
-  api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s) })
+  api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s), reloadWithNotice: s => notices.push(s) })
  }).module;
  for (const [on, period, hint] of [
   [true, 12, 'Your provider decides how often (now every 12 h).'],
@@ -292,7 +292,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
   confirm: message => { confirmations.push(message); return allowUpdate; },
   api: { ...api, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
-   write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message) }
+   write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message), reloadWithNotice: message => notices.push(message) }
  }).module;
  const yamlNodes = collect(yamlView.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
  const yaml = yamlNodes.find(n => n.tag === 'textarea');
@@ -543,7 +543,7 @@ for (const [name, check] of [
   write: async (...args) => { throw Error('unexpected synchronous write: ' + args); },
   read: async cmd => { calls.push(['read', cmd]); return cmd === 'service-state-json' ? fresh : cmd === 'status-json' ? { ...base, running: true, state: 'running' } : {}; },
   readLarge: async cmd => { calls.push(['readLarge', cmd]); if (failGroups) throw Error('x'); return []; },
-  notify() {}
+  notify() {}, reloadWithNotice() {}
  };
  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
   E, api: bridge, poll: { add: (fn, seconds) => polls.push({ fn, seconds }) },
@@ -645,7 +645,8 @@ for (const [name, check] of [
   upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-config.test'; },
   job: async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; },
   write: async (...args) => { calls.push(['write', ...args]); return {}; },
-  jobNotice: () => { noticeCalls++; return E('div', { 'aria-live': 'polite' }); }, notify: m => restoreNotices.push(m)
+  jobNotice: () => { noticeCalls++; return E('div', { 'aria-live': 'polite' }); }, notify: m => restoreNotices.push(m),
+  reloadWithNotice: m => { restoreNotices.push(m); applyEvents.push('notice'); reloads++; applyEvents.push('reload'); }
  };
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, api: bridge, view: { extend: v => v },
@@ -692,7 +693,6 @@ for (const [name, check] of [
     const job = bridge.job; applyEvents = [];
     try {
      bridge.job = async () => ({ action });
-     bridge.notify = () => applyEvents.push('notice');
      const before = reloads;
      await button(render(), 'Check and apply').listeners.click();
      h.assertEq(reloads, before + 1, 'successful apply reloads');

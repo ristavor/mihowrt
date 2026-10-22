@@ -133,6 +133,15 @@ msgstr "Подключите подписку"
 msgid "Install Mihomo core"
 msgstr "Установить ядро Mihomo"
 
+msgid "MihoWRT started."
+msgstr "MihoWRT запущен."
+
+msgid "MihoWRT stopped."
+msgstr "MihoWRT остановлен."
+
+msgid "MihoWRT restarted."
+msgstr "MihoWRT перезапущен."
+
 msgid "Mihomo core %s installed."
 msgstr "Ядро Mihomo %s установлено."
 

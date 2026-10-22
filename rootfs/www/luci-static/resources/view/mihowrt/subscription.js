@@ -70,17 +70,15 @@ return view.extend({
 			}
 			if (changed)
 				await saveSettings();
-			api.notify(api.actionNotice(res.action));
-			location.reload();
+			api.reloadWithNotice(api.actionNotice(res.action));
 		}));
 		apply.addEventListener('click', () => api.busy(apply, async () => {
 			if (new Blob([yaml.value]).size > 8388608)
 				throw new Error(_('The YAML is larger than 8 MiB.'));
 			const path = await api.upload('mihowrt-config', yaml.value);
 			const res = await api.job('save-config', path);
-			api.notify(res.action === 'unchanged' ? _('Configuration is unchanged.')
+			api.reloadWithNotice(res.action === 'unchanged' ? _('Configuration is unchanged.')
 				: res.action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.'));
-			location.reload();
 		}));
 
 		const restore = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null,
@@ -89,9 +87,8 @@ return view.extend({
 			if (!confirm(_('Replace the current YAML with the previous one?')))
 				return;
 			const res = await api.job('restore-config');
-			api.notify(res.action === 'unchanged' ? _('Configuration is unchanged.')
+			api.reloadWithNotice(res.action === 'unchanged' ? _('Configuration is unchanged.')
 				: res.action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.'));
-			location.reload();
 		}));
 		const restoreNote = E('div', { class: 'cbi-value-description' },
 			text(_('Automatic updates replace it again with the subscription.')));

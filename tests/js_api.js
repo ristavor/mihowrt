@@ -231,6 +231,24 @@ test('jobNotice idle and initial read failure', async () => {
 		if (notice.children.length) assert.equal(notice.children[0].children[0], 'Access denied. Log in to LuCI again.');
 	}
 });
+test('reloadWithNotice survives the reload and shows once', async () => {
+	const store = {}; let reloads = 0; const shown = [];
+	const sessionStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; } };
+	const ui = { addNotification: (t, node, level) => shown.push([node.children[0], level]) };
+	const first = setup({ sessionStorage, ui, location: { reload: () => reloads++ } });
+	first.api.reloadWithNotice('MihoWRT restarted.', 'info');
+	assert.equal(reloads, 1); assert.equal(shown.length, 0, 'nothing shown before the reload');
+	const next = setup({ sessionStorage, ui }); next.api.read = async () => ({ state: 'none' });
+	next.api.jobNotice(); await flush();
+	assert.deepEqual(shown, [[ 'MihoWRT restarted.', 'info' ]]);
+	next.api.jobNotice(); await flush(); assert.equal(shown.length, 1, 'notice shown once');
+});
+test('overview shows notices only through reloadWithNotice', () => {
+	for (const name of [ 'overview.js', 'subscription.js' ]) {
+		const source = h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name);
+		assert(!/location\.reload/.test(source), name + ': raw reload loses the notice');
+	}
+});
 test('no shared helper copies in views', () => {
 	for (const name of nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt'))) {
 		const source = h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name);

@@ -279,6 +279,21 @@ function notify(message, level) {
 	ui.addNotification(null, E('p', text(message)), level || 'info');
 }
 
+const NOTICE_KEY = 'mihowrt-notice';
+
+function showPendingNotice() {
+	try {
+		const raw = sessionStorage.getItem(NOTICE_KEY);
+		sessionStorage.removeItem(NOTICE_KEY);
+		const pending = raw ? JSON.parse(raw) : null;
+		if (pending?.text)
+			notify(pending.text, pending.type);
+	}
+	catch (e) {
+		// No session storage or a damaged value: there is no notice to show.
+	}
+}
+
 function style() {
 	return E('style', text(CSS));
 }
@@ -302,7 +317,18 @@ return baseclass.extend({
 			unlockJobButtons();
 		}
 	},
+	// A notice shown right before location.reload() is lost: keep it for the next page load.
+	reloadWithNotice: (message, level) => {
+		try {
+			sessionStorage.setItem(NOTICE_KEY, JSON.stringify({ text: text(message), type: level || 'info' }));
+		}
+		catch (e) {
+			notify(message, level);
+		}
+		location.reload();
+	},
 	jobNotice: function() {
+		showPendingNotice();
 		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
 		this.read('job-status').then(async status => {
 			if (status.state !== 'running')

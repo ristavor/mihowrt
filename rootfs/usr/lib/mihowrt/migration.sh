@@ -45,6 +45,11 @@ migrate_dns_uci() {
 migrate_settings() {
 	local override="" hours="" option="" min=""
 
+	# Traffic flags are saved with rmempty=false: write the defaults now, so the
+	# first Save & Apply without edits changes no UCI option.
+	[ -n "$(uci_get dns_hijack)" ] || uci_set dns_hijack 1
+	[ -n "$(uci_get disable_quic)" ] || uci_set disable_quic 1
+	[ -n "$(uci_get netbird_proxy)" ] || uci_set netbird_proxy 0
 	[ -n "$(uci_get bypass_ntp)" ] || uci_set bypass_ntp 1
 	[ -n "$(uci_get bypass_subscription_dns)" ] || uci_set bypass_subscription_dns 1
 

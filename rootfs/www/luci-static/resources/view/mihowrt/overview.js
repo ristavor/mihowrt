@@ -23,8 +23,7 @@ function firstRunCard() {
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
 		}
-		api.notify(_('Subscription connected. MihoWRT is starting.'));
-		window.setTimeout(() => location.reload(), 1500);
+		window.setTimeout(() => api.reloadWithNotice(_('Subscription connected. MihoWRT is starting.')), 1500);
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
@@ -50,8 +49,7 @@ function coreMissingCard() {
 
 	install.addEventListener('click', () => api.busy(install, async () => {
 		const res = await api.job('core-update');
-		api.notify(_('Mihomo core %s installed.').format(res.version || ''));
-		location.reload();
+		api.reloadWithNotice(_('Mihomo core %s installed.').format(res.version || ''));
 	}));
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
@@ -69,11 +67,11 @@ function statusSection(status) {
 		if (!status.running && !status.enabled)
 			await api.service('enable');
 		await api.job('service', status.running ? 'stop' : 'start');
-		location.reload();
+		api.reloadWithNotice(status.running ? _('MihoWRT stopped.') : _('MihoWRT started.'));
 	}));
 	restart.addEventListener('click', () => api.busy(restart, async () => {
 		await api.job('service', 'restart');
-		location.reload();
+		api.reloadWithNotice(_('MihoWRT restarted.'));
 	}));
 
 	const headline = E('strong', { 'aria-live': 'polite' });
@@ -176,8 +174,7 @@ function subscriptionSection(sub) {
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
 		}
-		api.notify(api.actionNotice(res.action));
-		location.reload();
+		api.reloadWithNotice(api.actionNotice(res.action));
 	}));
 
 	return E('div', { class: 'cbi-section' }, [

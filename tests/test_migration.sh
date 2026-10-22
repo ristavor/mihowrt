@@ -62,6 +62,33 @@ migrate
 assert_eq "$before" "$(cat "$FAKE_UCI_DB")" "migration idempotent"
 pass "idempotent"
 
+# 0.9.1 config: no Traffic flags. They get their backend defaults, once.
+fake_uci_reset
+fake_uci_set mihowrt.settings.source_network_interfaces br-lan
+fake_uci_set mihowrt.settings.lists_interval 24
+fake_uci_set mihowrt.settings.api_secret s3cret
+fake_uci_set mihowrt.settings.cron_minute 7
+fake_uci_set mihowrt.settings.subscription_url https://x.example/sub
+fake_uci_set mihowrt.settings.subscription_auto_update 1
+fake_uci_set mihowrt.settings.bypass_ntp 1
+fake_uci_set mihowrt.settings.bypass_subscription_dns 1
+migrate_settings
+assert_eq 1 "$(uci_get dns_hijack)" "dns_hijack default written"
+assert_eq 1 "$(uci_get disable_quic)" "disable_quic default written"
+assert_eq 0 "$(uci_get netbird_proxy)" "netbird_proxy default written"
+assert_eq "s3cret" "$(uci_get api_secret)" "existing keys kept"
+assert_eq "$(printf 'api_secret\nbypass_ntp\nbypass_subscription_dns\ncron_minute\ndisable_quic\ndns_hijack\nlists_interval\nnetbird_proxy\nsource_network_interfaces\nsubscription_auto_update\nsubscription_url')" \
+ "$(uci -X show mihowrt.settings 2>/dev/null | sed -n 's/^mihowrt\.settings\.\([a-z_]*\)=.*/\1/p' | sort)" "only the missing flags added"
+before="$(cat "$FAKE_UCI_DB")"
+migrate_settings
+assert_eq "$before" "$(cat "$FAKE_UCI_DB")" "second migrate_settings is a no-op"
+fake_uci_set mihowrt.settings.dns_hijack 0
+fake_uci_set mihowrt.settings.disable_quic 0
+fake_uci_set mihowrt.settings.netbird_proxy 1
+migrate_settings
+assert_eq "0 0 1" "$(uci_get dns_hijack) $(uci_get disable_quic) $(uci_get netbird_proxy)" "existing flag values never overwritten"
+pass "0.9.1 config gets flag defaults"
+
 fake_uci_reset
 printf "secret: 'old-secret-1234'\n" >"$CLASH_CONFIG"
 migrate_settings

@@ -314,6 +314,16 @@ Promise.resolve(dash.listeners.click()).then(() => {
  h.assertEq(subCalls.length, 0, 'cancel leaves YAML edits intact');
  allowUpdate = true; await updateYaml.listeners.click();
  h.assert(subCalls.some(c => c[0] === 'update-subscription'), 'confirmed update proceeds');
+ for (const [action, msg] of [['unchanged', 'Subscription is up to date.'], ['hot_reloaded', 'Subscription updated and applied.'], ['saved', 'Subscription updated.']]) {
+  notices.length = 0;
+  const view = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} }, confirm: () => true,
+   api: { ...api, busy: async (el, fn) => fn(), job: async () => ({ action }), write: async () => ({}), reloadWithNotice: m => notices.push(m) }
+  }).module;
+  const ns = collect(view.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
+  await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
+  h.assertEq(JSON.stringify(notices), JSON.stringify([msg]), 'update notice ' + action);
+ }
  console.log('ok - YAML native monospace widget, live upload and unsaved edits');
  console.log('ok - subscription checkbox, hints, save and unchanged notice');
 
@@ -536,6 +546,7 @@ for (const [name, check] of [
  const calls = [], polls = [];
  let fresh = { running: true, enabled: true, state: 'running', dns_ok: true };
  let failGroups = false;
+ const notices = [], delays = [];
  const bridge = { ...api, jobRunning: false,
   busy: (button, fn) => fn(),
   job: async (...args) => { calls.push(['job', ...args]); return { version: 'v1', action: 'unchanged' }; },
@@ -543,29 +554,31 @@ for (const [name, check] of [
   write: async (...args) => { throw Error('unexpected synchronous write: ' + args); },
   read: async cmd => { calls.push(['read', cmd]); return cmd === 'service-state-json' ? fresh : cmd === 'status-json' ? { ...base, running: true, state: 'running' } : {}; },
   readLarge: async cmd => { calls.push(['readLarge', cmd]); if (failGroups) throw Error('x'); return []; },
-  notify() {}, reloadWithNotice() {}
+  notify() {}, reloadWithNotice: (...args) => notices.push(args)
  };
  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
   E, api: bridge, poll: { add: (fn, seconds) => polls.push({ fn, seconds }) },
-  view: { extend: v => v }, location: { reload() {} }, window: { setTimeout: fn => fn() }
+  view: { extend: v => v }, location: { reload() {} }, window: { setTimeout: (fn, ms) => { delays.push(ms); setTimeout(fn, 0); } }
  }).module;
  const click = async (status, label) => {
   const p = ov.render([status, {}, []]);
   if (label === 'Connect') collect(p).find(n => n.attrs.id === 'mw-sub-url').value = ' https://p.example/sub ';
   await collect(p).find(n => n.tag === 'button' && texts(n).includes(label)).listeners.click();
  };
- for (const [status, label, expected] of [
-  [base, 'Connect', [['job', 'connect', 'https://p.example/sub']]],
-  [{ ...base, core_installed: false }, 'Install Mihomo core', [['job', 'core-update']]],
-  [base, 'Update Mihomo core', [['job', 'core-update']]],
-  [{ ...base, subscription_configured: true }, 'Update subscription', [['job', 'update-subscription']]],
-  [base, 'Start', [['service', 'enable'], ['job', 'service', 'start']]],
-  [{ ...base, enabled: true }, 'Start', [['job', 'service', 'start']]],
-  [{ ...base, running: true }, 'Stop', [['job', 'service', 'stop']]],
-  [base, 'Restart', [['job', 'service', 'restart']]]
+ for (const [status, label, expected, notice] of [
+  [base, 'Connect', [['job', 'connect', 'https://p.example/sub']], 'Subscription connected. MihoWRT is starting.'],
+  [{ ...base, core_installed: false }, 'Install Mihomo core', [['job', 'core-update']], 'Mihomo core v1 installed.'],
+  [base, 'Update Mihomo core', [['job', 'core-update']], null],
+  [{ ...base, subscription_configured: true }, 'Update subscription', [['job', 'update-subscription']], 'Subscription is up to date.'],
+  [base, 'Start', [['service', 'enable'], ['job', 'service', 'start']], 'MihoWRT started.'],
+  [{ ...base, enabled: true }, 'Start', [['job', 'service', 'start']], 'MihoWRT started.'],
+  [{ ...base, running: true }, 'Stop', [['job', 'service', 'stop']], 'MihoWRT stopped.'],
+  [base, 'Restart', [['job', 'service', 'restart']], 'MihoWRT restarted.']
  ]) {
-  calls.length = 0; await click(status, label);
+  calls.length = 0; notices.length = 0; delays.length = 0; await click(status, label);
   h.assertEq(JSON.stringify(calls), JSON.stringify(expected), 'jobs used: ' + label);
+  if (notice !== null) h.assertEq(JSON.stringify(notices), JSON.stringify([[notice]]), 'notice passed to reloadWithNotice (before busy ends): ' + label);
+  if (label === 'Connect') h.assertEq(JSON.stringify(delays), '[1500]', 'Connect waits 1.5 s inside busy');
  }
  console.log('ok - overview jobs used');
  h.assert(collect(ov.render([base, {}, []])).filter(n => n.attrs['data-mw-job'] != null).every(n => n.attrs.disabled == null), 'idle buttons omit disabled attribute (LuCI stringifies false)');
@@ -689,14 +702,15 @@ for (const [name, check] of [
  await check('apply reloads after notice', async () => {
   const notify = bridge.notify;
   try {
-   for (const action of ['unchanged', 'hot_reloaded', 'saved']) {
-    const job = bridge.job; applyEvents = [];
+   for (const [action, msg] of [['unchanged', 'Configuration is unchanged.'], ['hot_reloaded', 'Configuration checked and applied.'], ['saved', 'Configuration checked and saved.']]) {
+    const job = bridge.job; applyEvents = []; restoreNotices.length = 0;
     try {
      bridge.job = async () => ({ action });
      const before = reloads;
      await button(render(), 'Check and apply').listeners.click();
      h.assertEq(reloads, before + 1, 'successful apply reloads');
      h.assertEq(applyEvents.join(','), 'notice,reload', 'notice before reload');
+     h.assertEq(JSON.stringify(restoreNotices), JSON.stringify([msg]), 'apply notice ' + action);
     } finally { bridge.job = job; }
    }
   } finally { bridge.notify = notify; reloads = 0; }

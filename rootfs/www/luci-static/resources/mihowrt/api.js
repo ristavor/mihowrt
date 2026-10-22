@@ -320,7 +320,7 @@ return baseclass.extend({
 	// A notice shown right before location.reload() is lost: keep it for the next page load.
 	reloadWithNotice: (message, level) => {
 		try {
-			sessionStorage.setItem(NOTICE_KEY, JSON.stringify({ text: text(message), type: level || 'info' }));
+			sessionStorage.setItem(NOTICE_KEY, JSON.stringify({ text: String(message ?? ''), type: level || 'info' }));
 		}
 		catch (e) {
 			notify(message, level);

@@ -243,6 +243,34 @@ test('reloadWithNotice survives the reload and shows once', async () => {
 	assert.deepEqual(shown, [[ 'MihoWRT restarted.', 'info' ]]);
 	next.api.jobNotice(); await flush(); assert.equal(shown.length, 1, 'notice shown once');
 });
+test('reloadWithNotice stores plain text; empty message shows nothing', async () => {
+	for (const [message, expected] of [ [ 'Done.', 'Done.' ], [ undefined, '' ], [ null, '' ], [ '', '' ] ]) {
+		const store = {}; const shown = [];
+		const sessionStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; } };
+		const ui = { addNotification: (t, node, level) => shown.push(node.children[0]) };
+		setup({ sessionStorage, ui, location: { reload() {} } }).api.reloadWithNotice(message);
+		assert.equal(JSON.parse(store['mihowrt-notice']).text, expected);
+		const next = setup({ sessionStorage, ui }); next.api.read = async () => ({ state: 'none' });
+		next.api.jobNotice(); await flush();
+		assert.deepEqual(shown, expected ? [ expected ] : []);
+	}
+});
+test('reloadWithNotice falls back to notify when storage throws, and still reloads', () => {
+	let reloads = 0; const shown = [];
+	const sessionStorage = { getItem: () => null, removeItem() {}, setItem() { throw new Error('quota'); } };
+	const ui = { addNotification: (t, node, level) => shown.push([node.children[0], level]) };
+	setup({ sessionStorage, ui, location: { reload: () => reloads++ } }).api.reloadWithNotice('Saved.', 'warning');
+	assert.deepEqual(shown, [[ 'Saved.', 'warning' ]]); assert.equal(reloads, 1);
+});
+test('damaged stored notice is dropped silently and the page renders', async () => {
+	for (const raw of [ '{not json', '"str"', 'null', '{"text":""}' ]) {
+		const store = { 'mihowrt-notice': raw }; const shown = [];
+		const sessionStorage = { getItem: k => store[k] ?? null, setItem() {}, removeItem: k => { delete store[k]; } };
+		const { api } = setup({ sessionStorage, ui: { addNotification: () => shown.push(1) } }); api.read = async () => ({ state: 'none' });
+		const notice = api.jobNotice(); await flush();
+		assert.equal(shown.length, 0); assert.equal(notice.tag, 'div'); assert.equal(store['mihowrt-notice'], undefined);
+	}
+});
 test('overview shows notices only through reloadWithNotice', () => {
 	for (const name of [ 'overview.js', 'subscription.js' ]) {
 		const source = h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name);

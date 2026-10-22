@@ -23,7 +23,9 @@ function firstRunCard() {
 		catch (e) {
 			throw new Error(api.subscriptionError(e.message));
 		}
-		window.setTimeout(() => api.reloadWithNotice(_('Subscription connected. MihoWRT is starting.')), 1500);
+		// Give the service a moment to start; stay inside busy so the buttons stay disabled until the reload.
+		await new Promise(resolve => window.setTimeout(resolve, 1500));
+		api.reloadWithNotice(_('Subscription connected. MihoWRT is starting.'));
 	}));
 
 	return E('div', { class: 'cbi-section' }, [

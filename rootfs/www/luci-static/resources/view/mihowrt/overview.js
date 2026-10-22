@@ -162,7 +162,8 @@ function subscriptionSection(sub) {
 		[ _('Traffic'), api.trafficSummary(sub) ],
 		[ _('Expires'), sub.expire ? api.formatDate(sub.expire) : _('Never') ],
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
-		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval) : _('Off') ]
+		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval)
+			: sub.auto_update !== false ? _('On, but the subscription does not send an update period') : _('Off') ]
 	];
 	const links = [ api.linkButton(sub.support_url, _('Support')), api.linkButton(sub.web_page_url, _('Website')) ].filter(Boolean);
 	const warning = subscriptionWarning(sub);

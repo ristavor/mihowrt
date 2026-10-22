@@ -190,6 +190,9 @@ msgstr "каждые %d ч"
 msgid "Off"
 msgstr "Выключено"
 
+msgid "On, but the subscription does not send an update period"
+msgstr "Включено, но подписка не передаёт период обновления"
+
 msgid "Support"
 msgstr "Поддержка"
 

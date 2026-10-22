@@ -99,8 +99,8 @@ return view.extend({
 
 		return E('div', { class: 'mw-page' }, [
 			api.style(),
-			api.jobNotice(),
 			E('h2', text(_('Subscription'))),
+			api.jobNotice(),
 			E('div', { class: 'cbi-section' }, [
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title', for: 'mw-url' }, text(_('Subscription URL'))),
@@ -122,8 +122,8 @@ return view.extend({
 					E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
 					E('label', { class: 'cbi-value-title', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
 					yamlWidget,
-					E('div', { class: 'mw-row' }, [ apply ]),
-					status.config_backup ? E('div', {}, [ restore, restoreNote ]) : null
+					E('div', { class: 'mw-row' }, status.config_backup ? [ apply, restore ] : [ apply ]),
+					status.config_backup ? restoreNote : null
 				]))
 			])
 		]);

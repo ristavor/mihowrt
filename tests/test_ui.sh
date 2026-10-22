@@ -72,6 +72,13 @@ const overview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mih
 }).module;
 const base = { core_installed: true, subscription_configured: false, running: false, enabled: false, mode: 'direct-first', version: '0.8.0', core: 'v1.19.32' };
 
+{
+	const running = { ...base, subscription_configured: true, running: true };
+	const rowValue = (sub) => { const nodes = collect(overview.render([ running, sub, [] ])); return nodes.map(n => n.children.filter(c => typeof c === 'string')).flat(); };
+	h.assert(rowValue({ auto_update: true, effective_interval: 0 }).includes('On, but the subscription does not send an update period'), 'auto-update on without a period');
+	h.assert(rowValue({ auto_update: false, effective_interval: 0 }).includes('Off'), 'auto-update off');
+	h.assert(rowValue({ auto_update: true, effective_interval: 6 }).includes('every 6 h'), 'auto-update period');
+}
 let page = overview.render([ base, {}, [] ]);
 h.assert(texts(page).includes('Connect a subscription'), 'first-run card shown without subscription');
 const firstUrl = collect(page).find(n => n.attrs.id === 'mw-sub-url');
@@ -709,6 +716,13 @@ for (const [name, check] of [
   yaml.value = 'x'.repeat(8388608); calls = []; await button(p, 'Check and apply').listeners.click();
   h.assertEq(calls[0][0], 'upload', 'exact limit accepted');
  });
+ await check('editor actions share one row, notice after the heading', async () => {
+  const p = render();
+  const row = collect(p).find(n => n.attrs.class === 'mw-row' && n.children.includes(button(p, 'Check and apply')));
+  h.assert(row && row.children.includes(button(p, 'Restore the previous YAML')), 'apply and restore in one mw-row');
+  const top = p.children.filter(c => c && typeof c === 'object').map(c => c.tag + (c.attrs['aria-live'] ? ':live' : ''));
+  h.assert(top.indexOf('h2') < top.indexOf('div:live'), 'job notice right after the heading');
+ });
  await check('restore', async () => {
   reloads = 0;
   const p = render(); const restore = button(p, 'Restore the previous YAML'); h.assert(restore, 'backup restore button');
@@ -794,6 +808,18 @@ for (const [name, check] of [
   h.assertEq(t.tv.handleSave, null, 'no plain Save'); h.assertEq(typeof t.tv.handleSaveApply, 'function', 'Save & Apply defined');
   h.assertEq(t.tv.map.description, 'Choose which traffic goes through Mihomo. Save & Apply applies the changes.', 'map description');
   h.assert(texts(p).includes('JOB NOTICE'), 'job notice on page');
+ });
+ await check('flags keep explicit values', async () => {
+  const t = setup(); await t.render({ ...lists }, { provider: { dns_hijack: '1', lists_interval: '6' } });
+  const flags = Object.values(t.tv.map.options).filter(o => o instanceof form.Flag);
+  h.assert(flags.length >= 6, 'flags rendered');
+  h.assert(flags.every(o => o.rmempty === false), 'flags with a default value must not be removed by form.Flag.parse');
+ });
+ await check('no null or empty children', async () => {
+  const t = setup(); const p = await t.render({ ...lists });
+  h.assert(collect(p).every(n => n.children.every(c => c != null && c !== false)), 'no null child that LuCI would print');
+  h.assert(texts(p).includes('JOB NOTICE'), 'job notice present');
+  h.assert(t.tv.map.options._mode.cfgvalue().includes('. To change the mode'), 'sentence break before the mode help');
  });
  await check('save unchanged lists', async () => {
   for (const snapshot of [lists, { ...lists, src: 'aa:bb:cc:dd:ee:ff # phone\n' }]) {

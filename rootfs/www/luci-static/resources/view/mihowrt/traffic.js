@@ -99,6 +99,7 @@ return view.extend({
 			return node;
 		});
 		o.default = '0';
+		o.rmempty = false;
 		o.cfgvalue = () => overrides().includes(name) ? '1' : '0';
 		o.write = (sid, value) => {
 			const list = overrides().filter((v) => v !== name);
@@ -139,7 +140,7 @@ return view.extend({
 		// The mode follows the DNS settings of the YAML; it is not a setting.
 		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'));
 		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' +
-			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)')) + ' ' +
+			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)')) + '. ' +
 			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".');
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
@@ -162,16 +163,12 @@ return view.extend({
 					(saved ? ' ' + N_(saved, 'Saved: %d entry.', 'Saved: %d entries.').format(saved) : '');
 			}
 			else {
-				const devices = this.listOption(s, 'basic', 'direct_src', this.titles.direct_src,
-					_('All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'));
-				this.extendWidget(devices, (node) => this.listsError ? node : this.addLeasePicker(node, leases));
+				this.devicesOption(s, 'direct_src', _('All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
 			}
 		}
 		else {
 			this.providerList(s, 'basic', 'dst', this.titles.dst);
-			const devices = this.listOption(s, 'basic', 'src', this.titles.src,
-				_('All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'));
-			this.extendWidget(devices, (node) => this.listsError ? node : this.addLeasePicker(node, leases));
+			this.devicesOption(s, 'src', _('All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
 		}
 
 		this.providerScalar(s, 'basic', 'lists_interval', () => {
@@ -188,6 +185,8 @@ return view.extend({
 		const flag = (name, title, description) => this.providerScalar(s, 'advanced', name, () => {
 			const f = s.taboption('advanced', form.Flag, name, title, description);
 			f.default = '1';
+			// Shipped values equal to the default must stay in UCI.
+			f.rmempty = false;
 			return f;
 		});
 		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
@@ -196,14 +195,34 @@ return view.extend({
 		flag('bypass_subscription_dns', _('Subscription server without Mihomo'), _('While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected.'));
 		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through Mihomo'), _('NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched.'));
 		o.default = '0';
+		o.rmempty = false;
 
 		this.map = m;
-		return m.render().then((node) => E('div', {}, [
-			api.style(), api.jobNotice(),
-			this.listsError ? E('div', { class: 'alert-message error' }, text(
-				_('Cannot load the lists: %s').format(this.listsError) + ' ' + _('Reload the page to try again.'))) : null,
-			node
-		]));
+		return m.render().then((node) => {
+			// Right after the heading and description, like on the other pages.
+			const notice = api.jobNotice();
+			const heading = node.querySelector?.('.cbi-map-descr') || node.querySelector?.('h2');
+			if (heading?.after)
+				heading.after(notice);
+			return E('div', {}, [
+				api.style(), heading?.after ? null : notice,
+				this.listsError ? E('div', { class: 'alert-message error' }, text(
+					_('Cannot load the lists: %s').format(this.listsError) + ' ' + _('Reload the page to try again.'))) : null,
+				node
+			].filter(Boolean));
+		});
+	},
+
+	// A device list with the lease picker. The picker carries the description
+	// itself, so its notes come after it and not above it.
+	devicesOption: function(s, kind, description, leases) {
+		const o = this.listOption(s, 'basic', kind, this.titles[kind], description);
+		this.extendWidget(o, (node) => {
+			const picker = this.listsError ? node : this.addLeasePicker(node, leases, description);
+			o.description = picker === node ? description : '';
+			return picker;
+		});
+		return o;
 	},
 
 	// LuCI re-renders the form after saving: extras are added inside the
@@ -237,7 +256,7 @@ return view.extend({
 	},
 
 	// A MAC covers both address families. DHCPv6 leases may have no MAC.
-	addLeasePicker: function(node, leases) {
+	addLeasePicker: function(node, leases, description) {
 		const area = node.querySelector('textarea');
 		if (!area || leases == null)
 			return node;
@@ -284,9 +303,9 @@ return view.extend({
 			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
 		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row' }, [
-			E('label', {}, [ ...text(_('Add a device')), ' ', select ]),
-			E('label', {}, [ ...text(_('Add as')), ' ', addAs ])
-		]) : null, hint, missing ]);
+			E('label', { class: 'mw-field' }, [ ...text(_('Add a device')), ' ', select ]),
+			E('label', { class: 'mw-field' }, [ ...text(_('Add as')), ' ', addAs ])
+		]) : null, description ? E('div', { class: 'cbi-value-description' }, text(description)) : null, hint, missing ]);
 	},
 
 	handleSave: null,

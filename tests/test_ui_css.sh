@@ -25,5 +25,7 @@ const overview = fs.readFileSync(path.join(root, 'rootfs/www/luci-static/resourc
 assert(/class: 'mw-toggle'/.test(api), 'toggle wrapper marked for spacing');
 assert(/function linkButton/.test(api) && /api\.linkButton\(sub\./.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');
 assert(/cells\.push\(E\('span'\), E\('span', \{ class: 'mw-muted' \}/.test(overview), 'LoadBalance note on its own grid row');
+assert(/\.mw-job:empty\s*\{[^}]*position:\s*absolute/.test(css) && /class: 'mw-job'/.test(api), 'empty job notice takes no flex gap');
+assert(/\.mw-field\s*\{[^}]*display:\s*flex/.test(css) && /\.mw-field\s*>\s*select\s*\{[^}]*min-width:\s*0/.test(css), 'picker selects stay with their label');
 console.log('ok - layout review spacing and alignment');
 NODE

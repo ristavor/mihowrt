@@ -29,6 +29,9 @@ const CSS = `
 .mw-announce { white-space: pre-wrap; overflow-wrap: anywhere; }
 .mw-announce + .mw-grid { margin-top: 12px; }
 .mw-toggle > .mw-row + * { margin-top: 12px; }
+.mw-job:empty { position: absolute; }
+.mw-field { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.mw-field > select { flex: 0 1 auto; min-width: 0; }
 .mw-groups .mw-row > select { flex: 1 1 12em; min-width: 0; max-width: 28em; }
 .mw-groups .mw-ping { flex: 0 0 auto; min-width: 5.5em; white-space: nowrap; }
 .mw-yaml { width: 100%; min-height: 24em; }
@@ -299,7 +302,7 @@ return baseclass.extend({
 		}
 	},
 	jobNotice: function() {
-		const notice = E('div', { 'aria-live': 'polite' });
+		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
 		this.read('job-status').then(async status => {
 			if (status.state !== 'running')
 				return;

@@ -648,3 +648,39 @@ msgstr "Списки применены, но сохранить настрой�
 
 msgid "Changes applied."
 msgstr "Изменения применены."
+
+msgid "Last error: %s"
+msgstr "Последняя ошибка: %s"
+
+msgid "Other proxy packages are installed: %s"
+msgstr "Установлены другие прокси-пакеты: %s"
+
+msgid "They change DNS and firewall too. Use only one of them at a time."
+msgstr "Они тоже меняют DNS и межсетевой экран. Используйте только один из них одновременно."
+
+msgid "Little free flash: %d MiB"
+msgstr "Мало свободной flash-памяти: %d МиБ"
+
+msgid "Free some space or the core update may fail."
+msgstr "Освободите место, иначе обновление ядра может не удаться."
+
+msgid "Little free memory: %d MiB"
+msgstr "Мало свободной памяти: %d МиБ"
+
+msgid "Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration."
+msgstr "Когда память закончится, система может остановить Mihomo. Остановите другие службы или используйте меньшую конфигурацию."
+
+msgid "Mihomo proxy ports %s accept any device in your network without a password"
+msgstr "Прокси-порты Mihomo %s принимают любое устройство в вашей сети без пароля"
+
+msgid "Add authentication to the YAML or remove these ports if you do not use them."
+msgstr "Добавьте авторизацию в YAML или уберите эти порты, если они не нужны."
+
+msgid "Mihomo memory"
+msgstr "Память Mihomo"
+
+msgid "%d MiB"
+msgstr "%d МиБ"
+
+msgid "Cannot load diagnostics: %s"
+msgstr "Не удалось загрузить диагностику: %s"

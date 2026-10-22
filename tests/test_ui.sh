@@ -488,7 +488,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
   }
  }
  let logReads = 0;
- const logs = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api, read: async () => { logReads++; return { available: true, lines: ['hello'] }; } } }).module;
+ const logs = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api, readLarge: async () => { logReads++; return { available: true, lines: ['hello'] }; } } }).module;
  const lp = logs.render([base, {}]); h.assertEq(logReads, 0, 'log lazy');
  const logButton = collect(lp).find(n => n.tag === 'button' && texts(n).includes('Show the log'));
  h.assert(!!logButton, 'theme log toggle button');
@@ -942,6 +942,98 @@ for (const [name, check] of [
   h.assertEq(t.notices.at(-1)[0], '"Update remote lists" is running…', 'running job label shown');
   t.bridge.read = async () => { throw Error('status unavailable'); };
   await t.tv.handleSaveApply(null, '0'); h.assertEq(t.notices.at(-1)[0], 'status unavailable', 'status read errors visible');
+ });
+})().catch(err => { console.error(err); process.exitCode = 1; });
+
+// Task 20: diagnostics keeps its checklist while exposing runtime risks.
+(async () => {
+ const check = async (name, fn) => {
+  try { await fn(); console.log('ok - diagnostics ' + name); }
+  catch (e) { console.error('not ok - diagnostics ' + name + ': ' + e.message); process.exitCode = 1; }
+ };
+ const healthy = { ...base, state: 'running', running: true, dns_ok: true, policy_active: true };
+ const resources = { conflicts: [], flash_free_kb: 5120, ram_available_kb: 20480, mihomo_rss_kb: 45000, open_proxy_ports: [] };
+ const render = (st = healthy, diagnostics = resources) => diag.render([st, {}, diagnostics]);
+ const item = (p, label) => collect(p).find(n => n.tag === 'div' && n.children.some(c => c?.tag === 'strong' && texts(c).includes(label)));
+ await check('failed state', () => {
+  const row = item(render({ ...healthy, state: 'failed', last_error: 'x' }), 'Service is running');
+  h.assert(texts(row).includes('Problem:'), 'failed state overrides stale running boolean');
+  h.assert(texts(row).some(t => t.split('\n').includes('Last error: x')), 'last_error in failed hint');
+  const stopped = item(render({ ...healthy, state: 'stopped', running: false, last_error: 'x' }), 'Service is running');
+  h.assert(!texts(stopped).some(t => t.includes('Last error:')), 'no last_error unless failed');
+ });
+ await check('unknown DNS answer', () => {
+  const row = item(render({ ...healthy, dns_ok: null }), 'Mihomo answers DNS queries');
+  h.assert(row && texts(row).includes('Unknown:') && !texts(row).includes('Problem:'), 'null dns_ok is unknown, not a problem');
+  h.assert(texts(item(render({ ...healthy, dns_ok: false }), 'Mihomo answers DNS queries')).includes('Problem:'), 'false dns_ok is a problem');
+ });
+ await check('log read error', async () => {
+  const dv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api,
+   readLarge: async () => { throw Object.assign(Error('denied'), { name: 'PermissionError' }); } } }).module;
+  const p = dv.render([healthy, {}, resources]);
+  collect(p).find(n => n.tag === 'button' && texts(n).includes('Show the log')).listeners.click();
+  await new Promise(r => setTimeout(r, 0));
+  h.assert(texts(p).includes('Cannot read the log: Access denied. Log in to LuCI again.'), 'log error uses errorText');
+ });
+ await check('degraded state', () => {
+  const row = item(render({ ...healthy, state: 'degraded' }), 'Mihomo DNS does not answer: traffic goes direct until it recovers');
+  h.assert(row && texts(row).includes('Problem:'), 'degraded service is a failed check');
+ });
+ await check('starting and stopped states', () => {
+  h.assert(texts(render({ ...healthy, state: 'starting' })).includes('Starting…'), 'starting state has neutral wording');
+  h.assert(texts(item(render({ ...healthy, state: 'stopped' }), 'Service is running')).includes('Problem:'), 'stopped state is not running');
+ });
+ await check('conflicts', () => {
+  const row = item(render(healthy, { ...resources, conflicts: ['podkop'] }), 'Other proxy packages are installed: podkop');
+  h.assert(texts(row).includes('Problem:'), 'conflicting package is a failure');
+  h.assert(texts(row).includes('They change DNS and firewall too. Use only one of them at a time.'), 'conflict hint');
+  h.assert(!texts(render()).some(t => t.startsWith('Other proxy packages')), 'no conflict item for empty list');
+ });
+ await check('resources', () => {
+  const p = render(healthy, { ...resources, flash_free_kb: 4000, ram_available_kb: 15000 });
+  h.assert(texts(p).includes('Little free flash: 3 MiB'), 'flash floor MiB');
+  h.assert(texts(p).includes('Little free memory: 14 MiB'), 'memory floor MiB');
+  h.assert(texts(p).includes('Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration.'), 'memory hint');
+  h.assert(texts(p).includes('Mihomo memory') && texts(p).includes('44 MiB'), 'RSS detail rounds to MiB');
+ });
+ await check('resource thresholds and unknowns', () => {
+  for (const value of [null, undefined, 5120]) {
+   const p = render(healthy, { ...resources, flash_free_kb: value, ram_available_kb: value == 5120 ? 20480 : value, mihomo_rss_kb: null });
+   h.assert(!texts(p).some(t => t.startsWith('Little free')), 'no false low resource warning');
+   h.assert(!texts(p).includes('0 MiB'), 'unknown RSS not zero');
+  }
+  h.assert(texts(render(healthy, { ...resources, flash_free_kb: 0 })).includes('Little free flash: 0 MiB'), 'zero flash is low');
+ });
+ await check('open ports', () => {
+  const row = item(render(healthy, { ...resources, open_proxy_ports: [7890] }), 'Mihomo proxy ports 7890 accept any device in your network without a password');
+  h.assert(texts(row).includes('Problem:'), 'open proxy is a failure');
+  h.assert(texts(row).includes('Add authentication to the YAML or remove these ports if you do not use them.'), 'authentication hint');
+  h.assert(!texts(render()).some(t => t.startsWith('Mihomo proxy ports')), 'no empty ports warning');
+ });
+ await check('diagnostics read and partial failure', async () => {
+  const calls = [];
+  const dv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api,
+   read: async (...args) => { calls.push(args); if (args[0] === 'diagnostics-json') throw Error('Access denied'); return args[0] === 'status-json' ? healthy : {}; }
+  } }).module;
+  const data = await dv.load(); const p = dv.render(data);
+  h.assert(calls.some(c => c.length === 1 && c[0] === 'diagnostics-json'), 'diagnostics-json without args');
+  h.assert(texts(p).includes('Service is running') && texts(p).includes('Details'), 'rest remains usable');
+  h.assert(texts(p).some(t => t.includes('Cannot load diagnostics: Access denied. Log in to LuCI again.')), 'partial failure cause uses errorText');
+  h.assert(texts(p).includes('Reload the page to try again.'), 'partial failure retry hint');
+ });
+ await check('large log and job notice', async () => {
+  const calls = []; let notices = 0;
+  const dv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api,
+   readLarge: async (...args) => { calls.push(args); return { available: true, lines: ['hello'] }; },
+   jobNotice: () => { notices++; return E('div', { 'aria-live': 'polite' }); }
+  } }).module;
+  const p = dv.render([healthy, {}, resources]);
+  h.assertEq(notices, 1, 'shared job notice included');
+  h.assertEq(calls.length, 0, 'log remains lazy');
+  collect(p).find(n => n.tag === 'button' && texts(n).includes('Show the log')).listeners.click();
+  await Promise.resolve();
+  h.assertEq(calls.map(c => c.join(',')).join(';'), 'logs-json,300', 'log through readLarge');
+  h.assert(texts(p).includes('hello'), 'loaded log shown');
  });
 })().catch(err => { console.error(err); process.exitCode = 1; });
 

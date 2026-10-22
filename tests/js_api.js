@@ -227,13 +227,10 @@ test('subscription has no long synchronous operations', () => {
 test('traffic has no long synchronous operations', () => {
 	assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/traffic.js')));
 });
-// TODO Task 20: enable once the remaining views switch long operations to api.job.
 const longOperations = /(?:api\.write|fs\.exec)\([^;]*(?:core-update|update-subscription|update-lists|apply-lists|save-config)|api\.service\((?!'enable'\))|fs\.exec\([^;]*\/etc\/init\.d\/mihowrt[^;]*(?:start|stop|restart)/;
-const pendingViews = nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')).filter(name => !['overview.js', 'subscription.js', 'traffic.js'].includes(name));
-if (pendingViews.some(name => longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name))))
-	console.log('skip - no long synchronous operations in remaining views (TODO Task 20)');
-else test('no long synchronous operations in views', () => {
-	for (const name of pendingViews) assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name)));
+test('no long synchronous operations in views', () => {
+	for (const name of nodefs.readdirSync(h.sourcePath('rootfs/www/luci-static/resources/view/mihowrt')))
+		assert(!longOperations.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name)), name);
 });
 (async () => {
 	for (const [name, fn] of tests) {

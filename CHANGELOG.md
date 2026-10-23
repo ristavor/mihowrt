@@ -28,7 +28,7 @@ Fixes
 - An upgrade from 0.9 stops the old service quickly instead of waiting about a minute.
 - A background job that failed while the page was reloading or closed shows its error on the next page load.
 - Subscription page: *Show the YAML passed to Mihomo* shows the generated configuration read-only; the YAML editor loads when opened.
-- Traffic page: the lease picker has no duplicate labels, and the private Wi-Fi MAC note is a notification that names the device.
+- Traffic page: the lease picker has no duplicate labels, devices with a private Wi-Fi MAC are marked in it, and the advice for them is part of the field description (no layout jumps).
 - Upgrades are supported from 0.9.0 and newer; from 0.8 or older remove MihoWRT first, then install.
 
 Project

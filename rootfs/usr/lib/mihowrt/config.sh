@@ -25,7 +25,8 @@ config_read_json() {
 # The YAML passed to Mihomo. Not started since boot: what it would get at
 # start (built from the user's YAML, without the core test).
 runtime_config_json() {
-	local scratch="" rc=0
+	# A preview is opened often; the real build at start logs the warnings.
+	local scratch="" rc=0 MIHOWRT_QUIET=1
 
 	if [ -r "$RUNTIME_CONFIG" ]; then
 		jq -Rs '{content: ., generated: false}' <"$RUNTIME_CONFIG"

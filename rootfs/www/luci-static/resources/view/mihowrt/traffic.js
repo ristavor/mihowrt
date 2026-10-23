@@ -266,6 +266,9 @@ return view.extend({
 			.filter((lease) => lease.macaddr || address(lease));
 		const entries = () => area.value.split('\n').map((line) => line.split('#')[0].trim().toLowerCase()).filter(Boolean);
 		const connected = new Set(all.flatMap((lease) => [ lease.macaddr?.toLowerCase(), lease.ipaddr ].filter(Boolean)));
+		// Locally administered (randomized) Wi-Fi MAC. Marked statically: a
+		// message that appears after adding would shift the layout.
+		const isPrivate = (lease) => /^[0-9a-f][26ae]:/i.test(lease.macaddr || '');
 		const missing = E('div', { class: 'cbi-value-description', 'aria-live': 'polite' });
 		const updateMissing = () => {
 			const absent = [...new Set(entries())].filter((entry) =>
@@ -279,7 +282,8 @@ return view.extend({
 		const select = E('select', { class: 'cbi-input-select', 'aria-label': _('Add a device') }, [
 			E('option', { value: '' }, text(_('Add a device…')))
 		].concat(all.map((lease, index) => E('option', { value: String(index) },
-			text('%s (%s)'.format(lease.hostname || _('unknown'), address(lease) || lease.macaddr || ''))))));
+			text((isPrivate(lease) ? _('%s (%s, private MAC)') : '%s (%s)')
+				.format(lease.hostname || _('unknown'), address(lease) || lease.macaddr || ''))))));
 		select.value = '';
 		const addAs = E('select', { class: 'cbi-input-select', 'aria-label': _('Add as') }, [
 			E('option', { value: 'mac' }, text(_('MAC (IPv4 + IPv6)'))),
@@ -295,16 +299,14 @@ return view.extend({
 			const entry = byMac ? lease.macaddr.toLowerCase() : address(lease);
 			if (!entry || entries().includes(entry.toLowerCase()))
 				return;
-			if (byMac && /^[0-9a-f][26ae]:/.test(entry))
-				api.notify(_('%s (%s) uses a private Wi-Fi address. The entry works while the device keeps this address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.')
-					.format(lease.hostname || _('unknown'), entry));
 			// Keep a hostname on one comment line, never as list syntax.
 			const hostname = (lease.hostname || '').replace(/[\r\n]+/g, ' ');
 			area.value = (area.value.replace(/\s*$/, '') + '\n' + entry + (hostname ? ' # ' + hostname : '')).replace(/^\n/, '') + '\n';
 			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
 		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row mw-picker' }, [ select, addAs ]) : null,
-			description ? E('div', { class: 'cbi-value-description' }, text(description)) : null, missing ]);
+			description ? E('div', { class: 'cbi-value-description' }, text(description + (all.some(isPrivate)
+				? ' ' + _('A device with a private Wi-Fi address must keep it for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching.') : ''))) : null, missing ]);
 	},
 
 	handleSave: null,

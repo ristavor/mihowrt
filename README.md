@@ -111,8 +111,9 @@ what would be passed at start.
 *Devices via proxy* / *Devices always direct* take **MAC addresses**
 (`aa:bb:cc:dd:ee:ff`, any case) or **IP addresses**, mixed in one list. The
 lease picker adds a device as *MAC (IPv4 + IPv6)* (default) or *IP address*.
-For a private (randomized) Wi-Fi MAC a notification explains how to keep it
-fixed for your network. One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
+Devices with a private (randomized) Wi-Fi MAC are marked *private MAC* in the
+picker, and the field description says how to keep it fixed for your network.
+One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
 covers its IPv6 traffic, and IPv6 privacy addresses change daily anyway.
 Address lists (*Addresses ...*) accept no MAC.
 

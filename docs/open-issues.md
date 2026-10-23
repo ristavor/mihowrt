@@ -32,7 +32,7 @@ None.
 | Review | a job error was lost when no page waited for it; a reused pid kept the job slot | beta polish: error notice on the next page load; pid checked by command line |
 | Review | two core updates could collide; the restart error after a core update was dropped | beta polish: `core.flock`; restart stderr kept |
 | Review | long hex `netbird_mark` overflow; `SETTINGS_LOADED` not reset | beta polish |
-| User | Traffic lease picker: duplicate and monospace labels, cramped at 390 px; private-MAC hint unclear and shifting the page; Mode text monospace | beta polish: aria-labels, notification naming the device, Mode note as description |
+| User | Traffic lease picker: duplicate and monospace labels, cramped at 390 px; private-MAC hint unclear and shifting the page; Mode text monospace | beta polish: aria-labels, private MAC marked in the picker with static advice in the description, Mode note as description |
 | User | effective YAML visible only over SSH | beta polish: *Show the YAML passed to Mihomo* |
 
 ## Deferred (later releases)
@@ -49,7 +49,6 @@ None.
 ### UI (theme-only rule kept)
 - **The "?" icon before field descriptions sits higher than the text:** theme rendering (footstrap). VM check 2026-10-23: the same offset (icon top 1 px above the glyph) on MihoWRT pages and on stock Network → DHCP and System. No MihoWRT change.
 - **footstrap names both lease picker dropdowns after the field title** ("Devices always direct"): its `fs-select.js` replaces native selects with `ui.Dropdown` and sets `aria-label` from `.cbi-value-title`, ignoring the select's own `aria-label` (same on stock pages). Report upstream; other themes use our names.
-- **The private-MAC notification is out of view at 390 px** (LuCI puts it at the top of the page; at 1440 px in openwrt-2020/bootstrap the picker moves down 60–90 px). Kept as decided (notification, no shift under the field); it is announced to screen readers (`role="status"`).
 - **`api.job`/`api.jobNotice` rely on `this`**, so a destructured call would break them. No such caller exists.
 
 ### Tests and tooling

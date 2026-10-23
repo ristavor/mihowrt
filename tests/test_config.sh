@@ -53,12 +53,16 @@ runtime_config_fixture() {
 )
 pass 'runtime file'
 
-# polish: preview leaves no scratch
+# polish: preview leaves no scratch (production layout: the profile lives in PKG_TMP_DIR)
 (
  set -e
  runtime_config_fixture preview
- printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n' >"$CLASH_CONFIG"
+ # shellcheck disable=SC2030 # subshell-local on purpose
+ PROFILE_FILE="$PKG_TMP_DIR/config.yaml.profile"
+ printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n  proxy-ips:\n    - https://10.0.0.1/x\n' >"$CLASH_CONFIG"
  before_scratch="$(ls -A "$PKG_TMP_DIR")"
+ : >"$tmpdir/preview.log"
+ logger() { echo "$*" >>"$tmpdir/preview.log"; }
  mihomo_config_test() { fail 'runtime preview must not test with the Mihomo core'; }
  declare -F runtime_config_json >/dev/null || fail 'runtime_config_json helper missing (preview)'
  runtime_config_json >"$tmpdir/runtime-preview.json"
@@ -66,7 +70,12 @@ pass 'runtime file'
  jq -j .content "$tmpdir/runtime-preview.json" >"$tmpdir/runtime-preview.content"
  assert_file_contains "$tmpdir/runtime-preview.content" 'tproxy-port: 7894' 'preview contains managed keys'
  assert_file_not_contains "$tmpdir/runtime-preview.content" x-mihowrt 'preview removes extension'
- assert_eq "$before_scratch" "$(ls -A "$PKG_TMP_DIR")" 'preview leaves no scratch'
+ after_scratch="$(ls -A "$PKG_TMP_DIR")"
+ # The only allowed new entry is the provider profile built by settings_load.
+ assert_eq "$(printf '%s\n%s' "$before_scratch" config.yaml.profile | grep -v '^$' | sort)" "$(printf '%s\n' "$after_scratch" | sort)" 'preview leaves only the profile'
+ assert_false 'no runtime-preview scratch' compgen -G "$PKG_TMP_DIR/runtime-preview.*"
+ assert_false 'no tmp files' compgen -G "$PKG_TMP_DIR/*.tmp.*"
+ assert_false 'preview logs no warnings (each opening of the view)' test -s "$tmpdir/preview.log"
 )
 pass 'preview leaves no scratch'
 
@@ -150,6 +159,7 @@ cron_update() { echo cron >>"$tmpdir/events"; }
 dns_restart_dnsmasq() { echo dns-restart >>"$tmpdir/events"; }
 printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n' >"$CLASH_CONFIG"
 mihomo_config_generate "$CLASH_CONFIG" "$RUNTIME_CONFIG"
+# shellcheck disable=SC2031 # set only inside the preview subshell
 cp "$RUNTIME_CONFIG.profile" "$PROFILE_FILE"
 cp "$CLASH_CONFIG" "$tmpdir/cand"
 touch -d '2000-01-01' "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"

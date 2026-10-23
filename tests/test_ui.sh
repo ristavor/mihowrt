@@ -1073,10 +1073,10 @@ seq(async () => {
   h.assert(rowText.includes('Addresses via proxy: 3 saved entries, used in the other mode.'), 'inactive list summary');
  });
  const lease = { hostname: 'phone', macaddr: 'AA:BB:CC:DD:EE:FF', ipaddr: '192.168.1.5' };
- const picker = (t, leases, value = '') => {
+ const picker = (t, leases, value = '', description) => {
   const area = { value, listeners: {}, addEventListener(k, fn) { this.listeners[k] = fn; }, dispatchEvent(ev) { this.listeners[ev.type]?.(); } };
   const widget = E('div'); widget.querySelector = q => q === 'textarea' ? area : null;
-  const p = t.tv.addLeasePicker(widget, leases), selects = collect(p).filter(n => n.tag === 'select');
+  const p = t.tv.addLeasePicker(widget, leases, description), selects = collect(p).filter(n => n.tag === 'select');
   return { p, area, select: selects[0], addAs: selects[1] };
  };
  const add = (p, index) => { p.select.value = p.select.children[index + 1].attrs.value; p.select.listeners.change(); };
@@ -1140,27 +1140,20 @@ seq(async () => {
    h.assertEq(t.tv.map.options._dst_inactive.cfgvalue(), `Addresses via proxy: ${count} saved ${count === 1 ? 'entry' : 'entries'}, used in the other mode.`, 'inactive plural ' + count);
   }
  });
- await check('private mac notice', async () => {
-  const text = (name, mac) => name + ' (' + mac + ') uses a private Wi-Fi address. The entry works while the device keeps this address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.';
-  const oldHint = 'This device uses a private Wi-Fi address.';
-  const t = setup(), p = picker(t, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01' }, { macaddr: 'DA:A1:19:00:00:02' }, { hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] });
-  add(p, 0);
-  h.assertEq(t.notices.length, 1, 'one notification for a private MAC');
-  h.assertEq(t.notices[0][0], text('phone', 'da:a1:19:00:00:01'), 'notification names the device and the MAC');
-  h.assert(!collect(p.p).some(n => String(n.textContent).includes(oldHint)), 'no inline hint element');
-  add(p, 0);
-  h.assertEq(t.notices.length, 1, 'same lease again: entry exists, no second notification');
-  add(p, 1);
-  h.assertEq(t.notices.length, 2, 'another private MAC notifies');
-  h.assertEq(t.notices[1][0], text('unknown', 'da:a1:19:00:00:02'), 'missing hostname reads unknown');
-  add(p, 2);
-  h.assertEq(t.notices.length, 2, 'a global MAC adds no notification');
-  const known = setup(), k = picker(known, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01' }] }, 'da:a1:19:00:00:01 # phone');
-  add(k, 0);
-  h.assertEq(known.notices.length, 0, 'entry already in the list: no notification');
-  const byIp = setup(), q = picker(byIp, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01', ipaddr: '192.168.1.7' }] });
-  q.addAs.value = 'ip'; add(q, 0);
-  h.assertEq(byIp.notices.length, 0, 'adding by IP address: no notification');
+ await check('private mac marked, no notification', async () => {
+  const help = 'A device with a private Wi-Fi address must keep it for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching.';
+  const t = setup(), p = picker(t, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01', ipaddr: '192.168.1.7' }, { macaddr: 'DA:A1:19:00:00:02' }, { hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] }, '', 'Devices text.');
+  h.assertEq(texts(p.select.children[1]).join(''), 'phone (192.168.1.7, private MAC)', 'private MAC marked in the option');
+  h.assertEq(texts(p.select.children[2]).join(''), 'unknown (DA:A1:19:00:00:02, private MAC)', 'private MAC without host or IP');
+  h.assertEq(texts(p.select.children[3]).join(''), 'laptop (00:11:22:33:44:55)', 'global MAC not marked');
+  const descs = collect(p.p).filter(n => n.attrs?.class === 'cbi-value-description' && texts(n).join('').startsWith('Devices text.'));
+  h.assertEq(descs.map(n => texts(n).join('')).join('|'), 'Devices text. ' + help, 'static help in the field description');
+  const before = JSON.stringify(collect(p.p).map(n => n.tag));
+  add(p, 0); add(p, 1);
+  h.assertEq(t.notices.length, 0, 'adding a private MAC shows no notification');
+  h.assertEq(JSON.stringify(collect(p.p).map(n => n.tag)), before, 'no element appears or disappears');
+  const plain = setup(), q = picker(plain, { dhcp_leases: [{ hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] }, '', 'Devices text.');
+  h.assert(!collect(q.p).some(n => texts(n).join('').includes(help)), 'no help when no lease has a private MAC');
  });
  await check('not connected now', async () => {
   const value = 'aa:bb:cc:dd:ee:ff # phone\n192.168.1.9\n2001:db8::5';

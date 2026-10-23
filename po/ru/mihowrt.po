@@ -658,8 +658,11 @@ msgstr "MAC (IPv4 + IPv6)"
 msgid "IP address"
 msgstr "IP-адрес"
 
-msgid "%s (%s) uses a private Wi-Fi address. The entry works while the device keeps this address for your network: choose \"Fixed\" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one."
-msgstr "%s (%s) использует частный адрес Wi-Fi. Запись будет работать, пока устройство сохраняет этот адрес для вашей сети: выберите «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся адрес."
+msgid "%s (%s, private MAC)"
+msgstr "%s (%s, частный MAC)"
+
+msgid "A device with a private Wi-Fi address must keep it for your network: choose \"Fixed\" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching."
+msgstr "Устройство с частным адресом Wi-Fi должно сохранять его для вашей сети: выберите для этой сети «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся, иначе запись перестанет срабатывать."
 
 msgid "Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again."
 msgstr "Списки применены, но сохранить настройки не удалось: %s. Проверьте настройки и снова нажмите «Сохранить и применить»."

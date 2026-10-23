@@ -138,10 +138,10 @@ return view.extend({
 		s.tab('advanced', _('Advanced'));
 
 		// The mode follows the DNS settings of the YAML; it is not a setting.
-		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'));
+		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'),
+			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".'));
 		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' +
-			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)')) + '. ' +
-			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".');
+			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
 		for (const kind of proxyFirst ? [ 'dst', 'src' ] : [ 'direct', 'direct_src' ]) {
@@ -275,17 +275,17 @@ return view.extend({
 		area.addEventListener('change', updateMissing);
 		updateMissing();
 
-		const select = E('select', { class: 'cbi-input-select' }, [
+		// No visible labels: the first option says what the picker does.
+		const select = E('select', { class: 'cbi-input-select', 'aria-label': _('Add a device') }, [
 			E('option', { value: '' }, text(_('Add a device…')))
 		].concat(all.map((lease, index) => E('option', { value: String(index) },
 			text('%s (%s)'.format(lease.hostname || _('unknown'), address(lease) || lease.macaddr || ''))))));
 		select.value = '';
-		const addAs = E('select', { class: 'cbi-input-select' }, [
-			E('option', { value: 'mac' }, text(_('MAC address (IPv4 and IPv6)'))),
+		const addAs = E('select', { class: 'cbi-input-select', 'aria-label': _('Add as') }, [
+			E('option', { value: 'mac' }, text(_('MAC (IPv4 + IPv6)'))),
 			E('option', { value: 'ip' }, text(_('IP address')))
 		]);
 		addAs.value = 'mac';
-		const hint = E('div', { class: 'cbi-value-description', 'aria-live': 'polite' });
 		select.addEventListener('change', () => {
 			const lease = select.value === '' ? null : all[select.value];
 			select.value = '';
@@ -293,19 +293,18 @@ return view.extend({
 				return;
 			const byMac = addAs.value === 'mac' && !!lease.macaddr;
 			const entry = byMac ? lease.macaddr.toLowerCase() : address(lease);
-			hint.textContent = byMac && /^[0-9a-f][26ae]:/.test(entry)
-				? _('This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.') : '';
 			if (!entry || entries().includes(entry.toLowerCase()))
 				return;
+			if (byMac && /^[0-9a-f][26ae]:/.test(entry))
+				api.notify(_('%s (%s) uses a private Wi-Fi address. The entry works while the device keeps this address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.')
+					.format(lease.hostname || _('unknown'), entry));
 			// Keep a hostname on one comment line, never as list syntax.
 			const hostname = (lease.hostname || '').replace(/[\r\n]+/g, ' ');
 			area.value = (area.value.replace(/\s*$/, '') + '\n' + entry + (hostname ? ' # ' + hostname : '')).replace(/^\n/, '') + '\n';
 			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
-		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row' }, [
-			E('label', { class: 'mw-field' }, [ ...text(_('Add a device')), ' ', select ]),
-			E('label', { class: 'mw-field' }, [ ...text(_('Add as')), ' ', addAs ])
-		]) : null, description ? E('div', { class: 'cbi-value-description' }, text(description)) : null, hint, missing ]);
+		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row mw-picker' }, [ select, addAs ]) : null,
+			description ? E('div', { class: 'cbi-value-description' }, text(description)) : null, missing ]);
 	},
 
 	handleSave: null,

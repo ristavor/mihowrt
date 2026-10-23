@@ -55,7 +55,7 @@ function coreMissingCard() {
 	}));
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
-		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 60 MB on flash).'))),
+		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems).'))),
 		E('div', { class: 'mw-row' }, [ install ])
 	]);
 }

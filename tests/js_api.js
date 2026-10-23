@@ -231,6 +231,69 @@ test('jobNotice idle and initial read failure', async () => {
 		if (notice.children.length) assert.equal(notice.children[0].children[0], 'Access denied. Log in to LuCI again.');
 	}
 });
+// Task 11: a failed background job always shows its error.
+function storage() {
+	const store = {};
+	return { store, sessionStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } } };
+}
+function notifications() {
+	const shown = [];
+	return { shown, ui: { addNotification: (t, node, level) => shown.push([node.children[0], level]) } };
+}
+const nowSeconds = () => Math.floor(Date.now() / 1000);
+test('running job error reloads with notice', async () => {
+	const { store, sessionStorage } = storage(); let reloads = 0, count = 0;
+	const { api, timers } = setup({ sessionStorage, location: { reload: () => reloads++ } });
+	api.read = async () => ++count === 1 ? { id: '4-1', op: 'update-subscription', state: 'running' } : { id: '4-1', state: 'error', error: 'boom' };
+	api.jobNotice(); await flush();
+	await tick(timers);
+	assert.equal(reloads, 1);
+	assert.deepEqual(JSON.parse(store['mihowrt-notice']), { text: '"Update subscription" failed: boom', type: 'error' });
+});
+test('running job ok still reloads without a notice', async () => {
+	const { store, sessionStorage } = storage(); let reloads = 0, count = 0;
+	const { api, timers } = setup({ sessionStorage, location: { reload: () => reloads++ } });
+	api.read = async () => ++count === 1 ? { id: '4-2', op: 'update-subscription', state: 'running' } : { state: 'ok' };
+	api.jobNotice(); await flush();
+	await tick(timers);
+	assert.equal(reloads, 1); assert.equal(store['mihowrt-notice'], undefined);
+});
+test('finished error shown once', async () => {
+	const { sessionStorage } = storage(), { shown, ui } = notifications();
+	const { api } = setup({ sessionStorage, ui });
+	api.read = async () => ({ state: 'error', id: '5-1', op: 'core-update', finished: nowSeconds() - 100, error: 'x' });
+	api.jobNotice(); await flush();
+	assert.deepEqual(shown, [[ '"Update Mihomo core" failed: x', 'error' ]]);
+	api.jobNotice(); await flush();
+	assert.equal(shown.length, 1, 'second page load shows nothing');
+});
+test('old error silent', async () => {
+	const { sessionStorage } = storage(), { shown, ui } = notifications();
+	const { api } = setup({ sessionStorage, ui });
+	api.read = async () => ({ state: 'error', id: '5-2', op: 'core-update', finished: nowSeconds() - 601, error: 'x' });
+	api.jobNotice(); await flush();
+	assert.equal(shown.length, 0);
+});
+test('seen error silent', async () => {
+	const { store, sessionStorage } = storage(), { shown, ui } = notifications();
+	const { api, timers } = setup({ sessionStorage, ui });
+	api.write = async () => ({ id: '7-3' });
+	api.read = async (cmd, id) => id ? { state: 'error', error: 'bad' } : { state: 'error', id: '7-3', op: 'core-update', finished: nowSeconds() - 1, error: 'bad' };
+	const pending = assert.rejects(api.job('core-update'), { message: 'bad' });
+	await tick(timers); await pending;
+	assert(String(store['mihowrt-seen-job']).includes('7-3'), 'job() remembers the id it waited for');
+	api.jobNotice(); await flush();
+	assert.equal(shown.length, 0);
+});
+test('seen ok job id is stored too', async () => {
+	const { store, sessionStorage } = storage();
+	const { api, timers } = setup({ sessionStorage });
+	api.write = async () => ({ id: '8-1' });
+	api.read = async () => ({ state: 'ok', result: {} });
+	const pending = api.job('core-update');
+	await tick(timers); await pending;
+	assert(String(store['mihowrt-seen-job']).includes('8-1'));
+});
 test('reloadWithNotice survives the reload and shows once', async () => {
 	const store = {}; let reloads = 0; const shown = [];
 	const sessionStorage = { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = v; }, removeItem: k => { delete store[k]; } };

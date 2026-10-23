@@ -29,9 +29,9 @@ const CSS = `
 .mw-announce { white-space: pre-wrap; overflow-wrap: anywhere; }
 .mw-announce + .mw-grid { margin-top: 12px; }
 .mw-toggle > .mw-row + * { margin-top: 12px; }
+.mw-toggle + .mw-toggle { margin-top: 12px; }
 .mw-job:empty { position: absolute; }
-.mw-field { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
-.mw-field > select { flex: 0 1 auto; min-width: 0; }
+.mw-picker > select { flex: 1 1 12em; min-width: 0; max-width: 100%; }
 .mw-groups .mw-row > select { flex: 1 1 12em; min-width: 0; max-width: 28em; }
 .mw-groups .mw-ping { flex: 0 0 auto; min-width: 5.5em; white-space: nowrap; }
 .mw-yaml { width: 100%; min-height: 24em; }
@@ -280,6 +280,28 @@ function notify(message, level) {
 }
 
 const NOTICE_KEY = 'mihowrt-notice';
+// Last job whose result a page already showed (or waited for).
+const SEEN_JOB_KEY = 'mihowrt-seen-job';
+const JOB_ERROR_WINDOW = 600;
+
+function markJobSeen(id) {
+	try {
+		sessionStorage.setItem(SEEN_JOB_KEY, String(id));
+	}
+	catch (e) {
+		// No session storage: a later page may show the error once more.
+	}
+}
+
+function jobSeen(id) {
+	try {
+		return sessionStorage.getItem(SEEN_JOB_KEY) === String(id);
+	}
+	catch (e) {
+		// Without session storage the notice cannot be shown exactly once.
+		return true;
+	}
+}
 
 function showPendingNotice() {
 	try {
@@ -310,7 +332,17 @@ return baseclass.extend({
 		lockJobButtons();
 		try {
 			const started = await this.write('job-start', op, ...args);
-			return await waitJob(this, started.id);
+			let result;
+			try {
+				result = await waitJob(this, started.id);
+			}
+			catch (e) {
+				if (e.name === 'JobError')
+					markJobSeen(started.id);
+				throw e;
+			}
+			markJobSeen(started.id);
+			return result;
 		}
 		finally {
 			this.jobRunning = --waitingJobs > 0;
@@ -330,7 +362,15 @@ return baseclass.extend({
 	jobNotice: function() {
 		showPendingNotice();
 		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
+		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), error);
 		this.read('job-status').then(async status => {
+			// A job that failed while no page waited for it: show it once.
+			if (status.state === 'error' && status.id && !jobSeen(status.id)
+				&& Date.now() / 1000 - Number(status.finished) <= JOB_ERROR_WINDOW) {
+				markJobSeen(status.id);
+				notify(failed(status, status.error || _('The operation failed.')), 'error');
+				return;
+			}
 			if (status.state !== 'running')
 				return;
 			this.jobRunning = true;
@@ -343,11 +383,15 @@ return baseclass.extend({
 			catch (e) {
 				// A terminal job error still requires fresh page data. A lost
 				// connection does not: keep its recovery message visible.
-				if ([ ACCESS_DENIED, _('Lost connection to the router while waiting for the result.') ].includes(e.message)) {
+				if (e.name !== 'JobError') {
 					alert.textContent = errorText(e);
 					return;
 				}
+				markJobSeen(status.id);
+				this.reloadWithNotice(failed(status, e.message || _('The operation failed.')), 'error');
+				return;
 			}
+			markJobSeen(status.id);
 			location.reload();
 		}).catch(e => {
 			notice.appendChild(E('div', { class: 'alert-message notice' }, text(errorText(e))));

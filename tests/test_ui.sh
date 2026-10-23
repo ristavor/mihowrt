@@ -29,10 +29,14 @@ function E(tag, attrs, children) {
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);
  n.removeChild = c => n.children.splice(n.children.indexOf(c), 1);
+ n.replaceChildren = (...nodes) => { n.children = nodes; };
  Object.defineProperty(n, 'textContent', { get: () => n.children.filter(c => typeof c === 'string').join(''), set: value => { n.children = [value]; } });
  Object.defineProperty(n, 'firstChild', { get: () => n.children[0] });
  return n;
 }
+// Async blocks share stubs (reads, notices): run them one after another.
+let chain = Promise.resolve();
+const seq = fn => (chain = chain.then(fn));
 const textareaOptions = [];
 const ui = { addNotification() {}, Textarea: class {
  constructor(value, options) { this.value = value; this.options = options; textareaOptions.push(options); }
@@ -64,6 +68,35 @@ function collect(node, out = []) {
 function texts(node) {
 	return collect(node).flatMap((n) => n.children.filter((c) => typeof c === 'string'));
 }
+function findButton(node, label) { return collect(node).find((n) => n.tag === 'button' && texts(n).includes(label)); }
+const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+// The Subscription view's load()/render() data shape is not part of the contract:
+// views are mounted through load() with stubbed api.read/api.readLarge.
+const reads = { calls: [], sub: {}, status: {}, responses: {} };
+function resetReads(sub = {}, config = { content: 'proxies: []\n' }, status = {}) {
+	Object.assign(reads, { calls: [], sub, status, responses: { 'read-config': config, 'runtime-config': { content: '', generated: false } } });
+}
+const readStubs = {
+	read: async (cmd) => {
+		reads.calls.push(cmd);
+		if (cmd === 'subscription-json') return reads.sub;
+		if (cmd === 'status-json') return reads.status;
+		throw Error('unexpected read ' + cmd);
+	},
+	readLarge: async (cmd) => {
+		reads.calls.push(cmd);
+		if (!(cmd in reads.responses)) throw Error('unexpected readLarge ' + cmd);
+		const reply = reads.responses[cmd];
+		if (reply instanceof Error) throw reply;
+		return reply;
+	}
+};
+async function mountSubscription(view, sub, config, status) {
+	resetReads(sub, config, status);
+	return view.render(await view.load());
+}
+async function openToggle(page, label) { await findButton(page, label).listeners.click(); await settle(); }
+function toggleOf(page, button) { return collect(page).find((n) => n.attrs.class === 'mw-toggle' && collect(n).includes(button)); }
 
 api.jobNotice = () => E('div', { 'aria-live': 'polite' });
 
@@ -87,6 +120,7 @@ h.assertEq(firstUrl.attrs.inputmode, 'url', 'first-run URL keyboard');
 
 page = overview.render([ Object.assign({}, base, { core_installed: false }), {}, [] ]);
 h.assert(texts(page).includes('Mihomo core is not installed'), 'core card shown when core is missing');
+h.assert(texts(page).includes('MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems).'), 'core card states download and unpacked size');
 
 const evil = '<img src=x onerror=alert(1)>';
 page = overview.render([ Object.assign({}, base, { subscription_configured: true, running: true }),
@@ -134,7 +168,7 @@ h.assert(intervalRow.children[0] === hoursWidget && intervalRow.children[1] === 
 console.log('ok - traffic interval field');
 
 // Saving: a rejected list keeps the form (no map.save) and shows the error.
-(async () => {
+seq(async () => {
 	const calls = [];
 	const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
 		E: EL, view: { extend: (v) => v }, form: {}, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }, Event,
@@ -152,7 +186,7 @@ console.log('ok - traffic interval field');
 	h.assert(failed, 'save rejects when a list is invalid');
 	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc', 'lists applied before map.save; error shown');
 	console.log('ok - traffic save order');
-})();
+});
 
 // Dashboard link: the setup route makes zashboard use the given secret even
 // when the browser stores an older backend for the same host and port.
@@ -169,7 +203,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
 });
 
 // Provider-first form and event contracts (Tasks 11-14).
-(async () => {
+seq(async () => {
  class Option {
   constructor(name, title, description) { Object.assign(this, { name, title, description, dependencies: [], values: [] }); }
   depends(k, v) { this.dependencies.push([k, v]); }
@@ -206,7 +240,8 @@ Promise.resolve(dash.listeners.click()).then(() => {
   return tv.map.options;
  };
  let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
- h.assert(opts._mode.cfgvalue().startsWith('Only selected traffic via proxy (chosen by your subscription)'), 'direct mode reason');
+ h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'mode value is only the label and its reason');
+ h.assert(opts._mode.description.startsWith('To change the mode'), 'mode help is the option description');
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
  h.assertEq(opts._prov_disable_quic.cfgvalue(), 'Disabled', 'provider value rendered');
  h.assertEq(opts._prov_disable_quic.description, 'Set by your provider.', 'provider explanation');
@@ -232,7 +267,7 @@ Promise.resolve(dash.listeners.click()).then(() => {
  opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', lists: { dst: { provided: true, own_count: 0 } } });
  h.assert(!opts._dst_note, 'no empty-own note');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
- h.assert(opts._mode.cfgvalue().startsWith('All traffic via proxy except exclusions (chosen by your subscription)'), 'proxy mode reason');
+ h.assertEq(opts._mode.cfgvalue(), 'All traffic via proxy except exclusions (chosen by your subscription)', 'proxy mode reason');
  h.assert(!Object.keys(opts).some(k => k.startsWith('_own_') || k.endsWith('_list_source')), 'no override controls without provider keys');
  h.assert(!opts._direct_src.readonly && !opts._dst && !opts._src, 'redir-host direct devices editable, inactive lists absent');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip' });
@@ -265,14 +300,14 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const subCalls = [], notices = [];
  const subview = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
-  api: Object.assign({}, api, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s), reloadWithNotice: s => notices.push(s) })
+  api: Object.assign({}, api, readStubs, { busy: async (el, fn) => fn(), write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: s => notices.push(s), reloadWithNotice: s => notices.push(s) })
  }).module;
  for (const [on, period, hint] of [
   [true, 12, 'Your provider decides how often (now every 12 h).'],
   [true, 0, 'Your provider does not set an update period, so the subscription is updated only when you press Update now.'],
   [false, 12, 'Only when you press Update now.']
  ]) {
-  const p = subview.render([{ url: 'https://p.example/sub', auto_update: on, effective_interval: period }, { content: 'proxies: []' }]);
+  const p = await mountSubscription(subview, { url: 'https://p.example/sub', auto_update: on, effective_interval: period });
   const nodes = collect(p), checkbox = nodes.find(n => n.attrs.id === 'mw-auto');
   h.assertEq(checkbox.attrs.type, 'checkbox', 'auto-update checkbox');
   h.assertEq(checkbox.checked, on, 'auto-update checkbox state');
@@ -291,10 +326,12 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const yamlView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
   confirm: message => { confirmations.push(message); return allowUpdate; },
-  api: { ...api, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
+  api: { ...api, ...readStubs, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
    write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message), reloadWithNotice: message => notices.push(message) }
  }).module;
- const yamlNodes = collect(yamlView.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
+ const yamlPage = await mountSubscription(yamlView, { url: 'https://p.example/sub' });
+ await openToggle(yamlPage, 'Show the YAML editor');
+ const yamlNodes = collect(yamlPage);
  const yaml = yamlNodes.find(n => n.tag === 'textarea');
  h.assertEq(textareaOptions.at(-1)?.monospace, true, 'YAML ui.Textarea monospace');
  h.assertEq(textareaOptions.at(-1)?.wrap, false, 'YAML ui.Textarea no wrap');
@@ -318,9 +355,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
   notices.length = 0;
   const view = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
    E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} }, confirm: () => true,
-   api: { ...api, busy: async (el, fn) => fn(), job: async () => ({ action }), write: async () => ({}), reloadWithNotice: m => notices.push(m) }
+   api: { ...api, ...readStubs, busy: async (el, fn) => fn(), job: async () => ({ action }), write: async () => ({}), reloadWithNotice: m => notices.push(m) }
   }).module;
-  const ns = collect(view.render([{ url: 'https://p.example/sub' }, { content: 'proxies: []\n' }]));
+  const ns = collect(await mountSubscription(view, { url: 'https://p.example/sub' }));
   await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
   h.assertEq(JSON.stringify(notices), JSON.stringify([msg]), 'update notice ' + action);
  }
@@ -371,10 +408,10 @@ Promise.resolve(dash.listeners.click()).then(() => {
   for (const label of ['Mode','DNS mode','Provider settings','Provider lists']) h.assert(t.includes(label), 'diagnostic detail ' + label);
  }
  console.log('ok - diagnostics unknown/error and profile details');
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Design-review regression cases use the rendered DOM and real event handlers.
-(async () => {
+seq(async () => {
  h.assertEq(api.safeLink('https://example.org', 'Support', 'cbi-button').attrs.class, 'cbi-button', 'safeLink theme class');
  const messages = {
   http_404: 'not found (HTTP 404)', http_401: 'refused access (HTTP 401)', http_403: 'refused access (HTTP 403)',
@@ -489,9 +526,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  const subCalls = [], errors = []; let fail = false;
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, Blob, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;
- }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); return {}; }, job: async (...args) => { subCalls.push(args); if (fail) throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
+ }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, ...readStubs, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); return {}; }, job: async (...args) => { subCalls.push(args); if (fail) throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
  for (const changed of [false, true]) {
-  const p = sv.render([{ url: 'https://old.example', auto_update: true }, { content: 'yaml' }]);
+  const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: true }, { content: 'yaml' });
   const ns = collect(p); ns.find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
   const auto = ns.find(n => n.attrs.id === 'mw-auto'); auto.checked = false; auto.listeners.change();
   h.assert(ns.some(n => String(n.textContent).includes('Not saved yet: press Save or Update now.')), 'unsaved hint');
@@ -512,9 +549,9 @@ Promise.resolve(dash.listeners.click()).then(() => {
  logButton?.listeners.click();
  await Promise.resolve(); h.assertEq(logReads, 1, 'log loads on open');
  console.log('ok - design-review DOM and event regressions');
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
-(async () => {
+seq(async () => {
  const polls = [], notices = []; let fail = true;
  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
   E, view: { extend: v => v }, poll: { add: fn => polls.push(fn) }, api: { ...api,
@@ -526,23 +563,23 @@ Promise.resolve(dash.listeners.click()).then(() => {
  fail = false; await polls[0](); fail = true; await polls[0]();
  h.assertEq(notices.length, 2, 'successful poll resets error notification');
  console.log('ok - overview poll notification recovery');
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 for (const [name, check] of [
  ['empty failure headline', () => h.assert(texts(overview.render([{ ...base, state: 'failed', last_error: '' }, {}, []])).includes('Stopped'), 'failed without detail is Stopped')],
  ['starting groups notice', () => h.assert(texts(overview.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }])).includes('Mihomo is starting. Reload the page in a moment to see the proxy groups.'), 'starting groups failure is informational')],
  ['headline-only live region', () => { const p = overview.render([base, {}, []]); const headline = collect(p).find(n => n.tag === 'strong'); h.assertEq(headline.attrs['aria-live'], 'polite', 'headline itself is live'); }]
 ]) { try { check(); console.log('ok - overview ' + name); } catch (e) { console.error(e); process.exitCode = 1; } }
-(async () => {
+seq(async () => {
  const polls = [];
  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { E, view: { extend: v => v }, poll: { add: fn => polls.push(fn) }, api: { ...api, read: async () => ({ state: 'running', running: true }) } }).module;
  const p = ov.render([base, {}, []]); const buttons = collect(p).filter(n => n.tag === 'button');
  await polls[0](); h.assert(buttons.every(b => collect(p).includes(b)), 'status buttons stay mounted to preserve keyboard focus');
  console.log('ok - overview stable status controls');
-})().catch(e => { console.error(e); process.exitCode = 1; });
+}).catch(e => { console.error(e); process.exitCode = 1; });
 
 // Task 17: long actions, service state polling and partial group failures.
-(async () => {
+seq(async () => {
  const calls = [], polls = [];
  let fresh = { running: true, enabled: true, state: 'running', dns_ok: true };
  let failGroups = false;
@@ -640,10 +677,10 @@ for (const [name, check] of [
   h.assert(texts(p).includes('"Update Mihomo core" is running…'), 'job notice shown on page');
  }
  console.log('ok - overview job notice');
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 18: safe editor, large uploads, restore and shared job controls.
-(async () => {
+seq(async () => {
  function DOM(tag, attrs, children) {
   const n = E(tag, attrs, children); n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null; return n;
  }
@@ -652,9 +689,8 @@ for (const [name, check] of [
   catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
  }
  const restoreNotices = []; let calls = [], allow = false, reloads = 0, noticeCalls = 0, applyEvents = [];
- const bridge = { ...api, jobRunning: false,
-  busy: (b, fn) => fn(), read: async cmd => { calls.push(['read', cmd]); return cmd === 'status-json' ? { config_backup: true } : {}; },
-  readLarge: async cmd => { calls.push(['readLarge', cmd]); throw Error('x'); },
+ const bridge = { ...api, ...readStubs, jobRunning: false,
+  busy: (b, fn) => fn(),
   upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-config.test'; },
   job: async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; },
   write: async (...args) => { calls.push(['write', ...args]); return {}; },
@@ -666,38 +702,36 @@ for (const [name, check] of [
   confirm: message => { h.assertEq(message, 'Replace the current YAML with the previous one?', 'restore question'); return allow; },
   location: { reload: () => { reloads++; applyEvents.push('reload'); } }
  }).module;
- const render = (backup = true, auto = true) => sv.render([{ url: 'https://old.example', auto_update: auto }, { content: 'yaml' }, { config_backup: backup }]);
+ const render = async (backup = true, auto = true) => {
+  const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: auto }, { content: 'yaml' }, { config_backup: backup });
+  await openToggle(p, 'Show the YAML editor');
+  return p;
+ };
  const button = (p, label) => collect(p).find(n => n.tag === 'button' && texts(n).includes(label));
- await check('load failure', async () => {
-  calls = []; const p = sv.render(await sv.load());
-  h.assert(calls.some(c => c.join(',') === 'readLarge,read-config'), 'YAML uses readLarge');
-  h.assert(calls.some(c => c.join(',') === 'read,status-json'), 'backup status loaded');
-  h.assert(texts(p).includes('Cannot load the YAML: x'), 'read error visible');
-  h.assert(!collect(p).some(n => n.tag === 'textarea') && !button(p, 'Check and apply') && !button(p, 'Restore the previous YAML'), 'no unsafe editor actions');
- });
  await check('status failure keeps editor usable', async () => {
-  const read = bridge.read, readLarge = bridge.readLarge;
+  const read = bridge.read;
   try {
+   resetReads({ url: 'https://old.example' }, { content: 'yaml' });
    bridge.read = async cmd => { if (cmd === 'status-json') throw Error('status unavailable'); return { url: 'https://old.example' }; };
-   bridge.readLarge = async () => ({ content: 'yaml' });
    const p = sv.render(await sv.load());
+   await openToggle(p, 'Show the YAML editor');
    h.assert(collect(p).some(n => n.tag === 'textarea'), 'editor remains available');
    h.assert(button(p, 'Check and apply') && button(p, 'Update now'), 'actions remain available');
    h.assert(!button(p, 'Restore the previous YAML'), 'unknown backup hides restore');
-  } finally { bridge.read = read; bridge.readLarge = readLarge; }
+  } finally { bridge.read = read; }
  });
  await check('malformed YAML response', async () => {
-  const readLarge = bridge.readLarge;
-  try {
+  {
    for (const reply of [{}, { content: null }, { content: 42 }, null]) {
-    bridge.readLarge = async () => reply;
-    const p = sv.render(await sv.load());
+    const p = await mountSubscription(sv, { url: 'https://old.example' }, reply);
+    await openToggle(p, 'Show the YAML editor');
     h.assert(texts(p).includes('Cannot load the YAML: Unexpected response from the router.'), 'malformed response error');
     h.assert(!collect(p).some(n => n.tag === 'textarea') && !button(p, 'Check and apply') && !button(p, 'Restore the previous YAML'), 'no unsafe editor actions');
    }
-   bridge.readLarge = async () => ({ content: '' });
-   h.assert(collect(sv.render(await sv.load())).some(n => n.tag === 'textarea'), 'empty string is valid YAML content');
-  } finally { bridge.readLarge = readLarge; }
+   const empty = await mountSubscription(sv, { url: 'https://old.example' }, { content: '' });
+   await openToggle(empty, 'Show the YAML editor');
+   h.assert(collect(empty).some(n => n.tag === 'textarea'), 'empty string is valid YAML content');
+  }
  });
  await check('apply reloads after notice', async () => {
   const notify = bridge.notify;
@@ -707,7 +741,7 @@ for (const [name, check] of [
     try {
      bridge.job = async () => ({ action });
      const before = reloads;
-     await button(render(), 'Check and apply').listeners.click();
+     await button(await render(), 'Check and apply').listeners.click();
      h.assertEq(reloads, before + 1, 'successful apply reloads');
      h.assertEq(applyEvents.join(','), 'notice,reload', 'notice before reload');
      h.assertEq(JSON.stringify(restoreNotices), JSON.stringify([msg]), 'apply notice ' + action);
@@ -716,7 +750,7 @@ for (const [name, check] of [
   } finally { bridge.notify = notify; reloads = 0; }
  });
  await check('apply large YAML and byte limit', async () => {
-  const p = render(), yaml = collect(p).find(n => n.tag === 'textarea');
+  const p = await render(), yaml = collect(p).find(n => n.tag === 'textarea');
   yaml.value = 'x'.repeat(1572864); calls = [];
   await button(p, 'Check and apply').listeners.click();
   h.assertEq(calls[0][0], 'upload', 'upload first'); h.assertEq(calls[0][1], 'mihowrt-config', 'upload prefix');
@@ -731,7 +765,7 @@ for (const [name, check] of [
   h.assertEq(calls[0][0], 'upload', 'exact limit accepted');
  });
  await check('editor actions share one row, notice after the heading', async () => {
-  const p = render();
+  const p = await render();
   const row = collect(p).find(n => n.attrs.class === 'mw-row' && n.children.includes(button(p, 'Check and apply')));
   h.assert(row && row.children.includes(button(p, 'Restore the previous YAML')), 'apply and restore in one mw-row');
   const top = p.children.filter(c => c && typeof c === 'object').map(c => c.tag + (c.attrs['aria-live'] ? ':live' : ''));
@@ -739,7 +773,7 @@ for (const [name, check] of [
  });
  await check('restore', async () => {
   reloads = 0;
-  const p = render(); const restore = button(p, 'Restore the previous YAML'); h.assert(restore, 'backup restore button');
+  const p = await render(); const restore = button(p, 'Restore the previous YAML'); h.assert(restore, 'backup restore button');
   h.assert(texts(p).includes('Automatic updates replace it again with the subscription.'), 'automatic update warning');
   calls = []; allow = false; await restore.listeners.click(); h.assertEq(calls.length, 0, 'cancel restore');
   allow = true; await restore.listeners.click(); h.assertEq(calls[0].join(','), 'job,restore-config', 'restore job'); h.assertEq(reloads, 1, 'reload after restore');
@@ -748,8 +782,8 @@ for (const [name, check] of [
    h.assertEq(restoreNotices[0], msg, 'restore notice ' + action);
   }
   bridge.job = async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; };
-  h.assert(!button(render(false), 'Restore the previous YAML'), 'no restore without backup');
-  const off = render(true, false), note = collect(off).find(n => n.textContent === 'Automatic updates replace it again with the subscription.');
+  h.assert(!button(await render(false), 'Restore the previous YAML'), 'no restore without backup');
+  const off = await render(true, false), note = collect(off).find(n => n.textContent === 'Automatic updates replace it again with the subscription.');
   h.assert(note.hidden, 'automatic warning hidden when off');
   const auto = collect(off).find(n => n.attrs.id === 'mw-auto'); auto.checked = true; auto.listeners.change();
   h.assert(!note.hidden, 'automatic warning follows checkbox');
@@ -757,7 +791,7 @@ for (const [name, check] of [
  await check('job notice and shared locks', async () => {
   noticeCalls = 0;
   for (const running of [false, true]) {
-   bridge.jobRunning = running; const p = render();
+   bridge.jobRunning = running; const p = await render();
    for (const label of ['Update now', 'Check and apply', 'Restore the previous YAML']) {
     const b = button(p, label); h.assert(b.attrs['data-mw-job'] != null, label + ' marked');
     h.assert(running ? b.attrs.disabled === true : b.attrs.disabled == null, label + ' running state');
@@ -767,15 +801,117 @@ for (const [name, check] of [
  });
  await check('update jobs', async () => {
   for (const changed of [false, true]) {
-   const p = render(); collect(p).find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
+   const p = await render(); collect(p).find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
    calls = []; await button(p, 'Update now').listeners.click();
    h.assertEq(JSON.stringify(calls), JSON.stringify(changed ? [['job','update-subscription','https://new.example'],['write','set-subscription','https://new.example','1']] : [['write','set-subscription','https://old.example','1'],['job','update-subscription']]), 'update sequence');
   }
  });
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+// Plan task 12: the YAML editor loads on demand; the YAML passed to Mihomo is a second, read-only view.
+// The test E() supports appendChild, removeChild and textContent; views may also use replaceChildren.
+seq(async () => {
+ function DOM(tag, attrs, children) {
+  const n = E(tag, attrs, children); n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null;
+  n.replaceChildren = (...nodes) => { n.children = nodes; };
+  return n;
+ }
+ async function check(name, fn) {
+  try { await fn(); console.log('ok - subscription ' + name); }
+  catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
+ }
+ const confirmations = [], jobs = [];
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
+  confirm: message => { confirmations.push(message); return true; },
+  api: { ...api, ...readStubs, busy: async (el, fn) => fn(), upload: async () => '/tmp/yaml', write: async () => ({}),
+   job: async (...args) => { jobs.push(args); return { action: 'unchanged' }; }, notify() {}, reloadWithNotice() {} }
+ }).module;
+ const editorLabel = 'Show the YAML editor', effectiveShow = 'Show the YAML passed to Mihomo', effectiveHide = 'Hide the YAML passed to Mihomo';
+ const readCount = cmd => reads.calls.filter(c => c === cmd).length;
+ const editorAreas = p => collect(p).filter(n => n.tag === 'textarea');
+ await check('no yaml at load', async () => {
+  resetReads({ url: 'https://p.example/sub' });
+  const p = sv.render(await sv.load());
+  h.assertEq(readCount('read-config'), 0, 'load does not read the YAML');
+  h.assertEq(readCount('runtime-config'), 0, 'load does not read the effective YAML');
+  const open = findButton(p, editorLabel);
+  await open.listeners.click(); await settle();
+  h.assertEq(readCount('read-config'), 1, 'first opening reads the YAML');
+  h.assertEq(editorAreas(p)[0]?.value, 'proxies: []\n', 'editor shows the loaded YAML');
+  await open.listeners.click(); await open.listeners.click(); await settle();
+  h.assertEq(readCount('read-config'), 1, 'second opening does not read again after success');
+  h.assertEq(editorAreas(p).length, 1, 'still one editor');
+ });
+ await check('yaml load error retry', async () => {
+  resetReads({ url: 'https://p.example/sub' }, Error('x'));
+  const p = sv.render(await sv.load());
+  const open = findButton(p, editorLabel), box = toggleOf(p, open);
+  await open.listeners.click(); await settle();
+  h.assert(texts(box).includes('Cannot load the YAML: x'), 'error alert inside the toggle');
+  h.assertEq(editorAreas(p).length, 0, 'no textarea after a failed load');
+  h.assert(!findButton(p, 'Check and apply'), 'no Check and apply after a failed load');
+  await open.listeners.click();
+  reads.responses['read-config'] = { content: 'proxies: []\n' };
+  await open.listeners.click(); await settle();
+  h.assertEq(readCount('read-config'), 2, 'reopening retries');
+  h.assertEq(editorAreas(p).length, 1, 'editor after a successful retry');
+  h.assert(findButton(p, 'Check and apply'), 'Check and apply after a successful retry');
+  h.assert(!texts(box).includes('Cannot load the YAML: x'), 'error alert gone after the retry');
+ });
+ await check('update confirm only when edited', async () => {
+  const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
+  confirmations.length = 0; jobs.length = 0;
+  await findButton(p, 'Update now').listeners.click();
+  h.assertEq(confirmations.length, 0, 'editor never opened: no confirm');
+  h.assert(jobs.some(j => j[0] === 'update-subscription'), 'update ran');
+  await openToggle(p, editorLabel);
+  jobs.length = 0;
+  await findButton(p, 'Update now').listeners.click();
+  h.assertEq(confirmations.length, 0, 'editor opened but not edited: no confirm');
+  h.assert(jobs.some(j => j[0] === 'update-subscription'), 'update ran after an unedited opening');
+ });
+ await check('effective yaml', async () => {
+  const content = 'mixed-port: 7890\nsecret: "s"\ntproxy-port: 7894\n';
+  for (const generated of [false, true]) {
+   const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
+   reads.responses['runtime-config'] = { content, generated };
+   const show = findButton(p, effectiveShow), box = toggleOf(p, show);
+   h.assert(show, 'toggle label ' + effectiveShow);
+   h.assertEq(readCount('runtime-config'), 0, 'not read before opening');
+   const before = textareaOptions.length;
+   await show.listeners.click(); await settle();
+   h.assert(texts(show).includes(effectiveHide), 'toggle label ' + effectiveHide);
+   h.assertEq(readCount('runtime-config'), 1, 'opening reads runtime-config');
+   const area = collect(box).find(n => n.tag === 'textarea');
+   h.assert(area, 'read-only textarea inside the toggle');
+   h.assertEq(area.value, content, 'textarea equals the reply');
+   const opts = textareaOptions.slice(before).find(o => o.readonly);
+   h.assert(opts, 'ui.Textarea created with readonly');
+   h.assertEq(opts.monospace, true, 'monospace');
+   h.assertEq(opts.wrap, false, 'no wrap');
+   h.assertEq(opts.rows, 24, '24 rows');
+   h.assert(texts(box).includes('Generated by MihoWRT from your YAML: router keys replaced, default DNS and sniffer added when missing, x-mihowrt removed. It contains the controller secret.'), 'note text');
+   const stopped = collect(box).some(n => String(n.textContent).includes('MihoWRT is not running; this is what it would pass at start.'));
+   h.assertEq(stopped, generated, 'not-running line only when generated');
+   await show.listeners.click(); await show.listeners.click(); await settle();
+   h.assertEq(readCount('runtime-config'), 2, 'each opening reads again');
+   h.assert(!editorAreas(p).some(n => n.attrs.id === 'widget.mw-yaml'), 'the YAML editor stays unloaded');
+   h.assertEq(readCount('read-config'), 0, 'effective view does not read the editable YAML');
+  }
+ });
+ await check('effective yaml error', async () => {
+  const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
+  reads.responses['runtime-config'] = Error('boom');
+  const show = findButton(p, effectiveShow), box = toggleOf(p, show);
+  await show.listeners.click(); await settle();
+  h.assert(texts(box).includes('Cannot load the YAML: boom'), 'error alert inside the effective toggle');
+  h.assert(!collect(box).some(n => n.tag === 'textarea'), 'no textarea after a failed load');
+ });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 19: one Save & Apply, partial file writes, and MAC-aware leases.
-(async () => {
+seq(async () => {
  class Option {
   constructor(name, title, description) { Object.assign(this, { name, title, description, dependencies: [], values: [] }); }
   depends(...args) { this.dependencies.push(args); }
@@ -838,7 +974,7 @@ for (const [name, check] of [
   const t = setup(); const p = await t.render({ ...lists });
   h.assert(collect(p).every(n => n.children.every(c => c != null && c !== false)), 'no null child that LuCI would print');
   h.assert(texts(p).includes('JOB NOTICE'), 'job notice present');
-  h.assert(t.tv.map.options._mode.cfgvalue().includes('. To change the mode'), 'sentence break before the mode help');
+  h.assert(!t.tv.map.options._mode.cfgvalue().includes('To change the mode'), 'mode help is not part of the value');
  });
  await check('save unchanged lists', async () => {
   for (const snapshot of [lists, { ...lists, src: 'aa:bb:cc:dd:ee:ff # phone\n' }]) {
@@ -906,7 +1042,8 @@ for (const [name, check] of [
  });
  await check('mode help and inactive lists', async () => {
   const t = setup(); await t.render({ ...lists, dst: '# comment\n1.1.1.1\n\n2.2.2.2\n3.3.3.3' }, { mode: 'proxy-first' });
-  h.assert(t.tv.map.options._mode.cfgvalue().includes('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".'), 'mode help verbatim');
+  h.assertEq(t.tv.map.options._mode.description, 'To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".', 'mode help verbatim as the option description');
+  h.assertEq(t.tv.map.options._mode.cfgvalue(), 'All traffic via proxy except exclusions (follows the DNS settings of your YAML)', 'mode value without a subscription');
   const rowText = Object.values(t.tv.map.options).map(o => o.cfgvalue?.()).filter(v => typeof v === 'string');
   h.assert(rowText.includes('Addresses via proxy: 3 saved entries, used in the other mode.'), 'inactive list summary');
  });
@@ -922,9 +1059,6 @@ for (const [name, check] of [
   const t = setup();
   const p = picker(t, { dhcp_leases: [lease], dhcp6_leases: [{ hostname: 'tv', ip6addrs: ['2001:db8::5/128'] }, { ip6addr: '2001:db8::6' }] });
   h.assert(p.addAs, 'two selects'); h.assertEq(p.addAs.value, 'mac', 'MAC default');
-  h.assert(texts(p.p).includes('Add as') && texts(p.p).includes('MAC address (IPv4 and IPv6)') && texts(p.p).includes('IP address'), 'visible Add as choices');
-  h.assert(collect(p.p).filter(n => n.tag === 'label').length >= 2, 'visible select labels');
-  for (const label of collect(p.p).filter(n => n.tag === 'label')) h.assertEq(label.children.at(-2), ' ', 'space before select');
   add(p, 0); add(p, 0); h.assertEq(p.select.value, '', 'picker resets after repeated selection');
   h.assertEq(p.area.value, 'aa:bb:cc:dd:ee:ff # phone\n', 'MAC lower-case, hostname, once');
   p.addAs.value = 'ip'; add(p, 0); add(p, 0);
@@ -932,6 +1066,20 @@ for (const [name, check] of [
   for (const as of ['mac', 'ip']) { p.addAs.value = as; add(p, 1); }
   h.assertEq(p.area.value.split('2001:db8::5').length - 1, 1, 'DHCPv6 fallback strips prefix and deduplicates');
   h.assert(p.area.value.includes('2001:db8::5 # tv'), 'IPv6 hostname'); add(p, 2); h.assert(p.area.value.includes('2001:db8::6'), 'singular ip6addr fallback');
+ });
+ await check('picker without labels', async () => {
+  const p = picker(setup(), { dhcp_leases: [lease] });
+  const outsideOptions = collect(p.p).filter(n => n.tag !== 'option').flatMap(n => n.children.filter(c => typeof c === 'string'));
+  h.assert(!outsideOptions.includes('Add a device') && !outsideOptions.includes('Add as'), 'no visible label text outside <option>');
+  h.assert(!collect(p.p).some(n => n.tag === 'label'), 'no label elements');
+  h.assertEq(p.select.attrs['aria-label'], 'Add a device', 'device select accessible name');
+  h.assertEq(texts(p.select.children[0]).join(''), 'Add a device…', 'device select placeholder option');
+  h.assertEq(p.addAs.attrs['aria-label'], 'Add as', 'Add as select accessible name');
+  h.assertEq(JSON.stringify(p.addAs.children.map(o => [o.attrs.value, texts(o).join('')])), JSON.stringify([['mac', 'MAC (IPv4 + IPv6)'], ['ip', 'IP address']]), 'Add as options');
+  h.assertEq(p.addAs.value, 'mac', 'MAC is the default');
+  const row = collect(p.p).find(n => (n.attrs.class || '').split(' ').includes('mw-picker'));
+  h.assert(row && row.attrs.class.split(' ').includes('mw-row'), 'picker row is mw-row mw-picker');
+  h.assert(row.children.includes(p.select) && row.children.includes(p.addAs), 'selects are direct children of the picker row (.mw-picker > select)');
  });
  await check('DHCPv6 host address only', async () => {
   const p = picker(setup(), { dhcp6_leases: [
@@ -967,12 +1115,27 @@ for (const [name, check] of [
    h.assertEq(t.tv.map.options._dst_inactive.cfgvalue(), `Addresses via proxy: ${count} saved ${count === 1 ? 'entry' : 'entries'}, used in the other mode.`, 'inactive plural ' + count);
   }
  });
- await check('private mac hint', async () => {
-  const hint = 'This device uses a private Wi-Fi address. It works while the device keeps that address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.';
-  for (const [macaddr, as, expected] of [['da:a1:19:00:00:01', 'mac', true], ['00:11:22:33:44:55', 'mac', false], ['da:a1:19:00:00:01', 'ip', false]]) {
-   const p = picker(setup(), { dhcp_leases: [{ ...lease, macaddr }] }); p.addAs.value = as; add(p, 0);
-   h.assertEq(collect(p.p).some(n => !n.hidden && n.textContent === hint), expected, 'private hint only when adding private MAC');
-  }
+ await check('private mac notice', async () => {
+  const text = (name, mac) => name + ' (' + mac + ') uses a private Wi-Fi address. The entry works while the device keeps this address for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one.';
+  const oldHint = 'This device uses a private Wi-Fi address.';
+  const t = setup(), p = picker(t, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01' }, { macaddr: 'DA:A1:19:00:00:02' }, { hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] });
+  add(p, 0);
+  h.assertEq(t.notices.length, 1, 'one notification for a private MAC');
+  h.assertEq(t.notices[0][0], text('phone', 'da:a1:19:00:00:01'), 'notification names the device and the MAC');
+  h.assert(!collect(p.p).some(n => String(n.textContent).includes(oldHint)), 'no inline hint element');
+  add(p, 0);
+  h.assertEq(t.notices.length, 1, 'same lease again: entry exists, no second notification');
+  add(p, 1);
+  h.assertEq(t.notices.length, 2, 'another private MAC notifies');
+  h.assertEq(t.notices[1][0], text('unknown', 'da:a1:19:00:00:02'), 'missing hostname reads unknown');
+  add(p, 2);
+  h.assertEq(t.notices.length, 2, 'a global MAC adds no notification');
+  const known = setup(), k = picker(known, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01' }] }, 'da:a1:19:00:00:01 # phone');
+  add(k, 0);
+  h.assertEq(known.notices.length, 0, 'entry already in the list: no notification');
+  const byIp = setup(), q = picker(byIp, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01', ipaddr: '192.168.1.7' }] });
+  q.addAs.value = 'ip'; add(q, 0);
+  h.assertEq(byIp.notices.length, 0, 'adding by IP address: no notification');
  });
  await check('not connected now', async () => {
   const value = 'aa:bb:cc:dd:ee:ff # phone\n192.168.1.9\n2001:db8::5';
@@ -996,10 +1159,10 @@ for (const [name, check] of [
   t.bridge.read = async () => { throw Error('status unavailable'); };
   await t.tv.handleSaveApply(null, '0'); h.assertEq(t.notices.at(-1)[0], 'status unavailable', 'status read errors visible');
  });
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 20: diagnostics keeps its checklist while exposing runtime risks.
-(async () => {
+seq(async () => {
  const check = async (name, fn) => {
   try { await fn(); console.log('ok - diagnostics ' + name); }
   catch (e) { console.error('not ok - diagnostics ' + name + ': ' + e.message); process.exitCode = 1; }
@@ -1088,6 +1251,6 @@ for (const [name, check] of [
   h.assertEq(calls.map(c => c.join(',')).join(';'), 'logs-json,300', 'log through readLarge');
   h.assert(texts(p).includes('hello'), 'loaded log shown');
  });
-})().catch(err => { console.error(err); process.exitCode = 1; });
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 NODE

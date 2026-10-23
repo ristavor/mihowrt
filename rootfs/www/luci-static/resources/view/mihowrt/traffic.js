@@ -138,7 +138,7 @@ return view.extend({
 		s.tab('advanced', _('Advanced'));
 
 		// The mode follows the DNS settings of the YAML; it is not a setting.
-		let o = s.taboption('basic', form.DummyValue, '_mode', _('Mode'),
+		let o = s.taboption('basic', form.DummyValue, '_mode', _('Traffic mode'),
 			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".'));
 		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' +
 			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));

@@ -64,7 +64,7 @@ msgstr "Проблема:"
 msgid "MihoWRT version"
 msgstr "Версия MihoWRT"
 
-msgid "Mode"
+msgid "Traffic mode"
 msgstr "Режим"
 
 msgid "Client interfaces"

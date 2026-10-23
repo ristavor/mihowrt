@@ -20,7 +20,9 @@ assert(/\.mw-groups\s+\.mw-row\s*>\s*select\s*\{[^}]*flex:\s*1 1 12em[^}]*max-wi
 assert(/\.mw-page\s*>\s*h2\s*\{\s*margin-bottom:\s*0;?\s*\}/.test(css) && !/\.mw-page\s*>\s*h2[^{]*\{[^}]*margin:\s*0/.test(css), 'page title keeps the theme top margin');
 assert(/\.mw-announce\s*\+\s*\.mw-grid\s*\{[^}]*margin-top:\s*12px/.test(css), 'announce text is separated from the subscription grid');
 assert(/\.mw-status\s*\{[^}]*flex-direction:\s*column/.test(css), 'status facts are stacked');
-assert(/\.mw-actions\s*>\s*\.cbi-button\s*\{[^}]*flex:\s*1 1 auto/.test(css), 'phone action buttons share the row');
+// Phone: equal-width columns, so a lone third button (Website) is not stretched to the full row.
+assert(/\.mw-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%,\s*10em\),\s*1fr\)\)/.test(css), 'phone action buttons in equal columns');
+assert(!/\.mw-actions\s*>\s*\.cbi-button\s*\{[^}]*flex:\s*1 1 auto/.test(css), 'no stretching flex rule for action buttons');
 const overview = fs.readFileSync(path.join(root, 'rootfs/www/luci-static/resources/view/mihowrt/overview.js'), 'utf8');
 assert(/class: 'mw-toggle'/.test(api), 'toggle wrapper marked for spacing');
 assert(/function linkButton/.test(api) && /api\.linkButton\(sub\./.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');

@@ -84,7 +84,7 @@ function providerLists(profile) {
 function details(st, profile, diagnostics) {
 	const rows = [
 		[ _('MihoWRT version'), st.version ],
-		[ _('Mode'), api.modeLabel(st.mode) ],
+		[ _('Traffic mode'), api.modeLabel(st.mode) ],
 		[ _('DNS mode'), st.dns_mode || '' ],
 		[ _('Provider settings'), Object.keys(profile?.provider || {}).join(', ') || _('none') ],
 		[ _('Provider lists'), providerLists(profile) ],

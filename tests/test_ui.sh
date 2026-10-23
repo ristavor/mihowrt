@@ -243,6 +243,8 @@ seq(async () => {
  let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
  h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'mode value is only the label and its reason');
  h.assert(opts._mode.description.startsWith('To change the mode'), 'mode help is the option description');
+ // Own msgid: LuCI's base catalog translates plain "Mode" as "Режим работы".
+ h.assertEq(opts._mode.title, 'Traffic mode', 'mode title has its own msgid');
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
  h.assertEq(opts._prov_disable_quic.cfgvalue(), 'Disabled', 'provider value rendered');
  h.assertEq(opts._prov_disable_quic.description, 'Set by your provider.', 'provider explanation');
@@ -406,7 +408,7 @@ seq(async () => {
   const t = texts(p);
   if (valid == null) h.assert(t.includes('Configuration not checked yet (it is checked at start)') && t.includes('–'), 'unknown check neutral');
   else h.assert(t.some(s => s.includes('bad yaml')), 'last core error shown');
-  for (const label of ['Mode','DNS mode','Provider settings','Provider lists']) h.assert(t.includes(label), 'diagnostic detail ' + label);
+  for (const label of ['Traffic mode','DNS mode','Provider settings','Provider lists']) h.assert(t.includes(label), 'diagnostic detail ' + label);
  }
  console.log('ok - diagnostics unknown/error and profile details');
 }).catch(err => { console.error(err); process.exitCode = 1; });

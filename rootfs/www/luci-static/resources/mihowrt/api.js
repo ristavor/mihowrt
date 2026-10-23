@@ -38,7 +38,7 @@ const CSS = `
 .mw-yaml { width: 100%; min-height: 24em; }
 .mw-log { max-height: 30em; overflow: auto; white-space: pre-wrap; }
 .mw-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-@media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } .mw-actions > .cbi-button { flex: 1 1 auto; } .mw-groups .mw-ping { flex-basis: 100%; } .mw-groups .mw-ping:empty { display: none; } }
+@media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } .mw-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10em), 1fr)); } .mw-groups .mw-ping { flex-basis: 100%; } .mw-groups .mw-ping:empty { display: none; } }
 `;
 
 function errorText(res) {

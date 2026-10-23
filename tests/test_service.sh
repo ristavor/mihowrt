@@ -27,11 +27,133 @@ printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || touch "%s"\nexec sleep 30\n' "$tmpd
 chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$RUNTIME_CONFIG"
 
+# polish: auto_update stamp once
+(
+ set -e
+ settings_load() { LISTS_INTERVAL=0; }
+ subscription_due() { return 0; }
+ : >"$tmpdir/auto.touch"; : >"$tmpdir/auto.updates"
+ subscription_update() { command touch "$PKG_STATE_DIR/subscription.stamp"; echo update >>"$tmpdir/auto.updates"; }
+ touch() { printf '%s\n' "$*" >>"$tmpdir/auto.touch"; command touch "$@"; }
+ auto_update
+ assert_true 'subscription update leaves stamp' test -f "$PKG_STATE_DIR/subscription.stamp"
+ assert_eq update "$(cat "$tmpdir/auto.updates")" 'subscription updated once'
+ assert_eq '' "$(cat "$tmpdir/auto.touch")" 'auto_update stamp once: no redundant touch'
+)
+pass 'auto_update stamp once'
+
+# polish: auto_update owns no subscription stamp write
+(
+ set -e
+ assert_false 'auto_update has no own stamp touch' grep -F 'touch "$PKG_STATE_DIR/subscription.stamp"' <<<"$(declare -f auto_update)"
+)
+pass 'auto_update owns no subscription stamp write'
+
+# polish: prepare records error
+(
+ set -e
+ service_prepare() { echo 'Error: Invalid lists_interval: x' >&2; return 1; }
+ rc=0
+ declare -F service_prepare_cmd >/dev/null || fail 'service_prepare_cmd helper missing'
+ service_prepare_cmd 2>"$tmpdir/helper-prepare.err" || rc=$?
+ assert_eq 1 "$rc" 'prepare records error status'
+ assert_eq 'Invalid lists_interval: x' "$(cat "$LAST_ERROR_FILE")" 'prepare records error'
+ assert_file_contains "$tmpdir/helper-prepare.err" 'Error: Invalid lists_interval: x' 'prepare stderr passes through'
+ assert_eq '' "$(find "$PKG_TMP_DIR" "$PKG_STATE_DIR" -name '*.tmp.*')" 'prepare leaves no temporary files'
+)
+pass 'prepare records error'
+
+# polish: empty error fallback
+(
+ set -e
+ service_prepare() { return 1; }
+ rc=0
+ declare -F service_prepare_cmd >/dev/null || fail 'service_prepare_cmd helper missing'
+ service_prepare_cmd 2>"$tmpdir/helper-empty.err" || rc=$?
+ assert_eq 1 "$rc" 'empty error fallback status'
+ assert_eq 'MihoWRT could not start. See the system log.' "$(cat "$LAST_ERROR_FILE")" 'empty error fallback'
+)
+pass 'empty error fallback'
+
+# polish: one last-error prefix stripping site
+(
+ set -e
+ count="$(grep -hcF "sed 's/^Error: //'" "$ROOT_DIR/rootfs/etc/init.d/mihowrt" "$MIHOWRT_LIB_DIR/service.sh" | awk '{ n += $1 } END { print n + 0 }')"
+ assert_eq 1 "$count" 'last error prefix stripped in one helper only'
+)
+pass 'one last-error prefix stripping site'
+
+# polish: orphan killed after grace
+(
+ set -e
+ rm -f "$RUNNING_MARKER"
+ : >"$tmpdir/stop.sleeps"; : >"$tmpdir/stop.kills"
+ pgrep() { return 1; }
+ kill() { printf '%s\n' "$*" >>"$tmpdir/stop.kills"; return 0; }
+ sleep() { echo sleep >>"$tmpdir/stop.sleeps"; }
+ service_running() { return 0; }
+ service_pid() { echo 4242; }
+ policy_cleanup() { :; }
+ with_lock() { echo recover >>"$tmpdir/stop.recover"; "$@"; }
+ service_wait_stopped || fail 'orphan stop failed'
+ sleeps="$(wc -l <"$tmpdir/stop.sleeps")"
+ [ "$sleeps" -le 5 ] || fail "orphan killed after grace: slept $sleeps times (max 5)"
+ assert_file_contains "$tmpdir/stop.recover" recover 'orphan recovery runs'
+ assert_file_contains "$tmpdir/stop.kills" '-9 4242' 'orphan killed with SIGKILL'
+)
+pass 'orphan killed after grace'
+
+# polish: supervisor alive no kill
+(
+ set -e
+ rm -f "$RUNNING_MARKER"
+ : >"$tmpdir/supervisor.sleeps"; : >"$tmpdir/supervisor.kills"
+ iterations() { wc -l <"$tmpdir/supervisor.sleeps"; }
+ pgrep() { [ "$(iterations)" -lt 3 ]; }
+ sleep() { echo sleep >>"$tmpdir/supervisor.sleeps"; }
+ kill() { printf '%s\n' "$*" >>"$tmpdir/supervisor.kills"; return 0; }
+ service_running() { [ "$(iterations)" -lt 4 ]; }
+ service_pid() { service_running && echo 4242; }
+ policy_cleanup() { :; }
+ with_lock() { "$@"; }
+ service_wait_stopped || fail 'supervisor stop failed'
+ [ "$(iterations)" -ge 3 ] || fail 'stop must wait for supervisor cleanup'
+ assert_file_not_contains "$tmpdir/supervisor.kills" '-9' 'supervisor alive no kill'
+)
+pass 'supervisor alive no kill'
+
+# polish: orphan without pid file
+(
+ set -e
+ rm -f "$SERVICE_PID_FILE" "$RUNNING_MARKER"
+ : >"$tmpdir/no-pid.kills"
+ pgrep() { [ "$*" != "-f ^$CLASH_BIN " ] || { echo 4242; return 0; }; return 1; }
+ kill() { printf '%s\n' "$*" >>"$tmpdir/no-pid.kills"; return 0; }
+ policy_cleanup() { :; }
+ service_recover || fail 'orphan recovery failed'
+ assert_file_contains "$tmpdir/no-pid.kills" '-9 4242' 'orphan without pid file killed'
+)
+pass 'orphan without pid file'
+
+# A healthy run-service owner must keep its core and policy.
+(
+ set -e
+ pgrep() { return 0; }
+ kill() { fail 'live run-service must not kill Mihomo'; }
+ policy_cleanup() { fail 'live run-service must not clean policy'; }
+ service_recover
+)
+pass 'live run-service recovery returns early'
+
 # Readers holding an old inode must never observe a truncated/replaced error.
 (
+ set -e
+ declare -F last_error_record >/dev/null || fail 'last_error_record helper missing'
  printf 'previous error\n' >"$LAST_ERROR_FILE"
  exec 8<"$LAST_ERROR_FILE"
- service_error 'replacement error' 2>/dev/null
+ printf 'Error: replacement error\n' >"$tmpdir/last-error.stderr"
+ last_error_record "$tmpdir/last-error.stderr"
+ assert_eq 'replacement error' "$(cat "$LAST_ERROR_FILE")" 'last_error_record strips prefix'
  assert_eq 'previous error' "$(cat <&8)" 'error publication replaces inode'
  exec 8<&-
 )
@@ -304,14 +426,14 @@ stop_service
 assert_true "Stop creates sticky flag" test -f "$USER_STOP_FILE"
 start_service
 assert_false "Start clears sticky flag" test -f "$USER_STOP_FILE"
-printf '#!/bin/sh\necho "Error: Invalid lists_interval: x" >&2\nexit 1\n' >"$MIHOWRT"
+printf '#!/bin/sh\necho "Error: Invalid lists_interval: x" >&2\necho "Invalid lists_interval: x" >"%s"\nexit 1\n' "$LAST_ERROR_FILE" >"$MIHOWRT"
 logger() { printf '%s\n' "$*" >>"$tmpdir/prepare.log"; }
 if start_service 2>"$tmpdir/prepare.err"; then fail 'invalid prepare must fail'; fi
 assert_file_contains "$tmpdir/prepare.err" 'Invalid lists_interval: x' 'prepare reason visible on stderr'
 assert_file_contains "$tmpdir/prepare.log" 'Invalid lists_interval: x' 'prepare reason logged'
 assert_eq 'Invalid lists_interval: x' "$(cat "$LAST_ERROR_FILE")" 'prepare error strips prefix'
 assert_false 'failed prepare removes temporary file' test -e "$LAST_ERROR_FILE.tmp.$$"
-printf '#!/bin/sh\nexit 1\n' >"$MIHOWRT"
+printf '#!/bin/sh\necho "MihoWRT could not start. See the system log." >"%s"\nexit 1\n' "$LAST_ERROR_FILE" >"$MIHOWRT"
 if start_service 2>"$tmpdir/prepare.err"; then fail 'empty prepare failure must fail'; fi
 assert_eq 'MihoWRT could not start. See the system log.' "$(cat "$LAST_ERROR_FILE")" 'empty prepare error has fallback'
 assert_file_contains "$tmpdir/prepare.err" 'MihoWRT could not start. See the system log.' 'fallback visible on stderr'

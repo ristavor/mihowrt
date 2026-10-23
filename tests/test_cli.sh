@@ -43,6 +43,33 @@ assert_eq 'update:https://new.example/sub' "$(sh "$tmpdir/cli.sh" update-subscri
 assert_false 'extra update args rejected' sh "$tmpdir/cli.sh" update-subscription a b >/dev/null 2>&1
 pass 'optional subscription URL CLI boundary'
 
+# polish: read wrapper
+(
+ set -e
+ assert_eq 'backend runtime-config' "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" runtime-config)" 'read wrapper allows runtime-config'
+ assert_false 'read wrapper rejects runtime-config arguments' env MIHOWRT_BACKEND="$backend" sh "$read_cli" runtime-config x >/dev/null 2>&1
+)
+pass 'runtime-config read wrapper'
+
+# polish: runtime-config usage
+(
+ set -e
+ read_usage="$(sh "$read_cli" 2>&1 || true)"
+ [[ "$read_usage" == *runtime-config* ]] || fail 'read wrapper usage lists runtime-config'
+ backend_usage="$(sh "$tmpdir/cli.sh" 2>&1 || true)"
+ [[ "$backend_usage" == *runtime-config* ]] || fail 'backend usage lists runtime-config'
+)
+pass 'runtime-config usage'
+
+# polish: runtime-config backend dispatch
+(
+ set -e
+ sed '/^case "$cmd" in/i runtime_config_json() { echo runtime-config-dispatched; }' "$tmpdir/cli.sh" >"$tmpdir/runtime-cli.sh"
+ assert_eq runtime-config-dispatched "$(sh "$tmpdir/runtime-cli.sh" runtime-config)" 'runtime-config backend dispatch'
+ assert_false 'runtime-config backend rejects arguments' sh "$tmpdir/runtime-cli.sh" runtime-config x >/dev/null 2>&1
+)
+pass 'runtime-config backend dispatch'
+
 # Run real core_update_cmd and dispatch, substituting only update/service edges.
 strip_mihowrt_cli_bootstrap >"$tmpdir/core-cli.sh"
 sed -i 's|/etc/init.d/mihowrt restart|"$INIT_STUB" restart|' "$tmpdir/core-cli.sh"
@@ -51,12 +78,22 @@ cat >"$tmpdir/init" <<'I'
 [ "$1" = restart ] || exit 99
 sleep 0.1
 echo restarted >"$RESTART_MARKER"
+if [ "${RESTART_LOCK_CHECK:-0}" = 1 ]; then
+ exec 7>>"$CORE_STATE_DIR/core.flock"
+ flock -n 7 || { echo 'Error: core update lock still held at restart' >&2; exit 97; }
+ echo released >"$CORE_STATE_DIR/restart.lock"
+fi
+[ -z "${RESTART_ERROR:-}" ] || printf '\nError: %s\n\n' "$RESTART_ERROR" >&2
 exit "$RESTART_RC"
 I
 chmod +x "$tmpdir/init"
 export INIT_STUB="$tmpdir/init" RESTART_MARKER="$tmpdir/restarted"
 sed '/^cmd=/,$d' "$tmpdir/core-cli.sh" >"$tmpdir/core-prefix.sh"
+export CORE_STATE_DIR="$tmpdir/core-state"
+mkdir -p "$CORE_STATE_DIR"
 cat >>"$tmpdir/core-prefix.sh" <<'STUBS'
+PKG_STATE_DIR="$CORE_STATE_DIR"
+core_version() { echo v1.19.30; }
 core_update_json() { command printf '{"updated":%s,"version":"v1.19.32","error":null}\n' "$UPDATED"; return "$UPDATE_RC"; }
 service_running() { [ "$RUNNING" = 1 ]; }
 printf() {
@@ -98,6 +135,41 @@ for scenario in stopped unchanged update_failure restart_failure; do
  [ "$scenario" = restart_failure ] || assert_false 'no restart when unnecessary' test -e "$RESTART_MARKER"
 done
 pass 'core CLI synchronous restart and result'
+
+# polish: core update busy
+(
+ set -e
+ start_runtime_lock_holder "$CORE_STATE_DIR/core.flock" "$tmpdir/core-holder.ready"
+ core_holder=$LOCK_HOLDER_PID
+ trap 'kill "$core_holder" 2>/dev/null; wait "$core_holder" 2>/dev/null || true' EXIT
+ busy_rc=0
+ busy_out="$(UPDATED=true UPDATE_RC=0 RUNNING=0 RESTART_RC=0 EXPECT_RESTART=0 sh "$tmpdir/core-cli.sh" core-update 2>"$tmpdir/core-busy.err")" || busy_rc=$?
+ assert_eq 1 "$busy_rc" 'core update busy status'
+ assert_eq 'Another core update is running' "$(jq -r .error <<<"$busy_out")" 'core update busy error'
+ assert_eq false "$(jq -r .updated <<<"$busy_out")" 'busy update does not update'
+ assert_eq false "$(jq -r .restarted <<<"$busy_out")" 'busy update does not restart'
+ assert_file_contains "$tmpdir/core-busy.err" 'Error: Another core update is running' 'busy stderr'
+)
+pass 'core update busy'
+
+# polish: restart error kept
+(
+ set -e
+ restart_rc=0
+ restart_out="$(UPDATED=true UPDATE_RC=0 RUNNING=1 RESTART_RC=1 EXPECT_RESTART=0 RESTART_ERROR='Mihomo rejected the configuration' sh "$tmpdir/core-cli.sh" core-update 2>"$tmpdir/restart-detail.err")" || restart_rc=$?
+ assert_eq 1 "$restart_rc" 'restart error status'
+ assert_eq 'Mihomo core updated, but the service restart failed: Mihomo rejected the configuration' "$(jq -r .error <<<"$restart_out")" 'restart error kept'
+)
+pass 'restart error kept'
+
+# polish: lock released before restart
+(
+ set -e
+ lock_out="$(UPDATED=true UPDATE_RC=0 RUNNING=1 RESTART_RC=0 EXPECT_RESTART=0 RESTART_LOCK_CHECK=1 sh "$tmpdir/core-cli.sh" core-update)" || fail 'restart cannot take core lock'
+ assert_eq true "$(jq -r .restarted <<<"$lock_out")" 'lock released before restart'
+ assert_file_contains "$CORE_STATE_DIR/restart.lock" released 'init takes independent core lock'
+)
+pass 'lock released before restart'
 
 assert_eq 'backend lists-json' "$(MIHOWRT_BACKEND="$backend" sh "$read_cli" lists-json)" 'lists-json read wrapper'
 sed -i '/^case "$cmd" in/i lists_json() { echo lists-json; }' "$tmpdir/cli.sh"

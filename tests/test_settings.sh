@@ -8,9 +8,34 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh
 setup_runtime_paths "$tmpdir"
 
+
+# polish: long hex mark
+(
+ set -e
+ assert_true 'five hex digits accepted' is_valid_uint32_mark 0x1BD00
+ assert_true 'eight hex digits accepted' is_valid_uint32_mark 0x12345678
+ assert_false 'nine significant hex digits rejected' is_valid_uint32_mark 0x123456789
+ assert_false 'long hex mark with leading zeros rejected' is_valid_uint32_mark 0x000000001
+)
+pass 'long hex mark'
+
+# polish: settings_load resets flag
+check_settings_load_flag() {
+ set -e
+ local SETTINGS_LOADED
+ fake_uci_set mihowrt.settings.lists_interval invalid
+ SETTINGS_LOADED=1
+ settings_rc=0
+ settings_load 2>"$tmpdir/reset-flag.err" || settings_rc=$?
+ assert_eq 1 "$settings_rc" 'invalid lists_interval fails load'
+ assert_eq 0 "$SETTINGS_LOADED" 'settings_load resets flag'
+}
+(check_settings_load_flag)
+fake_uci_reset
+pass 'settings_load resets flag'
 
 # Run numeric regressions in ash, where leading zeros otherwise mean octal.
 ash -c '
@@ -26,7 +51,7 @@ fake_uci_set mihowrt.settings.lists_interval 08
 fake_uci_set mihowrt.settings.netbird_mark 0113920
 fake_uci_set mihowrt.settings.cron_minute 07
 ash -c '
- for module in constants helpers validate settings mihomo-config; do
+ for module in constants helpers validate settings mihomo-config lists; do
   . "$MIHOWRT_LIB_DIR/$module.sh"
  done
  PROFILE_FILE="$1/profile"

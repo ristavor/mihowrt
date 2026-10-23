@@ -234,6 +234,62 @@ if [[ -n "$release_yml" ]]; then
 	rm -rf "$stage_dir"
 fi
 
+# Test 14c: extract and run the version boundary; never contact GitHub.
+version_script="$(awk '/- name: Check tag against PKG_VERSION/{f=1;next} f&&/run: \|/{r=1;next} r&&/^      - /{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+publish_script="$(awk '/- name: Create GitHub release/{f=1;next} f&&/run: \|/{r=1;next} r&&/^      - /{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+workflow_dir="$(mktemp -d)"
+trap 'rm -rf "$workflow_dir"' EXIT
+cp "$ROOT_DIR/Makefile" "$workflow_dir/Makefile"
+assert_contains 'version-check block extracted from release.yml' 'PKG_VERSION' "$version_script"
+for tag_case in v0.10.0:0:0 v0.10.0-rc1:0:1 v0.10.0-rc:1:- v0.10.1:1:- v0.10.0-beta1:1:-; do
+ IFS=: read -r tag expected_rc expected_prerelease <<<"$tag_case"
+ : >"$workflow_dir/env"; : >"$workflow_dir/output"
+ tag_rc=0
+ (cd "$workflow_dir" && GITHUB_REF_NAME="$tag" GITHUB_ENV="$workflow_dir/env" GITHUB_OUTPUT="$workflow_dir/output" bash -c "$version_script") >"$workflow_dir/tag.stdout" 2>"$workflow_dir/tag.stderr" || tag_rc=$?
+ assert_eq "$tag version-check status" "$expected_rc" "$tag_rc"
+ if [[ "$expected_rc" = 0 ]]; then
+  actual_prerelease="$(sed -n 's/^PRERELEASE=//p' "$workflow_dir/env")"
+  assert_eq "$tag prerelease flag" "$expected_prerelease" "$actual_prerelease"
+ fi
+done
+
+# Check cross-job transport without prescribing the step/output identifier.
+build_job="$(awk '/^  build:/{f=1;next} f&&/^  [^ ]/{exit} f{print}' "$RELEASE_YML")"
+publish_job="$(awk '/^  publish:/{f=1;next} f{print}' "$RELEASE_YML")"
+assert_contains 'build exposes job outputs' '    outputs:' "$build_job"
+assert_contains 'build writes a step output' 'GITHUB_OUTPUT' "$build_job"
+assert_contains 'publish receives prerelease through a build output' 'needs.build.outputs.' "$publish_job"
+prerelease_output="$(printf '%s\n' "$publish_job" | sed -n 's/^[[:space:]]*PRERELEASE:.*needs\.build\.outputs\.\([A-Za-z0-9_-]*\).*$/\1/p')"
+if [[ -n "$prerelease_output" ]]; then
+ build_outputs="$(printf '%s\n' "$build_job" | awk '/^    outputs:/{f=1;next} f&&/^    [^ ]/{exit} f{print}')"
+ assert_contains 'publish PRERELEASE output is declared by build' "$prerelease_output:" "$build_outputs"
+ assert_contains 'build job outputs reference a step output' '.outputs.' "$build_outputs"
+else
+ assert_eq 'publish PRERELEASE is wired to a build output' 'build output reference' "$prerelease_output"
+fi
+
+# Execute the extracted publish block with a local gh recorder: only flag 1
+# may produce --prerelease. The real gh executable is never invoked.
+mkdir -p "$workflow_dir/bin" "$workflow_dir/release"
+cat >"$workflow_dir/bin/gh" <<'GH'
+#!/bin/sh
+printf '%s\n' "$@" >"$GH_CALLS"
+GH
+chmod +x "$workflow_dir/bin/gh"
+printf app >"$workflow_dir/release/app.apk"
+printf sum >"$workflow_dir/release/SHA256SUMS"
+: >"$workflow_dir/release-notes.md"
+assert_contains 'publish block extracted from release.yml' 'gh release create' "$publish_script"
+for prerelease_flag in 0 1; do
+ publish_rc=0
+ (cd "$workflow_dir" && PATH="$workflow_dir/bin:$PATH" GH_CALLS="$workflow_dir/gh.calls" PRERELEASE="$prerelease_flag" GITHUB_REF_NAME=v0.10.0 GITHUB_REPOSITORY=fixture/mihowrt bash -c "$publish_script") >"$workflow_dir/publish.stdout" 2>"$workflow_dir/publish.stderr" || publish_rc=$?
+ assert_eq "publish PRERELEASE=$prerelease_flag status" 0 "$publish_rc"
+ prerelease_count="$(grep -cx -- '--prerelease' "$workflow_dir/gh.calls" || true)"
+ assert_eq "publish --prerelease only when PRERELEASE=$prerelease_flag" "$prerelease_flag" "$prerelease_count"
+done
+rm -rf "$workflow_dir"
+trap - EXIT
+
 # Test 15: license and package metadata
 makefile_content="$(cat "${ROOT_DIR}/Makefile")"
 assert_contains "Makefile declares PKG_LICENSE" "PKG_LICENSE:=GPL-3.0-or-later" "$makefile_content"

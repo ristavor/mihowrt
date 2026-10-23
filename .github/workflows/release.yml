@@ -11,20 +11,38 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
 
       - name: Check tag against PKG_VERSION
+        id: version
         run: |
           set -eu
           version="$(sed -n 's/^PKG_VERSION:=//p' Makefile)"
-          if [ -z "$version" ] || [ "$GITHUB_REF_NAME" != "v$version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match Makefile PKG_VERSION v$version" >&2
+          # v<PKG_VERSION> is a release; v<PKG_VERSION>-rc<N> a pre-release.
+          prerelease=""
+          if [ -n "$version" ]; then
+            case "$GITHUB_REF_NAME" in
+              "v$version") prerelease=0 ;;
+              "v$version"-rc*)
+                case "${GITHUB_REF_NAME#"v$version"-rc}" in
+                  '' | *[!0-9]*) ;;
+                  *) prerelease=1 ;;
+                esac
+                ;;
+            esac
+          fi
+          if [ -z "$prerelease" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match Makefile PKG_VERSION v$version (or v$version-rc<N>)" >&2
             exit 1
           fi
           echo "VERSION=$version" >> "$GITHUB_ENV"
+          echo "PRERELEASE=$prerelease" >> "$GITHUB_ENV"
+          echo "prerelease=$prerelease" >> "${GITHUB_OUTPUT:-/dev/null}"
 
       - name: Build test image
         run: docker build -t mihowrt-test:local -f Dockerfile.test .
@@ -91,10 +109,15 @@ jobs:
       - name: Create GitHub release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           set -eu
+          set -- release/*.apk release/SHA256SUMS
+          if [ "$PRERELEASE" = 1 ]; then
+            set -- --prerelease "$@"
+          fi
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md \
-            release/*.apk release/SHA256SUMS
+            "$@"

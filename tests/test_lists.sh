@@ -109,6 +109,25 @@ done
 assert_eq "$DIRECT_SRC_LIST_FILE" "$(lists_file direct_src)" "fourth kind"
 pass "provider list source selection and validation"
 
+# polish: filter keeps ips
+(
+ set -e
+ filter_profile="$tmpdir/filter.profile"
+ cat >"$filter_profile" <<'PROFILE'
+proxy-ip 91.108.4.0/22
+proxy-ip https://10.0.0.1/x.txt # rejected private host
+proxy-ip https://p.example/x.txt;443
+direct-ip http://p.example/y
+PROFILE
+ : >"$tmpdir/filter.warnings"
+ warn() { echo "$*" >>"$tmpdir/filter.warnings"; }
+ declare -F lists_profile_filter >/dev/null || fail 'lists_profile_filter helper missing'
+ lists_profile_filter "$filter_profile"
+ assert_eq $'proxy-ip 91.108.4.0/22\nproxy-ip https://p.example/x.txt;443' "$(cat "$filter_profile")" 'filter keeps ips and public https'
+ assert_eq $'x-mihowrt: ignored list URL https://10.0.0.1/x.txt (only public https URLs)\nx-mihowrt: ignored list URL http://p.example/y (only public https URLs)' "$(cat "$tmpdir/filter.warnings")" 'exactly two filter warnings'
+)
+pass 'filter keeps ips'
+
 # Provider URLs alone are restricted; own files retain the same URLs.
 urls=(http://p.example/l.txt https://127.0.0.1/x https://10.1.2.3/x
  https://192.168.1.1/x https://169.254.1.1/x https://100.64.0.1/x
@@ -130,6 +149,7 @@ printf 'has proxy-ips\nproxy-ip https://p.example/l.txt\n' >"$PROFILE_FILE"
 printf 'proxy-ip %s\n' "${urls[@]}" >>"$PROFILE_FILE"
 printf '%s\n' "${urls[@]}" >"$DST_LIST_FILE"
 DST_LIST_SOURCE=provider
+lists_profile_filter "$PROFILE_FILE"
 assert_eq https://p.example/l.txt "$(lists_source dst)" 'provider URLs filtered'
 for url in "${urls[@]}"; do
  assert_file_contains "$tmpdir/warnings" "x-mihowrt: ignored list URL $url (only public https URLs)" 'exact provider URL warning'

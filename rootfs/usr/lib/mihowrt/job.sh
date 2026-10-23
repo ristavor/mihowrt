@@ -81,6 +81,13 @@ job_finish() {
 		"$JOBS_DIR/$id.json" >"$tmp" && mv -f "$tmp" "$JOBS_DIR/$id.json"
 }
 
+# Alive = the pid runs and is still ours (job-start or job-run): a pid reused
+# by another process after a reboot or crash must not hold the slot.
+job_pid_alive() {
+	is_uint "$1" && [ "$(uint_norm "$1")" -gt 0 ] && kill -0 "$1" 2>/dev/null &&
+		tr '\000' ' ' <"${JOB_PROC_DIR:-/proc}/$1/cmdline" 2>/dev/null | grep -q 'mihowrt job-'
+}
+
 # A starter records its own live pid before claiming the slot, then replaces
 # it with the detached child's pid. There is no pid-less startup window.
 job_reconcile() {
@@ -92,9 +99,7 @@ job_reconcile() {
 		return 0
 	}
 	pid="$(cat "$JOBS_DIR/$id.pid" 2>/dev/null)"
-	if is_uint "$pid" && [ "$(uint_norm "$pid")" -gt 0 ] && kill -0 "$pid" 2>/dev/null; then
-		return 0
-	fi
+	job_pid_alive "$pid" && return 0
 	job_finish "$id" error null 'Interrupted: the operation was stopped before it finished.' || return 1
 	job_slot_release "$id"
 }

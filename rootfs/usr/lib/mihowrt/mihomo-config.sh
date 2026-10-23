@@ -65,6 +65,11 @@ mihomo_config_generate() {
 	done
 	[ -s "$tmp.warn" ] && while IFS= read -r line; do warn "$line"; done <"$tmp.warn"
 	rm -f "$tmp.warn"
+	lists_profile_filter "$tmp.profile" || {
+		rm -f "$tmp" "$tmp.profile"
+		err "Failed to generate runtime config"
+		return 1
+	}
 	chmod 600 "$tmp" && mv -f "$tmp.profile" "$dst.profile" && mv -f "$tmp" "$dst"
 }
 

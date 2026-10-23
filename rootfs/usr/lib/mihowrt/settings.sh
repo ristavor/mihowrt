@@ -100,6 +100,7 @@ settings_require() {
 settings_load() {
 	local iface=""
 
+	SETTINGS_LOADED=0
 	# The mode follows the YAML DNS settings; no profile = no YAML yet.
 	profile_ensure 2>/dev/null || true
 	POLICY_MODE="$(profile_get mode)"

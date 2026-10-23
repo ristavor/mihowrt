@@ -8,13 +8,29 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh
 setup_runtime_paths "$tmpdir"
 
 fake_uci_set network.lan.ipaddr 192.168.8.1/24
 API_SECRET="s3cr3t-value-0001"
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
+
+# polish: generate filters once
+(
+ set -e
+ once_src="$tmpdir/filter-once.yaml"
+ once_out="$tmpdir/filter-once.runtime.yaml"
+ printf 'x-mihowrt:\n  proxy-ips:\n    - https://10.0.0.1/rejected.txt\n' >"$once_src"
+ : >"$tmpdir/generate.warnings"
+ warn() { echo "$*" >>"$tmpdir/generate.warnings"; }
+ mihomo_config_generate "$once_src" "$once_out"
+ assert_file_not_contains "$once_out.profile" 'https://10.0.0.1/rejected.txt' 'generate filters once before profile publication'
+ PROFILE_FILE="$once_out.profile"
+ for _ in 1 2 3; do lists_source dst >/dev/null; done
+ assert_eq 'x-mihowrt: ignored list URL https://10.0.0.1/rejected.txt (only public https URLs)' "$(grep 'ignored list URL' "$tmpdir/generate.warnings")" 'generate filters once: no repeated warnings on reads'
+)
+pass 'generate filters once'
 
 # Lock every successful fixture in this test to the pre-split generator bytes.
 eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"

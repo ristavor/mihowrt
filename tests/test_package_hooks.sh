@@ -434,7 +434,7 @@ chmod +x "$uninstall_root/etc/init.d/"*
 for removed in bin/clash ui/index.html GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do
 	touch "$uninstall_root/opt/clash/$removed"
 done
-for removed in subscription.json cache.db policy-cache/x dns.backup; do
+for removed in subscription.json cache.db policy-cache/x; do
 	touch "$uninstall_root/etc/mihowrt/$removed"
 done
 for kept in opt/clash/config.yaml opt/clash/config.yaml.bak opt/clash/lst/custom.txt opt/clash/manual.txt etc/config/mihowrt etc/mihowrt/hwid; do
@@ -452,7 +452,7 @@ assert_eq 'init:stop' "$(head -n 1 "$uninstall_root/actions")" "uninstall stops 
 for removed in bin/clash ui GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb ruleset proxy_providers cache.db mihomo.sock; do
 	[[ ! -e "$uninstall_root/opt/clash/$removed" && ! -L "$uninstall_root/opt/clash/$removed" ]] || fail "uninstall removes $removed"
 done
-for removed in etc/mihowrt/subscription.json etc/mihowrt/cache.db etc/mihowrt/policy-cache etc/mihowrt/dns.backup tmp/mihowrt var/run/mihowrt tmp/clash tmp/dnsmasq.test.d/mihowrt.conf; do
+for removed in etc/mihowrt/subscription.json etc/mihowrt/cache.db etc/mihowrt/policy-cache tmp/mihowrt var/run/mihowrt tmp/clash tmp/dnsmasq.test.d/mihowrt.conf; do
 	[[ ! -e "$uninstall_root/$removed" ]] || fail "uninstall removes $removed"
 done
 for kept in opt/clash/config.yaml opt/clash/config.yaml.bak opt/clash/lst/custom.txt opt/clash/manual.txt etc/config/mihowrt etc/mihowrt/hwid; do

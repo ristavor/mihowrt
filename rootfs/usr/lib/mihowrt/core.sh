@@ -55,12 +55,6 @@ core_asset_names() {
 	esac
 }
 
-# Uncompressed size from the gzip trailer.
-core_gzip_isize() {
-	tail -c 4 "$1" 2>/dev/null | hexdump -v -e '4/1 "%u " "\n"' |
-		awk 'NF == 4 { print $1 + $2 * 256 + $3 * 65536 + $4 * 16777216 }'
-}
-
 core_free_kb() {
 	df -k "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
 }
@@ -75,7 +69,7 @@ core_fail() {
 
 # Install the latest release. Sets CORE_UPDATED (0|1), CORE_VERSION, CORE_ERROR.
 core_update() {
-	local arch="" json="" tag="" current="" name="" meta="" url="" digest="" size="" gz="" isize="" free=""
+	local arch="" json="" tag="" current="" name="" meta="" url="" digest="" size="" gz="" gz_bytes="" free=""
 	local config="$PKG_TMP_DIR/core-test.yaml"
 
 	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
@@ -137,14 +131,24 @@ core_update() {
 	*) warn "Core update: release has no sha256 digest; size check only" ;;
 	esac
 
-	isize="$(core_gzip_isize "$gz")"
+	# Compressing overlays (UBIFS, JFFS2) store the core at about its .gz size;
+	# an uncompressed overlay that fills up is caught by the ENOSPC check below.
+	gz_bytes="$(wc -c <"$gz" | tr -d ' ')"
 	free="$(core_free_kb "$(dirname "$CLASH_BIN")")"
-	is_uint "$isize" && is_uint "$free" || core_fail "cannot check free space" || return 1
-	[ $((free * 1024)) -ge $((isize + 4194304)) ] ||
-		core_fail "not enough flash: need $(((isize + 4194304) / 1048576)) MiB, free $((free / 1024)) MiB" || return 1
+	is_uint "$gz_bytes" && is_uint "$free" || core_fail "cannot check free space" || return 1
+	[ $((free * 1024)) -ge $((gz_bytes + 4194304)) ] ||
+		core_fail "not enough flash: need $(((gz_bytes + 4194304 + 1048575) / 1048576)) MiB, free $((free / 1024)) MiB" || return 1
 
 	ensure_dir "$(dirname "$CLASH_BIN")" || return 1
-	gzip -dc "$gz" >"$CLASH_BIN.new" && chmod 755 "$CLASH_BIN.new" || core_fail "unpack failed" || return 1
+	if ! gzip -dc "$gz" >"$CLASH_BIN.new" 2>"$CORE_TMP_DIR/gzip.err"; then
+		if grep -q 'No space left' "$CORE_TMP_DIR/gzip.err" 2>/dev/null; then
+			core_fail "not enough flash: free $((free / 1024)) MiB before unpacking"
+		else
+			core_fail "unpack failed"
+		fi
+		return 1
+	fi
+	chmod 755 "$CLASH_BIN.new" || core_fail "unpack failed" || return 1
 	[ -n "$(core_version "$CLASH_BIN.new")" ] || core_fail "new binary does not run on this router" || return 1
 	if [ -r "$CLASH_CONFIG" ] && mihomo_config_generate "$CLASH_CONFIG" "$config" 2>/dev/null; then
 		mihomo_config_test "$config" "$CLASH_BIN.new" || core_fail "new core rejects the current config" || return 1

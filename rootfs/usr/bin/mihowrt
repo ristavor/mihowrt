@@ -7,7 +7,7 @@ usage() {
 	cat >&2 <<'EOF'
 Usage: mihowrt <command>
 Service:  prepare | run-service | wait-stopped | recover | reload | migrate | uninstall
-Config:   read-config [tmp] | save-config <tmp> | restore-config
+Config:   read-config [tmp] | runtime-config | save-config <tmp> | restore-config
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
 Updates:  auto-update | net-refresh | core-update | core-version-json
@@ -30,17 +30,30 @@ dashboard_json() {
 }
 
 core_update_cmd() {
-	local result="" rc=0 restarted=false restart_error=""
+	local result="" rc=0 restarted=false restart_error="" out=""
 
 	# The download can take minutes: no runtime lock (nothing in the
-	# runtime state changes until the service restarts).
+	# runtime state changes until the service restarts). fd 7 keeps a second
+	# core update out.
+	ensure_dir "$PKG_STATE_DIR" || return 1
+	exec 7>>"$PKG_STATE_DIR/core.flock"
+	if ! flock -n 7; then
+		exec 7>&-
+		err "Another core update is running"
+		jq -nc --arg v "$(core_version)" \
+			'{updated: false, version: $v, error: "Another core update is running", restarted: false}'
+		return 1
+	fi
 	result="$(core_update_json)" || rc=$?
+	flock -u 7
+	exec 7>&-
 	# Restart outside the lock: stop waits for run-service, which needs it.
 	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | jq -r .updated)" = true ] && service_running; then
-		if /etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1; then
+		if out="$(/etc/init.d/mihowrt restart 2>&1 >/dev/null 9>&-)"; then
 			restarted=true
 		else
-			restart_error="Mihomo core updated, but the service restart failed"
+			out="$(printf '%s\n' "$out" | awk 'NF { l = $0 } END { sub(/^Error: /, "", l); print l }')"
+			restart_error="Mihomo core updated, but the service restart failed${out:+: $out}"
 			err "$restart_error"
 			rc=1
 		fi
@@ -56,7 +69,7 @@ case "$cmd" in
 job-start) job_start "$@" ;;
 job-run) job_run "$@" ;;
 job-status) job_status "$@" ;;
-prepare) with_lock service_prepare ;;
+prepare) service_prepare_cmd ;;
 run-service) run_service ;;
 wait-stopped) service_wait_stopped ;;
 recover) with_lock service_recover ;;
@@ -69,6 +82,10 @@ uninstall)
 reload) with_lock service_reload ;;
 migrate) with_lock migrate ;;
 read-config) config_read_json "${1:-}" ;;
+runtime-config)
+	need_args $# 0
+	runtime_config_json
+	;;
 save-config)
 	need_args $# 1
 	# Wait for a starting Mihomo before taking the lock.

@@ -93,8 +93,15 @@ service_ready() {
 service_recover() {
 	local pid=""
 
-	pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1 && return 0
-	pid="$(service_pid)" && kill -9 "$pid" 2>/dev/null
+	pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1 && return 0
+	if pid="$(service_pid)"; then
+		kill -9 "$pid" 2>/dev/null
+	else
+		# An older build may have left Mihomo without a pid file.
+		for pid in $(pgrep -f "^$CLASH_BIN " 2>/dev/null); do
+			kill -9 "$pid" 2>/dev/null
+		done
+	fi
 	policy_cleanup
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE"
 }
@@ -114,7 +121,7 @@ uninstall_cleanup() {
 	for name in GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do
 		rm -f "$CLASH_DIR/$name" || rc=1
 	done
-	rm -f "$PKG_PERSIST_DIR/subscription.json" "$PKG_PERSIST_DIR/cache.db" "$PKG_PERSIST_DIR/dns.backup" || rc=1
+	rm -f "$PKG_PERSIST_DIR/subscription.json" "$PKG_PERSIST_DIR/cache.db" || rc=1
 	rm -rf "$POLICY_CACHE_DIR" || rc=1
 	rm -rf "$PKG_TMP_DIR" "$PKG_STATE_DIR" "${CACHE_DB_TMPFS%/*}" || rc=1
 	return "$rc"
@@ -148,6 +155,27 @@ service_prepare() {
 	layout_init || return 1
 	cron_update || warn "Failed to update cron schedule"
 	runtime_config_build "$RUNTIME_CONFIG"
+}
+
+# last_error_record <stderr-file>: the start error shown in the UI.
+last_error_record() {
+	local error=""
+
+	error="$(sed 's/^Error: //' "$1" 2>/dev/null)"
+	atomic_write "$LAST_ERROR_FILE" "${error:-MihoWRT could not start. See the system log.}"
+	return 0
+}
+
+# `mihowrt prepare`: service_prepare under the lock; a failure is recorded.
+service_prepare_cmd() {
+	local errfile="$LAST_ERROR_FILE.err.$$" rc=0
+
+	ensure_dir "$PKG_STATE_DIR" || return 1
+	with_lock service_prepare 2>"$errfile" || rc=$?
+	cat "$errfile" >&2
+	[ "$rc" -eq 0 ] || last_error_record "$errfile"
+	rm -f "$errfile"
+	return "$rc"
 }
 
 port_hex() {
@@ -212,15 +240,15 @@ run_service() {
 
 	ensure_dir "$PKG_STATE_DIR" || return 1
 	rm -f "$HEALTH_FILE" "$DEGRADED_FILE"
-	if ! { settings_load && { [ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG"; }; } 2>"$LAST_ERROR_FILE.tmp.$$"; then
-		cat "$LAST_ERROR_FILE.tmp.$$" >&2
-		error="$(sed 's/^Error: //' "$LAST_ERROR_FILE.tmp.$$")"
-		atomic_write "$LAST_ERROR_FILE" "${error:-MihoWRT could not start. See the system log.}"
-		rm -f "$LAST_ERROR_FILE.tmp.$$"
+	error="$LAST_ERROR_FILE.err.$$"
+	if ! { settings_load && { [ -s "$RUNTIME_CONFIG" ] || runtime_config_build "$RUNTIME_CONFIG"; }; } 2>"$error"; then
+		cat "$error" >&2
+		last_error_record "$error"
+		rm -f "$error"
 		return 1
 	fi
-	cat "$LAST_ERROR_FILE.tmp.$$" >&2
-	rm -f "$LAST_ERROR_FILE.tmp.$$"
+	cat "$error" >&2
+	rm -f "$error"
 	memlimit="$(mihomo_memory_limit)"
 	trap 'stop=1; MIHOWRT_STOP=1' INT TERM HUP
 	GOMEMLIMIT="${memlimit:-off}" SAFE_PATHS="$PKG_TMP_DIR" \
@@ -312,8 +340,13 @@ service_wait_stopped() {
 	local owner="" i=0
 
 	owner="$(cat "$RUNNING_MARKER" 2>/dev/null)"
-	# Also wait for a live Mihomo, even when the supervisor marker is gone.
-	while { { is_uint "$owner" && kill -0 "$owner" 2>/dev/null; } || service_running; } && [ "$i" -lt 35 ]; do
+	while { pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1 || { is_uint "$owner" && kill -0 "$owner" 2>/dev/null; }; } && [ "$i" -lt 35 ]; do
+		sleep 1
+		i=$((i + 1))
+	done
+	# No supervisor left: a Mihomo still alive after 5 s is an orphan.
+	i=0
+	while service_running && [ "$i" -lt 5 ]; do
 		sleep 1
 		i=$((i + 1))
 	done
@@ -359,9 +392,7 @@ service_reload() {
 # Hourly cron entry: downloads run unlocked, applying takes the runtime lock.
 auto_update() {
 	settings_load || return 1
-	if subscription_due; then
-		subscription_update && touch "$PKG_STATE_DIR/subscription.stamp"
-	fi
+	subscription_due && subscription_update
 	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ] && service_ready; then
 		with_lock nft_apply
 	fi

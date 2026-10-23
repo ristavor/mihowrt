@@ -87,18 +87,17 @@ lists_provider_url_ok() {
 	fi
 }
 
-lists_provider_entries() {
-	local line="" url="" key=""
+# lists_profile_filter <profile>: drop provider list URLs the policy rejects.
+# Runs once per config build, so readers of the profile never re-check them.
+lists_profile_filter() {
+	local profile="$1" line="" url=""
 
-	case "$1" in
-	dst) key=proxy-ip ;;
-	direct) key=direct-ip ;;
-	*) return 0 ;;
-	esac
-	profile_entries "$key" | lists_clean_lines | while IFS= read -r line; do
+	[ -f "$profile" ] || return 0
+	while IFS= read -r line || [ -n "$line" ]; do
 		case "$line" in
-		*://*)
-			url="${line%%;*}"
+		"proxy-ip "*://* | "direct-ip "*://*)
+			url="$(printf '%s\n' "${line#* }" | lists_clean_lines)"
+			url="${url%%;*}"
 			lists_provider_url_ok "$url" || {
 				warn "x-mihowrt: ignored list URL $url (only public https URLs)"
 				continue
@@ -106,7 +105,19 @@ lists_provider_entries() {
 			;;
 		esac
 		printf '%s\n' "$line"
-	done
+	done <"$profile" >"$profile.tmp" || {
+		rm -f "$profile.tmp"
+		return 1
+	}
+	mv -f "$profile.tmp" "$profile"
+}
+
+lists_provider_entries() {
+	case "$1" in
+	dst) profile_entries proxy-ip | lists_clean_lines ;;
+	direct) profile_entries direct-ip | lists_clean_lines ;;
+	esac
+	return 0
 }
 
 # Cleaned entries that apply for one kind.

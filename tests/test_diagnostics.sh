@@ -8,9 +8,12 @@ mkdir -p "$tmpdir/bin" "$tmpdir/proc/123"
 export DIAG_FIXTURE="$tmpdir"
 cat >"$tmpdir/bin/apk" <<'APK'
 #!/bin/ash
-[ "$1 $2" = 'info -e' ] || exit 99
-echo "$3" >>"$DIAG_FIXTURE/apk.calls"
-grep -qxF "$3" "$DIAG_FIXTURE/installed"
+echo "$*" >>"$DIAG_FIXTURE/apk.calls"
+case "$*" in
+info) cat "$DIAG_FIXTURE/installed" ;;
+'info -e '*) grep -qxF "$3" "$DIAG_FIXTURE/installed" ;;
+*) exit 99 ;;
+esac
 APK
 cat >"$tmpdir/bin/df" <<'DF'
 #!/bin/ash
@@ -41,9 +44,10 @@ diag() { ash "$tmpdir/diagnostics"; }
 
 case "${1:-all}" in
 all|conflicts)
- printf 'https-dns-proxy\npodkop\n' >"$tmpdir/installed"
+ printf 'podkop\nfoo\nhttps-dns-proxy\n' >"$tmpdir/installed"
  assert_eq '["podkop","https-dns-proxy"]' "$(diag | jq -c .conflicts)" 'installed conflicts in authoritative order'
- assert_eq 'podkop luci-app-podkop luci-app-passwall luci-app-passwall2 luci-app-openclash luci-app-homeproxy luci-app-nikki nikki luci-app-ssclash luci-app-v2raya luci-app-mihomo https-dns-proxy adguardhome' "$(paste -sd ' ' "$tmpdir/apk.calls")" 'each exact conflict checked once'
+ assert_eq 1 "$(wc -l <"$tmpdir/apk.calls" | tr -d ' ')" 'diagnostics makes one apk call'
+ assert_eq info "$(cat "$tmpdir/apk.calls")" 'diagnostics apk info without per-package arguments'
  : >"$tmpdir/installed"
  assert_eq '[]' "$(diag | jq -c .conflicts)" 'no installed conflicts'
  pass 'diagnostics conflicts'

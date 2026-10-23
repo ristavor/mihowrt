@@ -84,6 +84,8 @@ subscription_set() {
 		return 1
 		;;
 	esac
+	# "Update now" saves the same values: no UCI commit, cron or DNS work.
+	[ "$url" = "$(uci_get subscription_url)" ] && [ "$auto" = "$(uci_get subscription_auto_update)" ] && return 0
 	uci_set subscription_url "$url" && uci_set subscription_auto_update "$auto" && uci_commit || return 1
 	settings_load && cron_update
 	[ -f "$RUNNING_MARKER" ] && dns_apply

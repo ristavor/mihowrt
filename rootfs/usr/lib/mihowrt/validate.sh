@@ -59,8 +59,9 @@ is_valid_uint32_mark() {
 
 	case "$value" in
 	0x* | 0X*)
+		# 1-8 hex digits: a longer value would overflow $(( )).
 		case "${value#0[xX]}" in
-		'' | *[!0-9A-Fa-f]*) return 1 ;;
+		'' | *[!0-9A-Fa-f]* | ?????????*) return 1 ;;
 		esac
 		value="$((value))"
 		;;

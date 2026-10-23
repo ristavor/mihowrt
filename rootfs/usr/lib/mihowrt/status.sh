@@ -137,10 +137,12 @@ profile_json() {
 }
 
 diagnostics_json() {
-	local package="" conflicts="" flash="" ram="" rss="" pid="" ports=""
+	local package="" installed="" conflicts="" flash="" ram="" rss="" pid="" ports=""
 
+	# One apk call: installed package names, one per line.
+	installed="$(apk info 2>/dev/null)"
 	for package in $CONFLICT_PACKAGES; do
-		if apk info -e "$package" >/dev/null 2>&1; then
+		if printf '%s\n' "$installed" | grep -qxF "$package"; then
 			conflicts="${conflicts}${package}
 "
 		fi

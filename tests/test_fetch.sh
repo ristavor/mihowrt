@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh subscription.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh fetch.sh subscription.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"
@@ -16,6 +16,38 @@ PKG_PERSIST_DIR="$tmpdir/etc"
 PKG_STATE_DIR="$tmpdir/run"
 SUBSCRIPTION_META_FILE="$tmpdir/etc/subscription.json"
 mkdir -p "$PKG_STATE_DIR"
+
+subscription_set_fixture() {
+ fake_uci_reset
+ fake_uci_set mihowrt.settings.subscription_url https://same.example/sub
+ fake_uci_set mihowrt.settings.subscription_auto_update 1
+ : >"$tmpdir/set.calls"
+ uci() {
+  case " $* " in *' commit '*) echo commit >>"$tmpdir/set.calls" ;; *' set '*) echo set >>"$tmpdir/set.calls" ;; esac
+  command uci "$@"
+ }
+ cron_update() { echo cron >>"$tmpdir/set.calls"; }
+ dns_apply() { echo dns >>"$tmpdir/set.calls"; }
+}
+
+# polish: set unchanged skips commit
+(
+ set -e
+ subscription_set_fixture
+ subscription_set https://same.example/sub 1 || fail 'unchanged setter must succeed'
+ assert_eq '' "$(cat "$tmpdir/set.calls")" 'set unchanged skips commit, writes, cron and DNS'
+)
+pass 'set unchanged skips commit'
+
+# The changed URL path keeps its existing commit behaviour.
+(
+ set -e
+ subscription_set_fixture
+ subscription_set https://changed.example/sub 1 || fail 'changed setter must succeed'
+ assert_eq 1 "$(grep -c '^commit$' "$tmpdir/set.calls")" 'changed URL commits once'
+)
+fake_uci_reset
+pass 'changed URL commits once'
 
 # curl stub: logs args, writes $CURL_BODY to -o and $CURL_HEADERS to -D.
 cat >"$tmpdir/bin/curl" <<'C'

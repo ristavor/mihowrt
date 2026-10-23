@@ -81,6 +81,49 @@ wait_job() {
  done
  fail "job $id did not finish"
 }
+# Seed a live process id with an independent fake /proc command line.
+job_liveness_fixture() {
+ mkdir -p "$tmpdir/run/jobs" "$tmpdir/proc/$$"
+ rm -f "$tmpdir/run/jobs/active"
+ local fixture_id=1-4242
+ jq -nc --arg id "$fixture_id" '{id:$id,op:"update-lists",state:"running",started:1,finished:null,result:null,error:null}' >"$tmpdir/run/jobs/$fixture_id.json"
+ echo "$$" >"$tmpdir/run/jobs/$fixture_id.pid"
+ ln -s "$fixture_id" "$tmpdir/run/jobs/active"
+ printf '%s\0' "$@" >"$tmpdir/proc/$$/cmdline"
+}
+
+# polish: reused pid
+(
+ set -e
+ job_liveness_fixture sleep 100
+ liveness_status="$(JOB_PROC_DIR="$tmpdir/proc" cli job-status 1-4242)"
+ assert_eq error "$(jq -r .state <<<"$liveness_status")" 'reused pid'
+ assert_eq 'Interrupted: the operation was stopped before it finished.' "$(jq -r .error <<<"$liveness_status")" 'reused pid interruption text'
+ assert_false 'reused pid frees slot' test -L "$tmpdir/run/jobs/active"
+)
+pass 'reused pid'
+
+# polish: live job
+(
+ set -e
+ job_liveness_fixture /usr/bin/mihowrt job-run 1-2 update-lists
+ liveness_status="$(JOB_PROC_DIR="$tmpdir/proc" cli job-status 1-4242)"
+ assert_eq running "$(jq -r .state <<<"$liveness_status")" 'live job'
+ assert_true 'live job keeps slot' test -L "$tmpdir/run/jobs/active"
+)
+pass 'live job'
+
+# polish: starter
+(
+ set -e
+ job_liveness_fixture /usr/bin/mihowrt job-start update-lists
+ liveness_status="$(JOB_PROC_DIR="$tmpdir/proc" cli job-status 1-4242)"
+ assert_eq running "$(jq -r .state <<<"$liveness_status")" 'starter'
+ assert_true 'starter keeps slot' test -L "$tmpdir/run/jobs/active"
+)
+rm -rf "$tmpdir/run/jobs"
+pass 'starter'
+
 start_job update-lists
 assert_eq running "$(cli job-status "$id" | jq -r .state)" 'running status'
 wait_job

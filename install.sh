@@ -10,7 +10,6 @@ PKG="luci-app-mihowrt"
 I18N_PKG="luci-i18n-mihowrt-ru"
 DEPS="luci-base nftables jq kmod-nft-tproxy curl"
 CORE="/opt/clash/bin/clash"
-CORE_SPACE_KB=81920
 MIHOWRT_BIN="/usr/bin/mihowrt"
 WORK=""
 
@@ -83,15 +82,15 @@ free_kb() {
 	df -k "$1" 2>/dev/null | awk 'NR == 2 { print $4 }'
 }
 
+# Package reserve only; core-update checks the flash for the core itself.
 check_space() {
 	local need=2048 free=""
 
-	[ -x "$CORE" ] || need=$((need + CORE_SPACE_KB))
 	mkdir -p /opt/clash
 	free="$(free_kb /opt/clash)"
 	[ -n "$free" ] || return 0
 	[ "$free" -ge "$need" ] ||
-		die "not enough flash: need $((need / 1024)) MiB, free $((free / 1024)) MiB (the Mihomo core is about 60 MiB)"
+		die "not enough flash: need $((need / 1024)) MiB, free $((free / 1024)) MiB"
 }
 
 # download_file <name> <out>: fixed-name release asset.

@@ -22,6 +22,27 @@ config_read_json() {
 	fi
 }
 
+# The YAML passed to Mihomo. Not started since boot: what it would get at
+# start (built from the user's YAML, without the core test).
+runtime_config_json() {
+	local scratch="" rc=0
+
+	if [ -r "$RUNTIME_CONFIG" ]; then
+		jq -Rs '{content: ., generated: false}' <"$RUNTIME_CONFIG"
+		return
+	fi
+	settings_load || return 1
+	ensure_dir "$PKG_TMP_DIR" || return 1
+	scratch="$(mktemp "$PKG_TMP_DIR/runtime-preview.XXXXXX")" || return 1
+	if mihomo_config_generate "$CLASH_CONFIG" "$scratch"; then
+		jq -Rs '{content: ., generated: true}' <"$scratch" || rc=1
+	else
+		rc=1
+	fi
+	rm -f "$scratch" "$scratch.profile"
+	return "$rc"
+}
+
 # Wait without the lock for a starting Mihomo's API: run_service needs the
 # lock to apply policy, so waiting inside it could stall both for 30 s.
 config_api_wait() {
@@ -80,7 +101,11 @@ config_install() {
 	# otherwise rebuild the live profile from the new YAML first.
 	rm -f "$old_profile"
 	[ -f "$PROFILE_FILE" ] && cp "$PROFILE_FILE" "$old_profile"
-	[ -f "$CLASH_CONFIG" ] && cp -p "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"
+	# Hard link: the old YAML is not written again; the install below
+	# replaces $CLASH_CONFIG with a new inode, the backup keeps the old one.
+	if [ -f "$CLASH_CONFIG" ]; then
+		ln -f "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP" 2>/dev/null || cp -p "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"
+	fi
 	if ! { cp "$candidate" "$CLASH_CONFIG.tmp" && chmod 600 "$CLASH_CONFIG.tmp" && mv -f "$CLASH_CONFIG.tmp" "$CLASH_CONFIG"; }; then
 		rm -f "$CLASH_CONFIG.tmp" "$runtime_candidate" "$runtime_candidate.profile" "$old_profile"
 		err "Cannot write $CLASH_CONFIG"

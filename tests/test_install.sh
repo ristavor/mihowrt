@@ -31,12 +31,17 @@ if (MIHOWRT_LANGUAGE=de resolve_language) >/dev/null 2>&1; then fail "unsupporte
 pass "language preserved"
 
 CORE="$tmpdir/clash"
-free_kb() { echo 40960; }
-if (check_space) >/dev/null 2>&1; then fail "40 MiB is not enough without a core"; fi
+free_kb() { echo 3072; }
+# polish: no core space reserve
+(
+ set -e
+ (check_space) >/dev/null 2>&1 || fail 'no core space reserve: 3 MiB must suffice without a core'
+ assert_eq 0 "$(grep -c CORE_SPACE_KB "$ROOT_DIR/install.sh" || true)" 'no CORE_SPACE_KB reserve remains'
+)
+# Keep the removal no-regression fixture executable.
 touch "$CORE"
 chmod +x "$CORE"
-(check_space) || fail "40 MiB is enough when the core exists"
-pass "space check"
+pass 'no core space reserve'
 
 calls="$tmpdir/calls"
 mkdir -p "$tmpdir/bin"

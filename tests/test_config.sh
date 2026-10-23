@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh config.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh mihomo-api.sh config.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"
@@ -34,6 +34,79 @@ policy_apply() { :; }
 api_alive() { [ "$running" = 1 ]; }
 reload_ok=1
 api_reload() { [ "$reload_ok" = 1 ]; }
+
+runtime_config_fixture() {
+ setup_runtime_paths "$tmpdir/runtime-$1"
+ RUNTIME_CONFIG="$PKG_TMP_DIR/config.yaml"
+}
+
+# polish: runtime file
+(
+ set -e
+ runtime_config_fixture file
+ printf 'secret: "quoted"\r\nmode: rule\n' >"$RUNTIME_CONFIG"
+ declare -F runtime_config_json >/dev/null || fail 'runtime_config_json helper missing (runtime file)'
+ runtime_config_json >"$tmpdir/runtime-file.json"
+ assert_eq false "$(jq -r .generated "$tmpdir/runtime-file.json")" 'runtime file is not a generated preview'
+ jq -j .content "$tmpdir/runtime-file.json" >"$tmpdir/runtime-file.content"
+ assert_true 'runtime file preserves quotes, CRLF and trailing newline byte-for-byte' cmp -s "$RUNTIME_CONFIG" "$tmpdir/runtime-file.content"
+)
+pass 'runtime file'
+
+# polish: preview leaves no scratch
+(
+ set -e
+ runtime_config_fixture preview
+ printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n' >"$CLASH_CONFIG"
+ before_scratch="$(ls -A "$PKG_TMP_DIR")"
+ mihomo_config_test() { fail 'runtime preview must not test with the Mihomo core'; }
+ declare -F runtime_config_json >/dev/null || fail 'runtime_config_json helper missing (preview)'
+ runtime_config_json >"$tmpdir/runtime-preview.json"
+ assert_eq true "$(jq -r .generated "$tmpdir/runtime-preview.json")" 'missing runtime produces generated preview'
+ jq -j .content "$tmpdir/runtime-preview.json" >"$tmpdir/runtime-preview.content"
+ assert_file_contains "$tmpdir/runtime-preview.content" 'tproxy-port: 7894' 'preview contains managed keys'
+ assert_file_not_contains "$tmpdir/runtime-preview.content" x-mihowrt 'preview removes extension'
+ assert_eq "$before_scratch" "$(ls -A "$PKG_TMP_DIR")" 'preview leaves no scratch'
+)
+pass 'preview leaves no scratch'
+
+# polish: no yaml
+(
+ set -e
+ runtime_config_fixture missing
+ declare -F runtime_config_json >/dev/null || fail 'runtime_config_json helper missing (no yaml)'
+ missing_rc=0
+ runtime_config_json >"$tmpdir/runtime-missing.out" 2>"$tmpdir/runtime-missing.err" || missing_rc=$?
+ assert_eq 1 "$missing_rc" 'runtime-config without YAML fails'
+ assert_eq "Error: Mihomo config not found: $CLASH_CONFIG" "$(cat "$tmpdir/runtime-missing.err")" 'no yaml'
+)
+pass 'no yaml'
+
+# polish: backup is a hard link; backup fallback
+check_config_backup() {
+  set -e
+  local CLASH_DIR CLASH_CONFIG CLASH_CONFIG_BACKUP RUNTIME_CONFIG old_inode
+  setup_runtime_paths "$tmpdir/backup-$backup_mode"
+  CLASH_DIR="$tmpdir/backup-$backup_mode/clash"
+  CLASH_CONFIG="$CLASH_DIR/config.yaml"
+  CLASH_CONFIG_BACKUP="$CLASH_CONFIG.bak"
+  RUNTIME_CONFIG="$PKG_TMP_DIR/runtime.yaml"
+  mkdir -p "$CLASH_DIR"
+  printf 'mode: rule\n' >"$CLASH_CONFIG"
+  printf 'mode: global\n' >"$PKG_TMP_DIR/candidate.yaml"
+  old_inode="$(stat -c %i "$CLASH_CONFIG")"
+  if [ "$backup_mode" = fallback ]; then ln() { return 1; }; fi
+  config_install "$PKG_TMP_DIR/candidate.yaml" >/dev/null
+  assert_eq 'mode: rule' "$(cat "$CLASH_CONFIG_BACKUP")" "backup $backup_mode content"
+  if [ "$backup_mode" = hardlink ]; then
+   assert_eq "$old_inode" "$(stat -c %i "$CLASH_CONFIG_BACKUP")" 'backup is a hard link'
+   [ "$old_inode" != "$(stat -c %i "$CLASH_CONFIG")" ] || fail 'new YAML must use another inode'
+  fi
+}
+for backup_mode in hardlink fallback; do
+ (check_config_backup)
+ pass "backup $backup_mode"
+done
 
 echo BROKEN >"$tmpdir/cand"
 if config_install "$tmpdir/cand" 2>"$tmpdir/err"; then fail "invalid config must be rejected"; fi

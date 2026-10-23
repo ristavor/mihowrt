@@ -23,17 +23,21 @@ Typical use:
 
 ## Install, update, remove
 
-On the router:
+On the router (`wget` is part of every OpenWrt image; the installer adds
+`curl` itself):
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+wget -qO- https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
 ```
+
+With `curl` already installed the same works as
+`curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh`.
 
 If `raw.githubusercontent.com` is unreachable, use the jsDelivr mirror of the
 same file:
 
 ```sh
-curl -fsSL https://cdn.jsdelivr.net/gh/ristavor/mihowrt@main/install.sh | sh
+wget -qO- https://cdn.jsdelivr.net/gh/ristavor/mihowrt@main/install.sh | sh
 ```
 
 The installer downloads `SHA256SUMS` and the APKs from the latest GitHub

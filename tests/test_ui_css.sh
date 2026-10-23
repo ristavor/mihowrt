@@ -23,6 +23,7 @@ assert(/\.mw-status\s*\{[^}]*flex-direction:\s*column/.test(css), 'status facts 
 // Phone: equal-width columns, so a lone third button (Website) is not stretched to the full row.
 assert(/\.mw-actions\s*\{[^}]*display:\s*grid;[^}]*grid-template-columns:\s*repeat\(auto-fill,\s*minmax\(min\(100%,\s*10em\),\s*1fr\)\)/.test(css), 'phone action buttons in equal columns');
 assert(!/\.mw-actions\s*>\s*\.cbi-button\s*\{[^}]*flex:\s*1 1 auto/.test(css), 'no stretching flex rule for action buttons');
+assert(/\.mw-actions\s*\{[^}]*align-items:\s*stretch/.test(css) && /\.mw-actions\s*>\s*\.cbi-button\s*\{\s*margin:\s*0;?\s*\}/.test(css), 'grid cells align: same row height, no theme margins (openwrt-2020)');
 const overview = fs.readFileSync(path.join(root, 'rootfs/www/luci-static/resources/view/mihowrt/overview.js'), 'utf8');
 assert(/class: 'mw-toggle'/.test(api), 'toggle wrapper marked for spacing');
 assert(/function linkButton/.test(api) && /api\.linkButton\(sub\./.test(overview) && !/safeLink\(sub\./.test(overview), 'provider links are theme buttons, not unstyled links');

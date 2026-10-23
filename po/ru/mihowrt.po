@@ -717,3 +717,6 @@ msgstr "Собран MihoWRT из вашего YAML: ключи роутера �
 
 msgid "MihoWRT is not running; this is what it would pass at start."
 msgstr "MihoWRT не запущен; это то, что будет передано при запуске."
+
+msgid "Try again"
+msgstr "Повторить"

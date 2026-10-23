@@ -46,6 +46,21 @@ pass 'generate filters once'
 )
 pass 'whitespace inside a provider URL is filtered'
 
+# VM B1: the scratch build of profile_ensure does not log; the real build does
+(
+ set -e
+ CLASH_CONFIG="$tmpdir/quiet.yaml"; PROFILE_FILE="$tmpdir/quiet.profile"
+ printf 'x-mihowrt:\n  proxy-ips:\n    - https://10.0.0.1/q\n' >"$CLASH_CONFIG"
+ rm -f "$PROFILE_FILE" "$tmpdir/quiet.log"
+ logger() { echo "$*" >>"$tmpdir/quiet.log"; }
+ profile_ensure
+ assert_file_not_contains "$PROFILE_FILE" '10.0.0.1' 'profile_ensure still filters'
+ assert_false 'profile_ensure logs nothing' test -s "$tmpdir/quiet.log"
+ mihomo_config_generate "$CLASH_CONFIG" "$tmpdir/quiet.runtime.yaml"
+ assert_file_contains "$tmpdir/quiet.log" 'ignored list URL https://10.0.0.1/q' 'the real build logs the warning'
+)
+pass "profile_ensure scratch build is quiet"
+
 # Lock every successful fixture in this test to the pre-split generator bytes.
 eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"
 printf '0\n' >"$tmpdir/generator-count"
@@ -259,6 +274,7 @@ printf 'dns:\n  enhanced-mode: normal\n' >"$CLASH_CONFIG"
 profile_ensure
 assert_eq normal "$(profile_get dns)" "newer YAML regenerates profile"
 pass "provider DNS, defaults, extension validation and profile regeneration"
+
 
 printf 'x-mihowrt:\n  proxy-ips:\n  - 1.2.3.4\n' >"$src"
 mihomo_config_generate "$src" "$out"

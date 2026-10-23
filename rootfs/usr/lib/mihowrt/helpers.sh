@@ -4,8 +4,9 @@ log() {
 	logger -p daemon.info -t "mihowrt" "$*"
 }
 
+# MIHOWRT_QUIET=1: a scratch build whose warnings the real build logs again.
 warn() {
-	logger -p daemon.warn -t "mihowrt" "$*"
+	[ "${MIHOWRT_QUIET:-0}" = 1 ] || logger -p daemon.warn -t "mihowrt" "$*"
 }
 
 # Errors go to syslog and stderr so LuCI can show the reason to the user.

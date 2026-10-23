@@ -237,8 +237,11 @@ function storage() {
 	return { store, sessionStorage: { getItem: k => store[k] ?? null, setItem: (k, v) => { store[k] = String(v); }, removeItem: k => { delete store[k]; } } };
 }
 function notifications() {
-	const shown = [];
-	return { shown, ui: { addNotification: (t, node, level) => shown.push([node.children[0], level]) } };
+	const shown = [], roles = [];
+	return { shown, roles, ui: { addNotification: (t, node, level) => {
+		shown.push([node.children[0], level]);
+		return { setAttribute: (k, v) => k === 'role' && roles.push(v) };
+	} } };
 }
 const nowSeconds = () => Math.floor(Date.now() / 1000);
 test('running job error reloads with notice', async () => {
@@ -266,6 +269,14 @@ test('finished error shown once', async () => {
 	assert.deepEqual(shown, [[ '"Update Mihomo core" failed: x', 'error' ]]);
 	api.jobNotice(); await flush();
 	assert.equal(shown.length, 1, 'second page load shows nothing');
+});
+test('background subscription error is the plain text, announced as alert', async () => {
+	const { sessionStorage } = storage(), { shown, roles, ui } = notifications();
+	const { api } = setup({ sessionStorage, ui });
+	api.read = async () => ({ state: 'error', id: '5-8', op: 'update-subscription', finished: 1000, now: 1001, error: 'Subscription download failed: http_404' });
+	api.jobNotice(); await flush();
+	assert.deepEqual(shown, [[ '"Update subscription" failed: The subscription link was not found (HTTP 404). Check the link with your provider.', 'error' ]]);
+	assert.deepEqual(roles, [ 'alert' ]);
 });
 test('error window uses the router clock', async () => {
 	const { sessionStorage } = storage(), { shown, ui } = notifications();

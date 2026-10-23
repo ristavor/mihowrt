@@ -88,7 +88,17 @@ return view.extend({
 		restoreNote.hidden = !auto.checked;
 		auto.addEventListener('change', () => { describeAuto(); restoreNote.hidden = !auto.checked; });
 
-		const loadError = e => E('div', { class: 'alert-message error' }, text(_('Cannot load the YAML: %s').format(api.errorText(e))));
+		// Error state with a way forward; the region is busy while it loads.
+		const loadError = (e, retry) => {
+			const again = E('button', { class: 'cbi-button', type: 'button' }, text(_('Try again')));
+			again.addEventListener('click', retry);
+			return E('div', { class: 'alert-message error', role: 'alert' }, [
+				E('p', text(_('Cannot load the YAML: %s').format(api.errorText(e)))), again ]);
+		};
+		const loadingState = box => {
+			box.setAttribute('aria-busy', 'true');
+			box.replaceChildren(E('p', { class: 'spinning' }, text(_('Loading…'))));
+		};
 		const readYaml = async cmd => {
 			const reply = await api.readLarge(cmd);
 			if (typeof reply?.content !== 'string')
@@ -98,7 +108,7 @@ return view.extend({
 		const openEditor = () => {
 			if (yaml || loading)
 				return;
-			editorBody.replaceChildren(E('p', { class: 'spinning' }, text(_('Loading…'))));
+			loadingState(editorBody);
 			loading = readYaml('read-config').then(config => {
 				// LuCI's own monospace textarea (as for code fields on stock pages).
 				const widget = new ui.Textarea(config.content, { id: 'mw-yaml', monospace: true, wrap: false, rows: 24 }).render();
@@ -112,8 +122,9 @@ return view.extend({
 					E('div', { class: 'mw-row' }, status.config_backup ? [ apply, restore ] : [ apply ]),
 					...(status.config_backup ? [ restoreNote ] : []));
 			}).catch(e => {
-				editorBody.replaceChildren(loadError(e));
+				editorBody.replaceChildren(loadError(e, openEditor));
 			}).finally(() => {
+				editorBody.removeAttribute('aria-busy');
 				loading = null;
 			});
 		};
@@ -124,10 +135,11 @@ return view.extend({
 		const openRuntime = () => {
 			// Only the latest opening may fill the view.
 			const request = ++runtimeRequest;
-			runtime.replaceChildren(E('p', { class: 'spinning' }, text(_('Loading…'))));
+			loadingState(runtime);
 			readYaml('runtime-config').then(config => {
 				if (request !== runtimeRequest)
 					return;
+				runtime.removeAttribute('aria-busy');
 				const widget = new ui.Textarea(config.content, { id: 'mw-runtime', monospace: true, wrap: false, rows: 24, readonly: true }).render();
 				const area = widget.querySelector('textarea');
 				area.classList.add('mw-yaml');
@@ -138,8 +150,10 @@ return view.extend({
 					...(config.generated === true ? [ E('p', { class: 'mw-muted' }, text(_('MihoWRT is not running; this is what it would pass at start.'))) ] : []),
 					widget);
 			}).catch(e => {
-				if (request === runtimeRequest)
-					runtime.replaceChildren(loadError(e));
+				if (request !== runtimeRequest)
+					return;
+				runtime.removeAttribute('aria-busy');
+				runtime.replaceChildren(loadError(e, openRuntime));
 			});
 		};
 

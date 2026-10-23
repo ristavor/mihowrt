@@ -29,6 +29,7 @@ function E(tag, attrs, children) {
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);
  n.removeChild = c => n.children.splice(n.children.indexOf(c), 1);
+ n.removeAttribute = k => { delete n.attrs[k]; };
  n.replaceChildren = (...nodes) => { n.children = nodes; };
  Object.defineProperty(n, 'textContent', { get: () => n.children.filter(c => typeof c === 'string').join(''), set: value => { n.children = [value]; } });
  Object.defineProperty(n, 'firstChild', { get: () => n.children[0] });
@@ -912,6 +913,17 @@ seq(async () => {
   release({ content: 'old', generated: false }); await settle();
   h.assertEq(collect(box).find(n => n.tag === 'textarea')?.value, 'new', 'a slower earlier reply does not replace the newer one');
   reads.responses = real;
+ });
+ await check('load error offers Try again', async () => {
+  resetReads({ url: 'https://p.example/sub' }, Error('x'));
+  const p = sv.render(await sv.load());
+  const open = findButton(p, editorLabel), box = toggleOf(p, open);
+  h.assert(open.attrs['aria-controls'] && box.children[1].attrs.id === open.attrs['aria-controls'], 'toggle button controls its region');
+  await open.listeners.click(); await settle();
+  h.assert(collect(box).some(n => n.attrs.role === 'alert'), 'load error is an alert');
+  reads.responses['read-config'] = { content: 'proxies: []\n' };
+  await findButton(box, 'Try again').listeners.click(); await settle();
+  h.assertEq(editorAreas(p).length, 1, 'Try again loads the editor');
  });
  await check('effective yaml error', async () => {
   const p = await mountSubscription(sv, { url: 'https://p.example/sub' });

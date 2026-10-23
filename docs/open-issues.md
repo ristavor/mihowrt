@@ -47,7 +47,9 @@ None.
 - **AP mode is treated as WAN.** If the default route is via the LAN bridge (dumb AP), the bridge counts as WAN and its non-RFC1918 subnets are not excluded. This is inherent to the specified algorithm.
 
 ### UI (theme-only rule kept)
-- **The "?" icon before field descriptions:** see the VM check of the beta polish (theme rendering vs MihoWRT layout).
+- **The "?" icon before field descriptions sits higher than the text:** theme rendering (footstrap). VM check 2026-10-23: the same offset (icon top 1 px above the glyph) on MihoWRT pages and on stock Network → DHCP and System. No MihoWRT change.
+- **footstrap names both lease picker dropdowns after the field title** ("Devices always direct"): its `fs-select.js` replaces native selects with `ui.Dropdown` and sets `aria-label` from `.cbi-value-title`, ignoring the select's own `aria-label` (same on stock pages). Report upstream; other themes use our names.
+- **The private-MAC notification is out of view at 390 px** (LuCI puts it at the top of the page; at 1440 px in openwrt-2020/bootstrap the picker moves down 60–90 px). Kept as decided (notification, no shift under the field); it is announced to screen readers (`role="status"`).
 - **`api.job`/`api.jobNotice` rely on `this`**, so a destructured call would break them. No such caller exists.
 
 ### Tests and tooling

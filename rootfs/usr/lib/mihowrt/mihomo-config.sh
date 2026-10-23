@@ -76,7 +76,7 @@ mihomo_config_generate() {
 # Provider profile of the installed YAML. Rebuilt when missing or older
 # than the YAML (e.g. after a reboot with the service disabled).
 profile_ensure() {
-	local scratch="$PKG_TMP_DIR/profile.$$.yaml"
+	local scratch="$PKG_TMP_DIR/profile.$$.yaml" MIHOWRT_QUIET=1
 
 	[ -r "$CLASH_CONFIG" ] || return 1
 	[ -f "$PROFILE_FILE" ] && ! [ "$CLASH_CONFIG" -nt "$PROFILE_FILE" ] && return 0

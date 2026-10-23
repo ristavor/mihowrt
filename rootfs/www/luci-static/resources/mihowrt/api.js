@@ -32,6 +32,7 @@ const CSS = `
 .mw-toggle + .mw-toggle { margin-top: 12px; }
 .mw-job:empty { position: absolute; }
 .mw-picker > select { flex: 1 1 12em; min-width: 0; max-width: 100%; }
+.mw-picker + .cbi-value-description { margin-top: 4px; }
 .mw-groups .mw-row > select { flex: 1 1 12em; min-width: 0; max-width: 28em; }
 .mw-groups .mw-ping { flex: 0 0 auto; min-width: 5.5em; white-space: nowrap; }
 .mw-yaml { width: 100%; min-height: 24em; }
@@ -233,8 +234,11 @@ function subscriptionError(message) {
 
 // Show/hide a block with a theme button (no <details>: some themes hide
 // its marker). onOpen runs on every opening.
+let toggleCount = 0;
 function toggle(showLabel, hideLabel, content, onOpen) {
-	const button = E('button', { class: 'cbi-button', type: 'button', 'aria-expanded': 'false' }, text(showLabel));
+	const id = 'mw-toggle-' + (++toggleCount);
+	const button = E('button', { class: 'cbi-button', type: 'button', 'aria-expanded': 'false', 'aria-controls': id }, text(showLabel));
+	content.setAttribute('id', id);
 	content.hidden = true;
 	button.addEventListener('click', () => {
 		content.hidden = !content.hidden;
@@ -275,8 +279,10 @@ async function busy(button, action) {
 	}
 }
 
+// The LuCI banner has no role: announce it to screen readers.
 function notify(message, level) {
-	ui.addNotification(null, E('p', text(message)), level || 'info');
+	const node = ui.addNotification(null, E('p', text(message)), level || 'info');
+	node?.setAttribute?.('role', level === 'error' ? 'alert' : 'status');
 }
 
 const NOTICE_KEY = 'mihowrt-notice';
@@ -362,7 +368,8 @@ return baseclass.extend({
 	jobNotice: function() {
 		showPendingNotice();
 		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
-		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), error);
+		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op),
+			[ 'connect', 'update-subscription' ].includes(status.op) ? subscriptionError(error) : error);
 		this.read('job-status').then(async status => {
 			// A job that failed while no page waited for it: show it once.
 			if (status.state === 'error' && status.id && !jobSeen(status.id)

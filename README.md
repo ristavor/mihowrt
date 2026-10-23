@@ -17,8 +17,8 @@ Typical use:
 ## Requirements
 
 - OpenWrt 25.12 or newer (APK package manager), fw4/nftables.
-- About 80 MiB of free flash for the Mihomo core (about 60 MiB unpacked) and
-  128 MiB of RAM or more.
+- About 20 MB download for the Mihomo core (about 55 MB unpacked; compressing
+  overlays such as UBIFS or JFFS2 need less flash) and 128 MiB of RAM or more.
 - Dependencies installed automatically: `luci-base cgi-io jq nftables kmod-nft-tproxy curl`.
 
 ## Install, update, remove
@@ -67,6 +67,12 @@ removes the Mihomo core, the dashboard and the geodata. It keeps your
 `/etc/config/mihowrt` and the device ID `/etc/mihowrt/hwid`, so the provider
 sees the same device after a reinstall.
 
+### Upgrading from 0.8 or older
+
+Upgrades are supported from 0.9.0 and newer. From 0.8 or older: remove MihoWRT
+(installer → Remove, or `apk del luci-app-mihowrt`), then install 0.10. Your
+YAML, lists and settings are kept.
+
 ## Pages
 
 | Page | What it does |
@@ -92,15 +98,21 @@ The editor on the *Subscription* page takes a YAML up to 8 MiB. An empty YAML is
 refused and nothing is changed. *Restore the previous YAML* puts
 `config.yaml.bak` back (the current one becomes the new backup, so restore can
 be undone). A subscription update or an automatic update replaces the YAML
-again. If the YAML cannot be loaded, the editor is not shown, so a broken page
-can never overwrite it.
+again. The YAML is loaded when you open the editor; if it cannot be loaded, the
+editor is not shown, so a broken page can never overwrite it.
+
+*Show the YAML passed to Mihomo* shows, read-only, the generated
+`/tmp/mihowrt/config.yaml` (router keys replaced, default DNS and sniffer
+added, `x-mihowrt` removed). When MihoWRT has not started since boot, it shows
+what would be passed at start.
 
 ### Devices
 
 *Devices via proxy* / *Devices always direct* take **MAC addresses**
 (`aa:bb:cc:dd:ee:ff`, any case) or **IP addresses**, mixed in one list. The
-lease picker has *Add as*: *MAC address (IPv4 and IPv6)* (default) or *IP
-address*. One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
+lease picker adds a device as *MAC (IPv4 + IPv6)* (default) or *IP address*.
+For a private (randomized) Wi-Fi MAC a notification explains how to keep it
+fixed for your network. One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
 covers its IPv6 traffic, and IPv6 privacy addresses change daily anyway.
 Address lists (*Addresses ...*) accept no MAC.
 
@@ -234,6 +246,10 @@ own error message is shown in LuCI. The result is remembered in
 `/var/run/mihowrt/config.ok|config.err` for Diagnostics, so status never runs
 the core.
 
+Geodata (GeoIP, GeoSite, ASN) follows your YAML: `geo-auto-update`,
+`geo-update-interval` and `geox-url` are not changed by MihoWRT. The files stay
+in `/opt/clash`; Mihomo rewrites them only when their content changes.
+
 ### DNS
 
 dnsmasq gets a conf-dir file `/tmp/dnsmasq.<section>.d/mihowrt.conf`:
@@ -323,7 +339,7 @@ mihowrt status-json | service-state-json | logs-json [lines] | subscription-json
 mihowrt lists-json | diagnostics-json | profile-json | dashboard-json
 mihowrt update-subscription [url] | set-subscription <url> <0|1>   # a new [url] is saved only if it downloads and passes the check
 mihowrt update-lists | apply-lists <dst|-> <src|-> <direct|-> <direct-src|-> | core-update
-mihowrt read-config | save-config <file> | restore-config
+mihowrt read-config | runtime-config | save-config <file> | restore-config
 mihowrt job-start <op> [args] | job-status [id]   # background jobs used by LuCI
 mihowrt recover | reload | net-refresh | uninstall
 /etc/init.d/mihowrt start | stop | restart | reload | enable | disable
@@ -352,9 +368,12 @@ On macOS the SDK runs in a Linux container with a named volume
 (`mihowrt-sdk-25.12.6`) because APFS is case-insensitive. The package is noarch,
 so only `luci-base/host` (`po2lmo`) is compiled.
 
-Release order (the tag must equal `v` + `PKG_VERSION` from `Makefile`):
+Release order (the tag must equal `v` + `PKG_VERSION` from `Makefile`; a
+`vX-rcN` tag publishes a GitHub pre-release, which `releases/latest` and the
+installer skip):
 
 ```sh
+git tag vX-rc1 && git push origin vX-rc1   # pre-release: check the workflow output
 git tag vX && git push origin vX   # starts the release workflow
 # wait for the release workflow to finish (APKs + SHA256SUMS in the release)
 git push origin main
@@ -379,7 +398,8 @@ GPL-3.0-or-later, see `LICENSE`.
 ## Known limits
 
 - The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
-  provider credentials), the subscription link and the Mihomo controller secret
+  provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
+  Mihomo*), the subscription link and the Mihomo controller secret
   (`uci mihowrt` via the read ACL) to every LuCI user with read access. Give such
   access only to people you trust with them.
 - Connected-network exclusions read only the main routing table, not mwan3 or
@@ -392,9 +412,9 @@ GPL-3.0-or-later, see `LICENSE`.
 - The QEMU VM cannot test hardware offloading or real NetBird peers.
 - Device headers (HWID, model) are sent only over HTTPS, but curl repeats them
   if the provider redirects to another HTTPS host.
-- Updating the Mihomo core needs free flash for the new binary next to the old
-  one (about 55 MiB plus 4 MiB). On routers with less free space `core-update`
-  stops with `not enough flash` and keeps the current core.
+- Updating the Mihomo core needs free flash for the new compressed binary next
+  to the old one; if the flash fills up, the update stops and the current core
+  is kept.
 - Provider list URLs are checked before download only; curl follows redirects.
 
 Open and deferred issues: [`docs/open-issues.md`](docs/open-issues.md).

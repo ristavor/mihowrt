@@ -24,6 +24,12 @@ Fixes
 - `mihowrt dns-refresh` is now `net-refresh`; update scripts that call the old name.
 - The proxy group delay test times out after 15 seconds.
 - All MihoWRT pages: error messages for timeouts and expired sessions are clear and translated.
+- Updating the Mihomo core works on routers with little free flash: the check uses the download size, and a full flash stops the update and keeps the current core.
+- An upgrade from 0.9 stops the old service quickly instead of waiting about a minute.
+- A background job that failed while the page was reloading or closed shows its error on the next page load.
+- Subscription page: *Show the YAML passed to Mihomo* shows the generated configuration read-only; the YAML editor loads when opened.
+- Traffic page: the lease picker has no duplicate labels, and the private Wi-Fi MAC note is a notification that names the device.
+- Upgrades are supported from 0.9.0 and newer; from 0.8 or older remove MihoWRT first, then install.
 
 Project
 - CI runs the test suite on every push and pull request.

@@ -1,32 +1,20 @@
 # MihoWRT open issues
 
-State after the 0.10.0 work (branch `feat/0.10.0`, 2026-10-22). The release is not tagged or pushed yet.
+State after the 0.10.0 work and its beta polish (branch `feat/0.10.0`, 2026-10-23). The release is not tagged or pushed yet.
 Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x86/64) or the router acceptance run on wr3000s.
 
 ## Needs a decision
 
-1. **The Mihomo core cannot be updated on routers with little flash.**
-   - **Seen on:** wr3000s, overlay 94 MiB, core 54.8 MiB, 57 MiB free.
-   - **Symptom:** `core-update` fails with `not enough flash: need 58 MiB, free 57 MiB`.
-   - **Cause:** the check needs the uncompressed size plus 4 MiB next to the old binary, and does not count UBIFS compression.
-   - **Not a regression:** the same logic was in 0.9.
-   - **Options:**
-     - (a) Download and unpack into tmpfs, then replace the binary in place. On RAM-poor routers this risks OOM, and an interrupted copy leaves no core.
-     - (b) Stop Mihomo, delete the old binary, then write the new one. This needs a rollback copy somewhere.
-     - (c) Keep the check and document how to update the core by hand.
-   - **Next step:** needs its own design.
-2. **Upgrading from 0.9.x stops the old service slowly.**
-   - **Seen on:** the router, about 50 s with routing direct.
-   - **Cause:** the old 0.9.1 Mihomo outlived its supervisor during the apk upgrade, and `wait-stopped` waited for its 35 s cap.
-   - **Effect:** only upgrades from 0.9.x are affected. A 0.10.0 → 0.10.0 replace took about 6 s.
-   - **Decision needed:** accept it (one-time), or kill a stray Mihomo by pid after a short grace period in `service_wait_stopped`.
-3. **The provider list URL policy checks only the first URL.**
-   - **Problem:** curl follows redirects (`-L`), so a public https URL can redirect to a private address.
-   - **Why redirects stay:** GitHub release links need them.
-   - **Options:** check the final address with `curl -w %{url_effective}`/`%{remote_ip}` and drop the result if it is private, or document the limit only.
-4. **The release workflow has never run.**
-   - The first `v*` tag is its first run: SDK download and build on ubuntu-latest, then publish.
-   - **Decision needed:** whether to tag a pre-release first (e.g. `v0.10.0-rc1`, after allowing such tags in the version check) or go straight to `v0.10.0`.
+None.
+
+## Decided 2026-10-23 (0.10.0 beta polish)
+
+1. **Core update on small flash:** the pre-check uses the download size + 4 MiB (UBIFS/JFFS2 store the core compressed); a full flash during unpacking stops the update with `not enough flash` and keeps the current core. Fixed.
+2. **Slow stop after an upgrade from 0.9.x:** `wait-stopped` kills a Mihomo that is still alive 5 s after its supervisor is gone (also without a pid file). Fixed.
+3. **Redirects of provider list URLs:** documented only (README *Known limits*); no redirect check.
+4. **First release run:** `v0.10.0-rc1` as a GitHub pre-release first (`releases/latest` skips it), then `v0.10.0`.
+5. **Geodata:** no change; the YAML controls it (`geo-auto-update`, `geox-url`). Mihomo skips writes of identical files, so flash wear is negligible.
+6. **Upgrades from 0.8 or older:** not supported any more (pre-0.9 migrations removed); remove MihoWRT, then install.
 
 ## Found during 0.10.0 testing and fixed (for the record)
 
@@ -38,6 +26,14 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
 | VM browser | the first list-only Save & Apply removed default-valued flags and started a LuCI rollback apply; stray `null` text on Traffic | `d1d2e1ae` |
 | Final review | an expired session showed "Lost connection" instead of "Access denied"; `apply-lists` deleted any path given to it | `1f438cfb` |
 | Router | notices were lost on the page reload; the first Traffic save after a 0.9.1 upgrade wrote three flags and started a rollback apply | `7e43869b`, `ee05f6b7` |
+| Router | core update refused on wr3000s (`need 58 MiB, free 57 MiB`) | beta polish: check from the download size |
+| Router | upgrade from 0.9.1 waited ~50 s for an orphaned Mihomo | beta polish: orphan killed 5 s after its supervisor |
+| Review | a rejected provider list URL was checked and logged on every list read | beta polish: filtered once per config build |
+| Review | a job error was lost when no page waited for it; a reused pid kept the job slot | beta polish: error notice on the next page load; pid checked by command line |
+| Review | two core updates could collide; the restart error after a core update was dropped | beta polish: `core.flock`; restart stderr kept |
+| Review | long hex `netbird_mark` overflow; `SETTINGS_LOADED` not reset | beta polish |
+| User | Traffic lease picker: duplicate and monospace labels, cramped at 390 px; private-MAC hint unclear and shifting the page; Mode text monospace | beta polish: aria-labels, notification naming the device, Mode note as description |
+| User | effective YAML visible only over SSH | beta polish: *Show the YAML passed to Mihomo* |
 
 ## Deferred (later releases)
 
@@ -45,48 +41,13 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
 - **Restore after a failed reload loses the older YAML.** `config_install` overwrites `.bak` before the reload; if the reload fails, the rollback puts back the current YAML and the former `.bak` is gone. The same applies to the editor.
 - **Provider list URL policy misses some reserved ranges:** `198.18.0.0/15` (the router's own fake-IP range), `192.0.0.0/24`, `224.0.0.0/4`, `240.0.0.0/4`, `fec0::/10` and `64:ff9b::/96`.
 - **The list cache is cleaned even when the provider profile is missing or unreadable.** The provider lists' caches are deleted and are re-downloaded on the next update.
-- **A rejected provider list URL is logged several times per apply**, because `lists_source` is called repeatedly.
-- **A finished job is reported only by a page reload.** If a job ended with an error while the page was closed, the error text is never shown; the page just reloads.
-- **Job liveness is checked by pid only** (`kill -0`). A reused pid keeps the slot "running" until that process exits. `/proc/<pid>/cmdline` could be checked instead.
 - **The runtime lock can outlive a killed holder.** Foreground children of a holder killed with SIGKILL keep it until they exit (seen in the VM: a `sleep` kept it 54 s). Runtime children under the lock are short-lived.
 - **Losing the owner file drops the lock.** If the owner file cannot be written (full tmpfs), the lock is dropped without a message. The timeout text then reads `(process )`.
-- **Two core updates at the same time can collide.** A CLI `core-update` over SSH and a UI job can run together; each run starts by deleting the other's temporary files. Only the UI side is serialised by the job slot.
-- **The stderr of the restart after a core update is discarded**, so the reason for a failed restart is lost.
 - **Health files can outlive a SIGKILL.** If the supervisor is SIGKILLed, the `health`/`degraded` files stay until the next start. A TERM during startup can leave `last_error` behind.
 - **AP mode is treated as WAN.** If the default route is via the LAN bridge (dumb AP), the bridge counts as WAN and its non-RFC1918 subnets are not excluded. This is inherent to the specified algorithm.
-- **A long hex `netbird_mark` can overflow the shell arithmetic.** A value over 16 hex digits overflows `$(( ))` in `is_valid_uint32_mark` (admin input only).
-- **`settings_load` does not reset `SETTINGS_LOADED` at the start.** Not reachable today.
-
-### Features requested
-- **Show the effective YAML (requested by the user).** This is the runtime config that MihoWRT generates and passes to Mihomo (`/tmp/mihowrt/config.yaml`):
-  - the user's YAML,
-  - the router-owned keys,
-  - the default DNS and sniffer,
-  - with `x-mihowrt` stripped.
-  - **Today:** it is visible only over SSH.
-  - **Proposal:** a read-only view on the Subscription page (e.g. a *Show the YAML passed to Mihomo* toggle with a monospace `ui.Textarea`, readonly), loaded via `readLarge` and a new read command (e.g. `runtime-config`).
-  - **Security:** it contains the controller secret and provider credentials, the same exposure as `read-config` today (README *Known limits*).
 
 ### UI (theme-only rule kept)
-- **Monospace text: checked on the router (footstrap, 2026-10-22, read-only Playwright font scan).**
-  - **Correct:** the YAML editor and the list textareas use the theme's monospace font. So do the theme's own inputs, selects and dropdowns; footstrap does the same on stock pages (Network → DHCP, System). The Diagnostics log `<pre>` is monospace, as the stock syslog view is.
-  - **Not correct (MihoWRT):** on Traffic, the picker labels "Add a device"/"Add as" and the Mode line text are monospace.
-  - **Cause:** they are plain text nodes inside `.cbi-value-field`, and footstrap applies its mono font to everything in the field except `.btn`, `.cbi-button` and `.cbi-value-description`.
-  - **Fix direction:** put the explanatory text in `.cbi-value-description` (the Mode line) or make the labels accessible-only. Do not add our own font CSS.
-- **Lease picker row on Traffic (reported by the user, footstrap dark, RU):**
-  - The labels "Добавить устройство" and "Добавить как" show oddly wide gaps between words. They are rendered in monospace by the footstrap rule on `.cbi-value-field *`, unlike the rest of the row.
-  - "Добавить устройство" is shown twice: as the label and as the select placeholder ("Добавить устройство…").
-  - Fix direction: drop the visible label or the placeholder (keep an accessible name via `aria-label`/`.mw-sr`), and avoid plain-text label nodes inside the field that the theme turns monospace.
-- **The "?" icon before field descriptions sits higher than the text (reported by the user, footstrap dark, see the picker screenshot).**
-  - Its vertical centre does not match the text line.
-  - Check whether this is the stock theme rendering of `.cbi-value-description` (then it is a theme issue; compare with a stock page such as Network → DHCP) or caused by our layout around the description (flex/line-height in `.mw-*` wrappers).
-  - Fix only the MihoWRT part, layout-only CSS.
-- **The private-MAC hint is unclear and makes the layout jump (reported by the user).**
-  - The text "Это устройство использует частный адрес Wi-Fi. Запись будет работать, пока…" appears under the field only after a device with a private MAC was added. It does not name the device, so it is unclear which entry it is about.
-  - Inserting and removing the block shifts the whole page.
-  - Fix direction: name the device in the hint (e.g. `phone (da:a1:19:00:00:01) uses a private Wi-Fi address…`), and show it where it doesn't shift the layout, e.g. as a LuCI notification or in a placeholder reserved under the picker.
-- **The lease picker is cramped on Traffic at 390 px.** The "Add as" select is cut off (`MAC address (IPv4 and IPv6`) and the two picker labels wrap; on openwrt-2020 at 1440 "Add as" wraps under "Add a device". Seen in footstrap and openwrt-2020.
-- **The footstrap theme renders the Mode text and picker labels in monospace** (a theme rule on `.cbi-value-field *`). No MihoWRT action needed.
+- **The "?" icon before field descriptions:** see the VM check of the beta polish (theme rendering vs MihoWRT layout).
 - **`api.job`/`api.jobNotice` rely on `this`**, so a destructured call would break them. No such caller exists.
 
 ### Tests and tooling
@@ -100,11 +61,10 @@ Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x
   - "`nft_apply` once" after a partial apply is not asserted.
 - **Weak overview test:** "Update Mihomo core" uses `notify`, not a reload notice, and has no notice-text test.
 - **Small code cleanups:**
-  - the init script still has a literal `MIHOWRT="/usr/bin/mihowrt"` next to `SUPERVISOR_CMD`;
-  - `migrate_list_headers` rewrites files without keeping their mode.
+  - the init script still has a literal `MIHOWRT="/usr/bin/mihowrt"` next to `SUPERVISOR_CMD`.
 
 ## Notes for the release run
-- **Release order** (README *Development*): `git tag v0.10.0 && git push origin v0.10.0`, wait for the release workflow, then `git push origin main`.
+- **Release order** (README *Development*): `git tag v0.10.0-rc1 && git push origin v0.10.0-rc1` (pre-release), check the workflow output, then `git tag v0.10.0 && git push origin v0.10.0`, wait for the release workflow, then `git push origin main`.
 - **Leftover after upgrade:** `/etc/config/mihowrt.apk-new` stays after upgrades, because the shipped UCI file changed (`lists_interval` default). This is normal apk behaviour.
 - **Router test caveat:** the restore check swaps to the previous YAML; if that YAML is an older subscription in another mode, the whole LAN switches mode for a few seconds.
 - **Router acceptance evidence:** `.build/router-0100/`. **VM evidence:** `.build/verification-0100/` (neither is in git).

@@ -267,6 +267,13 @@ test('finished error shown once', async () => {
 	api.jobNotice(); await flush();
 	assert.equal(shown.length, 1, 'second page load shows nothing');
 });
+test('error window uses the router clock', async () => {
+	const { sessionStorage } = storage(), { shown, ui } = notifications();
+	const { api } = setup({ sessionStorage, ui });
+	api.read = async () => ({ state: 'error', id: '5-9', op: 'core-update', finished: 1000, now: 1100, error: 'x' });
+	api.jobNotice(); await flush();
+	assert.equal(shown.length, 1, 'recent on the router clock even if the browser clock differs');
+});
 test('old error silent', async () => {
 	const { sessionStorage } = storage(), { shown, ui } = notifications();
 	const { api } = setup({ sessionStorage, ui });

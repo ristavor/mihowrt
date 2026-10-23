@@ -60,6 +60,11 @@ assert_false 'legacy absolute symlink removed' test -L "$PKG_STATE_DIR/runtime.l
 assert_eq untouched "$(cat "$tmpdir/old-lock-target")" 'legacy target untouched'
 pass 'runtime.lock removed without following it'
 
+echo 'proxy-ip http://10.0.0.1/old' >"$PROFILE_FILE"
+migrate
+assert_false 'profile from an older version removed' test -e "$PROFILE_FILE"
+pass 'migrate drops the old provider profile'
+
 touch "$CLASH_DIR/mihomo.sock"
 migrate
 assert_false 'old Mihomo socket removed' test -e "$CLASH_DIR/mihomo.sock"

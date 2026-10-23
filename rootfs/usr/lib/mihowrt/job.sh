@@ -242,5 +242,6 @@ job_status_locked() {
 	[ -n "$id" ] || { printf '{"state":"none"}\n'; return 0; }
 	job_id_valid "$id" && [ -f "$JOBS_DIR/$id.json" ] || { err "Job not found: $id"; return 1; }
 	job_reconcile "$id" || return 1
-	cat "$JOBS_DIR/$id.json"
+	# Router clock for the UI: the browser clock may differ.
+	jq -c --argjson now "$(date +%s)" '. + {now: $now}' "$JOBS_DIR/$id.json"
 }

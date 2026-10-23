@@ -103,6 +103,10 @@ function x_line(line,   ind, rest, key, item) {
 		sub(/[[:space:]]+#.*/, "", item)
 		sub(/[[:space:]]+$/, "", item)
 		item = unquote(item)
+		# The same cleanup as lists_clean_lines: the URL filter and the
+		# fetcher must see one value.
+		sub(/#.*/, "", item)
+		gsub(/[[:space:]]/, "", item)
 		if (item != "")
 			print xlist " " item >profile
 		return

@@ -127,7 +127,8 @@ pass 'supervisor alive no kill'
  set -e
  rm -f "$SERVICE_PID_FILE" "$RUNNING_MARKER"
  : >"$tmpdir/no-pid.kills"
- pgrep() { [ "$*" != "-f ^$CLASH_BIN " ] || { echo 4242; return 0; }; return 1; }
+ # shellcheck disable=SC2153 # CLASH_DIR comes from constants.sh
+ pgrep() { [ "$*" != "-f ^$CLASH_BIN -d $CLASH_DIR -f [^ ]+\$" ] || { echo 4242; return 0; }; return 1; }
  kill() { printf '%s\n' "$*" >>"$tmpdir/no-pid.kills"; return 0; }
  policy_cleanup() { :; }
  service_recover || fail 'orphan recovery failed'

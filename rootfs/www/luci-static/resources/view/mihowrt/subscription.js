@@ -120,9 +120,14 @@ return view.extend({
 
 		// Read-only: what Mihomo actually runs with, re-read on every opening.
 		const runtime = E('div', {});
+		let runtimeRequest = 0;
 		const openRuntime = () => {
+			// Only the latest opening may fill the view.
+			const request = ++runtimeRequest;
 			runtime.replaceChildren(E('p', { class: 'spinning' }, text(_('Loading…'))));
 			readYaml('runtime-config').then(config => {
+				if (request !== runtimeRequest)
+					return;
 				const widget = new ui.Textarea(config.content, { id: 'mw-runtime', monospace: true, wrap: false, rows: 24, readonly: true }).render();
 				const area = widget.querySelector('textarea');
 				area.classList.add('mw-yaml');
@@ -133,7 +138,8 @@ return view.extend({
 					...(config.generated === true ? [ E('p', { class: 'mw-muted' }, text(_('MihoWRT is not running; this is what it would pass at start.'))) ] : []),
 					widget);
 			}).catch(e => {
-				runtime.replaceChildren(loadError(e));
+				if (request === runtimeRequest)
+					runtime.replaceChildren(loadError(e));
 			});
 		};
 

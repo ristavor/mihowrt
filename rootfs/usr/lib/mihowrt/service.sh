@@ -98,7 +98,8 @@ service_recover() {
 		kill -9 "$pid" 2>/dev/null
 	else
 		# An older build may have left Mihomo without a pid file.
-		for pid in $(pgrep -f "^$CLASH_BIN " 2>/dev/null); do
+		# Only the service form, never a short `-v`/`-t` check run.
+		for pid in $(pgrep -f "^$CLASH_BIN -d $CLASH_DIR -f [^ ]+\$" 2>/dev/null); do
 			kill -9 "$pid" 2>/dev/null
 		done
 	fi

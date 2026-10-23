@@ -19,6 +19,8 @@ migrate() {
 	# Never follow or reuse the pre-flock symlink, even with a live old pid.
 	rm -f "$PKG_STATE_DIR/runtime.lock"
 	migrate_settings
+	# Rebuilt by the next settings_load through the provider URL filter.
+	rm -f "$PROFILE_FILE"
 	rm -f "$CLASH_DIR/mihomo.sock"
 	settings_ensure_generated
 }

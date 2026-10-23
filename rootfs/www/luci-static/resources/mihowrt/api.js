@@ -366,7 +366,7 @@ return baseclass.extend({
 		this.read('job-status').then(async status => {
 			// A job that failed while no page waited for it: show it once.
 			if (status.state === 'error' && status.id && !jobSeen(status.id)
-				&& Date.now() / 1000 - Number(status.finished) <= JOB_ERROR_WINDOW) {
+				&& Number(status.now ?? Date.now() / 1000) - Number(status.finished) <= JOB_ERROR_WINDOW) {
 				markJobSeen(status.id);
 				notify(failed(status, status.error || _('The operation failed.')), 'error');
 				return;

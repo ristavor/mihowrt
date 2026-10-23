@@ -136,6 +136,8 @@ core_update() {
 	gz_bytes="$(wc -c <"$gz" | tr -d ' ')"
 	free="$(core_free_kb "$(dirname "$CLASH_BIN")")"
 	is_uint "$gz_bytes" && is_uint "$free" || core_fail "cannot check free space" || return 1
+	gz_bytes="$(uint_norm "$gz_bytes")"
+	free="$(uint_norm "$free")"
 	[ $((free * 1024)) -ge $((gz_bytes + 4194304)) ] ||
 		core_fail "not enough flash: need $(((gz_bytes + 4194304 + 1048575) / 1048576)) MiB, free $((free / 1024)) MiB" || return 1
 

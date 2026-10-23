@@ -900,6 +900,19 @@ seq(async () => {
    h.assertEq(readCount('read-config'), 0, 'effective view does not read the editable YAML');
   }
  });
+ await check('effective yaml keeps the latest reply', async () => {
+  const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
+  let release;
+  const slow = new Promise(r => { release = r; });
+  const real = reads.responses;
+  let n = 0;
+  reads.responses = new Proxy(real, { get: (t, k) => k === 'runtime-config' ? (n++ === 0 ? slow : { content: 'new', generated: false }) : t[k], has: (t, k) => k in t });
+  const show = findButton(p, effectiveShow), box = toggleOf(p, show);
+  await show.listeners.click(); await show.listeners.click(); await show.listeners.click(); await settle();
+  release({ content: 'old', generated: false }); await settle();
+  h.assertEq(collect(box).find(n => n.tag === 'textarea')?.value, 'new', 'a slower earlier reply does not replace the newer one');
+  reads.responses = real;
+ });
  await check('effective yaml error', async () => {
   const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
   reads.responses['runtime-config'] = Error('boom');

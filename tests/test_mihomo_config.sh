@@ -32,6 +32,20 @@ out="$tmpdir/out.yaml"
 )
 pass 'generate filters once'
 
+# review C1: the profile holds the cleaned value, so spaces cannot hide a URL
+(
+ set -e
+ ws_src="$tmpdir/filter-ws.yaml"
+ ws_out="$tmpdir/filter-ws.runtime.yaml"
+ printf 'x-mihowrt:\n  proxy-ips:\n    - "https:/ /10.0.0.1/x"\n    - 1.2.3.4#c https://x\n    - " 5.6.7.0/24 ; 443 "\n' >"$ws_src"
+ : >"$tmpdir/ws.warnings"
+ warn() { echo "$*" >>"$tmpdir/ws.warnings"; }
+ mihomo_config_generate "$ws_src" "$ws_out"
+ assert_eq $'proxy-ip 1.2.3.4\nproxy-ip 5.6.7.0/24;443' "$(grep '^proxy-ip ' "$ws_out.profile")" 'spaced URL dropped, plain IPs kept cleaned'
+ assert_eq 'x-mihowrt: ignored list URL https://10.0.0.1/x (only public https URLs)' "$(grep 'ignored list URL' "$tmpdir/ws.warnings")" 'one warning for the spaced URL'
+)
+pass 'whitespace inside a provider URL is filtered'
+
 # Lock every successful fixture in this test to the pre-split generator bytes.
 eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"
 printf '0\n' >"$tmpdir/generator-count"

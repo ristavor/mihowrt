@@ -127,7 +127,7 @@ pass 'starter'
 start_job update-lists
 assert_eq running "$(cli job-status "$id" | jq -r .state)" 'running status'
 wait_job
-jq -e '.state == "ok" and .result.changed == true and .error == null and .finished >= .started and (keys | sort) == (["id","op","state","started","finished","result","error"] | sort)' <<<"$status" >/dev/null || fail "finished status: $status"
+jq -e '.state == "ok" and .result.changed == true and .error == null and .finished >= .started and .now >= .finished and (keys | sort) == (["id","op","state","started","finished","result","error","now"] | sort)' <<<"$status" >/dev/null || fail "finished status: $status"
 assert_eq 700 "$(stat -c %a "$tmpdir/run/jobs")" 'private jobs directory'
 pass 'start and finish'
 

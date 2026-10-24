@@ -445,6 +445,9 @@ msgstr "%s (приоритет %s)"
 msgid "(chosen by your subscription)"
 msgstr "(выбрано подпиской)"
 
+msgid "(could not read the YAML profile)"
+msgstr "(не удалось прочитать профиль YAML)"
+
 msgid "(follows the DNS settings of your YAML)"
 msgstr "(по настройкам DNS в вашем YAML)"
 

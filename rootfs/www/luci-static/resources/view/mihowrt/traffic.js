@@ -131,6 +131,8 @@ return view.extend({
 		this.edited = {};
 		this.profile = profile || {};
 		const proxyFirst = this.profile.mode === 'proxy-first';
+		// profile-json failed: do not guess the mode or call lists inactive.
+		const modeKnown = proxyFirst || this.profile.mode === 'direct-first';
 		const fakeip = this.profile.dns === 'fake-ip';
 		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Save & Apply applies the changes.'));
 		const s = m.section(form.NamedSection, 'settings', 'settings');
@@ -140,11 +142,11 @@ return view.extend({
 		// The mode follows the DNS settings of the YAML; it is not a setting.
 		let o = s.taboption('basic', form.DummyValue, '_mode', _('Traffic mode'),
 			_('To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".'));
-		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' +
-			(uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
+		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' + (!modeKnown ? _('(could not read the YAML profile)') :
+			uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };
-		for (const kind of proxyFirst ? [ 'dst', 'src' ] : [ 'direct', 'direct_src' ]) {
+		for (const kind of !modeKnown ? [] : proxyFirst ? [ 'dst', 'src' ] : [ 'direct', 'direct_src' ]) {
 			const count = this.lists[kind].split('\n').filter((line) => line.trim() && !/^\s*#/.test(line)).length;
 			if (count) {
 				o = s.taboption('basic', form.DummyValue, '_' + kind + '_inactive', this.titles[kind]);

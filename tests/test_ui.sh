@@ -274,6 +274,12 @@ seq(async () => {
  h.assert(!Object.keys(opts).some(k => k.startsWith('_own_') || k.endsWith('_list_source')), 'no override controls without provider keys');
  h.assert(!opts._direct_src.readonly && !opts._dst && !opts._src, 'redir-host direct devices editable, inactive lists absent');
  opts = await renderTraffic({ mode: 'proxy-first', dns: 'fake-ip' });
+ {
+  // profile-json failed: no guessed mode, no list called inactive.
+  const unknown = await renderTraffic({});
+  h.assertEq(unknown._mode.cfgvalue(), 'unknown (could not read the YAML profile)', 'unknown mode not guessed');
+  h.assert(!Object.keys(unknown).some(k => k.endsWith('_inactive')), 'no inactive rows without a mode');
+ }
  h.assert(!opts._direct_src && opts._direct_src_off instanceof form.DummyValue, 'fake-IP has no textarea');
  h.assertEq(opts._direct_src_off?.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
  const uploads = [], writes = [];

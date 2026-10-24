@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.1
+
+Fixes
+- *Traffic mode* shows "unknown" when the YAML profile cannot be read, instead of claiming "Only selected traffic via proxy"; lists are then no longer marked as used in the other mode.
+- Read-only values (such as the traffic mode) use the page font instead of a monospace one in some browsers.
+
 ## 0.10.0
 
 Fixes

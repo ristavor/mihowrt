@@ -37,8 +37,6 @@ const CSS = `
 .mw-groups .mw-ping { flex: 0 0 auto; min-width: 5.5em; white-space: nowrap; }
 .mw-yaml { width: 100%; min-height: 24em; }
 .mw-log { max-height: 30em; overflow: auto; white-space: pre-wrap; }
-/* form.DummyValue renders <output>, which some browsers draw in a form-control font. */
-.cbi-value-field > output { font: inherit; }
 .mw-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 @media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } .mw-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10em), 1fr)); align-items: stretch; } .mw-actions > .cbi-button { margin: 0; } .mw-groups .mw-ping { flex-basis: 100%; } .mw-groups .mw-ping:empty { display: none; } }
 `;

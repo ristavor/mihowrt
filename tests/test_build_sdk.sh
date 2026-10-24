@@ -241,7 +241,7 @@ workflow_dir="$(mktemp -d)"
 trap 'rm -rf "$workflow_dir"' EXIT
 cp "$ROOT_DIR/Makefile" "$workflow_dir/Makefile"
 assert_contains 'version-check block extracted from release.yml' 'PKG_VERSION' "$version_script"
-for tag_case in v0.10.1:0:0 v0.10.1-rc1:0:1 v0.10.1-rc:1:- v0.10.2:1:- v0.10.1-beta1:1:-; do
+for tag_case in v0.10.2:0:0 v0.10.2-rc1:0:1 v0.10.2-rc:1:- v0.10.3:1:- v0.10.2-beta1:1:-; do
  IFS=: read -r tag expected_rc expected_prerelease <<<"$tag_case"
  : >"$workflow_dir/env"; : >"$workflow_dir/output"
  tag_rc=0
@@ -282,7 +282,7 @@ printf sum >"$workflow_dir/release/SHA256SUMS"
 assert_contains 'publish block extracted from release.yml' 'gh release create' "$publish_script"
 for prerelease_flag in 0 1; do
  publish_rc=0
- (cd "$workflow_dir" && PATH="$workflow_dir/bin:$PATH" GH_CALLS="$workflow_dir/gh.calls" PRERELEASE="$prerelease_flag" GITHUB_REF_NAME=v0.10.1 GITHUB_REPOSITORY=fixture/mihowrt bash -c "$publish_script") >"$workflow_dir/publish.stdout" 2>"$workflow_dir/publish.stderr" || publish_rc=$?
+ (cd "$workflow_dir" && PATH="$workflow_dir/bin:$PATH" GH_CALLS="$workflow_dir/gh.calls" PRERELEASE="$prerelease_flag" GITHUB_REF_NAME=v0.10.2 GITHUB_REPOSITORY=fixture/mihowrt bash -c "$publish_script") >"$workflow_dir/publish.stdout" 2>"$workflow_dir/publish.stderr" || publish_rc=$?
  assert_eq "publish PRERELEASE=$prerelease_flag status" 0 "$publish_rc"
  prerelease_count="$(grep -cx -- '--prerelease' "$workflow_dir/gh.calls" || true)"
  assert_eq "publish --prerelease only when PRERELEASE=$prerelease_flag" "$prerelease_flag" "$prerelease_count"
@@ -306,7 +306,7 @@ license_head="$(head -n 2 "${ROOT_DIR}/LICENSE" 2>/dev/null || true)"
 assert_contains "LICENSE is GPL" "GNU GENERAL PUBLIC LICENSE" "$license_head"
 assert_contains "LICENSE is version 3" "Version 3, 29 June 2007" "$license_head"
 changelog_content="$(cat "${ROOT_DIR}/CHANGELOG.md" 2>/dev/null || true)"
-assert_contains "CHANGELOG.md has a 0.10.1 section" "## 0.10.1" "$changelog_content"
+assert_contains "CHANGELOG.md has a 0.10.2 section" "## 0.10.2" "$changelog_content"
 readme_content="$(cat "${ROOT_DIR}/README.md")"
 assert_contains "README documents the release order" "git tag vX && git push origin vX" "$readme_content"
 

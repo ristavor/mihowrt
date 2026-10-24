@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.10.2
+
+Changes
+- Removed the 0.10.1 font rule for read-only values: it had no effect. Their font comes from the theme (footstrap shows all field values in monospace on purpose, stock LuCI pages too).
+
 ## 0.10.1
 
 Fixes

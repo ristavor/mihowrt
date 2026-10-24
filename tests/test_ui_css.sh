@@ -5,10 +5,7 @@ node - "$ROOT_DIR" <<'NODE'
 const fs = require('fs'), path = require('path'), assert = require('assert');
 const root = process.argv[2];
 const api = fs.readFileSync(path.join(root, 'rootfs/www/luci-static/resources/mihowrt/api.js'), 'utf8');
-const css = api.match(/const CSS = `([\s\S]*?)`;/)[1].replace(/\.mw-sr\s*\{[^}]*\}/g, '')
-	// font: inherit hands DummyValue <output> back to the theme font.
-	.replace(/\.cbi-value-field > output \{ font: inherit; \}/, '');
-assert(/\.cbi-value-field > output \{ font: inherit; \}/.test(api), 'DummyValue output uses the page font, not a form-control one');
+const css = api.match(/const CSS = `([\s\S]*?)`;/)[1].replace(/\.mw-sr\s*\{[^}]*\}/g, '');
 assert(!/(?:font(?:-[\w-]+)?|opacity|color|background(?:-[\w-]+)?|border(?:-[\w-]+)?|outline(?:-[\w-]+)?)\s*:/.test(css), 'MihoWRT CSS must leave visual styles to the theme');
 console.log('ok - layout-only MihoWRT CSS');
 // Material gives the LuCI page tabs negative margins; cap their width so the

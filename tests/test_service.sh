@@ -313,7 +313,7 @@ pass 'failed nft transaction preserves live policy'
  cron_update() { :; }
  mihomo_config_generate() {
   cp "$RUNTIME_CONFIG" "$2"
-  printf 'policy-only profile\n' >"$2.profile"
+  printf 'mode direct-first\ndns fake-ip\n' >"$2.profile"
  }
  mihomo_config_test() { fail 'policy-only flag must not test the core'; }
  api_reload() { fail 'policy-only flag must not reload the core'; }
@@ -325,6 +325,7 @@ pass 'failed nft transaction preserves live policy'
   cp "$2" "$tmpdir/policy-only.nft"
   echo "nft:$BLOCK_CLIENT_IPV6" >>"$events"
  }
+ printf 'mode direct-first\ndns fake-ip\n' >"$PROFILE_FILE"
  rm -f "$NFT_APPLIED_FILE"
  for flag in 1 0; do
   fake_uci_set mihowrt.settings.block_client_ipv6 "$flag"

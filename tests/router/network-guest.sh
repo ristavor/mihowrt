@@ -442,10 +442,10 @@ check_control() {
 
 reject_fresh() {
 	local label="$1" cap="$WORK/logs/reject-$1.pcap" pid="" wanpid="" start="" end="" rc=0
-	# Independent capture for each fresh TCP and UDP/53 flow.
+	# Independent capture for each fresh TCP and UDP/NTP flow.
 	tcpdump -ni m22c -U -w "$cap" 'ip6 and (host 2001:db8:ffff::2 or icmp6)' >"$WORK/logs/reject-$label.capture" 2>&1 6>&- 7>&- 8>&- 9>&- &
 	pid=$!
-	tcpdump -ni m22w -U -w "$WORK/logs/reject-$label.wan.pcap" 'ip6 and dst host 2001:db8:ffff::2 and (tcp dst port 8080 or udp dst port 53)' >"$WORK/logs/reject-$label.wan-capture" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	tcpdump -ni m22w -U -w "$WORK/logs/reject-$label.wan.pcap" 'ip6 and dst host 2001:db8:ffff::2 and (tcp dst port 8080 or udp dst port 123)' >"$WORK/logs/reject-$label.wan-capture" 2>&1 6>&- 7>&- 8>&- 9>&- &
 	wanpid=$!
 	trap 'kill "$pid" "$wanpid" 2>/dev/null || true; wait "$pid" 2>/dev/null || true; wait "$wanpid" 2>/dev/null || true' EXIT
 	sleep 1
@@ -457,7 +457,8 @@ reject_fresh() {
 	awk -v start="$start" -v end="$end" 'BEGIN {print end-start}'
 	# Curl 7 = failed connect. Timeout 28 must never count as rejection.
 	[ "$rc" = 7 ]
-	bounded ip netns exec m22-c nslookup -type=AAAA raw22.test 2001:db8:ffff::2 >"$WORK/logs/reject-$label.dns" 2>&1 || true
+	printf 'unlisted-ntp-probe' >"$WORK/udp-probe"
+	BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-c nc -u 2001:db8:ffff::2 123 >"$WORK/logs/reject-$label.udp" 2>&1 || true
 	sleep 1
 	kill "$pid" "$wanpid"; wait "$pid" 2>/dev/null || true; wait "$wanpid" 2>/dev/null || true
 	trap - EXIT
@@ -479,15 +480,51 @@ reject_fresh() {
 
 }
 
+# Observe marked IPv6 immediately before delivery to the core. A successful
+# request plus Mihomo's log and a positive counter prove the selected path.
+selected_ipv6() {
+	local label="$1"
+	nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip6 daddr 2001:db8:ffff::2 tcp dport 8080 counter comment selected-ipv6
+	http c '[2001:db8:ffff::2]' | grep mihowrt-network-fixture
+	nft list chain inet mihowrt proxy_redirect >"$WORK/logs/selected-$label.nft"
+	grep 'comment "selected-ipv6"' "$WORK/logs/selected-$label.nft" | grep -Eq 'counter packets [1-9]'
+	/usr/bin/mihowrt logs-json 500 >"$WORK/logs/selected-$label.core.json"
+	grep -q '2001:db8:ffff::2.*8080' "$WORK/logs/selected-$label.core.json"
+}
+
 check_reject() {
-	local pair="" hijack=""
-	for pair in direct-first:fake-ip proxy-first:fake-ip proxy-first:redir-host; do
+	local pair="" hijack="" selector="" flag=""
+	for hijack in 0 1; do
+		profile direct-first fake-ip true "$hijack"
+		set_lists empty
+		(reject_fresh "direct-first-$hijack-unlisted")
+		if [ "$hijack" = 1 ]; then
+			dns_udp 2001:db8:ffff::2 public22.example.org A 198.18.
+		fi
+		for selector in dst src mac port; do
+			set_lists "$selector"
+			selected_ipv6 "$hijack-$selector"
+		done
+	done
+	# Proxy-first's explicit exceptions are not banned by this flag. Compare
+	# applied transactions as well as fresh successful external IPv6 requests.
+	for pair in proxy-first:fake-ip proxy-first:redir-host; do
 		for hijack in 0 1; do
-			profile "${pair%:*}" "${pair#*:}" true "$hijack"
-			for selector in dst src mac port; do
-				set_lists "$selector"
-				(reject_fresh "${pair%:*}-${pair#*:}-$hijack-$selector")
+			for flag in false true; do
+				profile proxy-first "${pair#*:}" "$flag" "$hijack"
+				set_lists dst
+				absent nft list chain inet mihowrt client_ipv6_egress
+				cp /tmp/mihowrt/nft.applied "$WORK/$flag.nft"
+				http c '[2001:db8:ffff::2]' | grep mihowrt-network-fixture
+				if [ "$hijack" = 1 ]; then
+					if [ "${pair#*:}" = fake-ip ]; then
+						dns_udp 2001:db8:ffff::2 public22.example.org A 198.18.
+					else
+						dns_udp 2001:db8:ffff::2 public22.example.org A 198.19.22.2
+					fi
+				fi
 			done
+			cmp -s "$WORK/false.nft" "$WORK/true.nft"
 		done
 	done
 }
@@ -705,6 +742,7 @@ check_routes_dns() {
 check_lifecycle() {
 	local pid="" old="" i="" opened=0
 	profile direct-first fake-ip true 0
+	set_lists empty
 	pid="$(cat /var/run/mihowrt/mihomo.pid)"
 	nft list chain inet mihowrt client_ipv6_egress
 	uci set mihowrt.settings.block_client_ipv6=0
@@ -785,7 +823,7 @@ set_lists empty
 ready
 row 'nft syntax' '12 live kernel syntax checks' check_nft
 row 'control reachable' 'dual-stack raw controls and separate Mihomo DNS path' check_control
-row 'client IPv6 rejected' '24 profile/hijack/list cases: fresh TCP RST and ICMPv6 1/1, counters increase' check_reject
+row 'client IPv6 rejected' 'direct-first unlisted REJECT, selected IPv6 TPROXY, IPv6 DNS redirected; proxy-first flag unchanged' check_reject
 row 'local and IPv4 retained' 'IPv4, local DNS UDP/TCP, local IPv6, ND/RA/DHCPv6 and fw4 denial unchanged' check_local
 row 'core and other ingress retained' 'IPv4 via IPv6 SOCKS5 node, router output and unselected ingress succeed' check_core
 row 'NetBird synthetic' '2 interfaces/bases, 2 proxy settings, packet/ct original/reply paths, start orders/reconnect/fw4' check_netbird

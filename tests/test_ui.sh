@@ -1049,7 +1049,7 @@ seq(async () => {
   return o;
  };
  const ipv6Title = 'Block external IPv6 from clients';
- const ipv6Description = 'Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire.';
+ const ipv6Description = 'Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.';
  await check('client IPv6 off by default', async () => {
   const t = setup(); await t.render(); const o = ipv6Flag(t);
   h.assertEq(o.tab, 'advanced', 'client IPv6 is in Advanced');
@@ -1062,8 +1062,8 @@ seq(async () => {
   const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
   for (const [english, russian] of [
    [ipv6Title, 'Блокировать внешний IPv6 клиентов'],
-   [ipv6Description, 'Отклонять IPv6-трафик к нелокальным адресам с выбранных клиентских интерфейсов, в том числе направляемый в Mihomo. Для локального IPv6 сохраняются правила межсетевого экрана. Трафик роутера и Mihomo не изменяется. Действует при активной политике MihoWRT. Существующие соединения в flowtable могут работать до истечения срока их записей.']
-  ]) h.assert(catalog.includes(`msgid "${english}"\nmsgstr "${russian}"`), 'exact Russian translation: ' + english);
+   [ipv6Description, 'Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Существующие соединения в flowtable могут работать до истечения срока их записей.']
+  ]) h.assert(catalog.includes(`msgid "${english.replace(/"/g, '\\"')}"\nmsgstr "${russian}"`), 'exact Russian translation: ' + english);
  });
  await check('provider on readonly', async () => {
   const t = setup(); await t.render(lists, { provider: { block_client_ipv6: '1' } });

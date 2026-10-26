@@ -182,6 +182,10 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 me
   assert_file_contains "$rules" 'tproxy ip6 to [::1]:7894' "$profile off keeps IPv6 TPROXY"
   BLOCK_CLIENT_IPV6=1
   nft_render "$rules" "$work"
+  if [ "$POLICY_MODE" = proxy-first ]; then
+   assert_true "$profile flag on equals off" cmp -s "$rules" "$tmpdir/boundary-off.nft"
+   continue
+  fi
   assert_file_contains "$rules" 'add chain inet mihowrt client_ipv6_egress { type filter hook forward priority -1; policy accept; }' "$profile forward rejection"
   expected='add rule inet mihowrt client_ipv6_egress iifname "wt9" return
 add rule inet mihowrt client_ipv6_egress meta nfproto != ipv6 return
@@ -192,18 +196,17 @@ add rule inet mihowrt client_ipv6_egress meta nfproto ipv6 meta l4proto tcp coun
 add rule inet mihowrt client_ipv6_egress meta nfproto ipv6 counter reject with icmpv6 type admin-prohibited'
   assert_eq "$expected" "$(chain_rules client_ipv6_egress)" "$profile scoped rejection order; local returns, no accept/established/list loophole"
   expected='add rule inet mihowrt mangle_prerouting iifname "wt9" return
-add rule inet mihowrt mangle_prerouting iifname @source_ifaces meta nfproto ipv6 return
 add rule inet mihowrt mangle_prerouting iifname @source_ifaces jump prerouting_policy'
-  assert_eq "$expected" "$(chain_rules mangle_prerouting)" "$profile client guard before all list, NTP and QUIC policy"
+  assert_eq "$expected" "$(chain_rules mangle_prerouting)" "$profile no IPv6 skip before policy"
   expected='add rule inet mihowrt proxy_redirect iifname "wt9" return
-add rule inet mihowrt proxy_redirect iifname @source_ifaces meta nfproto ipv6 return
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:7894
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894'
-  assert_eq "$expected" "$(chain_rules proxy_redirect)" "$profile client guard before TPROXY, router reroute unchanged"
+  assert_eq "$expected" "$(chain_rules proxy_redirect)" "$profile selected IPv6 reaches TPROXY"
   expected='add rule inet mihowrt dns_hijack iifname "wt9" return
 add rule inet mihowrt dns_hijack fib daddr type local return
-add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874'
-  assert_eq "$expected" "$(chain_rules dns_hijack)" "$profile only IPv4 DNS redirect remains"
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874'
+  assert_eq "$expected" "$(chain_rules dns_hijack)" "$profile IPv6 DNS redirect independent of flag"
   for iface in br-guest wt9; do
    assert_file_contains "$rules" "source_ifaces { \"$iface\" }" "$profile custom source interface"
   done

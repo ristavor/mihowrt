@@ -304,8 +304,8 @@ msgstr "Обрабатывается трафик с этих интерфейс
 msgid "Block external IPv6 from clients"
 msgstr "Блокировать внешний IPv6 клиентов"
 
-msgid "Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire."
-msgstr "Отклонять IPv6-трафик к нелокальным адресам с выбранных клиентских интерфейсов, в том числе направляемый в Mihomo. Для локального IPv6 сохраняются правила межсетевого экрана. Трафик роутера и Mihomo не изменяется. Действует при активной политике MihoWRT. Существующие соединения в flowtable могут работать до истечения срока их записей."
+msgid "Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the \"Only selected traffic via proxy\" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire."
+msgstr "Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Существующие соединения в flowtable могут работать до истечения срока их записей."
 
 msgid "Redirect client DNS to Mihomo"
 msgstr "Перенаправлять DNS клиентов в Mihomo"

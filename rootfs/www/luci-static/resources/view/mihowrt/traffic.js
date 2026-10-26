@@ -191,7 +191,7 @@ return view.extend({
 			f.rmempty = false;
 			return f;
 		});
-		flag('block_client_ipv6', _('Block external IPv6 from clients'), _('Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire.'), '0');
+		flag('block_client_ipv6', _('Block external IPv6 from clients'), _('Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.'), '0');
 		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
 		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
 		flag('bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));

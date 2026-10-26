@@ -161,10 +161,8 @@ add rule inet mihowrt dns_hijack fib daddr type local return"
      if [ "$DNS_HIJACK" = 1 ]; then
       expected="$expected
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
-      if [ "$BLOCK_CLIENT_IPV6" = 0 ]; then
        expected="$expected
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
-      fi
      fi
      assert_eq "$expected" "$(cat "$tmpdir/dns-chain.nft")" "$label DNS redirects otherwise unchanged"
     done
@@ -352,6 +350,7 @@ pass 'empty MAC lists emit no ether saddr rules'
  nft_active() { return 0; }
  rm -f "$NFT_APPLIED_FILE"
  : >"$tmpdir/boundary-apply.calls"
+ POLICY_MODE=direct-first
  for BLOCK_CLIENT_IPV6 in 0 1 0; do
   nft_apply
   assert_eq $'add table inet mihowrt\ndelete table inet mihowrt\nadd table inet mihowrt' "$(head -n3 "$NFT_APPLIED_FILE")" 'toggle stays atomic'

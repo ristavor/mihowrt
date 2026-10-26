@@ -171,7 +171,7 @@ nft_render_base() {
 
 # Reject only forwarded non-local client IPv6; returns leave fw4 in control.
 nft_render_client_ipv6() {
-	[ "${BLOCK_CLIENT_IPV6:-0}" = "1" ] || return 0
+	[ "${BLOCK_CLIENT_IPV6:-0}" = "1" ] && [ "$POLICY_MODE" = "direct-first" ] || return 0
 
 	nft_line "add chain inet $NFT_TABLE_NAME client_ipv6_egress { type filter hook forward priority -1; policy accept; }"
 	nft_rule client_ipv6_egress "iifname \"$NETBIRD_INTERFACE\" return"
@@ -301,16 +301,11 @@ nft_render() {
 	nft_rule dns_hijack "fib daddr type local return"
 	if [ "$DNS_HIJACK" = "1" ]; then
 		nft_rule dns_hijack "iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
-		if [ "${BLOCK_CLIENT_IPV6:-0}" != "1" ]; then
-			nft_rule dns_hijack "iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
-		fi
+		nft_rule dns_hijack "iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
 	fi
 
 	# Client traffic.
 	nft_rule mangle_prerouting "iifname \"$NETBIRD_INTERFACE\" return"
-	if [ "${BLOCK_CLIENT_IPV6:-0}" = "1" ]; then
-		nft_rule mangle_prerouting "iifname @source_ifaces meta nfproto ipv6 return"
-	fi
 	nft_rule mangle_prerouting "iifname @source_ifaces jump prerouting_policy"
 	nft_render_guards prerouting_policy
 	[ "$DNS_HIJACK" = "1" ] && nft_rule prerouting_policy "meta l4proto { tcp, udp } th dport 53 return"
@@ -332,9 +327,6 @@ nft_render() {
 
 	# TPROXY marked packets (client traffic and rerouted router traffic).
 	nft_rule proxy_redirect "iifname \"$NETBIRD_INTERFACE\" return"
-	if [ "${BLOCK_CLIENT_IPV6:-0}" = "1" ]; then
-		nft_rule proxy_redirect "iifname @source_ifaces meta nfproto ipv6 return"
-	fi
 	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
 	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:$MIHOMO_TPROXY_PORT"
 

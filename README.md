@@ -188,6 +188,23 @@ is never deleted; with *Provider list* the page says how many of your entries
 are not applied. Provider values are kept in tmpfs
 (`/tmp/mihowrt/config.yaml.profile`), never in UCI or flash.
 
+### Client IPv6
+
+*Block external IPv6 from clients* (Traffic → Advanced, default off) rejects
+external IPv6 from selected client interfaces only when it bypasses Mihomo,
+and only in **Only selected traffic via proxy** mode. IPv6 selected by address,
+device or port lists still reaches Mihomo. IPv6 DNS hijack remains active;
+Mihomo IPv6 and DNS behaviour belongs to the provider's `ipv6` / `dns.ipv6` keys.
+In **All traffic via proxy except exclusions** mode the flag has no effect.
+
+Set `x-mihowrt.block-client-ipv6: true` in the provider block, or use the existing
+*Use my own value* control. Router-originated and Mihomo traffic, IPv4 and
+NetBird ingress are unchanged. Local destinations use the existing local-network
+exclusions and remain subject to fw4 rules. External TCP gets a reset; other
+IPv6 gets ICMPv6 administratively prohibited. This does not disable kernel IPv6
+or guarantee an application's IPv4 fallback. Existing offloaded connections may
+continue until expiry. Stop, cleanup and watchdog fail-open remove the policy.
+
 ### Lists
 
 One entry per line, IPv4 or IPv6:

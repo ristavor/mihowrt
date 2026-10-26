@@ -66,6 +66,10 @@ fi
 grep -q '| nft syntax | NOT TESTED |' "$tmpdir/project/.build/verification-0110/network/REPORT.md" || fail 'failed transport must not claim synthetic PASS'
 echo 'ok - network host pins transport, fails closed and retains failed-restore state'
 
+grep -q -- '-e "VM_MEM=${VM_MEM:-512}"' "${ROUTER_DIR}/start.sh" || fail 'start.sh must pass VM_MEM (default 512) to the VM container'
+grep -q -- '-m "${VM_MEM:-512}M"' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must size guest RAM from VM_MEM (default 512)'
+echo 'ok - VM memory override defaults to 512 MiB'
+
 # Boots a QEMU OpenWrt VM via Docker; keep it out of the default unit suite.
 if [ "${MIHOWRT_ROUTER_TESTS:-0}" != "1" ]; then
   echo "1..0 # SKIP set MIHOWRT_ROUTER_TESTS=1 to run the OpenWrt VM harness"

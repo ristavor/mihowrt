@@ -104,6 +104,8 @@ echo "[start] Starting OpenWrt VM container ${CONTAINER_NAME} on 127.0.0.1:${POR
 docker run -d \
   --name "${CONTAINER_NAME}" \
   -v "${BUILD_DIR}:/router" \
+  -v "${SCRIPT_DIR}/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro" \
+  -e "VM_MEM=${VM_MEM:-512}" \
   -p "127.0.0.1:${PORT}:2222" \
   "${IMAGE_NAME}"
 

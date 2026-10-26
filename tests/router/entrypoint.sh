@@ -51,7 +51,7 @@ trap cleanup EXIT INT TERM
 echo "[entrypoint] Launching native arm64 QEMU TCG OpenWrt x86_64 VM..."
 exec qemu-system-x86_64 \
   -nodefaults \
-  -m 512M \
+  -m "${VM_MEM:-512}M" \
   -smp 2 \
   -kernel "${KERNEL_BIN}" \
   -append "root=/dev/vda rootwait console=ttyS0 tsc=unstable" \

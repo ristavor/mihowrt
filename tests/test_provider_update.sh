@@ -58,7 +58,7 @@ assert_eq 12 "$(settings_subscription_interval)" "first header effective"
 subscription_json | jq -e '.auto_update and .effective_interval == 12 and (has("interval") | not)' >/dev/null || fail "new subscription JSON fields"
 : >"$tmpdir/events"
 sed -i 's/whitelist/blacklist/' "$tmpdir/download"
-rm "$PKG_STATE_DIR/subscription.stamp"
+touch -d '25 hours ago' "$PKG_STATE_DIR/subscription.stamp"
 auto_update >/dev/null
 assert_eq proxy-first "$(profile_get mode)" "cron whitelist to blacklist derives new mode"
 assert_file_contains "$tmpdir/events" 'policy:proxy-first' "cron reapplies policy"
@@ -95,4 +95,26 @@ for i in 1 2 3 4; do printf '192.0.2.%s\n' "$i" >"/tmp/mihowrt-policy-list.test-
 service_ready() { return 1; }
 lists_apply /tmp/mihowrt-policy-list.test-provider-"$$".{1,2,3,4} >/dev/null
 assert_eq 192.0.2.4 "$(cat "$DIRECT_SRC_LIST_FILE")" "fourth list installed"
-pass "subscription cron transitions, provider list refresh, broken extensions and four-list installation"
+# Reboot removes the tmpfs stamp, but persistent metadata retains an update time.
+rm -f "$PKG_STATE_DIR/subscription.stamp"
+touch -d '1 hour ago' "$SUBSCRIPTION_META_FILE"
+meta_mtime="$(date -r "$SUBSCRIPTION_META_FILE" +%s)"
+assert_eq "$meta_mtime" "$(subscription_json | jq -r '.last_update')" "json uses meta mtime"
+SUBSCRIPTION_INTERVAL=24
+assert_false "due uses meta: one hour old is not due" subscription_due
+touch -d '25 hours ago' "$SUBSCRIPTION_META_FILE"
+assert_true "due uses meta: 25 hours old is due" subscription_due
+# A newer tmpfs stamp takes precedence over unchanged persistent metadata.
+touch -d '1 hour ago' "$PKG_STATE_DIR/subscription.stamp"
+stamp_mtime="$(date -r "$PKG_STATE_DIR/subscription.stamp" +%s)"
+assert_eq "$stamp_mtime" "$(subscription_json | jq -r '.last_update')" "stamp wins"
+assert_false "stamp wins for due" subscription_due
+assert_eq "$PKG_STATE_DIR/subscription.stamp" "$(subscription_stamp_file)" "stamp path wins"
+rm "$PKG_STATE_DIR/subscription.stamp"
+assert_eq "$SUBSCRIPTION_META_FILE" "$(subscription_stamp_file)" "metadata path fallback"
+rm "$SUBSCRIPTION_META_FILE"
+assert_false "no stamp or metadata returns failure" subscription_stamp_file
+assert_eq "" "$(subscription_stamp_file || true)" "no stamp or metadata prints nothing"
+assert_eq null "$(subscription_json | jq -r '.last_update')" "no timestamp remains null"
+assert_true "no timestamp is due" subscription_due
+pass "subscription cron transitions, provider list refresh, broken extensions, four-list installation and reboot timestamps"

@@ -58,14 +58,26 @@ subscription_metadata_from_headers() {
 		 total: ($total | num), expire: ($expire | num)}'
 }
 
+subscription_stamp_file() {
+	if [ -f "$PKG_STATE_DIR/subscription.stamp" ]; then
+		printf '%s\n' "$PKG_STATE_DIR/subscription.stamp"
+	elif [ -f "$SUBSCRIPTION_META_FILE" ]; then
+		printf '%s\n' "$SUBSCRIPTION_META_FILE"
+	else
+		return 1
+	fi
+}
+
 subscription_json() {
-	local meta="{}"
+	local meta="{}" stamp=""
+
+	stamp="$(subscription_stamp_file)" || stamp=""
 
 	# A damaged file must not break the page: fall back to no metadata.
 	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(jq -c 'objects' "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
 	[ -n "$meta" ] || meta="{}"
 	jq -nc --arg url "$(uci_get subscription_url)" --arg auto "$(uci_get subscription_auto_update 1)" \
-		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$PKG_STATE_DIR/subscription.stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
+		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
 		$meta + {url: $url, auto_update: ($auto != "0"), effective_interval: ($effective | tonumber),
 		         last_update: (if $updated == "" then null else ($updated | tonumber) end)}'
 }
@@ -204,9 +216,9 @@ subscription_connect() {
 }
 
 subscription_due() {
-	local stamp="$PKG_STATE_DIR/subscription.stamp"
+	local stamp=""
 
 	[ "$SUBSCRIPTION_INTERVAL" -gt 0 ] && [ -n "$SUBSCRIPTION_URL" ] || return 1
-	[ -f "$stamp" ] || return 0
+	stamp="$(subscription_stamp_file)" || return 0
 	[ -n "$(find "$stamp" -mmin +$((SUBSCRIPTION_INTERVAL * 60 - 5)) 2>/dev/null)" ]
 }

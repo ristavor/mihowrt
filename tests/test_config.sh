@@ -197,12 +197,18 @@ assert_eq reload "$(cat "$tmpdir/events")" "same profile no policy or DNS restar
 RUNTIME_LOCK_FILE="$tmpdir/lock"
 start_runtime_lock_holder "$RUNTIME_LOCK_FILE" "$tmpdir/holder.ready"
 api_checks=0
+LOCK_DEPTH=0
 api_alive() { api_checks=$((api_checks + 1)); [ "$api_checks" -ge 3 ]; }
-sleep() { assert_true "readiness wait retains other owner's lock" lock_busy; }
+sleep() {
+ assert_true "readiness wait retains other owner's lock" lock_busy
+ assert_eq 0 "$LOCK_DEPTH" "API wait does not acquire held lock while retrying"
+}
+assert_eq 0 "$LOCK_DEPTH" "API wait starts without a nested lock"
 config_api_wait
 unset -f sleep
 assert_eq 3 "$api_checks" "readiness retries until API responds"
-assert_true "API wait does not acquire held lock" lock_busy
+assert_eq 0 "$LOCK_DEPTH" "API wait does not acquire held lock"
+assert_true "API wait leaves other owner's lock held" lock_busy
 kill -9 "$LOCK_HOLDER_PID"
 wait "$LOCK_HOLDER_PID" 2>/dev/null || true
 load_modules service.sh

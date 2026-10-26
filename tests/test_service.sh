@@ -434,6 +434,48 @@ pass "list path check"
 )
 pass "apply-lists loads settings"
 
+# A partial list upload must reach the real nft_apply once, without rebuilding
+# unchanged lists or making a separate nft delete/apply call.
+(
+ load_modules settings.sh lists.sh nft.sh
+ setup_runtime_paths "$tmpdir/partial-lists"
+ LIST_DIR="$tmpdir/partial-lists/lists"
+ DST_LIST_FILE="$LIST_DIR/dst.txt"
+ SRC_LIST_FILE="$LIST_DIR/src.txt"
+ DIRECT_DST_LIST_FILE="$LIST_DIR/direct.txt"
+ POLICY_CACHE_DIR="$tmpdir/partial-lists/cache"
+ lists_ensure_files
+ fake_uci_reset
+ printf 'mode direct-first\n' >"$PROFILE_FILE"
+ service_ready() { return 0; }
+ cron_update() { :; }
+ ip() { return 0; }
+ nft_active() { return 0; }
+ nft() {
+  printf '%s\n' "$*" >>"$tmpdir/partial-lists/nft.calls"
+  assert_eq -f "$1" 'partial list apply uses one nft transaction'
+  cp "$2" "$tmpdir/partial-lists/applied.nft"
+ }
+ settings_load
+ nft_apply
+ : >"$tmpdir/partial-lists/nft.calls"
+ for kind in dst direct direct_src; do
+  cp "$(lists_file "$kind")" "$tmpdir/partial-lists/$kind.before"
+ done
+ partial_upload="/tmp/mihowrt-policy-list.partial.$$"
+ trap 'rm -f "$partial_upload"' EXIT
+ printf '192.168.1.99\n' >"$partial_upload"
+ lists_apply - "$partial_upload" - - >"$tmpdir/partial-lists/result.json"
+ assert_eq true "$(jq -r .changed "$tmpdir/partial-lists/result.json")" 'partial list upload reports a change'
+ assert_eq "-f $PKG_TMP_DIR/nft/ruleset.nft" "$(cat "$tmpdir/partial-lists/nft.calls")" 'partial list apply calls nft -f exactly once'
+ assert_file_contains "$tmpdir/partial-lists/applied.nft" 'proxy_src { 192.168.1.99 }' 'single transaction includes updated device list'
+ for kind in dst direct direct_src; do
+  assert_true "partial apply leaves $kind unchanged" cmp -s "$(lists_file "$kind")" "$tmpdir/partial-lists/$kind.before"
+ done
+ assert_false 'partial upload removed' test -e "$partial_upload"
+)
+pass 'partial list apply runs nft -f once'
+
 # Keep the core alive through degradation and recovery, then end via hung API.
 load_modules service.sh
 WATCHDOG_FAILS=3

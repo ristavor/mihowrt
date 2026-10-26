@@ -333,6 +333,19 @@ render
 assert_file_not_contains "$out" 'ether saddr @direct_src_mac return' 'fake-IP skips direct MAC devices'
 pass 'MAC device nft rules'
 
+(
+ : >"$SRC_LIST_FILE"
+ : >"$DIRECT_SRC_LIST_FILE"
+ DISABLE_QUIC=1
+ for POLICY_MODE in direct-first proxy-first; do
+  for DNS_MODE in fake-ip redir-host; do
+   render
+   assert_file_not_contains "$out" 'ether saddr' "$POLICY_MODE/$DNS_MODE empty MAC lists emit no Ethernet source rule"
+  done
+ done
+)
+pass 'empty MAC lists emit no ether saddr rules'
+
 # Enabling/disabling the boundary uses the same single atomic replacement.
 (
  nft() { printf '%s\n' "$*" >>"$tmpdir/boundary-apply.calls"; }

@@ -171,7 +171,28 @@ assert_eq "$(printf '%s\n' "${urls[@]}")" "$(lists_source dst)" 'own URLs unrest
 rm "$PROFILE_FILE"
 pass 'provider url policy'
 
-printf '# Кириллица\n1.2.3.4\n\n' >"$DST_LIST_FILE"
+# Expanded and zero-padded IPv6 literals take the same range checks in both awks.
+for awk_impl in default busybox; do
+ (
+  if [ "$awk_impl" = busybox ]; then awk() { busybox awk "$@"; }; fi
+  for host in 192.0.0.0 192.0.0.255 192.0.2.0 192.0.2.255 \
+   192.88.99.0 192.88.99.255 198.18.0.0 198.19.255.255 224.0.0.0 \
+   '[0064:ff9b:0:0:0:0:102:304]' '[64:ff9b:0:0::102:304]' \
+   '[fc00:0:0:0:0:0:0:1]' '[fdff::1]' '[fe80:0:0:0:0:0:0:1]' \
+   '[febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff]' '[fec0:0:0:0:0:0:0:1]' \
+   '[feff:ffff:ffff:ffff:ffff:ffff:ffff:ffff]' '[ff00::]' '[ffff::1]'; do
+   assert_false "$awk_impl rejects reserved literal $host" lists_provider_url_ok "https://$host/x"
+  done
+  for host in 192.0.3.0 192.88.100.0 198.51.99.255 198.51.101.0 \
+   203.0.112.255 203.0.114.0 '[64:ff9b::1:0:0]' '[64:ff9b:1::1]' \
+   '[64:ff9c::1]' '[fbff::1]' '[fe00::1]' '[fe7f::1]'; do
+   assert_true "$awk_impl allows adjacent public literal $host" lists_provider_url_ok "https://$host/x"
+  done
+ )
+done
+pass 'provider URL range edges and expanded IPv6'
+
+printf '# Кириллица "quoted" \\path\r\n1.2.3.4\r\n\r\n' >"$DST_LIST_FILE"
 printf '# Устройства\n10.0.0.1\n' >"$SRC_LIST_FILE"
 printf '# Прямо\n' >"$DIRECT_DST_LIST_FILE"
 rm "$DIRECT_SRC_LIST_FILE"
@@ -179,6 +200,8 @@ json="$(lists_json)"
 for kind in dst src direct; do
  file="$(lists_file "$kind")"
  jq -e --arg k "$kind" --rawfile content "$file" '.[$k] == $content' <<<"$json" >/dev/null || fail "exact JSON file text: $kind"
+ jq -j --arg k "$kind" '.[$k]' <<<"$json" >"$tmpdir/json-$kind.txt"
+ assert_true "lists-json byte-exact quotes, backslash and CRLF: $kind" cmp -s "$file" "$tmpdir/json-$kind.txt"
 done
 assert_eq '' "$(jq -r .direct_src <<<"$json")" 'missing list JSON is empty'
 lists_ensure_files

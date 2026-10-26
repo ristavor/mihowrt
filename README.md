@@ -367,9 +367,10 @@ docker run --rm -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash te
 ./tools/build-sdk.sh build     # APKs into dist/ (OpenWrt 25.12.6 SDK in Docker)
 ```
 
-On macOS the SDK runs in a Linux container with a named volume
-(`mihowrt-sdk-25.12.6`) because APFS is case-insensitive. The package is noarch,
-so only `luci-base/host` (`po2lmo`) is compiled.
+On Linux and macOS, SDK builds always run in Docker; there is no native build
+mode. The SDK uses a named volume (`mihowrt-sdk-25.12.6`) for a case-sensitive
+Linux filesystem (macOS APFS is case-insensitive). The package is noarch, so
+only `luci-base/host` (`po2lmo`) is compiled.
 
 Release order (the tag must equal `v` + `PKG_VERSION` from `Makefile`; a
 `vX-rcN` tag publishes a GitHub pre-release, which `releases/latest` and the

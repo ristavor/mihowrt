@@ -7,7 +7,7 @@
 #     The macOS APFS filesystem is case-insensitive, making bind mounts unsuitable for SDK compilation.
 #     Build directory and SDK feeds are persisted in the named volume 'mihowrt-sdk-25.12.6'.
 #     Official OpenWrt SDK only distributes Linux ELF binaries; native macOS builds are unsupported upstream.
-#   Linux: Uses Docker by default for reproducible isolated builds, or native (--native) when requested.
+#   Linux: Uses the same Docker build path for reproducible isolated builds.
 #
 # Usage:
 #   ./tools/build-sdk.sh [command] [options]
@@ -21,8 +21,6 @@
 #   help           Show this documentation.
 #
 # Options:
-#   --docker       Force Docker execution (default for build).
-#   --native       Force native execution (only supported on Linux; rejected on macOS).
 #   --rebuild      Force rebuilding the Docker build image.
 #   -j<N>          Set parallelism for make (defaults to sane 4 jobs).
 #   -v, --verbose  Verbose output (make V=s).
@@ -60,7 +58,6 @@ DIST_DIR="${REPO_ROOT}/dist"
 
 # Default runtime options
 COMMAND="build"
-EXEC_MODE="docker"
 REBUILD_IMAGE=0
 VERBOSE=0
 JOBS="${JOBS:-4}"
@@ -86,23 +83,6 @@ compute_sha256() {
 	else
 		log_err "Neither sha256sum nor shasum is available to calculate SHA256."
 		exit 1
-	fi
-}
-
-detect_exec_mode() {
-	local os
-	os="$(uname -s)"
-	if [[ "$EXEC_MODE" == "native" ]]; then
-		if [[ "$os" == "Darwin" ]]; then
-			log_err "Native mode is not supported on macOS (Darwin)."
-			log_err "Official OpenWrt SDK distributes only Linux ELF binaries (no macOS native SDK)."
-			log_err "Furthermore, macOS APFS is case-insensitive, which breaks OpenWrt SDK compilation."
-			log_err "Please run in Docker mode (default)."
-			exit 1
-		fi
-		USE_DOCKER=0
-	else
-		USE_DOCKER=1
 	fi
 }
 
@@ -333,129 +313,29 @@ EOF
 	ls -l "${DIST_DIR}"/luci-app-mihowrt-*.apk "${DIST_DIR}"/luci-i18n-mihowrt-ru-*.apk
 }
 
-run_build_native_linux() {
-	verify_or_download_archive
-
-	log_info "Running native Linux SDK build..."
-	local sdk_build_dir="${REPO_ROOT}/.build/sdk/${SDK_DIR_NAME}"
-	mkdir -p "${REPO_ROOT}/.build/sdk"
-
-	if [ ! -d "$sdk_build_dir" ]; then
-		log_info "Extracting SDK archive to ${sdk_build_dir}..."
-		tar -I zstd -xf "${SDK_LOCAL_DIR}/${SDK_ARCHIVE_NAME}" -C "${REPO_ROOT}/.build/sdk"
-	fi
-
-	cd "$sdk_build_dir"
-
-	# Check native build tools
-	for req_tool in make gcc g++ rsync tar zstd; do
-		if ! command -v "$req_tool" >/dev/null 2>&1; then
-			log_err "Missing required native tool: $req_tool"
-			exit 1
-		fi
-	done
-
-	if [ ! -f "feeds/base.index" ] || [ ! -f "feeds/packages.index" ] || [ ! -f "feeds/luci.index" ]; then
-		log_info "Updating feeds base, packages, luci..."
-		./scripts/feeds update base packages luci
-	fi
-	./scripts/feeds uninstall curl jq nftables 2>/dev/null || true
-	rm -rf package/feeds/packages/curl package/feeds/packages/jq package/feeds/packages/nftables package/feeds/base/nftables 2>/dev/null || true
-	./scripts/feeds install luci-base
-
-	mkdir -p package/luci-app-mihowrt
-	rsync -a --delete "${REPO_ROOT}/Makefile" package/luci-app-mihowrt/
-	if [ -d "${REPO_ROOT}/rootfs" ]; then
-		rsync -a --delete "${REPO_ROOT}/rootfs" package/luci-app-mihowrt/
-		rm -rf package/luci-app-mihowrt/rootfs/www/luci-static/resources/mihowrt/ace.js \
-		       package/luci-app-mihowrt/rootfs/www/luci-static/resources/view/mihowrt/ace
-	fi
-	if [ -d "${REPO_ROOT}/po" ]; then
-		rsync -a --delete "${REPO_ROOT}/po" package/luci-app-mihowrt/
-	else
-		rm -rf package/luci-app-mihowrt/po
-	fi
-
-	cat << "EOF" > .config
-# CONFIG_ALL_NONSHARED is not set
-# CONFIG_ALL_KMODS is not set
-# CONFIG_ALL is not set
-CONFIG_IN_SDK=y
-CONFIG_MODULES=y
-CONFIG_HAVE_DOT_CONFIG=y
-CONFIG_TARGET_x86=y
-CONFIG_TARGET_x86_64=y
-CONFIG_TARGET_BOARD="x86"
-CONFIG_TARGET_SUBTARGET="64"
-CONFIG_TARGET_ARCH_PACKAGES="x86_64"
-CONFIG_PACKAGE_luci-app-mihowrt=m
-CONFIG_PACKAGE_luci-i18n-mihowrt-ru=m
-# CONFIG_LIBCURL_LDAP is not set
-CONFIG_LIBCURL_LDAP=n
-EOF
-	make defconfig >/dev/null 2>&1 || true
-	make package/feeds/luci/luci-base/host/compile TOPDIR="$PWD" -j"$JOBS"
-	if [ ! -x staging_dir/hostpkg/bin/po2lmo ] && [ ! -x staging_dir/host/bin/po2lmo ]; then
-		log_err "Host tool po2lmo was not found after host compile"
-		exit 1
-	fi
-	make -C package/luci-app-mihowrt clean TOPDIR="$PWD"
-	if [ "$VERBOSE" -eq 1 ]; then
-		make -C package/luci-app-mihowrt compile TOPDIR="$PWD" V=s -j"$JOBS"
-	else
-		make -C package/luci-app-mihowrt compile TOPDIR="$PWD" -j"$JOBS"
-	fi
-
-	mkdir -p "${DIST_DIR}"
-	local app_apk i18n_apk
-	app_apk="$(find bin/packages/ -type f -name "luci-app-mihowrt-*.apk" | head -n 1)"
-	i18n_apk="$(find bin/packages/ -type f -name "luci-i18n-mihowrt-ru-*.apk" | head -n 1)"
-
-	if [ -z "$app_apk" ] || [ ! -f "$app_apk" ]; then
-		log_err "luci-app-mihowrt APK not found in bin/packages/"
-		exit 1
-	fi
-	if [ -z "$i18n_apk" ] || [ ! -f "$i18n_apk" ]; then
-		log_err "luci-i18n-mihowrt-ru APK not found in bin/packages/"
-		exit 1
-	fi
-
-	cp -f "$app_apk" "${DIST_DIR}/"
-	cp -f "$i18n_apk" "${DIST_DIR}/"
-	log_info "Native build successful! Copied APKs to dist/:"
-	ls -l "${DIST_DIR}"/luci-app-mihowrt-*.apk "${DIST_DIR}"/luci-i18n-mihowrt-ru-*.apk
-}
-
 run_test() {
-	if [[ "$USE_DOCKER" -eq 1 ]]; then
-		ensure_test_image
-		log_info "Running test suite (bash tests/run.sh) in native container (${TEST_IMAGE})..."
-		docker run --rm \
-			-v "${REPO_ROOT}:/workspace:ro" \
-			-w /workspace \
-			"${TEST_IMAGE}" \
-			bash tests/run.sh "$@"
-	else
-		log_info "Running test suite natively..."
-		bash "${REPO_ROOT}/tests/run.sh" "$@"
-	fi
+	ensure_test_image
+	log_info "Running test suite (bash tests/run.sh) in native container (${TEST_IMAGE})..."
+	docker run --rm \
+		-v "${REPO_ROOT}:/workspace:ro" \
+		-w /workspace \
+		"${TEST_IMAGE}" \
+		bash tests/run.sh "$@"
 }
 
 run_clean() {
 	log_info "Cleaning dist/ directory..."
 	rm -rf "${DIST_DIR}"/*.apk
-	if [[ "$USE_DOCKER" -eq 1 ]]; then
-		if docker volume inspect "${DOCKER_VOLUME}" >/dev/null 2>&1; then
-			log_info "Cleaning package build inside Docker volume '${DOCKER_VOLUME}'..."
-			# shellcheck disable=SC2016
-			run_in_docker_container '
-				if [ -d "${CONTAINER_SDK_DIR}" ]; then
-					cd "${CONTAINER_SDK_DIR}"
-					make -C package/luci-app-mihowrt clean TOPDIR="$PWD" 2>/dev/null || true
-					rm -rf bin/packages/*/*luci*mihowrt* 2>/dev/null || true
-				fi
-			'
-		fi
+	if docker volume inspect "${DOCKER_VOLUME}" >/dev/null 2>&1; then
+		log_info "Cleaning package build inside Docker volume '${DOCKER_VOLUME}'..."
+		# shellcheck disable=SC2016
+		run_in_docker_container '
+			if [ -d "${CONTAINER_SDK_DIR}" ]; then
+				cd "${CONTAINER_SDK_DIR}"
+				make -C package/luci-app-mihowrt clean TOPDIR="$PWD" 2>/dev/null || true
+				rm -rf bin/packages/*/*luci*mihowrt* 2>/dev/null || true
+			fi
+		'
 	fi
 	log_info "Clean completed."
 }
@@ -477,8 +357,6 @@ Commands:
   help, -h       Show this help message
 
 Options:
-  --docker       Force Docker execution (default for build)
-  --native       Force native execution (supported on Linux only; rejected on macOS)
   --rebuild      Force rebuilding the Docker build image
   -j<N>          Set number of parallel jobs for compilation (default: 4)
   -v, --verbose  Verbose build output (make V=s)
@@ -513,14 +391,6 @@ while [[ $# -gt 0 ]]; do
 			COMMAND="$1"
 			shift
 			;;
-		--docker)
-			EXEC_MODE="docker"
-			shift
-			;;
-		--native)
-			EXEC_MODE="native"
-			shift
-			;;
 		--rebuild)
 			REBUILD_IMAGE=1
 			shift
@@ -545,26 +415,15 @@ while [[ $# -gt 0 ]]; do
 	esac
 done
 
-detect_exec_mode
-
 case "$COMMAND" in
 	help)
 		show_help
 		;;
 	prepare)
-		if [[ "$USE_DOCKER" -eq 1 ]]; then
-			prepare_sdk_environment_docker
-		else
-			verify_or_download_archive
-			log_info "Native Linux SDK preparation complete."
-		fi
+		prepare_sdk_environment_docker
 		;;
 	build)
-		if [[ "$USE_DOCKER" -eq 1 ]]; then
-			run_build_docker
-		else
-			run_build_native_linux
-		fi
+		run_build_docker
 		;;
 	test)
 		run_test "$@"

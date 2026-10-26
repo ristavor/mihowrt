@@ -125,21 +125,41 @@ assert_contains "tools/build-sdk.sh rescans an empty package index" '[ -s tmp/.p
 assert_contains "tools/build-sdk.sh asserts luci-app-mihowrt APK" "luci-app-mihowrt-*.apk" "$script_content"
 assert_contains "tools/build-sdk.sh asserts luci-i18n-mihowrt-ru APK" "luci-i18n-mihowrt-ru-*.apk" "$script_content"
 
-# Test 9: On macOS, --native should be rejected with non-zero exit code
-if [[ "$(uname -s)" == "Darwin" ]]; then
-	set +e
-	native_err="$("$SCRIPT" --native build 2>&1)"
-	native_rc=$?
-	set -e
-	if [[ $native_rc -ne 0 ]]; then
-		printf 'ok - --native build rejected on macOS host with non-zero exit code\n'
-		passed=$((passed + 1))
-	else
-		printf 'not ok - --native succeeded on macOS host unexpectedly\n' >&2
-		failed=$((failed + 1))
-	fi
-	assert_contains "native rejection mentions Darwin/macOS or case-insensitive" "case-insensitive" "$native_err"
-fi
+# Test 9: all SDK commands use Docker, including on Linux test hosts.
+# Keep the fixture isolated: no real Docker daemon, SDK download or build runs.
+sdk_fixture="$(mktemp -d)"
+trap 'rm -rf "$sdk_fixture"' EXIT
+mkdir -p "$sdk_fixture/tools" "$sdk_fixture/bin" "$sdk_fixture/.sdk" "$sdk_fixture/dist"
+cp "$SCRIPT" "$sdk_fixture/tools/build-sdk.sh"
+: >"$sdk_fixture/.sdk/openwrt-sdk-25.12.6-x86-64.tar.zst"
+: >"$sdk_fixture/dist/luci-app-mihowrt-0.10.2-r1.apk"
+: >"$sdk_fixture/dist/luci-i18n-mihowrt-ru-0.10.2-r1.apk"
+cat >"$sdk_fixture/bin/sha256sum" <<'SHA'
+#!/bin/sh
+printf '%s  %s\n' 1864152619092e781fa36a401960c8e9ae42d6a364c44ee5f0b197ca5f3c0fcc "$1"
+SHA
+cat >"$sdk_fixture/bin/docker" <<'DOCKER'
+#!/bin/sh
+printf '%s\n' "$*" >>"$DOCKER_CALLS"
+DOCKER
+chmod +x "$sdk_fixture/bin/sha256sum" "$sdk_fixture/bin/docker"
+for sdk_command in build prepare test clean; do
+ : >"$sdk_fixture/docker.calls"
+ sdk_rc=0
+ PATH="$sdk_fixture/bin:$PATH" DOCKER_CALLS="$sdk_fixture/docker.calls" \
+  bash "$sdk_fixture/tools/build-sdk.sh" "$sdk_command" >"$sdk_fixture/output" 2>&1 || sdk_rc=$?
+ assert_eq "$sdk_command succeeds through Docker" 0 "$sdk_rc"
+ assert_contains "$sdk_command invokes a Docker container" 'run --rm' "$(cat "$sdk_fixture/docker.calls")"
+done
+native_rc=0
+native_err="$(bash "$sdk_fixture/tools/build-sdk.sh" --native build 2>&1)" || native_rc=$?
+assert_eq '--native is rejected on every host' 1 "$native_rc"
+assert_contains 'native rejection reports unsupported argument' 'Unknown argument: --native' "$native_err"
+for removed_name in run_build_native_linux detect_exec_mode USE_DOCKER EXEC_MODE; do
+ assert_eq "Docker-only script removes $removed_name" 0 "$(grep -c "$removed_name" "$SCRIPT" || true)"
+done
+rm -rf "$sdk_fixture"
+trap - EXIT
 
 # Test 10: Feeds installs only luci-base host prerequisite
 assert_contains "tools/build-sdk.sh installs luci-base feed" "./scripts/feeds install luci-base" "$script_content"
@@ -185,8 +205,8 @@ assert_contains "release.yml top-level permissions are empty" $'\npermissions: {
 assert_contains "release.yml build job is read-only" $'  build:\n    runs-on: ubuntu-latest\n    permissions:\n      contents: read' "$release_yml"
 assert_contains "release.yml publish job can write" $'    needs: build\n    runs-on: ubuntu-latest\n    permissions:\n      contents: write' "$release_yml"
 assert_contains "release.yml checkout drops credentials" "persist-credentials: false" "$release_yml"
-assert_contains "release.yml uploads artifacts" "actions/upload-artifact@v4" "$release_yml"
-assert_contains "release.yml downloads artifacts" "actions/download-artifact@v4" "$release_yml"
+assert_contains "release.yml uploads artifacts" "actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4" "$release_yml"
+assert_contains "release.yml downloads artifacts" "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4" "$release_yml"
 assert_contains "release.yml names the repo for gh" '--repo "$GITHUB_REPOSITORY"' "$release_yml"
 assert_contains "test.yml checkout drops credentials" "persist-credentials: false" "$test_yml"
 assert_contains "release.yml compares the tag with PKG_VERSION" 'PKG_VERSION' "$release_yml"

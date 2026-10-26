@@ -68,6 +68,7 @@ function x_key(key, val,   opt, b) {
 	else if (key == "dns-hijack") opt = "dns_hijack"
 	else if (key == "bypass-ntp") opt = "bypass_ntp"
 	else if (key == "bypass-subscription-dns") opt = "bypass_subscription_dns"
+	else if (key == "block-client-ipv6") opt = "block_client_ipv6"
 	if (opt != "") {
 		b = bool_of(val)
 		if (b == "") print "ignored " key >profile

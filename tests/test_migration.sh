@@ -73,6 +73,23 @@ migrate
 assert_false 'profile from an older version removed' test -e "$PROFILE_FILE"
 pass 'migrate drops the old provider profile'
 
+mkdir -p "$CLASH_DIR"
+printf 'proxies: []\nx-mihowrt:\n  block-client-ipv6: true\n' >"$CLASH_CONFIG"
+printf 'mode proxy-first\ndns redir-host\nignored block-client-ipv6\n' >"$PROFILE_FILE"
+uci delete mihowrt.settings.block_client_ipv6 2>/dev/null || true
+migrate
+assert_false 'stale profile ignoring the new key removed' test -e "$PROFILE_FILE"
+settings_load
+assert_file_contains "$PROFILE_FILE" 'set block_client_ipv6 1' 'profile rebuilt with the provider key'
+assert_eq 1 "$BLOCK_CLIENT_IPV6" 'rebuilt profile applies the provider key'
+assert_false 'migration writes no client IPv6 option' uci -q get mihowrt.settings.block_client_ipv6
+printf 'proxies: []\n' >"$CLASH_CONFIG"
+rm -f "$PROFILE_FILE"
+settings_load
+assert_eq 0 "$BLOCK_CLIENT_IPV6" 'absent option stays off'
+rm -f "$CLASH_CONFIG" "$PROFILE_FILE"
+pass 'migrate rebuilds the profile for block-client-ipv6'
+
 touch "$CLASH_DIR/mihomo.sock"
 migrate
 assert_false 'old Mihomo socket removed' test -e "$CLASH_DIR/mihomo.sock"

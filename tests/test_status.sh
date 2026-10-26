@@ -79,6 +79,18 @@ fake_uci_set mihowrt.settings.provider_override disable_quic
 profile_json | jq -e '.provider.disable_quic == "0" and .overrides == ["disable_quic"] and .lists.dst.provided and .lists.dst.source == "provider"' >/dev/null || fail "profile-json contract"
 pass "status check state, core not called and profile-json"
 
+printf 'mode proxy-first\ndns redir-host\nset block_client_ipv6 1\n' >"$PROFILE_FILE"
+fake_uci_set mihowrt.settings.block_client_ipv6 0
+fake_uci_set mihowrt.settings.provider_override block_client_ipv6
+profile_json | jq -e '.provider.block_client_ipv6 == "1" and .overrides == ["block_client_ipv6"]' >/dev/null || fail "client IPv6 provider value and override"
+for extra in '' 'ignored block-client-ipv6'; do
+ printf 'mode proxy-first\ndns redir-host\n%s\n' "$extra" >"$PROFILE_FILE"
+ profile_json | jq -e '.provider | has("block_client_ipv6") | not' >/dev/null || fail "absent or invalid provider key not guessed"
+done
+uci delete mihowrt.settings.provider_override
+uci delete mihowrt.settings.block_client_ipv6
+pass "profile-json client IPv6 provider key"
+
 printf '# Devices\naa:bb:cc:dd:ee:ff\n10.2.3.4\n' >"$SRC_LIST_FILE"
 printf 'aa:bb:cc:dd:ee:ff\n' >"$DIRECT_SRC_LIST_FILE"
 assert_eq '2:1' "$(status_json | jq -r '"\(.lists.src):\(.lists.direct_src)"')" 'status counts MAC and IP devices'

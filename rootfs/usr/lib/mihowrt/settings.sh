@@ -129,6 +129,7 @@ settings_load() {
 	NETBIRD_PROXY="$(settings_bool netbird_proxy 0)"
 	BYPASS_NTP="$(settings_bool bypass_ntp 1)"
 	BYPASS_SUBSCRIPTION_DNS="$(settings_bool bypass_subscription_dns 1)"
+	BLOCK_CLIENT_IPV6="$(settings_bool block_client_ipv6 0)"
 
 	NETBIRD_MARK="$(uci_get netbird_mark "$NETBIRD_DEFAULT_MARK")"
 	settings_check_netbird_mark "$NETBIRD_MARK" || settings_invalid netbird_mark "$NETBIRD_MARK" || return 1

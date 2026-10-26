@@ -202,6 +202,9 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 me
   work="$tmpdir/golden-$POLICY_MODE"
   mkdir -p "$work"
   nft_render "$tmpdir/golden.nft" "$work"
+  grep '^add element inet mihowrt localv4 ' "$tmpdir/golden.nft" >"$tmpdir/localv4.nft"
+  assert_file_contains "$tmpdir/localv4.nft" '192.88.99.0/24' '6to4 relay range bypassed'
+  assert_file_not_contains "$tmpdir/localv4.nft" '198.18.0.0/15' 'benchmark range must not bypass fake-IP interception'
   diff -u "$ROOT_DIR/tests/fixtures/nft/$POLICY_MODE.nft" "$tmpdir/golden.nft"
   assert_file_not_contains "$tmpdir/golden.nft" "$tmpdir" 'ruleset contains no temporary paths'
   pass "$POLICY_MODE ruleset unchanged"

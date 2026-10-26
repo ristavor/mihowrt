@@ -138,6 +138,18 @@ urls=(http://p.example/l.txt https://127.0.0.1/x https://10.1.2.3/x
  ftp://p.example/l.txt 'https://%31%32%37.0.0.1/x'
  'https://[::ffff:7f00:1]/x' 'https://[0:0:0:0:0:ffff:808:808]/x'
  'https://[::808:808]/x')
+for host in 0.1.2.3 10.0.0.1 100.64.0.1 100.127.255.255 127.0.0.1 \
+ 169.254.1.1 172.16.0.1 172.31.255.255 192.0.0.8 192.0.2.1 \
+ 192.88.99.1 192.168.1.1 198.18.0.1 198.19.255.255 198.51.100.1 \
+ 203.0.113.1 224.0.0.1 239.1.1.1 240.0.0.1 255.255.255.255 \
+ '[::]' '[::1]' '[::ffff:10.0.0.1]' '[64:ff9b::102:304]' \
+ '[fc00::1]' '[fd00::1]' '[fe80::1]' '[febf::1]' '[fec0::1]' '[feff::1]' '[ff02::1]'; do
+ urls+=("https://$host/x")
+done
+for host in 1.1.1.1 100.63.255.255 100.128.0.1 172.32.0.1 192.0.1.1 \
+ 192.88.98.1 198.17.255.255 198.20.0.1 223.255.255.255 '[2606:4700::1111]'; do
+ assert_true "public address URL allowed: $host" lists_provider_url_ok "https://$host/x"
+done
 for url in https://p.example/l.txt https://123.example/x https://8.8.8.8/x 'https://[2606:4700::1111]/x'; do
  assert_true "public https URL allowed: $url" lists_provider_url_ok "$url"
 done

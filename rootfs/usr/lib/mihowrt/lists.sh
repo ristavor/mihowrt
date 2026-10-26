@@ -34,7 +34,7 @@ lists_provided() {
 }
 
 # Provider URLs may point only to public HTTPS hosts. DNS resolution is not
-# checked here; this policy excludes private address literals, not DNS rebinding.
+# checked here; this policy excludes local/reserved literals, not DNS rebinding.
 lists_provider_url_ok() {
 	local url="$1" host=""
 
@@ -56,10 +56,14 @@ lists_provider_url_ok() {
 	' || return 1
 	if is_ipv4 "$host"; then
 		printf '%s\n' "$host" | awk -F. '
-			{ exit ($1 == 0 || $1 == 10 || $1 == 127 ||
+			{ exit ($1 == 0 || $1 == 10 || $1 == 127 || $1 >= 224 ||
+				($1 == 100 && $2 >= 64 && $2 <= 127) ||
+				($1 == 169 && $2 == 254) ||
 				($1 == 172 && $2 >= 16 && $2 <= 31) ||
-				($1 == 192 && $2 == 168) || ($1 == 169 && $2 == 254) ||
-				($1 == 100 && $2 >= 64 && $2 <= 127)) ? 1 : 0 }
+				($1 == 192 && (($2 == 0 && ($3 == 0 || $3 == 2)) ||
+					($2 == 88 && $3 == 99) || $2 == 168)) ||
+				($1 == 198 && ($2 == 18 || $2 == 19 || ($2 == 51 && $3 == 100))) ||
+				($1 == 203 && $2 == 0 && $3 == 113)) ? 1 : 0 }
 		'
 	elif is_ipv6 "$host"; then
 		# Expand :: to reject mapped/compat IPv4 regardless of spelling.
@@ -78,7 +82,13 @@ lists_provider_url_ok() {
 				for (i = 1; i <= 5; i++) if (group(a[i]) != "0") zero = 0
 				if (zero && (group(a[6]) == "0" || group(a[6]) == "ffff")) exit 1
 				first = group(a[1])
-				if (first ~ /^f[cd][0-9a-f][0-9a-f]$/ || first ~ /^fe[89ab][0-9a-f]$/) exit 1
+				if (first ~ /^f[cd][0-9a-f][0-9a-f]$/ ||
+					first ~ /^fe[89a-f][0-9a-f]$/ || first ~ /^ff[0-9a-f][0-9a-f]$/) exit 1
+				if (first == "64" && group(a[2]) == "ff9b") {
+					zero = 1
+					for (i = 3; i <= 6; i++) if (group(a[i]) != "0") zero = 0
+					if (zero) exit 1
+				}
 			}
 		'
 	else

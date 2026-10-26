@@ -11,6 +11,57 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh
 setup_runtime_paths "$tmpdir"
 
+# Port rules group exact specs in first-appearance order, with bounded chunks.
+(
+ NFT_FILE="$tmpdir/port-rules.nft"
+ ports_file="$tmpdir/ports.txt"
+ awk 'BEGIN { for (i = 0; i < 1200; i++) print "10.0." i ".0/24;443" }' >"$ports_file"
+ : >"$NFT_FILE"
+ nft_port_rules prerouting_policy "$ports_file" ip daddr accept
+ assert_eq 3 "$(wc -l <"$NFT_FILE" | tr -d ' ')" 'grouped rule count'
+ assert_eq 3 "$(grep -Fc 'th dport { 443 } accept' "$NFT_FILE")" 'all chunks retain the port spec and action'
+ assert_eq $'512\n512\n176' "$(awk -F '[{}]' '{ print split($2, addresses, ",") }' "$NFT_FILE")" '512-address chunks'
+ awk -F '[{}]' '{ gsub(/ /, "", $2); n = split($2, addresses, ","); for (i = 1; i <= n; i++) print addresses[i] ";443" }' "$NFT_FILE" >"$tmpdir/chunk-addresses.txt"
+ assert_eq "$(cat "$ports_file")" "$(cat "$tmpdir/chunk-addresses.txt")" 'chunks preserve every address in order'
+ pass 'grouped rule count'
+
+ printf '1.1.1.1;443\n2.2.2.2;80,443\n3.3.3.3;443\n;53\n' >"$ports_file"
+ : >"$NFT_FILE"
+ nft_port_rules prerouting_policy "$ports_file" ip daddr accept
+ expected='add rule inet mihowrt prerouting_policy ip daddr { 1.1.1.1, 3.3.3.3 } meta l4proto { tcp, udp } th dport { 443 } accept
+add rule inet mihowrt prerouting_policy ip daddr { 2.2.2.2 } meta l4proto { tcp, udp } th dport { 80,443 } accept
+add rule inet mihowrt prerouting_policy meta nfproto ipv4 meta l4proto { tcp, udp } th dport { 53 } accept'
+ assert_eq "$expected" "$(cat "$NFT_FILE")" 'grouped semantics and first-spec order'
+ pass 'grouped semantics'
+
+ : >"$NFT_FILE"
+ nft_port_rules prerouting_policy "$ports_file" ip daddr accept quic
+ expected='add rule inet mihowrt prerouting_policy ip daddr { 1.1.1.1, 3.3.3.3 } udp dport 443 reject
+add rule inet mihowrt prerouting_policy ip daddr { 2.2.2.2 } udp dport 443 reject'
+ assert_eq "$expected" "$(cat "$NFT_FILE")" 'grouped quic only for specs including 443'
+ pass 'grouped quic'
+
+ printf '2001:db8::1;400-500\n;53\n2001:db8::2;400-500\n;53\nplain-address\n;400-500\n;400-500\n' >"$ports_file"
+ : >"$NFT_FILE"
+ nft_port_rules mangle_output "$ports_file" ip6 saddr return
+ expected='add rule inet mihowrt mangle_output ip6 saddr { 2001:db8::1, 2001:db8::2 } meta l4proto { tcp, udp } th dport { 400-500 } return
+add rule inet mihowrt mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 400-500 } return
+add rule inet mihowrt mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 } return'
+ assert_eq "$expected" "$(cat "$NFT_FILE")" 'IPv6 source groups and one wildcard per spec'
+ : >"$NFT_FILE"
+ nft_port_rules mangle_output "$ports_file" ip6 saddr return quic
+ expected='add rule inet mihowrt mangle_output ip6 saddr { 2001:db8::1, 2001:db8::2 } udp dport 443 reject
+add rule inet mihowrt mangle_output meta nfproto ipv6 udp dport 443 reject'
+ assert_eq "$expected" "$(cat "$NFT_FILE")" 'QUIC ranges and IPv6 wildcard scope'
+ : >"$ports_file"
+ : >"$NFT_FILE"
+ nft_port_rules prerouting_policy "$ports_file" ip daddr accept
+ printf '1.1.1.1\n' >"$ports_file"
+ nft_port_rules prerouting_policy "$ports_file" ip daddr accept
+ assert_eq '' "$(cat "$NFT_FILE")" 'empty and unscoped lists emit no port rules'
+ pass 'grouped IPv6 source, wildcard and range rules'
+)
+
 # Real OpenWrt route formats, including delegated unreachable aggregates.
 cat >"$tmpdir/routes.6" <<'ROUTES'
 default via fe80::1 dev eth1
@@ -97,10 +148,10 @@ pass 'sets filled'
 assert_file_contains "$out" "add element inet mihowrt proxy_dst { 1.1.1.1 }" "v4 set element"
 assert_file_contains "$out" "add element inet mihowrt proxy_dst6 { 2001:db8::/32 }" "v6 set element"
 assert_file_contains "$out" "add element inet mihowrt proxy_src6 { fd00::10 }" "v6 source element"
-assert_file_contains "$out" "ip daddr 9.9.9.9 meta l4proto { tcp, udp } th dport { 443 } meta mark set" "v4 port rule"
-assert_file_contains "$out" "ip6 daddr 2606:4700::1 meta l4proto { tcp, udp } th dport { 80-90 } meta mark set" "v6 port rule"
+assert_file_contains "$out" "ip daddr { 9.9.9.9 } meta l4proto { tcp, udp } th dport { 443 } meta mark set" "v4 port rule"
+assert_file_contains "$out" "ip6 daddr { 2606:4700::1 } meta l4proto { tcp, udp } th dport { 80-90 } meta mark set" "v6 port rule"
 assert_file_contains "$out" "meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 }" "port-only v6 rule"
-assert_file_contains "$out" "ip daddr 9.9.9.9 udp dport 443 reject" "QUIC reject for port entry with 443"
+assert_file_contains "$out" "ip daddr { 9.9.9.9 } udp dport 443 reject" "QUIC reject for port entry with 443"
 assert_file_contains "$out" "tproxy ip6 to [::1]:7894" "IPv6 TPROXY"
 assert_file_contains "$out" "fib daddr type local return" "local addresses excluded"
 assert_file_contains "$out" "ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874" "IPv6 DNS hijack"

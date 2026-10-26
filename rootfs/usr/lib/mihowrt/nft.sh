@@ -52,22 +52,34 @@ nft_ports_include_443() {
 	return "$found"
 }
 
-# Emit one rule per port-scoped entry: "<addr>;<ports>" or ";<ports>".
+# Group exact port specs in first-appearance order, at most 512 addresses per
+# rule. Port-only entries emit one family-wide rule per spec.
 # $1 chain, $2 file, $3 family keyword (ip|ip6), $4 field (daddr|saddr),
 # $5 action, $6 "quic" to emit UDP/443 rejects instead of the action.
 nft_port_rules() {
 	local chain="$1" file="$2" fam="$3" field="$4" action="$5" quic="${6:-}"
-	local entry="" addr="" ports="" match=""
+	local ports="" match=""
 
 	[ -s "$file" ] || return 0
-	{ grep ';' "$file" || true; } | while IFS= read -r entry; do
-		addr="${entry%%;*}"
-		ports="${entry#*;}"
-		if [ -n "$addr" ]; then
-			match="$fam $field $addr"
-		else
-			match="meta nfproto $([ "$fam" = ip ] && echo ipv4 || echo ipv6)"
-		fi
+	{ grep ';' "$file" || true; } | awk -F ';' -v fam="$fam" -v field="$field" '
+		{
+			ports = $2
+			if (!(ports in seen)) { seen[ports] = 1; order[++specs] = ports }
+			if ($1 == "") { wildcard[ports] = 1; next }
+			chunk = int(count[ports]++ / 512) + 1
+			key = ports SUBSEP chunk
+			addresses[key] = addresses[key] (addresses[key] == "" ? "" : ", ") $1
+		}
+		END {
+			for (i = 1; i <= specs; i++) {
+				ports = order[i]
+				for (chunk = 1; chunk <= int((count[ports] + 511) / 512); chunk++)
+					print ports ";" fam " " field " { " addresses[ports SUBSEP chunk] " }"
+				if (wildcard[ports])
+					print ports ";meta nfproto " (fam == "ip" ? "ipv4" : "ipv6")
+			}
+		}
+	' | while IFS=';' read -r ports match; do
 		if [ "$quic" = "quic" ]; then
 			if nft_ports_include_443 "$ports"; then
 				nft_rule "$chain" "$match udp dport 443 reject"

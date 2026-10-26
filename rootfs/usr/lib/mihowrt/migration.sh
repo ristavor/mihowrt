@@ -26,6 +26,7 @@ migrate_secret() {
 }
 
 migrate() {
+	rm -f "${RC_D_DIR:-/etc/rc.d}"/S??mihowrt-recover
 	# Never follow or reuse the pre-flock symlink, even with a live old pid.
 	rm -f "$PKG_STATE_DIR/runtime.lock"
 	migrate_settings

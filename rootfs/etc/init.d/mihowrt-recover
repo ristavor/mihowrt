@@ -1,9 +1,0 @@
-#!/bin/sh /etc/rc.common
-
-START=20
-
-# Boot-time safety net for leftovers when autostart is off.
-start() {
-	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt recover >/dev/null 2>&1
-	return 0
-}

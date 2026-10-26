@@ -24,6 +24,8 @@ was_running_marker="$tmpdir/was-running"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
+assert_eq $'/etc/init.d/mihowrt\n/etc/init.d/rpcd' "$(grep -oE '/etc/init.d/[[:alnum:]_-]+' "$ROOT_DIR/Makefile" | sort -u)" "package uses only the main init service and rpcd"
+
 assert_file_contains "$ROOT_DIR/Makefile" 'MIHOWRT_LISTS:=always_proxy_dst always_proxy_src direct_dst direct_src' "list names should have one Makefile definition"
 render_package_define conffiles >"$tmpdir/conffiles"
 if grep -q '^$' "$tmpdir/conffiles"; then
@@ -77,7 +79,6 @@ extract_postinst() {
 			-e "s|/usr/lib/mihowrt/constants.sh|$MIHOWRT_LIB_DIR/constants.sh|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
 			-e "s|/etc/init.d/mihowrt |$tmpdir/init-mihowrt |g" \
-			-e 's|/etc/init.d/mihowrt-recover enable >/dev/null 2>&1|true|g' \
 			-e 's|/etc/init.d/rpcd reload|true|g'
 }
 
@@ -85,7 +86,6 @@ extract_prerm() {
 	render_package_define prerm |
 		rewrite_package_paths |
 		sed \
-			-e "s|/etc/init.d/mihowrt-recover|$tmpdir/init-recover|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g"
 }
@@ -269,17 +269,11 @@ cat >"$tmpdir/mihowrt" <<EOF
 printf 'mihowrt:%s\n' "\$*" >>"$hook_log"
 exit 0
 EOF
-cat >"$tmpdir/init-recover" <<EOF
-#!/usr/bin/env bash
-printf 'recover:%s\n' "\$*" >>"$hook_log"
-exit 0
-EOF
-chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt" "$tmpdir/init-recover"
+chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt"
 
 : >"$hook_log"
 IPKG_INSTROOT="" "$prerm_path"
 assert_file_contains "$hook_log" "mihowrt:uninstall" "prerm runs uninstall before package files are removed"
-assert_file_contains "$hook_log" "recover:disable" "prerm should disable recover init hook before package files are removed"
 
 # Removal: apk deletes package-owned files, so prerm parks the user's YAML and
 # lists as .keep copies and postrm moves them back (spec 11.1).

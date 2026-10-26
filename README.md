@@ -291,7 +291,7 @@ download. Only the router's own traffic is affected, not LAN clients.
 - **Stop** is synchronous: it returns after DNS, nft and routes are clean
   (procd `term_timeout 30`). It is also sticky: WAN hotplug does not start
   a stopped service again until Start or a reboot (`/var/run/mihowrt/stopped`).
-- **Boot:** `mihowrt-recover` clears leftovers even when autostart is off.
+- **Boot:** a reboot clears runtime state; no separate recovery hook is needed.
 - **Memory:** Mihomo runs with `GOMEMLIMIT` = half of RAM. This is the Go
   runtime's soft heap target: the garbage collector works harder near it
   instead of letting the heap double before collecting. It reduces OOM kills on

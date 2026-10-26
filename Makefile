@@ -50,7 +50,6 @@ endef
 define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./rootfs/etc/init.d/mihowrt $(1)/etc/init.d/
-	$(INSTALL_BIN) ./rootfs/etc/init.d/mihowrt-recover $(1)/etc/init.d/
 
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_CONF) ./rootfs/etc/config/mihowrt $(1)/etc/config/
@@ -156,7 +155,6 @@ define Package/$(PKG_NAME)/postinst
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
-	/etc/init.d/mihowrt-recover enable >/dev/null 2>&1 || true
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
 	rm -rf /tmp/luci-modulecache 2>/dev/null || true
@@ -169,7 +167,6 @@ define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt uninstall >/dev/null 2>&1 || true
-	/etc/init.d/mihowrt-recover disable >/dev/null 2>&1 || true
 	# apk deletes package-owned files on removal; park the user's copies for postrm.
 	# cp, not mv: if the removal aborts, the originals are still in place.
 	[ ! -f /opt/clash/config.yaml ] || cp -p /opt/clash/config.yaml /opt/clash/config.yaml.keep || true

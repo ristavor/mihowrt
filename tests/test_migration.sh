@@ -10,6 +10,8 @@ trap 'rm -rf "$tmpdir"' EXIT
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh migration.sh
 setup_runtime_paths "$tmpdir"
+RC_D_DIR="$tmpdir/rc.d"
+mkdir -p "$RC_D_DIR"
 CLASH_DIR="$tmpdir/clash"
 CLASH_CONFIG="$CLASH_DIR/config.yaml"
 ROUTE_STATE_FILE="$PKG_STATE_DIR/route.state"
@@ -99,3 +101,15 @@ assert_false 'migrate removes stale UCI secret' uci -q get mihowrt.settings.api_
 migrate
 assert_eq xxxxxxxx "$(cat "$API_SECRET_FILE")" 'secret migration is idempotent'
 pass 'migrate keeps existing file'
+
+# Remove only the retired boot hook, not the main service or its target.
+printf untouched >"$tmpdir/retired-init"
+ln -s "$tmpdir/retired-init" "$RC_D_DIR/S20mihowrt-recover"
+ln -s "$tmpdir/retired-init" "$RC_D_DIR/S21mihowrt"
+migrate
+assert_false 'retired boot link removed' test -L "$RC_D_DIR/S20mihowrt-recover"
+assert_true 'main service link kept' test -L "$RC_D_DIR/S21mihowrt"
+assert_eq untouched "$(cat "$tmpdir/retired-init")" 'retired init target untouched'
+migrate
+assert_true 'main service link kept after repeated migration' test -L "$RC_D_DIR/S21mihowrt"
+pass 'migrate removes recover link'

@@ -109,16 +109,6 @@ source_init_mihowrt_lib() {
 	rmdir "${fixture_path%/*}"
 }
 
-source_init_recover_lib() {
-	local fixture_path
-	fixture_path="$(make_temp_dir)/recover.sh"
-	sed '1d' "$ROOT_DIR/rootfs/etc/init.d/mihowrt-recover" >"$fixture_path"
-	# shellcheck disable=SC1090
-	source "$fixture_path"
-	rm -f "$fixture_path"
-	rmdir "${fixture_path%/*}"
-}
-
 # Source runtime modules from the repository in the given order.
 load_modules() {
 	local module

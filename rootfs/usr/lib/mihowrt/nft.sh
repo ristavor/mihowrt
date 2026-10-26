@@ -256,12 +256,13 @@ nft_render_catch_all() {
 
 # Render the full ruleset. Lists are resolved into $2 (a work directory).
 nft_render() {
-	local file="$1" dir="$2" kind=""
+	local file="$1" dir="$2" kind="" kinds="dst src"
 
 	NFT_FILE="$file"
 	NFT_MARK_SET="meta mark set meta mark | $NFT_INTERCEPT_MARK"
 	: >"$NFT_FILE" || return 1
-	for kind in dst src direct direct_src; do
+	[ "$POLICY_MODE" = "proxy-first" ] && kinds="direct direct_src"
+	for kind in $kinds; do
 		lists_resolve "$kind" "$dir/$kind.4" "$dir/$kind.6" "$dir/$kind.mac" || return 1
 	done
 

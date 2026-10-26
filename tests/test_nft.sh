@@ -137,6 +137,41 @@ render() {
 	nft_render "$out" "$tmpdir/work"
 }
 
+# Resolve only the selected mode's list kinds, even with fake-IP DNS.
+(
+ lists_resolve() { printf '%s\n' "$1" >>"$tmpdir/resolved-kinds"; }
+ for POLICY_MODE in proxy-first direct-first; do
+  for DNS_MODE in redir-host fake-ip; do
+   : >"$tmpdir/resolved-kinds"
+   work="$tmpdir/resolve-$POLICY_MODE-$DNS_MODE"
+   mkdir -p "$work"
+   nft_render "$tmpdir/resolve.nft" "$work"
+   case "$POLICY_MODE" in
+    proxy-first) expected=$'direct\ndirect_src' ;;
+    direct-first) expected=$'dst\nsrc' ;;
+   esac
+   assert_eq "$expected" "$(cat "$tmpdir/resolved-kinds")" "$POLICY_MODE skips inactive lists ($DNS_MODE)"
+  done
+ done
+ pass 'proxy-first skips dst src; direct-first skips direct direct_src'
+)
+
+# Goldens captured before selective resolution, with inactive lists empty.
+# All lists are populated here: inactive data must not affect the ruleset.
+(
+ printf '192.168.1.50\nfd00::50\n' >"$DIRECT_SRC_LIST_FILE"
+ DNS_MODE=redir-host
+ for POLICY_MODE in direct-first proxy-first; do
+  work="$tmpdir/golden-$POLICY_MODE"
+  mkdir -p "$work"
+  nft_render "$tmpdir/golden.nft" "$work"
+  diff -u "$ROOT_DIR/tests/fixtures/nft/$POLICY_MODE.nft" "$tmpdir/golden.nft"
+  assert_file_not_contains "$tmpdir/golden.nft" "$tmpdir" 'ruleset contains no temporary paths'
+  pass "$POLICY_MODE ruleset unchanged"
+ done
+ : >"$DIRECT_SRC_LIST_FILE"
+)
+
 render
 assert_file_contains "$out" 'localv4 { 203.0.113.0/24 }' 'sets filled: connected v4'
 for prefix in 2001:db8:1::/48 2001:db8:1:10::/64 2001:db8:1:20::/64; do

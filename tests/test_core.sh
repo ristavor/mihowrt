@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh fetch.sh subscription.sh core.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh fetch.sh subscription.sh core.sh service.sh
 setup_runtime_paths "$tmpdir"
 
 PKG_TMP_DIR="$tmpdir/tmp"
@@ -41,6 +41,30 @@ assert_eq 2 "$(wc -l <"$tmpdir/version.calls" | tr -d ' ')" 'refresh queries onc
 assert_eq 'previous version' "$(cat <&8)" 'core cache publication replaces inode'
 exec 8<&-
 pass 'core version cache'
+
+# Only candidate config validation gets half the running core's memory budget.
+(
+ mihomo_memory_limit() { echo "$memory_limit"; }
+ env_core="$tmpdir/env-core"
+ cat >"$env_core" <<'N'
+#!/bin/sh
+printf '%s\n' "${GOMEMLIMIT-unset}" >"$CORE_TEST_ENV"
+N
+ chmod +x "$env_core"
+ export CORE_TEST_ENV="$tmpdir/core-test.env" GOMEMLIMIT=123MiB
+ for memory_limit in 128MiB 0097MiB; do
+  case "$memory_limit" in 128MiB) expected=64MiB ;; *) expected=48MiB ;; esac
+  mihomo_config_test "$CLASH_CONFIG" "$env_core"
+  assert_eq "$expected" "$(cat "$CORE_TEST_ENV")" 'candidate test gets half the memory limit'
+  assert_eq 123MiB "$GOMEMLIMIT" 'candidate limit does not leak into caller'
+ done
+ CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
+ assert_eq 123MiB "$(cat "$CORE_TEST_ENV")" 'installed core test keeps inherited memory limit'
+ unset GOMEMLIMIT
+ CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
+ assert_eq unset "$(cat "$CORE_TEST_ENV")" 'installed core test does not add a memory limit'
+)
+pass 'candidate config test memory limit'
 
 # New core: prints its version; rejects configs when NEW_CORE_REJECTS=1.
 new_core="$tmpdir/new-core"

@@ -115,7 +115,7 @@ profile_entries() {
 # Validate a generated config with Mihomo itself. Its own error text is the
 # most useful message for the user, so it is passed through.
 mihomo_config_test() {
-	local config="$1" bin="${2:-$CLASH_BIN}"
+	local config="$1" bin="${2:-$CLASH_BIN}" memlimit=""
 
 	CONFIG_TEST_OUTPUT=""
 	[ -x "$bin" ] || {
@@ -123,7 +123,14 @@ mihomo_config_test() {
 		err "$CONFIG_TEST_OUTPUT"
 		return 1
 	}
-	CONFIG_TEST_OUTPUT="$("$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1)" && return 0
+	if [ -n "${2:-}" ]; then
+		# The installed core remains live while its candidate is validated.
+		memlimit="$(mihomo_memory_limit)"
+		memlimit="$(uint_norm "${memlimit%MiB}")"
+		CONFIG_TEST_OUTPUT="$(GOMEMLIMIT="$((memlimit / 2))MiB" "$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1)"
+	else
+		CONFIG_TEST_OUTPUT="$("$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1)"
+	fi && return 0
 	printf '%s\n' "$CONFIG_TEST_OUTPUT" | tail -n 20 >&2
 	err "Mihomo rejected the configuration"
 	return 1

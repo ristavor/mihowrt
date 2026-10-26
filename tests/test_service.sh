@@ -269,6 +269,77 @@ assert_eq 1 "$rc" "apply failure reported"
 assert_eq $'nft\nroute-fail\ndns-clean\nnft-clean\nroute-clean' "$(cat "$events")" "partial apply rolled back"
 pass "apply failure cleans"
 
+(
+ route_setup() { echo route >>"$events"; }
+ dns_apply() { echo dns-fail >>"$events"; return 1; }
+ reset_events
+ rc=0
+ policy_apply || rc=$?
+ assert_eq 1 "$rc" 'DNS failure after nft apply reported'
+ assert_eq $'nft\nroute\ndns-fail\ndns-clean\nnft-clean\nroute-clean' "$(cat "$events")" 'DNS failure still cleans partial policy'
+)
+pass 'DNS apply failure still cleans'
+
+# A rejected nft transaction leaves the old live policy alone: no cleanup,
+# route/DNS mutation, retry, or compensating delete.
+(
+ load_modules nft.sh
+ settings_require() { return 0; }
+ nft_render() { printf 'candidate transaction\n' >"$1"; }
+ printf 'old live transaction\n' >"$tmpdir/live-policy"
+ nft() {
+  printf 'nft:%s\n' "$*" >>"$events"
+  case "$1" in
+   -f) return 1 ;;
+   delete) rm -f "$tmpdir/live-policy" ;;
+  esac
+ }
+ reset_events
+ rc=0
+ policy_apply 2>"$tmpdir/policy-nft.err" || rc=$?
+ assert_eq 1 "$rc" 'failed nft apply reported'
+ assert_eq "nft:-f $PKG_TMP_DIR/nft/ruleset.nft" "$(cat "$events")" 'failed nft has no cleanup, partial second apply, route or DNS calls'
+ assert_eq 'old live transaction' "$(cat "$tmpdir/live-policy")" 'failed nft leaves previous live policy'
+)
+pass 'failed nft transaction preserves live policy'
+
+# A policy-only flag apply must reach real policy_apply/nft_apply, without a
+# Mihomo config test or API reload when generated runtime YAML is identical.
+(
+ load_modules settings.sh nft.sh
+ fake_uci_reset
+ fake_uci_set network.lan.ipaddr 192.168.8.1/24
+ service_ready() { return 0; }
+ cron_update() { :; }
+ mihomo_config_generate() {
+  cp "$RUNTIME_CONFIG" "$2"
+  printf 'policy-only profile\n' >"$2.profile"
+ }
+ mihomo_config_test() { fail 'policy-only flag must not test the core'; }
+ api_reload() { fail 'policy-only flag must not reload the core'; }
+ route_setup() { echo route >>"$events"; }
+ dns_apply() { echo dns >>"$events"; }
+ ip() { return 0; }
+ nft() {
+  assert_eq -f "$1" 'policy-only apply uses nft transaction'
+  cp "$2" "$tmpdir/policy-only.nft"
+  echo "nft:$BLOCK_CLIENT_IPV6" >>"$events"
+ }
+ rm -f "$NFT_APPLIED_FILE"
+ for flag in 1 0; do
+  fake_uci_set mihowrt.settings.block_client_ipv6 "$flag"
+  reset_events
+  service_reload
+  assert_eq "$(printf 'nft:%s\nroute\ndns' "$flag")" "$(cat "$events")" 'policy-only flag reaches nft with effective setting'
+  if [ "$flag" = 1 ]; then
+   assert_file_contains "$tmpdir/policy-only.nft" client_ipv6_egress 'policy-only flag enables boundary'
+  else
+   assert_file_not_contains "$tmpdir/policy-only.nft" client_ipv6_egress 'policy-only flag disables boundary'
+  fi
+ done
+)
+pass 'policy-only flag apply skips core test and reload'
+
 nested() {
 	with_lock true
 	[ "$LOCK_DEPTH" = 1 ] || fail "outer lock must survive nested release"

@@ -292,3 +292,31 @@ DNS_MODE=fake-ip
 render
 assert_file_not_contains "$out" 'ether saddr @direct_src_mac return' 'fake-IP skips direct MAC devices'
 pass 'MAC device nft rules'
+
+# Enabling/disabling the boundary uses the same single atomic replacement.
+(
+ nft() { printf '%s\n' "$*" >>"$tmpdir/boundary-apply.calls"; }
+ nft_active() { return 0; }
+ rm -f "$NFT_APPLIED_FILE"
+ : >"$tmpdir/boundary-apply.calls"
+ for BLOCK_CLIENT_IPV6 in 0 1 0; do
+  nft_apply
+  assert_eq $'add table inet mihowrt\ndelete table inet mihowrt\nadd table inet mihowrt' "$(head -n3 "$NFT_APPLIED_FILE")" 'toggle stays atomic'
+  if [ "$BLOCK_CLIENT_IPV6" = 1 ]; then
+   assert_file_contains "$NFT_APPLIED_FILE" client_ipv6_egress 'enabled transaction includes boundary'
+  else
+   assert_file_not_contains "$NFT_APPLIED_FILE" client_ipv6_egress 'disabled transaction removes boundary'
+  fi
+ done
+ assert_eq 3 "$(wc -l <"$tmpdir/boundary-apply.calls" | tr -d ' ')" 'one nft invocation per toggle'
+ assert_eq 3 "$(grep -c '^-f ' "$tmpdir/boundary-apply.calls")" 'only nft -f, no separate deletes'
+ : >"$tmpdir/boundary-apply.calls"
+ nft() { printf '%s\n' "$*" >>"$tmpdir/boundary-apply.calls"; return 1; }
+ BLOCK_CLIENT_IPV6=1
+ if nft_apply 2>"$tmpdir/boundary-apply.err"; then fail 'failed transaction must report failure'; fi
+ assert_eq "-f $PKG_TMP_DIR/nft/ruleset.nft" "$(cat "$tmpdir/boundary-apply.calls")" 'failed transaction not retried or deleted'
+ assert_file_contains "$tmpdir/boundary-apply.err" 'Failed to apply nftables policy' 'failure reported'
+ assert_false 'failed apply invalidates comparison cache' test -e "$NFT_APPLIED_FILE"
+ assert_true 'failed rendered transaction retained for diagnosis' test -s "$PKG_TMP_DIR/nft/ruleset.nft"
+)
+pass 'client IPv6 toggle and failed transaction stay atomic'

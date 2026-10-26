@@ -129,3 +129,115 @@ pass "no persistence"
 
 grep -q "option block_client_ipv6 '0'" "$ROOT_DIR/rootfs/etc/config/mihowrt" || fail "shipped default"
 pass "shipped default off"
+
+# Client boundary: real list resolution, custom interfaces and every supported
+# profile. Exact entry-chain assertions pin the path before list/NTP/QUIC rules.
+(
+ load_modules nft.sh route.sh
+ fake_uci_reset
+ settings_load
+ LIST_DIR="$tmpdir/boundary-lists"
+ DST_LIST_FILE="$LIST_DIR/dst.txt"
+ SRC_LIST_FILE="$LIST_DIR/src.txt"
+ DIRECT_DST_LIST_FILE="$LIST_DIR/direct.txt"
+ DIRECT_SRC_LIST_FILE="$LIST_DIR/direct_src.txt"
+ POLICY_CACHE_DIR="$tmpdir/boundary-cache"
+ lists_ensure_files
+ printf '2606:4700::/32\n2606:4700::1111;443\n;53\n' >"$DST_LIST_FILE"
+ printf '2001:db8::10\naa:bb:cc:dd:ee:ff\n;443\n' >"$SRC_LIST_FILE"
+ cp "$DST_LIST_FILE" "$DIRECT_DST_LIST_FILE"
+ cp "$SRC_LIST_FILE" "$DIRECT_SRC_LIST_FILE"
+ SOURCE_INTERFACES='br-guest wt9'
+ NETBIRD_INTERFACE=wt9
+ BYPASS_NTP=1
+ DISABLE_QUIC=1
+ DNS_HIJACK=1
+ ip() {
+  case "$*" in
+   '-6 route show table main') echo '2001:db8:1::/64 dev br-guest' ;;
+  esac
+  return 0
+ }
+ work="$tmpdir/boundary-work"
+ mkdir -p "$work"
+ rules="$tmpdir/boundary.nft"
+ chain_rules() { grep -F "add rule inet mihowrt $1 " "$rules"; }
+ for profile in direct-first:fake-ip proxy-first:fake-ip proxy-first:redir-host; do
+  POLICY_MODE="${profile%:*}"
+  DNS_MODE="${profile#*:}"
+  unset BLOCK_CLIENT_IPV6
+  nft_render "$rules" "$work"
+  cp "$rules" "$tmpdir/boundary-off.nft"
+  BLOCK_CLIENT_IPV6=0
+  nft_render "$rules" "$work"
+  assert_true "$profile absent equals off" cmp -s "$rules" "$tmpdir/boundary-off.nft"
+  assert_file_not_contains "$rules" client_ipv6_egress "$profile off has no boundary chain"
+  assert_file_not_contains "$rules" 'iifname @source_ifaces meta nfproto ipv6 return' "$profile off has no client IPv6 guards"
+  assert_file_not_contains "$rules" 'reject with' "$profile off has no new rejects"
+  assert_file_contains "$rules" 'ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect' "$profile off keeps IPv6 DNS"
+  assert_file_contains "$rules" 'tproxy ip6 to [::1]:7894' "$profile off keeps IPv6 TPROXY"
+  BLOCK_CLIENT_IPV6=1
+  nft_render "$rules" "$work"
+  assert_file_contains "$rules" 'add chain inet mihowrt client_ipv6_egress { type filter hook forward priority -1; policy accept; }' "$profile forward rejection"
+  expected='add rule inet mihowrt client_ipv6_egress iifname "wt9" return
+add rule inet mihowrt client_ipv6_egress meta nfproto != ipv6 return
+add rule inet mihowrt client_ipv6_egress iifname != @source_ifaces return
+add rule inet mihowrt client_ipv6_egress fib daddr type local return
+add rule inet mihowrt client_ipv6_egress ip6 daddr @localv6 return
+add rule inet mihowrt client_ipv6_egress meta nfproto ipv6 meta l4proto tcp counter reject with tcp reset
+add rule inet mihowrt client_ipv6_egress meta nfproto ipv6 counter reject with icmpv6 type admin-prohibited'
+  assert_eq "$expected" "$(chain_rules client_ipv6_egress)" "$profile scoped rejection order; local returns, no accept/established/list loophole"
+  expected='add rule inet mihowrt mangle_prerouting iifname "wt9" return
+add rule inet mihowrt mangle_prerouting iifname @source_ifaces meta nfproto ipv6 return
+add rule inet mihowrt mangle_prerouting iifname @source_ifaces jump prerouting_policy'
+  assert_eq "$expected" "$(chain_rules mangle_prerouting)" "$profile client guard before all list, NTP and QUIC policy"
+  expected='add rule inet mihowrt proxy_redirect iifname "wt9" return
+add rule inet mihowrt proxy_redirect iifname @source_ifaces meta nfproto ipv6 return
+add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:7894
+add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894'
+  assert_eq "$expected" "$(chain_rules proxy_redirect)" "$profile client guard before TPROXY, router reroute unchanged"
+  expected='add rule inet mihowrt dns_hijack iifname "wt9" return
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874'
+  assert_eq "$expected" "$(chain_rules dns_hijack)" "$profile only IPv4 DNS redirect remains"
+  for iface in br-guest wt9; do
+   assert_file_contains "$rules" "source_ifaces { \"$iface\" }" "$profile custom source interface"
+  done
+  assert_file_contains "$rules" 'localv6 { 2001:db8:1::/64 }' "$profile existing connected-local discovery"
+  for expression in 'ip6 daddr' 'meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 }'; do
+   assert_file_contains "$rules" "prerouting_policy $expression" "$profile populated destination/port-only list rules remain behind guard"
+  done
+  if [ "$POLICY_MODE" = direct-first ] || [ "$DNS_MODE" = redir-host ]; then
+   assert_file_contains "$rules" 'prerouting_policy ip6 saddr' "$profile source list behind guard"
+   assert_file_contains "$rules" 'prerouting_policy ether saddr' "$profile MAC list behind guard"
+  fi
+  assert_file_contains "$rules" 'prerouting_policy meta nfproto ipv6 udp dport 123 return' "$profile NTP remains behind entry guard"
+  assert_file_not_contains "$rules" 'ct state established,related' "$profile no flow-state bypass"
+  for pattern in '^add rule inet mihowrt mangle_output ' ' (ip |meta nfproto ipv4)'; do
+   assert_eq "$(grep -E "$pattern" "$tmpdir/boundary-off.nft")" "$(grep -E "$pattern" "$rules")" "$profile router output and IPv4 expressions unchanged"
+  done
+  assert_file_contains "$rules" 'mangle_output meta mark 2 return' "$profile Mihomo routing-mark exemption unchanged"
+  BLOCK_CLIENT_IPV6=0
+  nft_render "$rules" "$work"
+  assert_true "$profile disable removes all boundary rules" cmp -s "$rules" "$tmpdir/boundary-off.nft"
+  pass "$profile client IPv6 boundary"
+ done
+
+ # NetBird router-output selection remains identical in both settings.
+ for NETBIRD_PROXY in 0 1; do
+  for BLOCK_CLIENT_IPV6 in 0 1; do
+   nft_render "$rules" "$work"
+   chain_rules mangle_output >"$tmpdir/output-$BLOCK_CLIENT_IPV6"
+  done
+  assert_true "NetBird output unchanged ($NETBIRD_PROXY)" cmp -s "$tmpdir/output-0" "$tmpdir/output-1"
+ done
+ # The flag never suppresses the existing IPv6 policy route.
+ route_families() { printf '4\n6\n'; }
+ route_state_read() { ROUTE_TABLE=100; ROUTE_PRIORITY=100; }
+ route_rule_present() { return 1; }
+ ROUTE_STATE_FILE="$tmpdir/boundary-route.state"
+ ip() { printf '%s\n' "$*" >>"$tmpdir/route-$BLOCK_CLIENT_IPV6"; }
+ for BLOCK_CLIENT_IPV6 in 0 1; do route_setup; done
+ assert_true 'policy routing unchanged' cmp -s "$tmpdir/route-0" "$tmpdir/route-1"
+ assert_file_contains "$tmpdir/route-1" '-6 route replace local default dev lo table 100' 'IPv6 local route retained'
+ pass 'router output and IPv6 routes unchanged'
+)

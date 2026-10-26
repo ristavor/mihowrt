@@ -49,7 +49,9 @@ cache_db_persist() {
 policy_apply() {
 	settings_require || return 1
 
-	if nft_apply && route_setup && dns_apply; then
+	# A failed atomic nft transaction leaves the previous live policy intact.
+	nft_apply || return 1
+	if route_setup && dns_apply; then
 		log "Policy applied ($POLICY_MODE)"
 		return 0
 	fi

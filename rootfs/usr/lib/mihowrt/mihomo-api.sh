@@ -45,10 +45,12 @@ api_reload() {
 api_proxies_json() {
 	api_request GET /proxies | jq -c '
 		.proxies as $p
-		| reduce ((($p.GLOBAL.all // []) + ($p | keys))[]) as $k ([]; if index([$k]) then . else . + [$k] end)
-		| [.[] | select(. != "GLOBAL") | {key: ., value: $p[.]}
-		 | select(.value != null and (.value.hidden | not)
-		     and (.value.type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))
+		| reduce (((($p.GLOBAL.all // []) + ($p | keys))[])
+		    | select(. != "GLOBAL")
+		    | select($p[.] != null and ($p[.].hidden | not)
+		        and ($p[.].type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))) as $k
+		    ({seen: {}, out: []}; if .seen[$k] then . else .seen[$k] = true | .out += [$k] end)
+		| [.out[] | {key: ., value: $p[.]}
 		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // ""),
 		    delays: ([(.value.all // [])[] as $n | ($p[$n].history // []) | select(length > 0) | {($n): .[-1].delay}] | add // {})}]'
 }

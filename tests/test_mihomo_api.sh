@@ -17,7 +17,11 @@ cat >"$tmpdir/bin/curl" <<'C'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$CURL_LOG"
 [ "${CURL_EXIT:-0}" = 0 ] || exit "$CURL_EXIT"
-printf '%s' "$CURL_BODY"
+if [ -n "${CURL_BODY_FILE:-}" ]; then
+	cat "$CURL_BODY_FILE"
+else
+	printf '%s' "$CURL_BODY"
+fi
 case " $* " in *" -w "*) printf '\n%s' "${CURL_CODE:-200}" ;; esac
 C
 chmod +x "$tmpdir/bin/curl"
@@ -57,6 +61,19 @@ assert_eq '{}' "$(CURL_CODE=504 CURL_BODY='{"message":"get delay: all proxies ti
 if CURL_CODE=401 CURL_BODY='{"message":"Unauthorized"}' api_group_delay G >/dev/null 2>&1; then fail "other HTTP errors must fail"; fi
 if CURL_EXIT=7 CURL_BODY='' api_group_delay G >/dev/null 2>&1; then fail "socket failure must fail"; fi
 pass 'GLOBAL group ordering'
+
+jq -nc '
+	[range(3000) | "Node-\(.)"] as $nodes
+	| {proxies: (
+		(reduce $nodes[] as $n ({}; .[$n] = {type: "Direct"}))
+		+ {GLOBAL: {type: "Selector", all: ($nodes + ["Zulu", "Middle", "Alpha", "Zulu", "missing", "GLOBAL", "Alpha"])},
+		   Alpha: {type: "LoadBalance", now: "Node-0", all: ["Node-0"]},
+		   Middle: {type: "Fallback", now: "Node-0", all: ["Node-0"]},
+		   Zulu: {type: "URLTest", now: "Node-0", all: ["Node-0"]}}
+	)}' >"$tmpdir/large-proxies.json"
+result="$(CURL_BODY_FILE="$tmpdir/large-proxies.json" api_proxies_json)"
+assert_eq '[{"name":"Zulu","type":"URLTest","now":"Node-0","all":["Node-0"],"fixed":"","delays":{}},{"name":"Middle","type":"Fallback","now":"Node-0","all":["Node-0"],"fixed":"","delays":{}},{"name":"Alpha","type":"LoadBalance","now":"Node-0","all":["Node-0"],"fixed":"","delays":{}}]' "$result" '3000 proxies: three groups once in GLOBAL order'
+pass 'large proxy answer'
 
 : >"$CURL_LOG"
 CURL_BODY='{}' api_group_delay G >/dev/null

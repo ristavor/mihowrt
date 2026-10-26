@@ -29,14 +29,14 @@ runtime_config_json() {
 	local scratch="" rc=0 MIHOWRT_QUIET=1
 
 	if [ -r "$RUNTIME_CONFIG" ]; then
-		jq -Rs '{content: ., generated: false}' <"$RUNTIME_CONFIG"
+		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$RUNTIME_CONFIG" | jq -Rs '{content: ., generated: false}'
 		return
 	fi
 	settings_load || return 1
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	scratch="$(mktemp "$PKG_TMP_DIR/runtime-preview.XXXXXX")" || return 1
 	if mihomo_config_generate "$CLASH_CONFIG" "$scratch"; then
-		jq -Rs '{content: ., generated: true}' <"$scratch" || rc=1
+		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$scratch" | jq -Rs '{content: ., generated: true}' || rc=1
 	else
 		rc=1
 	fi

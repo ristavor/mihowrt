@@ -44,12 +44,15 @@ runtime_config_fixture() {
 (
  set -e
  runtime_config_fixture file
- printf 'secret: "quoted"\r\nmode: rule\n' >"$RUNTIME_CONFIG"
+ printf 'secret: "existing-secret"\nmode: rule\r\n' >"$RUNTIME_CONFIG"
  declare -F runtime_config_json >/dev/null || fail 'runtime_config_json helper missing (runtime file)'
  runtime_config_json >"$tmpdir/runtime-file.json"
  assert_eq false "$(jq -r .generated "$tmpdir/runtime-file.json")" 'runtime file is not a generated preview'
  jq -j .content "$tmpdir/runtime-file.json" >"$tmpdir/runtime-file.content"
- assert_true 'runtime file preserves quotes, CRLF and trailing newline byte-for-byte' cmp -s "$RUNTIME_CONFIG" "$tmpdir/runtime-file.content"
+ assert_file_contains "$tmpdir/runtime-file.content" 'secret: "(hidden)"' 'runtime-config hides secret in existing file'
+ assert_file_not_contains "$tmpdir/runtime-file.content" existing-secret 'runtime-config omits real existing secret'
+ printf 'secret: "(hidden)"\nmode: rule\r\n' >"$tmpdir/runtime-file.expected"
+ assert_true 'runtime file preserves other bytes' cmp -s "$tmpdir/runtime-file.expected" "$tmpdir/runtime-file.content"
 )
 pass 'runtime file'
 
@@ -57,6 +60,7 @@ pass 'runtime file'
 (
  set -e
  runtime_config_fixture preview
+ printf '%s\n' preview-secret-123 >"$API_SECRET_FILE"
  # shellcheck disable=SC2030 # subshell-local on purpose
  PROFILE_FILE="$PKG_TMP_DIR/config.yaml.profile"
  printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n  proxy-ips:\n    - https://10.0.0.1/x\n' >"$CLASH_CONFIG"
@@ -69,6 +73,9 @@ pass 'runtime file'
  assert_eq true "$(jq -r .generated "$tmpdir/runtime-preview.json")" 'missing runtime produces generated preview'
  jq -j .content "$tmpdir/runtime-preview.json" >"$tmpdir/runtime-preview.content"
  assert_file_contains "$tmpdir/runtime-preview.content" 'tproxy-port: 7894' 'preview contains managed keys'
+ assert_file_contains "$tmpdir/runtime-preview.content" 'secret: "(hidden)"' 'runtime-config hides generated preview secret'
+ assert_file_not_contains "$tmpdir/runtime-preview.content" preview-secret-123 'runtime-config omits real preview secret'
+ assert_eq preview-secret-123 "$API_SECRET" 'preview loads the real file secret for generation'
  assert_file_not_contains "$tmpdir/runtime-preview.content" x-mihowrt 'preview removes extension'
  after_scratch="$(ls -A "$PKG_TMP_DIR")"
  # The only allowed new entry is the provider profile built by settings_load.

@@ -144,7 +144,7 @@ settings_load() {
 	SUBSCRIPTION_INTERVAL="$(settings_subscription_interval)"
 	LISTS_INTERVAL="$(settings_hours lists_interval)" || settings_invalid lists_interval "$(settings_value lists_interval)" || return 1
 
-	API_SECRET="$(uci_get api_secret)"
+	API_SECRET="$(cat "$API_SECRET_FILE" 2>/dev/null)" || API_SECRET=""
 	case "$API_SECRET" in
 	*[!A-Za-z0-9._~-]*) settings_invalid api_secret "(unsupported characters)" || return 1 ;;
 	esac
@@ -159,12 +159,26 @@ random_hex() {
 	hexdump -n "$1" -v -e '/1 "%02x"' /dev/urandom 2>/dev/null
 }
 
+# Never expose a partial credential or a temporary file readable by other users.
+settings_secret_write() (
+	local tmp=""
+
+	umask 077
+	ensure_dir "$PKG_PERSIST_DIR" || return 1
+	tmp="$(mktemp "$API_SECRET_FILE.tmp.XXXXXX")" || return 1
+	if printf '%s\n' "$1" >"$tmp" && mv -f "$tmp" "$API_SECRET_FILE"; then
+		return 0
+	fi
+	rm -f "$tmp"
+	return 1
+)
+
 # Generate per-device values once: API secret and the cron minute that spreads
 # subscription requests across the hour.
 settings_ensure_generated() {
 	local changed=0 secret="" minute=""
 
-	secret="$(uci_get api_secret)"
+	secret="$(cat "$API_SECRET_FILE" 2>/dev/null)" || secret=""
 	case "$secret" in
 	'' | ? | ?? | ??? | ???? | ????? | ?????? | ??????? | *[!A-Za-z0-9._~-]*)
 		secret="$(random_hex 24)"
@@ -172,10 +186,11 @@ settings_ensure_generated() {
 			err "Failed to generate Mihomo API secret"
 			return 1
 		}
-		uci_set api_secret "$secret" || return 1
-		changed=1
+		settings_secret_write "$secret" || return 1
 		;;
 	esac
+
+	chmod 600 "$API_SECRET_FILE" || return 1
 
 	minute="$(uci_get cron_minute)"
 	if ! is_uint "$minute" || [ "$minute" -gt 59 ]; then

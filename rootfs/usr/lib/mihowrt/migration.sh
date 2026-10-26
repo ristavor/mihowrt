@@ -15,6 +15,16 @@ migrate_settings() {
 	uci_commit
 }
 
+migrate_secret() {
+	local secret=""
+
+	secret="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.api_secret" 2>/dev/null)" || return 0
+	if [ ! -f "$API_SECRET_FILE" ]; then
+		settings_secret_write "$secret" || return 1
+	fi
+	uci -q delete "${PKG_CONFIG:-mihowrt}.settings.api_secret" && uci_commit
+}
+
 migrate() {
 	# Never follow or reuse the pre-flock symlink, even with a live old pid.
 	rm -f "$PKG_STATE_DIR/runtime.lock"
@@ -22,5 +32,6 @@ migrate() {
 	# Rebuilt by the next settings_load through the provider URL filter.
 	rm -f "$PROFILE_FILE"
 	rm -f "$CLASH_DIR/mihomo.sock"
+	migrate_secret || return 1
 	settings_ensure_generated
 }

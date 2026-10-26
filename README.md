@@ -231,7 +231,7 @@ profile:                 # selected servers and fake-ip mappings survive restart
   store-fake-ip: true
 external-controller: <LAN IP>:9090
 external-controller-unix: /tmp/clash/mihomo.sock
-secret: "<generated, stored in UCI>"
+secret: "<generated, /etc/mihowrt/api_secret>"
 external-ui: ui          # dashboard (zashboard), owned by the router
 external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
 # and inside dns: enable, listen 0.0.0.0:7874, and fake-ip-range
@@ -355,6 +355,7 @@ mihowrt recover | reload | net-refresh | uninstall
 | Path | Purpose |
 |---|---|
 | `/etc/config/mihowrt` | Settings (UCI) |
+| `/etc/mihowrt/api_secret` | Mihomo controller secret (root-only, mode 600) |
 | `/opt/clash/config.yaml` | Your Mihomo YAML (backup: `config.yaml.bak`) |
 | `/opt/clash/lst/*.txt` | Policy lists (`direct_src.txt`: devices always direct) |
 | `/opt/clash/bin/clash` | Mihomo core |
@@ -404,9 +405,8 @@ GPL-3.0-or-later, see `LICENSE`.
 
 - The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
   provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
-  Mihomo*), the subscription link and the Mihomo controller secret
-  (`uci mihowrt` via the read ACL) to every LuCI user with read access. Give such
-  access only to people you trust with them.
+  Mihomo*, controller secret hidden) and the subscription link to every LuCI
+  user with read access. Give such access only to people you trust with them.
 - Connected-network exclusions read only the main routing table, not mwan3 or
   other policy tables. Public VPN routes without `via` with prefixes at least
   /16 (IPv4) or /32 (IPv6) are treated as local and go direct through the tunnel.

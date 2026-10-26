@@ -109,21 +109,37 @@ assert_eq "proxy-first|br-lan wg0|0" "$POLICY_MODE|$SOURCE_INTERFACES|$BYPASS_NT
 pass "settings explicit values"
 
 fake_uci_reset
+assert_eq "$PKG_PERSIST_DIR/api_secret" "$API_SECRET_FILE" "secret file path"
 settings_ensure_generated || fail "generate must succeed"
-secret="$(uci_get api_secret)"
+assert_true "generated file exists" test -f "$API_SECRET_FILE"
+secret="$(cat "$API_SECRET_FILE")"
 minute="$(uci_get cron_minute)"
-assert_eq 48 "${#secret}" "secret length"
+assert_eq 600 "$(stat -c %a "$API_SECRET_FILE")" "generated file mode"
+[[ "$secret" =~ ^[0-9a-f]{48}$ ]] || fail "generated secret must be 48 hex characters"
+assert_false "no UCI api_secret written" uci -q get mihowrt.settings.api_secret
 if ! [[ "$minute" =~ ^[0-9]+$ ]] || (( minute > 59 )); then fail "minute out of range: $minute"; fi
+pass "generated file"
 settings_ensure_generated
-assert_eq "$secret|$minute" "$(uci_get api_secret)|$(uci_get cron_minute)" "generated values stay stable"
-fake_uci_set mihowrt.settings.api_secret 'keep-this-secret-01'
+assert_eq "$secret|$minute" "$(cat "$API_SECRET_FILE")|$(uci_get cron_minute)" "generated values stay stable"
+printf '%s\n' 'keep-this-secret-01' >"$API_SECRET_FILE"
 settings_ensure_generated
-assert_eq "keep-this-secret-01" "$(uci_get api_secret)" "existing secret kept"
-pass "settings generated values idempotent"
+assert_eq "keep-this-secret-01" "$(cat "$API_SECRET_FILE")" "existing secret kept"
+settings_load
+assert_eq "keep-this-secret-01" "$API_SECRET" "load reads file"
+pass "load reads file and generated values stay stable"
 
-fake_uci_reset
-fake_uci_set mihowrt.settings.api_secret 'bad"secret'
+for invalid in 'a b' short 'bad"secret'; do
+ printf '%s\n' "$invalid" >"$API_SECRET_FILE"
+ settings_ensure_generated
+ secret="$(cat "$API_SECRET_FILE")"
+ [[ "$secret" =~ ^[0-9a-f]{48}$ ]] || fail "invalid file regenerated: $invalid"
+ assert_eq 600 "$(stat -c %a "$API_SECRET_FILE")" "regenerated file mode"
+done
+pass "invalid file regenerated"
+
+printf '%s\n' 'bad"secret' >"$API_SECRET_FILE"
 if settings_load 2>/dev/null; then fail "secret with quotes must be rejected"; fi
+rm -f "$API_SECRET_FILE"
 pass "api secret validated"
 
 assert_true "compressed IPv6 with 7 groups" is_ipv6 1:2:3:4:5:6::7

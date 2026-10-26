@@ -214,6 +214,8 @@ setup_runtime_paths() {
 	CLASH_CONFIG="$dir/source.yaml"
 	PROFILE_FILE="$dir/profile"
 	DIRECT_SRC_LIST_FILE="$dir/direct_src.txt"
+	PKG_PERSIST_DIR="$dir/persist"
+	API_SECRET_FILE="$PKG_PERSIST_DIR/api_secret"
 	PKG_TMP_DIR="$dir/tmp"
 	PKG_STATE_DIR="$dir/run"
 	HEALTH_FILE="$PKG_STATE_DIR/health"
@@ -225,7 +227,7 @@ setup_runtime_paths() {
 	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"
-	mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR"
+	mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR" "$PKG_PERSIST_DIR"
 }
 
 # Evaluate package defines with GNU make, without loading the SDK build system.

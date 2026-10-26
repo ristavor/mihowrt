@@ -21,7 +21,13 @@ DIRECT_DST_LIST_FILE="$LIST_DIR/direct"
 DIRECT_SRC_LIST_FILE="$LIST_DIR/direct_src"
 mkdir -p "$CLASH_DIR" "$LIST_DIR"
 # Observe the retained generation boundary without generating random settings.
-settings_ensure_generated() { echo generated >>"$tmpdir/generated.calls"; }
+settings_ensure_generated() {
+ if [ -n "${expected_secret:-}" ]; then
+  assert_eq "$expected_secret" "$(cat "$API_SECRET_FILE")" 'secret migrated before generation'
+  assert_false 'UCI secret deleted before generation' uci -q get mihowrt.settings.api_secret
+ fi
+ echo generated >>"$tmpdir/generated.calls"
+}
 uci() {
  case " $* " in *' commit '*) echo commit >>"$tmpdir/commit.calls" ;; esac
  command uci "$@"
@@ -74,3 +80,22 @@ pass 'migrate removes old Mihomo socket'
 removed_count="$(grep -rEc 'migrate_(dns_uci|route_07|list_suffix|cron|list_headers)|OLD_DNS_BACKUP_FILE|OLD_SUBSCRIPTION_OPTIONS|dns.backup' "$ROOT_DIR/rootfs" | awk -F: '{ n += $NF } END { print n + 0 }' || true)"
 assert_eq 0 "$removed_count" 'removed migrations'
 pass 'removed migrations'
+
+# The migration preserves the controller credential while retiring the UCI copy.
+fake_uci_set mihowrt.settings.api_secret abcdefgh123
+expected_secret=abcdefgh123
+migrate
+assert_eq abcdefgh123 "$(cat "$API_SECRET_FILE")" 'migrate keeps value'
+assert_eq 600 "$(stat -c %a "$API_SECRET_FILE")" 'migrated file mode'
+assert_false 'migrate removes UCI secret' uci -q get mihowrt.settings.api_secret
+pass 'migrate keeps value'
+
+printf '%s\n' xxxxxxxx >"$API_SECRET_FILE"
+fake_uci_set mihowrt.settings.api_secret yyyyyyyy
+expected_secret=xxxxxxxx
+migrate
+assert_eq xxxxxxxx "$(cat "$API_SECRET_FILE")" 'migrate keeps existing file'
+assert_false 'migrate removes stale UCI secret' uci -q get mihowrt.settings.api_secret
+migrate
+assert_eq xxxxxxxx "$(cat "$API_SECRET_FILE")" 'secret migration is idempotent'
+pass 'migrate keeps existing file'

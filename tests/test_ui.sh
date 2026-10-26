@@ -987,15 +987,18 @@ seq(async () => {
   constructor(name, title, description) { Object.assign(this, { name, title, description, dependencies: [], values: [] }); }
   depends(...args) { this.dependencies.push(args); }
   value(...args) { this.values.push(args); }
-  isActive() { return true; }
-  remove() {}
+  cfgvalue() { return this.uci.get('mihowrt', 'settings', this.name) ?? this.default; }
+  write(sid, value) { this.uci.set('mihowrt', sid, this.name, value); }
+  remove(sid) { this.uci.unset('mihowrt', sid, this.name); }
+  isActive() { return !this.dependencies.length || this.dependencies.some(([key, value]) => this.options[key].cfgvalue('settings') === value); }
+  renderWidget() { const n = E('input'); n.querySelector = () => n; return n; }
  }
  class Map {
   constructor(name, title, description) { Object.assign(this, { name, title, description, options: {} }); }
   section() {
    const section = { children: [], tab() {} };
    section.taboption = (tab, Type, name, title, description) => {
-    const o = new Type(name, title, description); section.children.push(o); this.options[name] = o; return o;
+    const o = new Type(name, title, description); o.tab = tab; section.children.push(o); this.options[name] = o; return o;
    };
    return section;
   }
@@ -1012,23 +1015,114 @@ seq(async () => {
    notify: (...args) => notices.push(args), jobNotice: () => { calls.push(['jobNotice']); return E('div', { 'aria-live': 'polite' }, ['JOB NOTICE']); },
    ...overrides
   };
-  const uci = { get() {}, changes: async () => { calls.push(['changes']); return {}; } };
+  const settings = {};
+  const uci = {
+   get: (pkg, sid, key) => settings[key],
+   set: (pkg, sid, key, value) => { settings[key] = value; },
+   unset: (pkg, sid, key) => { delete settings[key]; },
+   changes: async () => { calls.push(['changes']); return {}; }
+  };
   const ui = { changes: { apply: checked => calls.push(['apply', checked]) } };
   const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
    E, api: bridge, form, uci, ui, Event, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
   }).module;
-  const render = async (data = { ...lists }, profile = {}) => tv.render([data, profile, {}]);
+  const render = async (data = { ...lists }, profile = {}) => {
+   const page = await tv.render([data, profile, {}]);
+   for (const o of Object.values(tv.map.options)) Object.assign(o, { uci, options: tv.map.options });
+   return page;
+  };
   const saving = () => {
    tv.map.parse = async () => { calls.push(['parse']); Object.assign(tv.edited, edits); };
    tv.map.save = async (...args) => { calls.push(['save', ...args]); await tv.map.parse(); };
    calls.length = 0;
   };
-  return { tv, bridge, calls, notices, edits, uci, render, saving };
+  return { tv, bridge, calls, notices, edits, uci, settings, render, saving };
  };
  async function check(name, fn) {
   try { await fn(); console.log('ok - traffic ' + name); }
   catch (e) { console.error('not ok - traffic ' + name, e); process.exitCode = 1; }
  }
+ // Plan task 20: Advanced client IPv6 policy uses the existing provider controls.
+ const ipv6Flag = t => {
+  const o = t.tv.map.options.block_client_ipv6;
+  h.assert(o instanceof form.Flag, 'block_client_ipv6 is a real flag');
+  return o;
+ };
+ const ipv6Title = 'Block external IPv6 from clients';
+ const ipv6Description = 'Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire.';
+ await check('client IPv6 off by default', async () => {
+  const t = setup(); await t.render(); const o = ipv6Flag(t);
+  h.assertEq(o.tab, 'advanced', 'client IPv6 is in Advanced');
+  h.assertEq(o.title, ipv6Title, 'client IPv6 title');
+  h.assertEq(o.description, ipv6Description, 'client IPv6 scope and limits');
+  h.assertEq(o.default, '0', 'client IPv6 default off');
+  h.assertEq(o.cfgvalue('settings'), '0', 'unset UCI defaults off');
+  h.assertEq(o.rmempty, false, 'explicit off must stay in UCI');
+  h.assert(!t.tv.map.options._own_block_client_ipv6, 'no override without provider');
+  const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
+  for (const [english, russian] of [
+   [ipv6Title, 'Блокировать внешний IPv6 клиентов'],
+   [ipv6Description, 'Отклонять IPv6-трафик к нелокальным адресам с выбранных клиентских интерфейсов, в том числе направляемый в Mihomo. Для локального IPv6 сохраняются правила межсетевого экрана. Трафик роутера и Mihomo не изменяется. Действует при активной политике MihoWRT. Существующие соединения в flowtable могут работать до истечения срока их записей.']
+  ]) h.assert(catalog.includes(`msgid "${english}"\nmsgstr "${russian}"`), 'exact Russian translation: ' + english);
+ });
+ await check('provider on readonly', async () => {
+  const t = setup(); await t.render(lists, { provider: { block_client_ipv6: '1' } });
+  const o = ipv6Flag(t), opts = t.tv.map.options;
+  h.assert(opts._prov_block_client_ipv6 instanceof form.DummyValue, 'provider value is read-only');
+  h.assertEq(opts._prov_block_client_ipv6.cfgvalue(), 'Enabled', 'provider on displayed');
+  h.assert(opts._prov_block_client_ipv6.isActive() && !o.isActive(), 'provider applies; own flag hidden');
+  h.assertEq(opts._own_block_client_ipv6.title, 'Use my own value', 'existing own-value flag');
+  h.assertEq(opts._own_block_client_ipv6.renderWidget().attrs['aria-label'], `Use my own value for "${ipv6Title}"`, 'existing labelled own-value control');
+  h.assertEq(o.rmempty, false, 'provider-wrapped real flag keeps explicit off');
+  o.remove('settings');
+  h.assert(!('block_client_ipv6' in t.settings), 'provider value never persisted into UCI');
+ });
+ await check('own off overrides provider on', async () => {
+  const t = setup(); t.settings.block_client_ipv6 = '0'; t.settings.provider_override = ['bypass_ntp'];
+  await t.render(lists, { provider: { block_client_ipv6: '1' } });
+  const o = ipv6Flag(t), opts = t.tv.map.options;
+  o.remove('settings'); h.assertEq(t.settings.block_client_ipv6, '0', 'hidden own off preserved');
+  opts._own_block_client_ipv6.write('settings', '1');
+  h.assertEq(t.settings.provider_override.join(','), 'bypass_ntp,block_client_ipv6', 'override preserves other entries');
+  h.assert(o.isActive() && !opts._prov_block_client_ipv6.isActive(), 'own flag applies instead of provider');
+  h.assertEq(o.cfgvalue('settings'), '0', 'own off wins');
+  h.assertEq(opts._provoff_block_client_ipv6.cfgvalue(), 'Enabled', 'unused provider stays visible');
+  h.assert(opts._provoff_block_client_ipv6.isActive(), 'unused provider note visible');
+  opts._own_block_client_ipv6.write('settings', '0');
+  h.assertEq(t.settings.provider_override.join(','), 'bypass_ntp', 'return to provider removes only this override');
+  h.assertEq(t.settings.block_client_ipv6, '0', 'return to provider keeps own off');
+ });
+ await check('override survives provider removal and return', async () => {
+  const t = setup(); t.settings.block_client_ipv6 = '0';
+  await t.render(lists, { provider: { block_client_ipv6: '1' } }); ipv6Flag(t);
+  t.tv.map.options._own_block_client_ipv6.write('settings', '1');
+  await t.render(lists, {});
+  h.assert(!t.tv.map.options._own_block_client_ipv6, 'provider removed: plain flag');
+  h.assertEq(ipv6Flag(t).cfgvalue('settings'), '0', 'own off used without provider');
+  h.assertEq(t.settings.provider_override.join(','), 'block_client_ipv6', 'override retained without provider');
+  await t.render(lists, { provider: { block_client_ipv6: '1' } });
+  h.assertEq(t.tv.map.options._own_block_client_ipv6.cfgvalue(), '1', 'override restored when provider returns');
+  h.assert(ipv6Flag(t).isActive(), 'own flag still applies');
+  h.assertEq(ipv6Flag(t).cfgvalue('settings'), '0', 'own off survives provider return');
+ });
+ await check('existing four defaults stay on', async () => {
+  const t = setup(); await t.render();
+  for (const name of ['dns_hijack', 'disable_quic', 'bypass_ntp', 'bypass_subscription_dns']) {
+   const o = t.tv.map.options[name];
+   h.assertEq(o.default, '1', name + ' default stays on');
+   h.assertEq(o.rmempty, false, name + ' explicit on stays saved');
+  }
+ });
+ await check('flag-only save uses existing Save & Apply path', async () => {
+  for (const mode of ['0', '1']) {
+   const t = setup(); await t.render(); const o = ipv6Flag(t); t.saving();
+   t.tv.map.parse = async () => { t.calls.push(['parse']); o.write('settings', '1'); };
+   t.uci.changes = async () => { t.calls.push(['changes']); return { mihowrt: [['set', 'settings', 'block_client_ipv6', t.settings.block_client_ipv6]] }; };
+   await t.tv.handleSaveApply(null, mode);
+   h.assertEq(t.settings.block_client_ipv6, '1', 'flag saved in UCI');
+   h.assertEq(JSON.stringify(t.calls), JSON.stringify([['parse'], ['save', null, true], ['parse'], ['changes'], ['apply', mode === '0']]), 'native Save & Apply; no list uploads or direct jobs');
+  }
+ });
  await check('buttons', async () => {
   const t = setup(); const p = await t.render();
   h.assertEq(t.tv.handleSave, null, 'no plain Save'); h.assertEq(typeof t.tv.handleSaveApply, 'function', 'Save & Apply defined');

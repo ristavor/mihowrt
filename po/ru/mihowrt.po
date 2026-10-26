@@ -301,6 +301,12 @@ msgstr "0 — только по кнопке «Обновить удалённы
 msgid "Traffic from these interfaces is handled. Usually br-lan."
 msgstr "Обрабатывается трафик с этих интерфейсов. Обычно br-lan."
 
+msgid "Block external IPv6 from clients"
+msgstr "Блокировать внешний IPv6 клиентов"
+
+msgid "Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire."
+msgstr "Отклонять IPv6-трафик к нелокальным адресам с выбранных клиентских интерфейсов, в том числе направляемый в Mihomo. Для локального IPv6 сохраняются правила межсетевого экрана. Трафик роутера и Mihomo не изменяется. Действует при активной политике MihoWRT. Существующие соединения в flowtable могут работать до истечения срока их записей."
+
 msgid "Redirect client DNS to Mihomo"
 msgstr "Перенаправлять DNS клиентов в Mihomo"
 

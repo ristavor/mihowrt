@@ -184,13 +184,14 @@ return view.extend({
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));
 		o.multiple = true;
 		o.noaliases = true;
-		const flag = (name, title, description) => this.providerScalar(s, 'advanced', name, () => {
+		const flag = (name, title, description, defaultValue = '1') => this.providerScalar(s, 'advanced', name, () => {
 			const f = s.taboption('advanced', form.Flag, name, title, description);
-			f.default = '1';
+			f.default = defaultValue;
 			// Shipped values equal to the default must stay in UCI.
 			f.rmempty = false;
 			return f;
 		});
+		flag('block_client_ipv6', _('Block external IPv6 from clients'), _('Reject non-local IPv6 from the selected client interfaces, including traffic selected for Mihomo. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Applies while MihoWRT policy is active. Existing offloaded connections may continue until they expire.'), '0');
 		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
 		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
 		flag('bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));

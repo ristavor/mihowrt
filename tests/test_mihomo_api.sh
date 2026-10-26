@@ -16,6 +16,7 @@ API_SECRET="secret-0001"
 cat >"$tmpdir/bin/curl" <<'C'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >>"$CURL_LOG"
+printf '%s\n' "$@" >>"$CURL_ARGV_LOG"
 [ "${CURL_EXIT:-0}" = 0 ] || exit "$CURL_EXIT"
 if [ -n "${CURL_BODY_FILE:-}" ]; then
 	cat "$CURL_BODY_FILE"
@@ -26,12 +27,28 @@ case " $* " in *" -w "*) printf '\n%s' "${CURL_CODE:-200}" ;; esac
 C
 chmod +x "$tmpdir/bin/curl"
 export CURL_LOG="$tmpdir/curl.log"
+export CURL_ARGV_LOG="$tmpdir/curl-argv.log"
+
+secret_in_argv=0
+for request in get put group-delay; do
+	: >"$CURL_ARGV_LOG"
+	case "$request" in
+	get) CURL_BODY='{}' api_request GET /version >/dev/null ;;
+	put) CURL_BODY='{}' api_request PUT /configs '{"path":"/tmp/config.yaml"}' 60 >/dev/null ;;
+	group-delay) CURL_BODY='{}' api_group_delay 'My Group' >/dev/null ;;
+	esac
+	if grep -qF -e Authorization -e "$API_SECRET" "$CURL_ARGV_LOG"; then
+		printf 'FAIL: %s exposes authorization or controller secret in curl argv\n' "$request" >&2
+		secret_in_argv=1
+	fi
+done
+[[ "$secret_in_argv" = 0 ]] || fail 'unix-socket curl argv must not contain authorization or controller secret'
+pass 'unix-socket requests omit authorization and controller secret from curl argv'
 
 CURL_BODY='{"Status":0,"Answer":[]}' api_dns_probe || fail "NOERROR must pass"
 CURL_BODY='{"Status":3}' api_dns_probe || fail "NXDOMAIN must pass"
 if CURL_EXIT=7 CURL_BODY='' api_dns_probe; then fail "socket failure must fail"; fi
 if CURL_BODY='garbage' api_dns_probe; then fail "non-JSON must fail"; fi
-assert_file_contains "$CURL_LOG" "Authorization: Bearer secret-0001" "secret sent"
 assert_file_contains "$CURL_LOG" "/dns/query?name=openwrt.org&type=A" "probe path"
 pass "dns probe"
 

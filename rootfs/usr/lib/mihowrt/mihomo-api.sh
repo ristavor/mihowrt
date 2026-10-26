@@ -1,7 +1,7 @@
 #!/bin/ash
 
-# Mihomo REST API over the unix socket. The socket is root-only, and the
-# secret is still sent so the TCP controller and the socket share one contract.
+# Mihomo REST API over the unix socket. Mihomo requires no auth on this socket,
+# which lives in a mode-700 directory.
 
 API_DELAY_URL="${API_DELAY_URL:-https://www.gstatic.com/generate_204}"
 
@@ -11,11 +11,11 @@ api_request() {
 
 	if [ -n "$body" ]; then
 		curl -fsS -m "$timeout" --unix-socket "$MIHOMO_SOCKET_TMPFS" \
-			-H "Authorization: Bearer $API_SECRET" -H 'Content-Type: application/json' \
+			-H 'Content-Type: application/json' \
 			-X "$method" -d "$body" "http://localhost$path"
 	else
 		curl -fsS -m "$timeout" --unix-socket "$MIHOMO_SOCKET_TMPFS" \
-			-H "Authorization: Bearer $API_SECRET" -X "$method" "http://localhost$path"
+			-X "$method" "http://localhost$path"
 	fi
 }
 
@@ -69,7 +69,7 @@ api_select() {
 api_group_delay() {
 	local out code
 
-	out="$(curl -sS -m 15 --unix-socket "$MIHOMO_SOCKET_TMPFS" -H "Authorization: Bearer $API_SECRET" -w '\n%{http_code}' \
+	out="$(curl -sS -m 15 --unix-socket "$MIHOMO_SOCKET_TMPFS" -w '\n%{http_code}' \
 		"http://localhost/group/$(uri_encode "$1")/delay?url=$(uri_encode "$API_DELAY_URL")&timeout=5000")" || return 1
 	code="${out##*
 }"

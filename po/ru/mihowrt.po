@@ -484,9 +484,6 @@ msgstr "Моё значение"
 msgid "No subscription: MihoWRT uses the YAML entered on the Subscription page."
 msgstr "Подписки нет: MihoWRT использует YAML со страницы «Подписка»."
 
-msgid "Not available with this subscription (it uses fake-IP DNS)."
-msgstr "Недоступно с этой подпиской (она использует DNS fake-IP)."
-
 msgid "Not saved yet: press Save or Update now."
 msgstr "Ещё не сохранено: нажмите «Сохранить» или «Обновить сейчас»."
 
@@ -546,12 +543,6 @@ msgid_plural "Provider list (%d entries)"
 msgstr[0] "Список из подписки (%d запись)"
 msgstr[1] "Список из подписки (%d записи)"
 msgstr[2] "Список из подписки (%d записей)"
-
-msgid "Saved: %d entry."
-msgid_plural "Saved: %d entries."
-msgstr[0] "Сохранена %d запись."
-msgstr[1] "Сохранено %d записи."
-msgstr[2] "Сохранено %d записей."
 
 msgid "Set by your provider. You also have %d own entry: it applies with \"Provider list + mine\" or \"Only mine\"."
 msgid_plural "Set by your provider. You also have %d own entries: they apply with \"Provider list + mine\" or \"Only mine\"."
@@ -646,8 +637,8 @@ msgstr[0] "%s: сохранена %d запись для другого режи
 msgstr[1] "%s: сохранено %d записи для другого режима."
 msgstr[2] "%s: сохранено %d записей для другого режима."
 
-msgid "All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
-msgstr "Весь трафик этих устройств идёт в обход Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
+msgid "These devices go direct. With fake-IP DNS, Mihomo resolves fake addresses and sends their connections DIRECT. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
+msgstr "Эти устройства выходят напрямую. При DNS fake-IP Mihomo определяет реальные адреса и отправляет соединения к ним через DIRECT. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
 
 msgid "All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
 msgstr "Весь трафик этих устройств идёт через Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."

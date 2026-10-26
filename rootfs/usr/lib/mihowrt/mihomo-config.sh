@@ -55,6 +55,7 @@ mihomo_config_generate() {
 		-v dns_port="$MIHOMO_DNS_PORT" \
 		-v fakeip="$FAKEIP_RANGE" \
 		-v tproxy="$MIHOMO_TPROXY_PORT" \
+		-v direct_tproxy="$MIHOMO_DIRECT_TPROXY_PORT" \
 		-v mark="$MIHOMO_ROUTING_MARK" \
 		-v api="$(lan_ip_detect):$MIHOMO_API_PORT" \
 		-v sock="$MIHOMO_SOCKET_TMPFS" \

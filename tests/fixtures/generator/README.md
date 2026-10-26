@@ -12,3 +12,6 @@ those positions have no output files. There are 40 successful output pairs.
 The test's temporary directory stores the invocation counter so calls from
 subshells share the same sequence. Expected flow-style rejection is still
 checked by the existing assertions; there is no runtime output to snapshot.
+
+The E10 fake-IP direct-device listener and first rule are appended in vectors
+18 and 19 (proxy-first fake-IP); other baseline bytes remain unchanged.

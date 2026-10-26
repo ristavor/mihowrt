@@ -1,3 +1,88 @@
+# Buffer rendered lines until DNS mode is known, regardless of key order.
+function emit(text) { output[++output_count] = text }
+function injection_error(section) {
+	print "Cannot inject mihowrt-direct into " section "; use a block-style list with plain entries" >"/dev/stderr"
+	exit 1
+}
+# Print a provider list with the managed entry first. Only empty/null flow
+# forms are safe to rewrite without a YAML parser; reject aliases/anchors and
+# non-empty flow forms rather than risk duplicate keys or an invalid runtime.
+function direct_section(kind, start, end,   i, j, ind, val, text, rest, item, name, collision, rootind) {
+	val = start ? value_of(output[start]) : ""
+	if (val != "" && val !~ /^(null|~|\[[[:space:]]*\])$/)
+		injection_error(kind)
+	ind = "  "
+	for (i = start + 1; start && i <= end; i++) {
+		if (output[i] ~ /^[[:space:]]*($|#)/) continue
+		text = output[i]
+		sub(/^[[:space:]]*/, "", text)
+		if (text !~ /^-[[:space:]]+/) injection_error(kind)
+		ind = substr(output[i], 1, indent_of(output[i]))
+		break
+	}
+	print (start && val == "" ? output[start] : kind ":")
+	if (kind == "rules")
+		print ind "- IN-NAME,mihowrt-direct,DIRECT"
+	else {
+		print ind "- name: mihowrt-direct"
+		print ind "  type: tproxy"
+		print ind "  listen: 0.0.0.0"
+		print ind "  port: " direct_tproxy
+		print ind "  udp: true"
+	}
+	for (i = start + 1; start && i <= end; i++) {
+		if (kind != "listeners" || output[i] ~ /^[[:space:]]*($|#)/) {
+			print output[i]
+			continue
+		}
+		text = substr(output[i], length(ind) + 1)
+		if (text !~ /^-[[:space:]]+/) injection_error(kind)
+		# Find the whole mapping item, including nested listener settings.
+		for (j = i + 1; j <= end; j++)
+			if (output[j] !~ /^[[:space:]]*($|#)/ && indent_of(output[j]) <= length(ind)) break
+		item = j - 1
+		match(text, /^-[[:space:]]+/)
+		rootind = length(ind) + RLENGTH
+		sub(/^-[[:space:]]+/, "", text)
+		if (key_of(text) == "") injection_error(kind)
+		collision = 0
+		for (j = i; j <= item; j++) {
+			rest = j == i ? text : substr(output[j], rootind + 1)
+			if (j != i && indent_of(output[j]) != rootind) continue
+			if (rest ~ /^<</) injection_error(kind)
+			if (key_of(rest) != "name") continue
+			name = unquote(value_of(rest))
+			if (name ~ /^[*&!|>]/ || index(name, "\\")) injection_error(kind)
+			if (name == "mihowrt-direct") collision = 1
+		}
+		if (collision)
+			print "Provider listener mihowrt-direct replaced by the MihoWRT direct listener" >warnfile
+		else
+			for (j = i; j <= item; j++) print output[j]
+		i = item
+	}
+}
+function print_runtime(   i, j, kind, found_listeners, found_rules) {
+	if (dns_mode() != "fake-ip" || filter == "whitelist") {
+		for (i = 1; i <= output_count; i++) print output[i]
+		return
+	}
+	for (i = 1; i <= output_count; i++) {
+		kind = key_of(output[i])
+		if (kind != "listeners" && kind != "rules") {
+			print output[i]
+			continue
+		}
+		if ((kind == "listeners" && found_listeners++) || (kind == "rules" && found_rules++))
+			injection_error(kind)
+		for (j = i + 1; j <= output_count; j++)
+			if (output[j] ~ /^[^[:space:]#-]/) break
+		direct_section(kind, i, j - 1)
+		i = j - 1
+	}
+	if (!found_listeners) direct_section("listeners", 0, 0)
+	if (!found_rules) direct_section("rules", 0, 0)
+}
 # Plain or quoted mapping key at the start of the text.
 function key_of(text) {
 	if (text !~ /^["\047]?[A-Za-z0-9_-]+["\047]?[[:space:]]*:/)
@@ -44,10 +129,10 @@ function flush_dns(ind) {
 		return
 	}
 	ind = (child == "") ? "  " : child
-	print ind "enable: true"
-	print ind "listen: 0.0.0.0:" dns_port
+	emit(ind "enable: true")
+	emit(ind "listen: 0.0.0.0:" dns_port)
 	if (dns_mode() == "fake-ip")
-		print ind "fake-ip-range: " fakeip
+		emit(ind "fake-ip-range: " fakeip)
 	in_dns = 0
 }
 function dns_mode(m) {
@@ -127,7 +212,7 @@ function x_line(line,   ind, rest, key, item) {
 	if (line ~ /^-([[:space:]]|$)/) {
 		group_item(line)
 		if (!skip)
-			print line
+			emit(line)
 		next
 	}
 	if (line ~ /^[^[:space:]#]/) {
@@ -161,7 +246,7 @@ function x_line(line,   ind, rest, key, item) {
 			next
 		}
 		if (!skip)
-			print line
+			emit(line)
 		next
 	}
 	if (in_x)
@@ -171,7 +256,7 @@ function x_line(line,   ind, rest, key, item) {
 		next
 	if (in_dns && line ~ /^[[:space:]]+[^[:space:]#]/) {
 		if (dns_pending) {
-			print dns_line
+			emit(dns_line)
 			dns_pending = 0
 		}
 		match(line, /^[[:space:]]+/)
@@ -190,7 +275,7 @@ function x_line(line,   ind, rest, key, item) {
 		if (dskip)
 			next
 	}
-	print line
+	emit(line)
 }
 END {
 	if (in_dns)
@@ -199,58 +284,59 @@ END {
 		enh = "redir-host"
 	print "mode " ((dns_mode() == "fake-ip" && filter == "whitelist") ? "direct-first" : "proxy-first") >profile
 	print "dns " dns_mode() >profile
-	print ""
-	print "# --- MihoWRT managed: generated, edits here are discarded ---"
+	emit("")
+	emit("# --- MihoWRT managed: generated, edits here are discarded ---")
 	if (!seen_dns) {
 		suffix = ""
 		if (group != "" && group != "-" && group !~ /[#&"\\]/)
 			suffix = "#" group
 		else
 			print "No usable first proxy group: default DNS servers are queried directly" >warnfile
-		print "dns:"
+		emit("dns:")
 		child = ""
 		flush_dns()
-		print "  ipv6: " (top_ipv6 == "true" ? "true" : "false")
-		print "  enhanced-mode: redir-host"
-		print "  default-nameserver:"
-		print "    - https://1.1.1.1/dns-query"
-		print "    - https://9.9.9.9/dns-query"
-		print "    - https://8.8.8.8/dns-query"
-		print "  proxy-server-nameserver:"
-		print "    - https://1.1.1.1/dns-query"
-		print "    - https://9.9.9.9/dns-query"
-		print "    - https://8.8.8.8/dns-query"
-		print "  direct-nameserver:"
-		print "    - https://common.dot.dns.yandex.net/dns-query"
-		print "  nameserver:"
-		print "    - \"https://cloudflare-dns.com/dns-query" suffix "\""
-		print "    - \"https://dns.google/dns-query" suffix "\""
+		emit("  ipv6: " (top_ipv6 == "true" ? "true" : "false"))
+		emit("  enhanced-mode: redir-host")
+		emit("  default-nameserver:")
+		emit("    - https://1.1.1.1/dns-query")
+		emit("    - https://9.9.9.9/dns-query")
+		emit("    - https://8.8.8.8/dns-query")
+		emit("  proxy-server-nameserver:")
+		emit("    - https://1.1.1.1/dns-query")
+		emit("    - https://9.9.9.9/dns-query")
+		emit("    - https://8.8.8.8/dns-query")
+		emit("  direct-nameserver:")
+		emit("    - https://common.dot.dns.yandex.net/dns-query")
+		emit("  nameserver:")
+		emit("    - \"https://cloudflare-dns.com/dns-query" suffix "\"")
+		emit("    - \"https://dns.google/dns-query" suffix "\"")
 	}
 	if (!seen_sniffer) {
-		print "sniffer:"
-		print "  enable: true"
-		print "  force-dns-mapping: true"
-		print "  parse-pure-ip: true"
-		print "  override-destination: false"
-		print "  sniff:"
-		print "    HTTP:"
-		print "      ports: [80, 8080-8880]"
-		print "    TLS:"
-		print "      ports: [443, 8443]"
+		emit("sniffer:")
+		emit("  enable: true")
+		emit("  force-dns-mapping: true")
+		emit("  parse-pure-ip: true")
+		emit("  override-destination: false")
+		emit("  sniff:")
+		emit("    HTTP:")
+		emit("      ports: [80, 8080-8880]")
+		emit("    TLS:")
+		emit("      ports: [443, 8443]")
 	}
-	print "tproxy-port: " tproxy
-	print "routing-mark: " mark
-	print "allow-lan: true"
-	print "bind-address: \"*\""
-	print "tun:"
-	print "  enable: false"
+	emit("tproxy-port: " tproxy)
+	emit("routing-mark: " mark)
+	emit("allow-lan: true")
+	emit("bind-address: \"*\"")
+	emit("tun:")
+	emit("  enable: false")
 	# Keep the selected servers and fake-ip mappings across restarts.
-	print "profile:"
-	print "  store-selected: true"
-	print "  store-fake-ip: true"
-	print "external-controller: " api
-	print "external-controller-unix: " sock
-	print "secret: \"" secret "\""
-	print "external-ui: ui"
-	print "external-ui-url: \"" ui_url "\""
+	emit("profile:")
+	emit("  store-selected: true")
+	emit("  store-fake-ip: true")
+	emit("external-controller: " api)
+	emit("external-controller-unix: " sock)
+	emit("secret: \"" secret "\"")
+	emit("external-ui: ui")
+	emit("external-ui-url: \"" ui_url "\"")
+	print_runtime()
 }

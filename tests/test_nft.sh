@@ -282,7 +282,7 @@ b=$(grep -n 'prerouting_policy meta l4proto { tcp, udp } meta mark set' "$out" |
 assert_true "device return precedes catch-all" test "$a" -lt "$b"
 DNS_MODE=fake-ip
 render
-assert_file_not_contains "$out" 'saddr @direct_src' "fake-IP disables direct devices"
+assert_file_contains "$out" 'ip saddr @direct_src goto direct_device_policy' "fake-IP sends direct devices through split policy"
 nft() { echo "$*" >>"$tmpdir/nft.calls"; }
 table_present=1
 nft_active() { [ "$table_present" = 1 ]; }
@@ -328,7 +328,7 @@ else
 fi
 DNS_MODE=fake-ip
 render
-assert_file_not_contains "$out" 'ether saddr @direct_src_mac return' 'fake-IP skips direct MAC devices'
+assert_file_contains "$out" 'ether saddr @direct_src_mac goto direct_device_policy' 'fake-IP handles direct MAC devices'
 pass 'MAC device nft rules'
 
 (

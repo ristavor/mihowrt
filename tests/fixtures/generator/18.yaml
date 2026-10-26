@@ -30,3 +30,11 @@ external-controller-unix: /tmp/clash/mihomo.sock
 secret: "s3cr3t-value-0001"
 external-ui: ui
 external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
+listeners:
+  - name: mihowrt-direct
+    type: tproxy
+    listen: 0.0.0.0
+    port: 7895
+    udp: true
+rules:
+  - IN-NAME,mihowrt-direct,DIRECT

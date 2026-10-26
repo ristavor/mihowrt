@@ -133,7 +133,6 @@ return view.extend({
 		const proxyFirst = this.profile.mode === 'proxy-first';
 		// profile-json failed: do not guess the mode or call lists inactive.
 		const modeKnown = proxyFirst || this.profile.mode === 'direct-first';
-		const fakeip = this.profile.dns === 'fake-ip';
 		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Save & Apply applies the changes.'));
 		const s = m.section(form.NamedSection, 'settings', 'settings');
 		s.tab('basic', _('Basic'));
@@ -156,17 +155,7 @@ return view.extend({
 		// Only the lists of the active mode: the others keep their files.
 		if (proxyFirst) {
 			this.providerList(s, 'basic', 'direct', this.titles.direct);
-			if (fakeip) {
-				// With fake-IP DNS the devices could not reach anything directly:
-				// say so in plain text; the saved file is kept as it is.
-				const saved = this.lists.direct_src.split('\n').filter((l) => l.trim() && !/^\s*#/.test(l)).length;
-				o = s.taboption('basic', form.DummyValue, '_direct_src_off', this.titles.direct_src);
-				o.cfgvalue = () => _('Not available with this subscription (it uses fake-IP DNS).') +
-					(saved ? ' ' + N_(saved, 'Saved: %d entry.', 'Saved: %d entries.').format(saved) : '');
-			}
-			else {
-				this.devicesOption(s, 'direct_src', _('All traffic of these devices bypasses Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
-			}
+			this.devicesOption(s, 'direct_src', _('These devices go direct. With fake-IP DNS, Mihomo resolves fake addresses and sends their connections DIRECT. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
 		}
 		else {
 			this.providerList(s, 'basic', 'dst', this.titles.dst);

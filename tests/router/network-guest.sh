@@ -129,7 +129,7 @@ fi
 mkdir "$WORK/logs" "$WORK/saved" || fatal 'refuse existing guest fixture state'
 : >"$WORK/results.tsv"
 for name in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
-	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' lifecycle; do
+	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'fake-IP direct devices' lifecycle; do
 	record "$name" 'NOT TESTED' 'not reached'
 done
 trap cleanup EXIT
@@ -137,7 +137,7 @@ trap 'exit 1' INT TERM HUP PIPE
 echo $$ >"$WORK/guest.pid"
 
 # Do not install prerequisites implicitly, and never turn missing tools into PASS.
-for tool in ip nft tcpdump curl dnsmasq uhttpd odhcp6c odhcpd jq hexdump nc; do
+for tool in ip nft tcpdump curl dnsmasq uhttpd odhcp6c odhcpd jq hexdump nc socat; do
 	command -v "$tool" >/dev/null || fatal "prerequisite unavailable: $tool"
 done
 [ -x /opt/clash/bin/clash ] || fatal 'prerequisite unavailable: Mihomo core'
@@ -261,6 +261,13 @@ uci show dhcp >"$WORK/logs/dhcp.fixture.before"
 
 # Listener fixtures use only tracked foreground processes (no daemonized children).
 mkdir "$WORK/www" "$WORK/node"
+mkdir "$WORK/www/cgi-bin"
+cat >"$WORK/www/cgi-bin/hold" <<'EOF'
+#!/bin/ash
+printf 'Content-Type: text/plain\r\n\r\nmihowrt-network-fixture\n'
+sleep 8
+EOF
+chmod +x "$WORK/www/cgi-bin/hold"
 printf 'mihowrt-network-fixture\n' >"$WORK/www/index.html"
 for name in p w u d; do
 	ip netns exec "m22-$name" uhttpd -f -p 0.0.0.0:8080 -p '[::]:8080' -p 0.0.0.0:8081 -h "$WORK/www" >"$WORK/logs/http-$name.log" 2>&1 6>&- 7>&- 8>&- 9>&- &
@@ -272,7 +279,7 @@ ip netns exec m22-w dnsmasq --keep-in-foreground --conf-file=/dev/null --no-reso
 	--bind-interfaces --interface=eth0 --log-queries --log-facility=- \
 	--address=/raw22.test/198.19.22.2 --address=/raw22.test/2001:db8:ffff::2 \
 	--address=/conditional22.test/198.19.22.2 --address=/primary22.example.net/198.19.22.22 \
-	--address=/public22.example.org/198.19.22.2 >"$WORK/logs/dns-wan.log" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	--address=/fake22.example.net/198.19.22.2 --address=/public22.example.org/198.19.22.2 >"$WORK/logs/dns-wan.log" 2>&1 6>&- 7>&- 8>&- 9>&- &
 PIDS="$PIDS $!"
 cat >"$WORK/node/config.yaml" <<'EOF'
 socks-port: 1080
@@ -324,6 +331,7 @@ proxies:
     port: 1080
     udp: true
 rules:
+  - DOMAIN,fake22.example.net,NODE22
   - DST-PORT,8081,NODE22
   - MATCH,DIRECT
 x-mihowrt:
@@ -458,7 +466,7 @@ reject_fresh() {
 	# Curl 7 = failed connect. Timeout 28 must never count as rejection.
 	[ "$rc" = 7 ]
 	printf 'unlisted-ntp-probe' >"$WORK/udp-probe"
-	BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-c nc -u 2001:db8:ffff::2 123 >"$WORK/logs/reject-$label.udp" 2>&1 || true
+	BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-c socat - 'UDP6-DATAGRAM:[2001:db8:ffff::2]:123' >"$WORK/logs/reject-$label.udp" 2>&1 || true
 	sleep 1
 	kill "$pid" "$wanpid"; wait "$pid" 2>/dev/null || true; wait "$wanpid" 2>/dev/null || true
 	trap - EXIT
@@ -518,7 +526,7 @@ check_reject() {
 				http c '[2001:db8:ffff::2]' | grep mihowrt-network-fixture
 				if [ "$hijack" = 1 ]; then
 					if [ "${pair#*:}" = fake-ip ]; then
-						dns_udp 2001:db8:ffff::2 public22.example.org A 198.18.
+						dns_udp 2001:db8:ffff::2 fake22.example.net A 198.18.
 					else
 						dns_udp 2001:db8:ffff::2 public22.example.org A 198.19.22.2
 					fi
@@ -578,7 +586,8 @@ check_core() {
 	set_lists core
 	pid="$(cat /var/run/mihowrt/mihomo.pid)"
 	http c 198.19.22.2 8081 | grep mihowrt-network-fixture
-	grep -q '198.19.22.2:8081' "$WORK/logs/node.log"
+	# Earlier DNS controls may give the core a reverse mapping for this IP.
+	grep -Eq -- '--> [^ ]+:8081 match .*using DIRECT' "$WORK/logs/node.log"
 	# Packet evidence proves an actual IPv6 connection to the SOCKS5 node.
 	sleep 1
 	tcpdump -nn -r "$WORK/logs/wan.pcap" 'ip6 and dst host 2001:db8:ffff::2 and dst port 1080' >"$WORK/logs/core-node-ipv6.log" 2>&1
@@ -739,6 +748,50 @@ check_routes_dns() {
 	fi
 }
 
+check_fakeip_direct() {
+	local address="" direct_pid="" proxy_pid="" i="" found=0
+	profile proxy-first fake-ip true 1
+	set_lists empty
+	uci add_list mihowrt.settings.source_network_interfaces=m22u
+	uci commit mihowrt
+	/usr/bin/mihowrt reload
+	cp /tmp/mihowrt/config.yaml "$WORK/runtime-before-device-list"
+	printf '02:00:00:22:00:02\n' >/tmp/mihowrt-policy-list.network-direct-src
+	/usr/bin/mihowrt apply-lists - - - /tmp/mihowrt-policy-list.network-direct-src
+	cmp -s /tmp/mihowrt/config.yaml "$WORK/runtime-before-device-list"
+	dns_udp 192.0.2.1 fake22.example.net A 198.18.
+	address="$(awk '/^Name:/ {answer=1} answer && /^Address/ {for(i=1;i<=NF;i++) if($i ~ /^198[.]18[.]/) {print $i;exit}}' "$WORK/logs/dns-last.log")"
+	[ -n "$address" ]
+	ip netns exec m22-c curl --noproxy '*' -fsS --max-time 20 --resolve "fake22.example.net:8080:$address" http://fake22.example.net:8080/cgi-bin/hold >"$WORK/logs/fake-direct.http" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	direct_pid=$!; PIDS="$PIDS $direct_pid"
+	ip netns exec m22-u curl --noproxy '*' -fsS --max-time 20 --resolve "fake22.example.net:8080:$address" http://fake22.example.net:8080/cgi-bin/hold >"$WORK/logs/fake-proxy.http" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	proxy_pid=$!; PIDS="$PIDS $proxy_pid"
+	for i in $(seq 1 7); do
+		api_request GET /connections >"$WORK/logs/fake-connections.json"
+		if jq -e --arg direct_port "$MIHOMO_DIRECT_TPROXY_PORT" --arg normal_port "$MIHOMO_TPROXY_PORT" '
+			any(.connections[]; .metadata.sourceIP == "192.0.2.2"
+				and .metadata.host == "fake22.example.net"
+				and .metadata.inboundName == "mihowrt-direct" and .metadata.inboundPort == $direct_port
+				and .rule == "InName" and .rulePayload == "mihowrt-direct"
+				and .chains == ["DIRECT"])
+			and any(.connections[]; .metadata.sourceIP == "192.0.4.2"
+				and .metadata.host == "fake22.example.net"
+				and .metadata.inboundName != "mihowrt-direct" and .metadata.inboundPort == $normal_port
+				and .rule == "Domain" and (.chains | index("NODE22")) != null)
+		' "$WORK/logs/fake-connections.json"; then found=1; break; fi
+		sleep 1
+	done
+	[ "$found" = 1 ]
+	wait "$direct_pid"; wait "$proxy_pid"
+	PIDS="${PIDS% "$direct_pid" "$proxy_pid"}"
+	grep -q mihowrt-network-fixture "$WORK/logs/fake-direct.http"
+	grep -q mihowrt-network-fixture "$WORK/logs/fake-proxy.http"
+	# Real IPv4 and IPv6 stay outside the core, even with the IPv6 flag on.
+	http c 198.19.22.2 | grep mihowrt-network-fixture
+	http c '[2001:db8:ffff::2]' | grep mihowrt-network-fixture
+	snap fake-direct
+}
+
 check_lifecycle() {
 	local pid="" old="" i="" opened=0
 	profile direct-first fake-ip true 0
@@ -828,5 +881,6 @@ row 'local and IPv4 retained' 'IPv4, local DNS UDP/TCP, local IPv6, ND/RA/DHCPv6
 row 'core and other ingress retained' 'IPv4 via IPv6 SOCKS5 node, router output and unselected ingress succeed' check_core
 row 'NetBird synthetic' '2 interfaces/bases, 2 proxy settings, packet/ct original/reply paths, start orders/reconnect/fw4' check_netbird
 row 'routes and DNS boundaries' 'occupied slots preserved, live prefix updates and DNS ownership/conditional boundaries' check_routes_dns
+row 'fake-IP direct devices' 'listed MAC fake-IP uses mihowrt-direct/DIRECT; unlisted device uses NODE22; real addresses bypass' check_fakeip_direct
 row lifecycle 'provider/override, no-op, failed transaction, stop/watchdog/restart fresh flows' check_lifecycle
 CURRENT=complete

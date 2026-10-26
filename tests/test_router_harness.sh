@@ -54,7 +54,7 @@ esac
 EOF
 chmod +x "$tmpdir/bin/docker" "$tmpdir/project/tests/router/ssh.sh"
 export NETWORK_FAKE_ENV="$tmpdir/environment" NETWORK_FAKE_GUEST="$tmpdir/guest" NETWORK_FAKE_REMOVED="$tmpdir/removed"
-if PATH="$tmpdir/bin:$PATH" NETWORK_TIMEOUT=5 ROUTER_HOST=example.invalid ROUTER_SSH_FORCE_DOCKER=0 ROUTER_CONTAINER=not-a-vm \
+if PATH="$tmpdir/bin:$PATH" NETWORK_TIMEOUT=5 NETWORK_ROWS='fake-IP direct devices' ROUTER_HOST=example.invalid ROUTER_SSH_FORCE_DOCKER=0 ROUTER_CONTAINER=not-a-vm \
   bash "$tmpdir/project/tests/router/run-network.sh" >"$tmpdir/output" 2>&1; then
   fail 'unavailable network check must return 1'
 fi

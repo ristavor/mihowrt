@@ -280,8 +280,8 @@ seq(async () => {
   h.assertEq(unknown._mode.cfgvalue(), 'unknown (could not read the YAML profile)', 'unknown mode not guessed');
   h.assert(!Object.keys(unknown).some(k => k.endsWith('_inactive')), 'no inactive rows without a mode');
  }
- h.assert(!opts._direct_src && opts._direct_src_off instanceof form.DummyValue, 'fake-IP has no textarea');
- h.assertEq(opts._direct_src_off?.cfgvalue(), 'Not available with this subscription (it uses fake-IP DNS). Saved: 1 entry.', 'fake-IP saved count');
+ h.assert(opts._direct_src instanceof form.TextValue && !opts._direct_src_off, 'fake-IP direct devices editable');
+ h.assertEq(opts._direct_src.cfgvalue(), 'devices', 'fake-IP saved list retained');
  const uploads = [], writes = [];
  const saved = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
   E, api: Object.assign({}, api, { upload: async (prefix, content) => { uploads.push(content); return content; }, job: async (...args) => writes.push(args), notify() {} }),

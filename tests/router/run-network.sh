@@ -25,7 +25,7 @@ report() {
     printf 'Transport: fixed Docker QEMU container, loopback SSH only. Exit: **%s**.\n\n' "$result"
     printf '| Required synthetic row | Result | Expected / actual / exit evidence |\n|---|---|---|\n'
     for row in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
-      'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'lifecycle'; do
+      'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'fake-IP direct devices' 'lifecycle'; do
       state='NOT TESTED'; actual='Not reached; see host.log / guest.log.'
       if [[ -f "$RUN/results.tsv" ]]; then
         state="$(awk -F '\t' -v row="$row" '$1 == row {print $2}' "$RUN/results.tsv")"
@@ -77,7 +77,7 @@ trap finish EXIT
 trap 'exit 1' INT TERM
 
 rows="${NETWORK_ROWS:-all}"
-case "$rows" in *[!A-Za-z0-9,\ ]*) echo 'NETWORK_ROWS accepts only row names separated by commas.' >>"$RUN/host.log"; exit 1 ;; esac
+case "$rows" in *[!A-Za-z0-9,\ -]*) echo 'NETWORK_ROWS accepts only row names separated by commas.' >>"$RUN/host.log"; exit 1 ;; esac
 # Refuse a stopped/misidentified harness; never start a VM or install packages implicitly.
 if ! docker exec mihowrt-openwrt-test sh -c 'test "$(readlink /proc/1/exe)" = /usr/bin/qemu-system-x86_64' >"$RUN/host.log" 2>&1; then
   echo 'Disposable QEMU harness prerequisite unavailable.' >>"$RUN/host.log"
@@ -105,6 +105,6 @@ if [[ "$guest_exit" == 0 ]]; then
 else
   echo "Guest exit status: ${guest_exit:-timeout}" >>"$RUN/host.log"
 fi
-# A successful SSH alone is insufficient: require all eight rows and clean restoration.
-VM "test \"\$(grep -c 'PASS' '$WORK/results.tsv')\" = 8 && test \"\$(cat '$WORK/cleanup.status')\" = PASS" >>"$RUN/host.log" 2>&1 || result=1
+# A successful SSH alone is insufficient: require all nine rows and clean restoration.
+VM "test \"\$(grep -c 'PASS' '$WORK/results.tsv')\" = 9 && test \"\$(cat '$WORK/cleanup.status')\" = PASS" >>"$RUN/host.log" 2>&1 || result=1
 exit "$result"

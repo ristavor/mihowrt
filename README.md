@@ -150,10 +150,19 @@ The mode follows the DNS settings of your YAML; there is no switch:
 - **All traffic via proxy except exclusions**: every other case (blacklist or
   rule filter, `redir-host`, `normal`, no `dns` section). All TCP/UDP goes to
   Mihomo, except *Addresses always direct* and *Devices always direct*.
-  *Devices always direct* needs DNS mode `redir-host` or `normal`: with
-  fake-IP their domains would resolve to addresses only Mihomo can reach.
+  *Devices always direct* bypasses Mihomo for real destinations. With fake-IP
+  DNS, connections to fake addresses use the `mihowrt-direct` TPROXY listener
+  on port 7895 and its first `IN-NAME,mihowrt-direct,DIRECT` rule: Mihomo resolves the real
+  destination and sends the connection DIRECT. `redir-host` / `normal` retain
+  full nft bypass. QUIC blocking still applies to fake destinations when enabled.
 
-In both modes Mihomo's own rules decide the outbound (proxy group or DIRECT).
+Apart from the dedicated fake-IP direct-device inbound, Mihomo's own rules
+decide the outbound (proxy group or DIRECT). Domain filtering remains the
+provider's job; MihoWRT does not add vendor/private domains to `fake-ip-filter`.
+The name `mihowrt-direct` is reserved: a same-named provider listener is replaced
+with a warning. For proxy-first fake-IP, `listeners` and `rules` must use block
+lists (empty `[]` / null are accepted); non-empty flow lists and listener aliases
+are rejected rather than rewritten unsafely.
 
 ### Provider settings (`x-mihowrt`)
 

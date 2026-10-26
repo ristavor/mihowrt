@@ -61,7 +61,7 @@ pass 'whitespace inside a provider URL is filtered'
 )
 pass "profile_ensure scratch build is quiet"
 
-# Lock every successful fixture in this test to the pre-split generator bytes.
+# Lock baseline bytes, plus the E10 listener/rule in proxy-first fake-IP.
 eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"
 printf '0\n' >"$tmpdir/generator-count"
 mihomo_config_generate() {

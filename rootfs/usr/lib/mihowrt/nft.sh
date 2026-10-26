@@ -242,17 +242,24 @@ nft_render_direct_returns() {
 	nft_port_rules "$chain" "$f6" ip6 daddr return
 }
 
-# Devices always direct (proxy-first). With fake-IP DNS their domains would
-# resolve to fake addresses that only Mihomo can reach, so they are skipped.
+# In fake-IP mode selected devices leave the caller via goto: a real-IP
+# return must exit prerouting_policy, not resume at its catch-all mark.
 nft_render_direct_devices() {
-	local chain="$1" f4="$2" f6="$3" fmac="$4"
+	local chain="$1" f4="$2" f6="$3" fmac="$4" action="return"
 
-	[ "$DNS_MODE" = "fake-ip" ] && return 0
-	[ "$(nft_set_count "$fmac")" -gt 0 ] && nft_rule "$chain" "ether saddr @direct_src_mac return"
-	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip saddr @direct_src return"
-	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 saddr @direct_src6 return"
-	nft_port_rules "$chain" "$f4" ip saddr return
-	nft_port_rules "$chain" "$f6" ip6 saddr return
+	if [ "$DNS_MODE" = "fake-ip" ]; then
+		action="goto direct_device_policy"
+		nft_line "add chain inet $NFT_TABLE_NAME direct_device_policy"
+		nft_rule direct_device_policy "meta nfproto ipv6 return"
+		nft_rule direct_device_policy "ip daddr != $FAKEIP_RANGE return"
+		[ "$DISABLE_QUIC" = "1" ] && nft_rule direct_device_policy "ip daddr $FAKEIP_RANGE udp dport 443 reject"
+		nft_rule direct_device_policy "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } $NFT_MARK_SET | $NFT_DIRECT_MARK accept"
+	fi
+	[ "$(nft_set_count "$fmac")" -gt 0 ] && nft_rule "$chain" "ether saddr @direct_src_mac $action"
+	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip saddr @direct_src $action"
+	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 saddr @direct_src6 $action"
+	nft_port_rules "$chain" "$f4" ip saddr "$action"
+	nft_port_rules "$chain" "$f6" ip6 saddr "$action"
 }
 
 nft_render_fakeip() {
@@ -290,7 +297,7 @@ nft_render() {
 	nft_fill_set proxy_src_mac "$dir/src.mac"
 	nft_fill_set direct_dst "$dir/direct.4"
 	nft_fill_set direct_dst6 "$dir/direct.6"
-	if [ "$POLICY_MODE" = "proxy-first" ] && [ "$DNS_MODE" != "fake-ip" ]; then
+	if [ "$POLICY_MODE" = "proxy-first" ]; then
 		nft_fill_set direct_src "$dir/direct_src.4"
 		nft_fill_set direct_src6 "$dir/direct_src.6"
 		nft_fill_set direct_src_mac "$dir/direct_src.mac"
@@ -327,6 +334,9 @@ nft_render() {
 
 	# TPROXY marked packets (client traffic and rerouted router traffic).
 	nft_rule proxy_redirect "iifname \"$NETBIRD_INTERFACE\" return"
+	if [ "$POLICY_MODE" = "proxy-first" ] && [ "$DNS_MODE" = "fake-ip" ]; then
+		nft_rule proxy_redirect "meta mark & $NFT_DIRECT_MARK == $NFT_DIRECT_MARK meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_DIRECT_TPROXY_PORT accept"
+	fi
 	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
 	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:$MIHOMO_TPROXY_PORT"
 

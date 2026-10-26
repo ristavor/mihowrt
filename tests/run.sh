@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd -- "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 ash_shell_files=(
+	"$ROOT_DIR/tests/router/network-guest.sh"
 	"$ROOT_DIR/install.sh"
 	"$ROOT_DIR/rootfs/usr/bin/mihowrt"
 	"$ROOT_DIR/rootfs/usr/bin/mihowrt-read"
@@ -14,6 +15,7 @@ ash_shell_files=(
 )
 
 bash_shell_files=(
+	"$ROOT_DIR/tests/router/run-network.sh"
 	"$ROOT_DIR"/tests/*.sh
 )
 

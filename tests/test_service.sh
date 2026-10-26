@@ -536,17 +536,76 @@ pass 'hotplug'
 )
 pass 'refresh is idempotent'
 
+for candidate_kind in same changed rejected; do
+ (
+  PKG_TMP_DIR="$tmpdir/tmp"
+  RUNTIME_CONFIG="$tmpdir/reload.yaml"
+  PROFILE_FILE="$tmpdir/reload.profile"
+  CONFIG_OK_FILE="$tmpdir/reload.config.ok"
+  CONFIG_ERR_FILE="$tmpdir/reload.config.err"
+  service_ready() { return 0; }
+  settings_load() { :; }
+  cron_update() { :; }
+  mihomo_config_generate() {
+   assert_eq "$CLASH_CONFIG" "$1" 'reload generates from installed YAML'
+   printf '%s runtime\n' "$candidate_kind" >"$2"
+   printf 'candidate profile\n' >"$2.profile"
+  }
+  mihomo_config_test() {
+   echo test >>"$events"
+   CONFIG_TEST_OUTPUT='candidate rejected'
+   [ "$candidate_kind" != rejected ]
+  }
+  api_reload() { echo reload >>"$events"; }
+  policy_apply() { echo apply >>"$events"; }
+  printf 'same runtime\n' >"$RUNTIME_CONFIG"
+  printf 'previous profile\n' >"$PROFILE_FILE"
+  printf 'previous check\n' >"$CONFIG_ERR_FILE"
+  rm -f "$CONFIG_OK_FILE"
+  reset_events
+  rc=0
+  service_reload || rc=$?
+  if [ "$candidate_kind" = rejected ]; then
+   assert_eq 1 "$rc" 'rejected candidate fails reload'
+   assert_eq test "$(cat "$events")" 'rejected candidate tested without reload or policy apply'
+   assert_eq 'same runtime' "$(cat "$RUNTIME_CONFIG")" 'rejected candidate preserves runtime'
+   assert_eq 'previous profile' "$(cat "$PROFILE_FILE")" 'rejected candidate preserves profile'
+   assert_eq 'candidate rejected' "$(cat "$CONFIG_ERR_FILE")" 'rejected candidate records failed check'
+   assert_false 'rejected candidate does not record success' test -e "$CONFIG_OK_FILE"
+  else
+   assert_eq 0 "$rc" 'candidate reload succeeds'
+   assert_eq 'candidate profile' "$(cat "$PROFILE_FILE")" 'candidate profile installed'
+   if [ "$candidate_kind" = same ]; then
+    assert_eq apply "$(cat "$events")" 'same candidate no test or reload, policy applied once'
+    assert_eq 'previous check' "$(cat "$CONFIG_ERR_FILE")" 'same candidate preserves last check'
+    assert_false 'same candidate does not record a new check' test -e "$CONFIG_OK_FILE"
+   else
+    assert_eq $'test\nreload\napply' "$(cat "$events")" 'changed candidate tested and reloaded once'
+    assert_eq 'changed runtime' "$(cat "$RUNTIME_CONFIG")" 'changed candidate installed'
+    assert_true 'changed candidate records successful check' test -f "$CONFIG_OK_FILE"
+    assert_false 'successful check clears old error' test -e "$CONFIG_ERR_FILE"
+   fi
+  fi
+  assert_false 'reload removes candidate config' test -e "$PKG_TMP_DIR/config.candidate.yaml"
+  assert_false 'reload removes candidate profile' test -e "$PKG_TMP_DIR/config.candidate.yaml.profile"
+ )
+ pass "$candidate_kind candidate reload"
+done
+
 (
  PKG_TMP_DIR="$tmpdir/tmp"
  RUNTIME_CONFIG="$tmpdir/reload.yaml"
  PROFILE_FILE="$tmpdir/reload.profile"
+ CONFIG_OK_FILE="$tmpdir/reload.config.ok"
+ CONFIG_ERR_FILE="$tmpdir/reload.config.err"
  service_ready() { return 0; }
  settings_load() { :; }
  cron_update() { :; }
- runtime_config_build() {
-  printf 'new runtime\n' >"$1"
-  printf 'new profile\n' >"$1.profile"
+ mihomo_config_generate() {
+  printf 'new runtime\n' >"$2"
+  printf 'new profile\n' >"$2.profile"
  }
+ mihomo_config_test() { return 0; }
  printf 'previous runtime\n' >"$RUNTIME_CONFIG"
  printf 'previous profile\n' >"$PROFILE_FILE"
  cp "$RUNTIME_CONFIG" "$tmpdir/runtime.before"

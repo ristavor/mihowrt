@@ -361,10 +361,26 @@ service_reload() {
 	settings_load || return 1
 	cron_update || warn "Failed to update cron schedule"
 	service_ready || return 0
-	runtime_config_build "$candidate" || {
+	mihomo_config_generate "$CLASH_CONFIG" "$candidate" || {
 		rm -f "$candidate" "$candidate.profile"
 		return 1
 	}
+	if cmp -s "$candidate" "$RUNTIME_CONFIG"; then
+		mv -f "$candidate.profile" "$PROFILE_FILE" || {
+			rm -f "$candidate" "$candidate.profile"
+			return 1
+		}
+		rm -f "$candidate"
+		policy_apply
+		return $?
+	fi
+	if mihomo_config_test "$candidate"; then
+		config_check_record ok
+	else
+		config_check_record err
+		rm -f "$candidate" "$candidate.profile"
+		return 1
+	fi
 	rm -f "$RUNTIME_CONFIG.prev" "$PROFILE_FILE.prev"
 	for file in "$RUNTIME_CONFIG" "$PROFILE_FILE"; do
 		if [ -f "$file" ] && ! cp -p "$file" "$file.prev"; then
@@ -373,8 +389,7 @@ service_reload() {
 		fi
 	done
 	if ! { mv -f "$candidate.profile" "$PROFILE_FILE" &&
-		{ cmp -s "$candidate" "$RUNTIME_CONFIG" ||
-			{ mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; }; }; then
+		mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; then
 		for file in "$RUNTIME_CONFIG" "$PROFILE_FILE"; do
 			if [ -f "$file.prev" ]; then
 				mv -f "$file.prev" "$file"

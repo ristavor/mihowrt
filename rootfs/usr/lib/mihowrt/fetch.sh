@@ -86,38 +86,36 @@ fetch_header() {
 	' "$1" 2>/dev/null | single_line
 }
 
-# http_fetch <url> <out> <max_bytes> <timeout> <device_headers 0|1>
+# http_fetch <url> <out> <max_bytes> <timeout> <device_headers 0|1> [headers_file]
 # Sets FETCH_ERROR (network|too_large|http_<code>|invalid_url), FETCH_HTTP_STATUS
-# and FETCH_HDR (path of the response header dump, valid until the next call).
+# and FETCH_HDR (the explicit headers_file, otherwise empty).
 http_fetch() {
-	local url="$1" out="$2" max="$3" timeout="$4" device="${5:-0}" size="" rc=0
+	local url="$1" out="$2" max="$3" timeout="$4" device="${5:-0}" headers="${6:-}" size="" rc=0
 
 	FETCH_ERROR=""
 	FETCH_HTTP_STATUS=""
 	# Per process: downloads run without the lock and may overlap.
-	FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+	FETCH_HDR="$headers"
+	[ -n "$headers" ] || headers="$PKG_TMP_DIR/fetch.headers.$$"
 	is_http_url "$url" || {
 		FETCH_ERROR=invalid_url
 		return 1
 	}
 	ensure_dir "$PKG_TMP_DIR" || return 1
-	: >"$FETCH_HDR"
+	: >"$headers"
+	set -- -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
+		--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
+		-A "mihowrt/$PKG_VERSION"
 	# Device headers identify the router to the provider; only over HTTPS.
 	case "$device:$url" in
 	1:https://*)
-		curl -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
-			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
-			-A "mihowrt/$PKG_VERSION" -H "x-hwid: $(device_hwid)" -H "x-device-os: OpenWrt" \
-			-H "x-ver-os: $(device_os_version)" -H "x-device-model: $(device_model)" \
-			-D "$FETCH_HDR" -o "$out" "$url" 2>/dev/null || rc=$?
-		;;
-	*)
-		curl -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
-			--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
-			-A "mihowrt/$PKG_VERSION" -D "$FETCH_HDR" -o "$out" "$url" 2>/dev/null || rc=$?
+		set -- "$@" -H "x-hwid: $(device_hwid)" -H "x-device-os: OpenWrt" \
+			-H "x-ver-os: $(device_os_version)" -H "x-device-model: $(device_model)"
 		;;
 	esac
-	FETCH_HTTP_STATUS="$(awk '/^HTTP\// { s = $2 } END { print s }' "$FETCH_HDR" 2>/dev/null)"
+	curl "$@" -D "$headers" -o "$out" "$url" 2>/dev/null || rc=$?
+	FETCH_HTTP_STATUS="$(awk '/^HTTP\// { s = $2 } END { print s }' "$headers" 2>/dev/null)"
+	[ -n "$FETCH_HDR" ] || rm -f "$headers"
 	size=""
 	[ -f "$out" ] && size="$(wc -c <"$out" | tr -d ' ')"
 	if [ "$rc" -eq 63 ] || { is_uint "$size" && [ "$size" -gt "$max" ]; }; then

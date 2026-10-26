@@ -251,8 +251,7 @@ lists_urls() {
  esac
 }
 http_fetch() {
- FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
- echo headers >"$FETCH_HDR"
+ FETCH_HDR=""
  case "$1" in
  *fail.example*) FETCH_ERROR=network; return 1 ;;
  *) echo 9.9.9.9 >"$2" ;;

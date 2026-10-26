@@ -25,7 +25,6 @@ CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 RUNTIME_LOCK_FILE="$PKG_STATE_DIR/lock"
 NFT_APPLIED_FILE="$tmpdir/nft.applied"
 SUBSCRIPTION_META_FILE="$tmpdir/subscription.json"
-FETCH_HDR="$tmpdir/headers"
 CRON_FILE="$tmpdir/crontab"
 LIST_DIR="$tmpdir/lists"
 DST_LIST_FILE="$LIST_DIR/dst"
@@ -50,6 +49,8 @@ nft() { echo "nft:$*" >>"$tmpdir/events"; }
 policy_apply() { echo "policy:$POLICY_MODE" >>"$tmpdir/events"; nft_apply; }
 dns_restart_dnsmasq() { echo dns-restart >>"$tmpdir/events"; }
 http_fetch() {
+ FETCH_HDR="$6"
+ assert_eq "$PKG_TMP_DIR/subscription.$$.headers" "$FETCH_HDR" "subscription requests explicit headers"
  assert_eq 0 "${LOCK_DEPTH:-0}" "download outside lock"
  assert_false "download leaves runtime lock free" lock_busy
  cp "$tmpdir/download" "$2"

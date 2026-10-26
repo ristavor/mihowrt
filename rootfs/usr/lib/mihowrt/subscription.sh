@@ -123,7 +123,7 @@ subscription_is_clash() {
 # With a URL argument that link is tried and saved only if it works, so a
 # typo never replaces the working link.
 subscription_update() {
-	local new_url="${1:-}" candidate="$PKG_TMP_DIR/subscription.$$.yaml" meta="" result="" bypass="" rc=0
+	local new_url="${1:-}" candidate="$PKG_TMP_DIR/subscription.$$.yaml" headers_file="$PKG_TMP_DIR/subscription.$$.headers" meta="" result="" bypass="" rc=0
 
 	settings_load || return 1
 	if [ -n "$new_url" ]; then
@@ -146,21 +146,21 @@ subscription_update() {
 		[ -z "$bypass" ] || nft_bypass add $bypass
 	fi
 	rc=0
-	http_fetch "$SUBSCRIPTION_URL" "$candidate" "$SUBSCRIPTION_MAX_BYTES" "$SUBSCRIPTION_TIMEOUT" 1 || rc=$?
+	http_fetch "$SUBSCRIPTION_URL" "$candidate" "$SUBSCRIPTION_MAX_BYTES" "$SUBSCRIPTION_TIMEOUT" 1 "$headers_file" || rc=$?
 	# shellcheck disable=SC2086
 	[ -z "$bypass" ] || nft_bypass delete $bypass
 	if [ "$rc" -ne 0 ]; then
-		rm -f "${FETCH_HDR:-}"
+		rm -f "$headers_file"
 		err "Subscription download failed: $FETCH_ERROR"
 		return 1
 	fi
 	[ -s "$candidate" ] || {
-		rm -f "$candidate" "${FETCH_HDR:-}"
+		rm -f "$candidate" "$headers_file"
 		err "Subscription returned an empty config"
 		return 1
 	}
 	subscription_is_clash "$candidate" || {
-		rm -f "$candidate" "$FETCH_HDR"
+		rm -f "$candidate" "$headers_file"
 		err "The provider returned something that is not a Clash/Mihomo config (V2Ray links, base64, sing-box JSON or a web page). Use the Clash/Mihomo link from your provider's account."
 		return 1
 	}
@@ -169,7 +169,7 @@ subscription_update() {
 	# Mihomo is awaited before the lock (run_service needs it to finish).
 	config_api_wait || true
 	result="$(with_lock config_install "$candidate")" || {
-		rm -f "$candidate" "$FETCH_HDR"
+		rm -f "$candidate" "$headers_file"
 		return 1
 	}
 	rm -f "$candidate"
@@ -183,7 +183,7 @@ subscription_update() {
 	else
 		warn "Subscription metadata could not be parsed; keeping the previous one"
 	fi
-	rm -f "$FETCH_HDR"
+	rm -f "$headers_file"
 	if [ -n "$new_url" ] && [ "$new_url" != "$(uci_get subscription_url)" ]; then
 		if ! { uci_set subscription_url "$new_url" && uci_commit; }; then
 			warn "Failed to save the subscription URL"

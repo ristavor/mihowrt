@@ -57,9 +57,8 @@ asset_size="$(wc -c <"$tmpdir/asset.gz" | tr -d ' ')"
 asset_digest="sha256:$asset_sha"
 
 http_fetch() {
-	FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+	FETCH_HDR=""
 	mkdir -p "$PKG_TMP_DIR"
-	echo headers >"$FETCH_HDR"
 	case "$1" in
 	*api.github.com*)
 		jq -nc --arg d "$asset_digest" --arg s "$asset_size" \

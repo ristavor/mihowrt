@@ -83,6 +83,39 @@ assert_file_contains "$CURL_LOG" "--proto-redir =https" "redirects limited to ht
 assert_file_contains "$CURL_LOG" "--max-filesize 100" "size limit passed to curl"
 pass "hwid on https"
 
+# Device identity is opt-in even over HTTPS.
+: >"$CURL_LOG"
+CURL_BODY=data http_fetch https://example.com/s "$tmpdir/o" 100 10 0 || fail "https without device headers"
+assert_file_not_contains "$CURL_LOG" "x-hwid" "no device headers when disabled"
+assert_eq 1 "$(wc -l <"$CURL_LOG" | tr -d ' ')" "one curl per fetch"
+pass 'device headers https only'
+
+# Omitted headers are owned by http_fetch on both success and failure.
+for curl_exit in 0 7 22 63; do
+ rm -f "$PKG_TMP_DIR"/fetch.headers.*
+ if CURL_EXIT="$curl_exit" CURL_BODY=data http_fetch https://example.com/s "$tmpdir/o" 100 10 0; then
+  assert_eq 0 "$curl_exit" 'only successful curl succeeds'
+ else
+  assert_false 'curl failure reported' test "$curl_exit" = 0
+ fi
+ assert_eq '' "$FETCH_HDR" 'no retained header path without file'
+ assert_eq '' "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" 'temporary headers removed'
+done
+pass 'headers removed without file'
+
+for curl_exit in 0 7; do
+ headers_file="$PKG_TMP_DIR/kept headers"
+ if CURL_EXIT="$curl_exit" CURL_BODY=data http_fetch https://example.com/s "$tmpdir/o" 100 10 0 "$headers_file"; then
+  assert_eq 0 "$curl_exit" 'explicit headers success'
+ else
+  assert_eq 7 "$curl_exit" 'explicit headers failure'
+ fi
+ assert_eq "$headers_file" "$FETCH_HDR" 'explicit header path retained'
+ assert_file_contains "$headers_file" 'HTTP/1.1 200 OK' 'explicit headers kept'
+ rm -f "$headers_file"
+done
+pass 'headers kept with file'
+
 if CURL_BODY="$(printf 'x%.0s' {1..101})" http_fetch https://example.com/s "$tmpdir/o" 100 10 0; then
 	fail "oversize body must fail"
 fi
@@ -106,11 +139,12 @@ assert_eq "" "$(subscription_decode_metadata_value 'base64:???')" "invalid chars
 pass "base64 metadata"
 
 CURL_HEADERS='HTTP/1.1 302 Found\r\nprofile-title: old\r\n\r\nHTTP/1.1 200 OK\r\nProfile-Title: base64:0JvQuNGH0L3QsNGPIPCfmoA=\r\nsubscription-userinfo: upload=1; download=2; expire=1700000000\r\nprofile-update-interval: 12\r\n' \
-	CURL_BODY=x http_fetch https://example.com/s "$tmpdir/o" 100 10 0
+	CURL_BODY=x http_fetch https://example.com/s "$tmpdir/o" 100 10 0 "$PKG_TMP_DIR/metadata.headers"
 meta="$(subscription_metadata_from_headers)"
 assert_eq "Личная 🚀" "$(jq -r .profile_title <<<"$meta")" "title from last redirect block"
 assert_eq "null" "$(jq -r .total <<<"$meta")" "missing total stays null (unlimited)"
 assert_eq "3|1700000000|12" "$(jq -r '"\(.upload + .download)|\(.expire)|\(.header_interval)"' <<<"$meta")" "userinfo fields"
+rm -f "$FETCH_HDR"
 pass "subscription metadata"
 
 printf '%s\n' "$meta" >"$SUBSCRIPTION_META_FILE"
@@ -213,25 +247,26 @@ assert_eq https://new.example/sub "$(uci_get subscription_url)" 'invalid URL kee
 pass 'replacement subscription URL transaction'
 
 # Each subscription exit owns and removes its response headers.
-for outcome in download_failure empty non_clash success; do
+for outcome in download_failure empty non_clash install_failure success; do
  http_fetch() {
-  FETCH_HDR="$PKG_TMP_DIR/fetch.headers.$$"
+  FETCH_HDR="$6"
+  assert_eq "$PKG_TMP_DIR/subscription.$$.headers" "$FETCH_HDR" "subscription requests explicit headers"
   printf 'HTTP/1.1 200 OK\r\nProfile-Title: kept\r\n' >"$FETCH_HDR"
   case "$outcome" in
   download_failure) FETCH_ERROR=network; return 1 ;;
   empty) : >"$2" ;;
   non_clash) printf '<html>' >"$2" ;;
-  success) printf 'proxies: []\n' >"$2" ;;
+  install_failure | success) printf 'proxies: []\n' >"$2" ;;
   esac
  }
- config_install() { echo '{"action":"saved"}'; }
- rm -f "$PKG_TMP_DIR"/fetch.headers.*
+ config_install() { [ "$outcome" != install_failure ] || return 1; echo '{"action":"saved"}'; }
+ rm -f "$PKG_TMP_DIR"/subscription.*.headers
  if [ "$outcome" = success ]; then
   subscription_update >/dev/null
   assert_eq kept "$(jq -r .profile_title "$SUBSCRIPTION_META_FILE")" 'headers parsed before cleanup'
  else
   assert_false "$outcome rejected" subscription_update >/dev/null 2>&1
  fi
- assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after subscription $outcome"
+ assert_eq "" "$(find "$PKG_TMP_DIR" -name 'subscription.*.headers')" "no header files left after subscription $outcome"
 done
 pass 'subscription response headers cleaned on every exit'

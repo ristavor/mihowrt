@@ -62,7 +62,6 @@ core_free_kb() {
 core_fail() {
 	CORE_ERROR="$*"
 	err "Core update: $*"
-	rm -f "${FETCH_HDR:-}"
 	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
 	return 1
 }
@@ -83,7 +82,6 @@ core_update() {
 	gz="$CORE_TMP_DIR/mihomo.gz"
 	current="$CORE_VERSION"
 	if http_fetch "$MIHOMO_RELEASES_API" "$json" "$CORE_RELEASE_JSON_MAX_BYTES" 30 0; then
-		rm -f "${FETCH_HDR:-}"
 		tag="$(jq -r '.tag_name // empty' "$json")"
 		[ -n "$tag" ] || core_fail "release has no tag" || return 1
 		[ "$current" != "$tag" ] || {
@@ -99,9 +97,7 @@ core_update() {
 		digest="$(printf '%s' "$meta" | cut -f2)"
 		size="$(printf '%s' "$meta" | cut -f3)"
 		http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
-		rm -f "${FETCH_HDR:-}"
 	else
-		rm -f "${FETCH_HDR:-}"
 		# API blocked or rate-limited: tag from the github.com redirect and
 		# direct download URLs (no published digest on this path).
 		warn "Core update: GitHub API unavailable ($FETCH_ERROR); using github.com"
@@ -113,11 +109,9 @@ core_update() {
 		url=""
 		for name in $(core_asset_names "$arch" "$tag"); do
 			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0; then
-				rm -f "${FETCH_HDR:-}"
 				url="$name"
 				break
 			fi
-			rm -f "${FETCH_HDR:-}"
 		done
 		[ -n "$url" ] || core_fail "no downloadable asset for $arch in $tag" || return 1
 	fi

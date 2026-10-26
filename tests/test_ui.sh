@@ -1197,6 +1197,18 @@ seq(async () => {
  const resources = { conflicts: [], flash_free_kb: 5120, ram_available_kb: 20480, mihomo_rss_kb: 45000, open_proxy_ports: [] };
  const render = (st = healthy, diagnostics = resources) => diag.render([st, {}, diagnostics]);
  const item = (p, label) => collect(p).find(n => n.tag === 'div' && n.children.some(c => c?.tag === 'strong' && texts(c).includes(label)));
+ await check('plain-http subscription', () => {
+  const label = 'The subscription link uses plain http';
+  const hint = 'Anyone on the way can change your configuration. Ask your provider for an https link.';
+  const row = item(render({ ...healthy, subscription_insecure: true }), label);
+  h.assert(row && texts(row).includes('Problem:'), 'insecure subscription is a problem item');
+  h.assert(texts(row).includes(hint), 'insecure subscription hint');
+  for (const value of [false, undefined])
+   h.assert(!item(render({ ...healthy, subscription_insecure: value }), label), 'no warning without insecure subscription');
+  const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
+  for (const message of [label, hint])
+   h.assert(catalog.includes('msgid "' + message + '"\nmsgstr "') && !catalog.includes('msgid "' + message + '"\nmsgstr ""'), 'Russian translation: ' + message);
+ });
  await check('failed state', () => {
   const row = item(render({ ...healthy, state: 'failed', last_error: 'x' }), 'Service is running');
   h.assert(texts(row).includes('Problem:'), 'failed state overrides stale running boolean');

@@ -37,6 +37,18 @@ assert_eq 2 "$(jq .lists.dst <<<"$json")" "list count ignores comments"
 assert_eq "v1.19.32" "$(jq -r .core <<<"$json")" "core version"
 pass "status checklist"
 
+subscription_failed=false
+for entry in 'http://p/x|true|http flagged' 'HTTP://p/x|true|case insensitive' 'https://p/x|false|https not flagged' '|false|empty url false'; do
+ IFS='|' read -r url expected name <<<"$entry"
+ fake_uci_set mihowrt.settings.subscription_url "$url"
+ if (assert_eq "$expected" "$(status_json | jq .subscription_insecure)" "$name"); then
+  pass "status subscription $name"
+ else
+  subscription_failed=true
+ fi
+done
+[ "$subscription_failed" = false ] || fail 'status subscription security flags'
+
 echo fail >"$HEALTH_FILE"
 api_dns_probe() { fail "status must not probe DNS"; }
 assert_eq false "$(status_json | jq .dns_ok)" "failed DNS probe reported"

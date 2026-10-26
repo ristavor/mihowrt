@@ -32,6 +32,9 @@ function checks(st, diagnostics) {
 			_('Without a subscription only the YAML you entered is used.') ],
 		state === 'starting' ? [ null, _('Starting…'), '' ] : [ up, _('Service is running'), serviceHint ]
 	];
+	if (st.subscription_insecure)
+		list.push([ false, _('The subscription link uses plain http'),
+			_('Anyone on the way can change your configuration. Ask your provider for an https link.') ]);
 	if (state === 'degraded')
 		list.push([ false, _('Mihomo DNS does not answer: traffic goes direct until it recovers'),
 			_('Mihomo cannot resolve names: check that the proxy servers and DNS servers in the config are reachable.') ]);

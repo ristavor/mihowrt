@@ -105,6 +105,7 @@ status_json() {
 		def words: split(" ") | map(select(length > 0));
 		{running: $running, enabled: $enabled, state: $state, last_error: $last_error, version: $version, core: $core,
 		 core_installed: ($core != ""), subscription_configured: ($url != ""),
+		 subscription_insecure: ($url | ascii_downcase | startswith("http://")),
 		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
 		 mode: $mode, interfaces: ($interfaces | words),
 		 custom_dns_servers: ($custom | words),

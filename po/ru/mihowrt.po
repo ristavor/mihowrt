@@ -726,3 +726,9 @@ msgstr "MihoWRT не запущен; это то, что будет переда
 
 msgid "Try again"
 msgstr "Повторить"
+
+msgid "The subscription link uses plain http"
+msgstr "Ссылка на подписку использует обычный http"
+
+msgid "Anyone on the way can change your configuration. Ask your provider for an https link."
+msgstr "Любой посредник может изменить вашу конфигурацию. Попросите у провайдера ссылку https."

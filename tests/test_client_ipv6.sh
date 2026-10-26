@@ -174,7 +174,11 @@ pass "shipped default off"
   assert_file_not_contains "$rules" client_ipv6_egress "$profile off has no boundary chain"
   assert_file_not_contains "$rules" 'iifname @source_ifaces meta nfproto ipv6 return' "$profile off has no client IPv6 guards"
   assert_file_not_contains "$rules" 'reject with' "$profile off has no new rejects"
-  assert_file_contains "$rules" 'ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect' "$profile off keeps IPv6 DNS"
+  expected='add rule inet mihowrt dns_hijack iifname "wt9" return
+add rule inet mihowrt dns_hijack fib daddr type local return
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874'
+  assert_eq "$expected" "$(chain_rules dns_hijack)" "$profile off protects router DNS before both redirects"
   assert_file_contains "$rules" 'tproxy ip6 to [::1]:7894' "$profile off keeps IPv6 TPROXY"
   BLOCK_CLIENT_IPV6=1
   nft_render "$rules" "$work"
@@ -197,6 +201,7 @@ add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta n
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894'
   assert_eq "$expected" "$(chain_rules proxy_redirect)" "$profile client guard before TPROXY, router reroute unchanged"
   expected='add rule inet mihowrt dns_hijack iifname "wt9" return
+add rule inet mihowrt dns_hijack fib daddr type local return
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874'
   assert_eq "$expected" "$(chain_rules dns_hijack)" "$profile only IPv4 DNS redirect remains"
   for iface in br-guest wt9; do

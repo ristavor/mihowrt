@@ -35,6 +35,7 @@ add element inet mihowrt direct_dst6 { 2a02:6b8::/32 }
 add element inet mihowrt direct_src { 192.168.1.50 }
 add element inet mihowrt direct_src6 { fd00::50 }
 add rule inet mihowrt dns_hijack iifname "wt0" return
+add rule inet mihowrt dns_hijack fib daddr type local return
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :7874
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874
 add rule inet mihowrt mangle_prerouting iifname "wt0" return

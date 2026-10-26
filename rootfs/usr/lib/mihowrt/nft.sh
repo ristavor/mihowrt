@@ -298,6 +298,7 @@ nft_render() {
 
 	# DNS hijack and NetBird ingress exclusion.
 	nft_rule dns_hijack "iifname \"$NETBIRD_INTERFACE\" return"
+	nft_rule dns_hijack "fib daddr type local return"
 	if [ "$DNS_HIJACK" = "1" ]; then
 		nft_rule dns_hijack "iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
 		if [ "${BLOCK_CLIENT_IPV6:-0}" != "1" ]; then

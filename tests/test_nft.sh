@@ -137,6 +137,43 @@ render() {
 	nft_render "$out" "$tmpdir/work"
 }
 
+# Router-owned DNS must stay at dnsmasq even outside the discovered local sets.
+# 2a00:1::1 is the router's WAN GUA in this fixture; its eth1 prefix is
+# deliberately excluded by connected-prefix discovery (unlike RFC1918 LAN IPs).
+(
+ router_gua=2a00:1::1
+ for POLICY_MODE in direct-first proxy-first; do
+  for DNS_MODE in fake-ip redir-host; do
+   for DNS_HIJACK in 0 1; do
+    for BLOCK_CLIENT_IPV6 in 0 1; do
+     label="$POLICY_MODE/$DNS_MODE/hijack=$DNS_HIJACK/block=$BLOCK_CLIENT_IPV6"
+     render
+     assert_file_not_contains "$out" 'localv6 { 2a00:1::/64 }' "$label WAN prefix excluded from localv6"
+     assert_file_not_contains "$out" "localv6 { $router_gua }" "$label router WAN GUA not statically excluded"
+     grep '^add rule inet mihowrt dns_hijack ' "$out" >"$tmpdir/dns-chain.nft"
+     expected="add rule inet mihowrt dns_hijack iifname \"$NETBIRD_INTERFACE\" return
+add rule inet mihowrt dns_hijack fib daddr type local return"
+     assert_eq "$expected" "$(head -n2 "$tmpdir/dns-chain.nft")" "$label router DNS guard follows NetBird before redirects"
+     assert_true "$label router DNS guard precedes every redirect" awk '
+      $0 == "add rule inet mihowrt dns_hijack fib daddr type local return" { guarded = 1 }
+      / redirect to / && !guarded { exit 1 }
+     ' "$tmpdir/dns-chain.nft"
+     if [ "$DNS_HIJACK" = 1 ]; then
+      expected="$expected
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
+      if [ "$BLOCK_CLIENT_IPV6" = 0 ]; then
+       expected="$expected
+add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :$MIHOMO_DNS_PORT"
+      fi
+     fi
+     assert_eq "$expected" "$(cat "$tmpdir/dns-chain.nft")" "$label DNS redirects otherwise unchanged"
+    done
+   done
+  done
+ done
+ pass 'router DNS guard precedes redirect'
+)
+
 # Resolve only the selected mode's list kinds, even with fake-IP DNS.
 (
  lists_resolve() { printf '%s\n' "$1" >>"$tmpdir/resolved-kinds"; }

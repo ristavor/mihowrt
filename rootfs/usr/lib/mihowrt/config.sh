@@ -57,6 +57,11 @@ config_api_wait() {
 	return 0
 }
 
+config_locked() {
+	settings_load >/dev/null 2>&1 && config_api_wait
+	with_lock "$@"
+}
+
 config_runtime_reload() {
 	runtime_config_build "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"
 }

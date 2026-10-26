@@ -189,3 +189,31 @@ assert_eq 'job-start:update-lists' "$(sh "$tmpdir/cli.sh" job-start update-lists
 assert_eq 'job-status:1-2' "$(sh "$tmpdir/cli.sh" job-status 1-2)" 'job-status CLI dispatch'
 assert_eq 'job-run:1-2 service stop' "$(sh "$tmpdir/cli.sh" job-run 1-2 service stop)" 'internal job-run CLI dispatch'
 pass 'job CLI boundary'
+
+# Exercise real config locking and CLI dispatch with harmless config operations.
+strip_mihowrt_cli_bootstrap >"$tmpdir/config-cli.sh"
+sed '/^cmd=/,$d' "$tmpdir/config-cli.sh" >"$tmpdir/config-prefix.sh"
+cat >>"$tmpdir/config-prefix.sh" <<'STUBS'
+. "$MIHOWRT_LIB_DIR/config.sh"
+settings_load() { echo settings >>"$CONFIG_ORDER"; }
+config_api_wait() { echo wait >>"$CONFIG_ORDER"; }
+with_lock() { echo lock >>"$CONFIG_ORDER"; "$@"; }
+config_save() { printf 'save:%s\n' "$1" >>"$CONFIG_ORDER"; return "${CONFIG_RC:-0}"; }
+config_restore() { echo restore >>"$CONFIG_ORDER"; return "${CONFIG_RC:-0}"; }
+STUBS
+sed -n '/^cmd=/,$p' "$tmpdir/config-cli.sh" >>"$tmpdir/config-prefix.sh"
+mv "$tmpdir/config-prefix.sh" "$tmpdir/config-cli.sh"
+export CONFIG_ORDER="$tmpdir/config-order"
+: >"$CONFIG_ORDER"
+sh "$tmpdir/config-cli.sh" restore-config
+assert_eq $'settings\nwait\nlock\nrestore' "$(cat "$CONFIG_ORDER")" 'cli restore waits'
+pass 'cli restore waits'
+: >"$CONFIG_ORDER"
+sh "$tmpdir/config-cli.sh" save-config /tmp/mihowrt-config.test
+assert_eq $'settings\nwait\nlock\nsave:/tmp/mihowrt-config.test' "$(cat "$CONFIG_ORDER")" 'cli save waits once before lock'
+for op in save-config restore-config; do
+ rc=0
+ CONFIG_RC=7 sh "$tmpdir/config-cli.sh" "$op" /tmp/mihowrt-config.test || rc=$?
+ assert_eq 7 "$rc" "$op returns locked operation status"
+done
+pass 'config CLI wait count and return status'

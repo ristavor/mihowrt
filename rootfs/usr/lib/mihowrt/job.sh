@@ -172,14 +172,8 @@ job_execute() {
 	update-subscription) subscription_update "${1:-}" ;;
 	update-lists) lists_refresh ;;
 	apply-lists) lists_apply "$@" ;;
-	save-config)
-		settings_load >/dev/null 2>&1 && config_api_wait
-		with_lock config_save "$1"
-		;;
-	restore-config)
-		settings_load >/dev/null 2>&1 && config_api_wait
-		with_lock config_restore
-		;;
+	save-config) config_locked config_save "$1" ;;
+	restore-config) config_locked config_restore ;;
 	core-update) core_update_cmd ;;
 	service) /etc/init.d/mihowrt "$1" 9>&- >/dev/null && printf '{}\n' ;;
 	esac

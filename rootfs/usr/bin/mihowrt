@@ -88,11 +88,9 @@ runtime-config)
 	;;
 save-config)
 	need_args $# 1
-	# Wait for a starting Mihomo before taking the lock.
-	settings_load >/dev/null 2>&1 && config_api_wait
-	with_lock config_save "$1"
+	config_locked config_save "$1"
 	;;
-restore-config) with_lock config_restore ;;
+restore-config) config_locked config_restore ;;
 subscription-json) subscription_json ;;
 set-subscription)
 	need_args $# 2

@@ -6,6 +6,12 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"; rm -f /tmp/mihowrt-policy-list.test-provider-"$$".*' EXIT
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh nft.sh config.sh service.sh
+printf '\357\273\277"proxies": []\n' >"$tmpdir/keys"
+(
+ awk() { busybox awk "$@"; }
+ assert_true 'subscription_is_clash accepts bom quoted key' subscription_is_clash "$tmpdir/keys"
+)
+pass 'subscription bom quoted key'
 API_SECRET=""
 PKG_TMP_DIR="$tmpdir/tmp"
 PKG_STATE_DIR="$tmpdir/run"

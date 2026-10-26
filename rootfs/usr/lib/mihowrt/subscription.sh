@@ -116,11 +116,7 @@ subscription_host_addresses() {
 # A Clash/Mihomo config has a top-level proxies or proxy-providers key.
 # Catches V2Ray links, base64 lists, sing-box JSON and web pages early.
 subscription_is_clash() {
-	awk '
-		NR == 1 { sub(/^\357\273\277/, "") }
-		/^["\047]?(proxies|proxy-providers)["\047]?[[:space:]]*:/ { found = 1; exit }
-		END { exit !found }
-	' "$1"
+	yaml_has_top_key 'proxies|proxy-providers' "$1"
 }
 
 # Download the subscription, validate and install it, update metadata.

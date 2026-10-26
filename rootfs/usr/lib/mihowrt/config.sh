@@ -140,11 +140,7 @@ config_install() {
 }
 
 config_has_keys() {
-	awk '
-		NR == 1 { sub(/^\357\273\277/, "") }
-		/^["\047]?[A-Za-z0-9_-]+["\047]?[[:space:]]*:/ { found = 1; exit }
-		END { exit !found }
-	' "$1"
+	yaml_has_top_key '[A-Za-z0-9_-]+' "$1"
 }
 
 config_save() {

@@ -10,6 +10,14 @@ MIHOMO_OWNED_KEYS="tproxy-port routing-mark allow-lan bind-address tun profile e
 MIHOMO_OWNED_DNS_KEYS="enable listen fake-ip-range fake-ip-range6"
 MIHOMO_DASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
 
+yaml_has_top_key() {
+	awk -v key="$1" '
+		NR == 1 { sub(/^\357\273\277/, "") }
+		$0 ~ ("^[\"\047]?(" key ")[\"\047]?[[:space:]]*:") { found = 1; exit }
+		END { exit !found }
+	' "$2"
+}
+
 lan_ip_detect() {
 	local ip=""
 

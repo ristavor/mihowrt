@@ -255,6 +255,22 @@ printf '  nested: value\n- item\n# comment: value\n' >"$tmpdir/keys"
 assert_false 'only top-level keys recognized' config_has_keys "$tmpdir/keys"
 pass 'config_has_keys contract'
 
+printf '\357\273\277"proxies": []\n' >"$tmpdir/keys"
+(
+ awk() { busybox awk "$@"; }
+ assert_true 'bom quoted key' yaml_has_top_key 'proxies|proxy-providers' "$tmpdir/keys"
+ assert_true 'config_has_keys accepts bom quoted key' config_has_keys "$tmpdir/keys"
+)
+for key in 'proxies:' '"proxy-providers" :' "'proxies':"; do
+ printf '%s {}\n' "$key" >"$tmpdir/keys"
+ assert_true 'top-level key matches ERE alternatives' yaml_has_top_key 'proxies|proxy-providers' "$tmpdir/keys"
+done
+for candidate in '  proxies: []' '# proxies: []' 'other: []' 'proxies-extra: []' 'extra-proxy-providers: []'; do
+ printf '%s\n' "$candidate" >"$tmpdir/keys"
+ assert_false 'only complete top-level keys match ERE' yaml_has_top_key 'proxies|proxy-providers' "$tmpdir/keys"
+done
+pass 'yaml_has_top_key contract'
+
 api_alive() { return 0; }
 service_running() { return 0; }
 service_ready() { return 0; }

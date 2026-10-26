@@ -1,4 +1,3 @@
-PKG_NAME="mihowrt"
 PKG_VERSION="dev"
 SUPERVISOR_CMD="/usr/bin/mihowrt run-service"
 PKG_CONFIG="mihowrt"

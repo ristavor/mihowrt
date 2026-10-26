@@ -19,13 +19,6 @@ have_command() {
 	command -v "$1" >/dev/null 2>&1
 }
 
-trim() {
-	local value="$1"
-	value="${value#"${value%%[![:space:]]*}"}"
-	value="${value%"${value##*[![:space:]]}"}"
-	printf '%s' "$value"
-}
-
 ensure_dir() {
 	[ -d "$1" ] || mkdir -p "$1"
 }
@@ -49,17 +42,17 @@ single_line() {
 uci_get() {
 	local value=""
 
-	value="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.$1" 2>/dev/null)" || value=""
+	value="$(uci -q get "$PKG_CONFIG.settings.$1" 2>/dev/null)" || value=""
 	[ -n "$value" ] || value="${2:-}"
 	printf '%s' "$value"
 }
 
 uci_set() {
-	uci -q set "${PKG_CONFIG:-mihowrt}.settings.$1=$2"
+	uci -q set "$PKG_CONFIG.settings.$1=$2"
 }
 
 uci_commit() {
-	uci -q commit "${PKG_CONFIG:-mihowrt}"
+	uci -q commit "$PKG_CONFIG"
 }
 
 # fd 9 is reserved for the runtime lock; background/daemon children close it.

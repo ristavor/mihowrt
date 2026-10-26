@@ -114,11 +114,11 @@ settings_load() {
 	*) DNS_MODE="redir-host" ;;
 	esac
 	PROVIDER_KEYS="$(profile_entries set | cut -d' ' -f1 | tr '\n' ' ')"
-	PROVIDER_OVERRIDES="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.provider_override" 2>/dev/null)" || PROVIDER_OVERRIDES=""
+	PROVIDER_OVERRIDES="$(uci -q get "$PKG_CONFIG.settings.provider_override" 2>/dev/null)" || PROVIDER_OVERRIDES=""
 	DST_LIST_SOURCE="$(settings_list_source dst_list_source)"
 	DIRECT_LIST_SOURCE="$(settings_list_source direct_list_source)"
 
-	SOURCE_INTERFACES="$(uci -q get "${PKG_CONFIG:-mihowrt}.settings.source_network_interfaces" 2>/dev/null)" || SOURCE_INTERFACES=""
+	SOURCE_INTERFACES="$(uci -q get "$PKG_CONFIG.settings.source_network_interfaces" 2>/dev/null)" || SOURCE_INTERFACES=""
 	[ -n "$SOURCE_INTERFACES" ] || SOURCE_INTERFACES="$(lan_device_detect)"
 	for iface in $SOURCE_INTERFACES; do
 		is_valid_iface_name "$iface" || settings_invalid source_network_interfaces "$iface" || return 1

@@ -62,7 +62,7 @@ dns_cleanup
 assert_eq 2 "$(wc -l <"$restarts" | tr -d ' ')" "clean cleanup is a no-op"
 pass "cleanup removes file"
 
-assert_eq "9.9.9.9" "$(trim "$(dns_custom_servers)")" "custom dnsmasq servers reported"
+assert_eq "9.9.9.9" "$(dns_custom_servers | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')" "custom dnsmasq servers reported"
 pass "custom servers detected"
 
 fake_uci_set system.ntp.server 'good.ntp.org bad/host evil#x'

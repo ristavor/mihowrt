@@ -373,13 +373,16 @@ lists_install() {
 			return 1
 		}
 		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 "$kind" | tr '\n' ' ')"
+		set -f
 		for url in $(lists_clean_lines "$tmp" | sed -n '/^https\?:\/\//p'); do
 			is_http_url "${url%%;*}" && { [ "${url%%;*}" = "$url" ] || is_port_spec "${url#*;}"; } || bad="$bad$url "
 		done
 		[ -z "$bad" ] || {
 			err "Invalid $kind entries: $bad"
+			set +f
 			return 1
 		}
+		set +f
 	done
 	for kind in dst src direct direct_src; do
 		eval "tmp=\"\$LIST_TMP_$kind\""

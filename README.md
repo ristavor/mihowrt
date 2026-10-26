@@ -155,9 +155,6 @@ The mode follows the DNS settings of your YAML; there is no switch:
 
 In both modes Mihomo's own rules decide the outbound (proxy group or DIRECT).
 
-**Upgrade note (0.9.0):** subscriptions without a fake-IP whitelist now run in
-*All traffic via proxy* mode. The UCI option `policy_mode` is removed.
-
 ### Provider settings (`x-mihowrt`)
 
 A provider (or you, in the YAML) can set router options in a top-level

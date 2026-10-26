@@ -111,6 +111,115 @@ all|auth-empty-list|auth-empty|auth-null|auth-tilde|auth-quoted-empty|auth-quote
  done
  pass 'diagnostics authentication values and unique ports'
  ;;&
+all|listener-inherit-open|listener-inherit-auth|listener-empty-users|listener-users|listener-types|listener-scope|listener-indentless|listener-dedup)
+ check_listener_ports() {
+  printf '%b\n' "$2" >"$tmpdir/runtime.yaml"
+  assert_eq "$3" "$(diag | jq -c .open_proxy_ports)" "$1"
+ }
+ if [ "${1:-all}" = all ]; then
+  cases='listener-inherit-open listener-inherit-auth listener-empty-users listener-users listener-types listener-scope listener-indentless listener-dedup'
+ else
+  cases="$1"
+ fi
+ for scenario in $cases; do
+  case "$scenario" in
+  listener-inherit-open)
+   check_listener_ports 'listeners without users inherit absent authentication' 'listeners:
+  - name: socks-in
+    type: socks
+    port: 7900
+  - port: "07901" # quoted decimal
+    name: http-in
+    type: "http"' '[7900,7901]'
+   ;;
+  listener-inherit-auth)
+   check_listener_ports 'listeners without users inherit global authentication declared later' 'listeners:
+  - type: mixed
+    port: 7900
+authentication: ["u:p"]' '[]'
+   ;;
+  listener-empty-users)
+   check_listener_ports 'empty users overrides global authentication, including a shared top-level port' 'mixed-port: 7900
+listeners:
+  - type: mixed
+    port: 7900
+    users: [] # explicitly open
+  - type: http
+    port: 7901
+authentication: ["u:p"]' '[7900]'
+   ;;
+  listener-users)
+   check_listener_ports 'inline and block users protect listeners without global authentication' 'listeners:
+  - type: socks
+    port: 7900
+    users: [{username: u, password: p}]
+  - type: http
+    port: 7901
+    users:
+      - username: u
+        password: p' '[]'
+   ;;
+  listener-types)
+   check_listener_ports 'only socks, http and mixed listener types are reported' 'listeners:
+    - type: socks
+      port: 7900
+    - type: http
+      port: 7901
+    - type: mixed
+      port: 7902
+    - type: tproxy
+      port: 7903
+    - port: 7904' '[7900,7901,7902]'
+   ;;
+  listener-scope)
+   check_listener_ports 'nested list items and later sections do not become listener fields' 'listeners:
+  - type: socks
+    port: 7900
+    users:
+      - username: u
+        password: p
+        type: mixed
+        port: 7999
+  # comments and blank lines do not end listeners
+
+  - name: public
+    type: http
+    port: 7901
+proxy-providers:
+  nested:
+    listeners:
+      - type: mixed
+        port: 7998
+other-list:
+  - type: mixed
+    port: 7997' '[7901]'
+   ;;
+  listener-indentless)
+   check_listener_ports 'block listeners support unindented sequence items' 'listeners:
+- type: socks
+  port: 7900
+- type: mixed
+  port: 7901
+authentication: []' '[7900,7901]'
+   ;;
+  listener-dedup)
+   check_listener_ports 'listener ports are nonzero decimals deduplicated with top-level ports' 'mixed-port: 7890
+listeners:
+  - type: socks
+    port: "07890"
+  - type: http
+    port: 7900
+  - type: mixed
+    port: 7900
+  - type: mixed
+    port: 0
+  - type: http
+    port: invalid' '[7890,7900]'
+   ;;
+  esac
+ done
+ pass 'diagnostics listener authentication and unique ports'
+ ;;&
 all|wrapper)
  assert_eq diagnostics-json "$(MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" diagnostics-json)" 'read wrapper allows diagnostics'
  assert_false 'read wrapper rejects extra argument' env MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" diagnostics-json extra

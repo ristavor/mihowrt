@@ -235,6 +235,7 @@ lists_urls() {
 lists_cache_gc() {
 	local keys="" cache="" url=""
 
+	[ -r "$CLASH_CONFIG" ] && ! profile_ensure && return 0
 	keys="$(lists_urls | while IFS= read -r url; do lists_url_key "$url"; echo; done)"
 	for cache in "$POLICY_CACHE_DIR"/*.txt; do
 		[ -f "$cache" ] || continue

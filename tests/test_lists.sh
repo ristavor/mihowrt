@@ -211,6 +211,30 @@ assert_file_contains "$tmpdir/warnings" '(too_large)' 'too_large remote error'
 cmp -s "$cache" "$tmpdir/cache.before" || fail 'oversized remote keeps cache'
 pass 'remote size'
 
+# Without a readable profile, provider URLs are unknown: GC must fail open.
+(
+ setup_runtime_paths "$tmpdir/gc"
+ POLICY_CACHE_DIR="$tmpdir/gc/cache"
+ mkdir -p "$POLICY_CACHE_DIR"
+ printf 'proxies: []\n' >"$CLASH_CONFIG"
+ current="$(lists_cache_file https://provider.example/current)"
+ removed="$(lists_cache_file https://provider.example/removed)"
+ printf '1.1.1.1\n' >"$current"
+ printf '9.9.9.9\n' >"$removed"
+ cp "$current" "$tmpdir/gc/current.before"
+ cp "$removed" "$tmpdir/gc/removed.before"
+ profile_ensure() { return 1; }
+ lists_cache_gc
+ assert_true 'gc skipped without profile: current cache untouched' cmp -s "$current" "$tmpdir/gc/current.before"
+ assert_true 'gc skipped without profile: unused cache untouched' cmp -s "$removed" "$tmpdir/gc/removed.before"
+ load_modules mihomo-config.sh
+ printf 'has proxy-ips\nproxy-ip https://provider.example/current\n' >"$PROFILE_FILE"
+ lists_cache_gc
+ assert_true 'readable profile retains provider cache' cmp -s "$current" "$tmpdir/gc/current.before"
+ assert_false 'readable profile permits unused cache cleanup' test -e "$removed"
+)
+pass 'gc skipped without profile'
+
 printf 'https://current.example/a\n' >"$DST_LIST_FILE"
 current="$(lists_cache_file https://current.example/a)"
 removed="$(lists_cache_file https://removed.example/b)"

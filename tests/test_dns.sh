@@ -91,3 +91,138 @@ dns_apply() { return 0; }
 nft_apply() { return 1; }
 assert_false "net refresh reports nft failure" net_refresh
 pass "net refresh keeps nft"
+
+# A separate shell owns fd 6, so busy checks use a real competing flock.
+start_net_refresh_holder() {
+	ash -c '
+		exec 6>>"$1/net-refresh.flock"
+		flock -n 6 || exit 1
+		: >"$1/holder.ready"
+		exec sleep 300
+	' ash "$PKG_STATE_DIR" 6>&- 9>&- &
+	holder=$!
+	for i in {1..100}; do
+		[ ! -e "$PKG_STATE_DIR/holder.ready" ] || return 0
+		sleep 0.02
+	done
+	fail 'net-refresh holder did not become ready'
+}
+
+test_net_refresh_coalesced() (
+	local scenario="$1" calls=0 rc=0 holder="" injected=0 busy_pid="" i
+	PKG_STATE_DIR="$tmpdir/coalesced-$scenario"
+	RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock"
+	NET_REFRESH_DELAY=0
+	mkdir -p "$PKG_STATE_DIR"
+	trap 'if [ -n "$holder" ]; then kill "$holder" 2>/dev/null || true; wait "$holder" 2>/dev/null || true; fi' EXIT
+	declare -F net_refresh_coalesced >/dev/null || fail 'net_refresh_coalesced missing'
+	if [ "$scenario" = debounce ] || [ "$scenario" = default-delay ]; then
+		[ "$scenario" != default-delay ] || unset NET_REFRESH_DELAY
+		sleep() {
+			if [ "$scenario" = default-delay ]; then
+				assert_eq 2 "$1" 'default coalescing delay is two seconds'
+			else
+				assert_eq 0 "$1" 'environment overrides coalescing delay'
+			fi
+			: >"$PKG_STATE_DIR/net-refresh.pending"
+		}
+	fi
+	net_refresh() {
+		assert_eq 1 "$LOCK_DEPTH" 'refresh runs under runtime lock'
+		calls=$((calls + 1))
+		case "$scenario:$calls" in
+		pending:1 | last-success:1 | last-failure:1) : >"$PKG_STATE_DIR/net-refresh.pending" ;;
+		esac
+		case "$scenario:$calls" in
+		last-success:1 | last-failure:2 | retry-busy:1) return 7 ;;
+		esac
+		return 0
+	}
+	flock() {
+		command flock "$@" || return $?
+		# Inject exactly after the last pending check, at unlock.
+		if [ "$*" = '-u 6' ] && [ "$injected" = 0 ]; then
+			case "$scenario" in
+			unlock-window | retry-busy)
+				injected=1
+				: >"$PKG_STATE_DIR/net-refresh.pending"
+				[ "$scenario" != retry-busy ] || start_net_refresh_holder
+				;;
+			esac
+		fi
+	}
+	if [ "$scenario" = busy ]; then
+		start_net_refresh_holder
+		# A busy event must finish while the holder is still alive.
+		(
+			net_refresh_coalesced || exit 1
+			[ "$calls" = 0 ] || exit 1
+			[ ! -e /dev/fd/6 ] || exit 1
+			: >"$PKG_STATE_DIR/busy.done"
+		) &
+		busy_pid=$!
+		for i in {1..100}; do
+			[ ! -e "$PKG_STATE_DIR/busy.done" ] || break
+			sleep 0.02
+		done
+		if [ ! -e "$PKG_STATE_DIR/busy.done" ]; then
+			kill "$busy_pid" 2>/dev/null || true
+			wait "$busy_pid" 2>/dev/null || true
+			fail 'busy refresh must exit 0 without waiting or calling net_refresh'
+		fi
+		wait "$busy_pid"
+		assert_true 'busy event leaves pending' test -f "$PKG_STATE_DIR/net-refresh.pending"
+		return 0
+	fi
+	net_refresh_coalesced || rc=$?
+	assert_false 'coalescer closes fd 6' test -e /dev/fd/6
+	assert_false 'coalescer releases runtime lock' lock_busy
+	if [ "$scenario" = retry-busy ]; then
+		assert_eq 1 "$calls" 'retry-busy does not refresh under another owner'
+		assert_eq 7 "$rc" 'retry-busy preserves last refresh rc'
+		assert_true 'retry-busy leaves pending for new owner' test -f "$PKG_STATE_DIR/net-refresh.pending"
+		return 0
+	fi
+	assert_true 'coalescing lock released' bash -c 'exec 6>>"$1/net-refresh.flock"; flock -n 6' bash "$PKG_STATE_DIR"
+	assert_false 'no pending file after refresh' test -e "$PKG_STATE_DIR/net-refresh.pending"
+	case "$scenario" in
+	single | debounce | default-delay) assert_eq 1 "$calls" 'single event refreshes once' ;;
+	*) assert_eq 2 "$calls" 'pending event refreshes exactly twice' ;;
+	esac
+	if [ "$scenario" = last-failure ]; then
+		assert_eq 7 "$rc" 'last failed refresh rc returned'
+	else
+		assert_eq 0 "$rc" 'last successful refresh rc returned'
+	fi
+)
+
+coalesced_failures=0
+for scenario in single pending busy last-success last-failure unlock-window retry-busy debounce default-delay; do
+	if test_net_refresh_coalesced "$scenario"; then
+		pass "net_refresh_coalesced $scenario"
+	else
+		coalesced_failures=$((coalesced_failures + 1))
+	fi
+done
+
+# Execute the real init-call helper with both held locks, not the restart stub.
+sed "s|/etc/init.d/dnsmasq|$tmpdir/dnsmasq-init|g" "$MIHOWRT_LIB_DIR/dns.sh" >"$tmpdir/dns-init.sh"
+cat >"$tmpdir/dnsmasq-init" <<'INIT'
+#!/bin/sh
+[ ! -e /proc/$$/fd/6 ] && [ ! -e /proc/$$/fd/9 ]
+INIT
+chmod +x "$tmpdir/dnsmasq-init"
+if ash -c '
+	. "$1/dns-init.sh"
+	exec 6>>"$1/init-net.flock"
+	flock -n 6 || exit 1
+	exec 9>>"$1/init-runtime.flock"
+	flock -n 9 || exit 1
+	dns_restart_dnsmasq
+' ash "$tmpdir"; then
+	pass 'dnsmasq init closes fd 6 and fd 9'
+else
+	echo 'FAIL: dnsmasq init must not inherit fd 6 or fd 9' >&2
+	coalesced_failures=$((coalesced_failures + 1))
+fi
+assert_eq 0 "$coalesced_failures" 'coalescing regression failures'

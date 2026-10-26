@@ -112,7 +112,7 @@ apply-lists)
 	;;
 update-lists) lists_refresh ;;
 auto-update) auto_update ;;
-net-refresh) with_lock net_refresh ;;
+net-refresh) net_refresh_coalesced ;;
 core-update) core_update_cmd ;;
 core-version-json) core_version_json ;;
 diagnostics-json)

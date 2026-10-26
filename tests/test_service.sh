@@ -449,7 +449,7 @@ sed -e "s|/var/run/mihowrt|$tmpdir/hotplug|g" -e "s|/usr/bin/mihowrt|$tmpdir/cli
  "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/lib/constants.sh"
 sed -e "s|/usr/lib/mihowrt/constants.sh|$tmpdir/lib/constants.sh|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init-hotplug|g" \
  -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" "$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt" >"$tmpdir/hotplug.sh"
-printf '#!/bin/sh\n[ "$1" != start ] || touch "%s"\n' "$tmpdir/hotplug.started" >"$tmpdir/init-hotplug"
+printf '#!/bin/sh\n[ ! -e /proc/$$/fd/6 ] && [ ! -e /proc/$$/fd/9 ] || touch "%s"\n[ "$1" != start ] || touch "%s"\n' "$tmpdir/hotplug-init-lock-leaked" "$tmpdir/hotplug.started" >"$tmpdir/init-hotplug"
 chmod +x "$tmpdir/init-hotplug"
 printf '#!/bin/sh\nexit 1\n' >"$tmpdir/bin/pgrep"
 chmod +x "$tmpdir/bin/pgrep"
@@ -459,18 +459,28 @@ ACTION=ifup sh "$tmpdir/hotplug.sh"
 sleep 0.1
 assert_false "hotplug respects Stop" test -f "$tmpdir/hotplug.started"
 rm "$tmpdir/hotplug/stopped"
+exec 6>>"$tmpdir/hotplug-start-net.flock"
+exec 9>>"$tmpdir/hotplug-start-runtime.flock"
 ACTION=ifup sh "$tmpdir/hotplug.sh"
+exec 6>&-
+exec 9>&-
 for i in {1..50}; do [ ! -e "$tmpdir/hotplug.started" ] || break; sleep 0.02; done
 assert_true "hotplug starts when not stopped" test -f "$tmpdir/hotplug.started"
+assert_false 'hotplug init calls close fd 6 and fd 9' test -f "$tmpdir/hotplug-init-lock-leaked"
 pass "sticky Stop and hotplug"
 
-printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || exit 1\nprintf "%%s\\n" "$*" >"%s"\n' "$tmpdir/hotplug.calls" >"$tmpdir/cli"
+printf '#!/bin/sh\n[ ! -e /proc/$$/fd/6 ] && [ ! -e /proc/$$/fd/9 ] || exit 1\nprintf "%%s\\n" "$*" >"%s"\n' "$tmpdir/hotplug.calls" >"$tmpdir/cli"
 touch "$tmpdir/hotplug/running"
+INTERFACE=loopback ACTION=ifupdate sh "$tmpdir/hotplug.sh"
+sleep 0.1
+assert_false 'loopback ifupdate runs no command' test -e "$tmpdir/hotplug.calls"
+exec 6>>"$tmpdir/hotplug-net.flock"
 exec 9>>"$tmpdir/hotplug.flock"
-ACTION=ifupdate sh "$tmpdir/hotplug.sh"
+INTERFACE=wan ACTION=ifupdate sh "$tmpdir/hotplug.sh"
+exec 6>&-
 exec 9>&-
 for i in {1..50}; do [ ! -e "$tmpdir/hotplug.calls" ] || break; sleep 0.02; done
-assert_eq net-refresh "$(cat "$tmpdir/hotplug.calls")" 'ifupdate refreshes running service without inherited fd 9'
+assert_eq net-refresh "$(cat "$tmpdir/hotplug.calls")" 'wan ifupdate refreshes without inherited fd 6 or fd 9'
 assert_false 'old refresh command removed from runtime' grep -R -E 'dns[-_]refresh' "$ROOT_DIR/rootfs"
 pass 'hotplug'
 
@@ -506,6 +516,13 @@ pass 'hotplug'
   refresh_settings_load
  }
  sed '/^LIB=/,/mihowrt_load_modules.*exit 1/d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$tmpdir/refresh/cli.sh"
+ NET_REFRESH_DELAY=0
+ declare -F net_refresh_coalesced >/dev/null || fail 'CLI coalescer missing'
+ eval "$(declare -f net_refresh_coalesced | sed '1s/net_refresh_coalesced/refresh_coalesced_real/')"
+ net_refresh_coalesced() {
+  echo coalesced >>"$tmpdir/refresh/coalesced.calls"
+  refresh_coalesced_real
+ }
  refresh_cli() { ( set -- net-refresh; source "$tmpdir/refresh/cli.sh"; ); }
  refresh_cli
  refresh_cli
@@ -513,6 +530,7 @@ pass 'hotplug'
  assert_eq 1 "$(wc -l <"$tmpdir/refresh/restarts" | tr -d ' ')" 'unchanged refresh skips dnsmasq restart'
  printf '2001:db8:2::/64 dev br-guest\n' >>"$routes"
  refresh_cli
+ assert_eq 3 "$(wc -l <"$tmpdir/refresh/coalesced.calls" | tr -d ' ')" 'CLI dispatches through coalescer'
  assert_eq 2 "$(wc -l <"$tmpdir/refresh/nft.calls" | tr -d ' ')" 'new route calls nft -f once'
  assert_eq 1 "$(wc -l <"$tmpdir/refresh/restarts" | tr -d ' ')" 'new route does not restart dnsmasq'
 )

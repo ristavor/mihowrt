@@ -68,7 +68,7 @@ dns_render() {
 
 dns_restart_dnsmasq() {
 	[ -x /etc/init.d/dnsmasq ] || return 0
-	/etc/init.d/dnsmasq restart 9>&- >/dev/null 2>&1
+	/etc/init.d/dnsmasq restart 6>&- 9>&- >/dev/null 2>&1
 }
 
 dns_apply() {
@@ -123,6 +123,33 @@ net_refresh() {
 	# New prefixes must reach nft even when dnsmasq could not be updated.
 	nft_apply || rc=1
 	return "$rc"
+}
+
+# fd 6 coalesces interface bursts without holding the runtime lock while idle.
+net_refresh_coalesced() {
+	local pending="$PKG_STATE_DIR/net-refresh.pending" rc=0
+
+	NET_REFRESH_DELAY="${NET_REFRESH_DELAY:-2}"
+	ensure_dir "$PKG_STATE_DIR" || return 1
+	while :; do
+		exec 6>>"$PKG_STATE_DIR/net-refresh.flock"
+		if ! flock -n 6; then
+			: >"$pending"
+			exec 6>&-
+			return "$rc"
+		fi
+		sleep "$NET_REFRESH_DELAY"
+		while :; do
+			rm -f "$pending"
+			rc=0
+			with_lock net_refresh || rc=$?
+			[ -f "$pending" ] || break
+		done
+		flock -u 6
+		exec 6>&-
+		# A losing event can mark pending after the last check but before unlock.
+		[ -f "$pending" ] || return "$rc"
+	done
 }
 
 dns_custom_servers() {

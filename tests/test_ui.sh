@@ -817,6 +817,44 @@ seq(async () => {
  });
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// Task 11: Update now must not fall back to the saved link or clear it.
+seq(async () => {
+ const calls = [], notices = [];
+ function DOM(tag, attrs, children) {
+  const n = E(tag, attrs, children);
+  n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null;
+  n.hasAttribute = name => name in n.attrs;
+  return n;
+ }
+ const subscriptionApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', {
+  E: DOM, fs: {}, ui: { ...ui, addNotification: (title, node, level) => { notices.push({ node, level }); } }
+ }).module;
+ Object.assign(subscriptionApi, readStubs, {
+  write: async (...args) => { calls.push(['write', ...args]); return {}; },
+  job: async (...args) => { calls.push(['job', ...args]); return { action: 'unchanged' }; },
+  jobNotice: () => E('div'), reloadWithNotice() {}
+ });
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: DOM, ui, Blob, api: subscriptionApi, view: { extend: v => v }
+ }).module;
+ const message = 'Enter the subscription link, or press Save to stop using a subscription.';
+ for (const empty of ['', ' \t ']) {
+  const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: true });
+  collect(p).find(n => n.attrs.id === 'mw-url').value = empty;
+  calls.length = 0; notices.length = 0;
+  await findButton(p, 'Update now').listeners.click();
+  h.assertEq(calls.length, 0, 'empty link refused: no update-subscription or set-subscription');
+  h.assertEq(notices.length, 1, 'empty link refused: one notice');
+  h.assertEq(notices[0].level, 'error', 'empty link refused: error notice');
+  h.assertEq(texts(notices[0].node).join(''), message, 'empty link refused: explanation');
+  await findButton(p, 'Save').listeners.click();
+  h.assertEq(JSON.stringify(calls), JSON.stringify([['write', 'set-subscription', '', '1']]), 'Save still accepts an empty link');
+ }
+ const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
+ h.assert(catalog.includes('msgid "' + message + '"\nmsgstr "Введите ссылку на подписку или нажмите «Сохранить», чтобы отказаться от подписки."'), 'empty link refused: Russian translation');
+ console.log('ok - subscription empty link refused');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Plan task 12: the YAML editor loads on demand; the YAML passed to Mihomo is a second, read-only view.
 // The test E() supports appendChild, removeChild and textContent; views may also use replaceChildren.
 seq(async () => {

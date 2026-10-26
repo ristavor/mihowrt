@@ -253,6 +253,9 @@ msgstr "Сохранить"
 msgid "Update now"
 msgstr "Обновить сейчас"
 
+msgid "Enter the subscription link, or press Save to stop using a subscription."
+msgstr "Введите ссылку на подписку или нажмите «Сохранить», чтобы отказаться от подписки."
+
 msgid "Check and apply"
 msgstr "Проверить и применить"
 

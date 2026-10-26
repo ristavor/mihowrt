@@ -47,9 +47,11 @@ return view.extend({
 			api.notify(_('Subscription settings saved.'));
 		}));
 		update.addEventListener('click', () => api.busy(update, async () => {
+			const link = url.value.trim();
+			if (!link)
+				throw new Error(_('Enter the subscription link, or press Save to stop using a subscription.'));
 			if (yaml && yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
 				return;
-			const link = url.value.trim();
 			const changed = link !== (sub.url || '');
 			let res;
 			if (!changed)

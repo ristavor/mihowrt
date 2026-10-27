@@ -20,11 +20,11 @@ pass "can_prompt without tty"
 set +u
 source_install_lib
 set -u
-package_installed_orig="$(declare -f package_installed)"
+pkg_installed_orig="$(declare -f pkg_installed)"
 can_prompt() { return 1; }
 
 installed=""
-package_installed() { [[ " $installed " == *" $1 "* ]]; }
+pkg_installed() { [[ " $installed " == *" $1 "* ]]; }
 
 assert_eq install "$(MIHOWRT_ACTION=update resolve_action)" "update is install"
 assert_eq remove "$(MIHOWRT_ACTION=uninstall resolve_action)" "uninstall is remove"
@@ -59,6 +59,9 @@ mkdir -p "$tmpdir/bin"
 printf '#!/bin/sh\necho "apk $*" >>"%s"\n' "$calls" >"$tmpdir/bin/apk"
 chmod +x "$tmpdir/bin/apk"
 PATH="$tmpdir/bin:$PATH"
+FW4_BIN="$tmpdir/fw4"
+touch "$FW4_BIN"
+chmod +x "$FW4_BIN"
 installed="luci-app-mihowrt luci-i18n-mihowrt-ru"
 (MIHOWRT_ACTION=remove main) >/dev/null
 assert_eq $'apk del luci-i18n-mihowrt-ru\napk del luci-app-mihowrt' "$(cat "$calls")" "translation removed before the app"
@@ -122,9 +125,9 @@ $BASE/luci-i18n-mihowrt-ru.apk" "$(cat "$tmpdir/downloads")" "only fixed release
 if grep -q 'api.github.com\|-r1.apk' "$tmpdir/downloads"; then fail "no API or -r1 URLs"; fi
 pass "urls"
 
-# Dependency probes use apk; update/add only when a dependency is absent.
+# Dependency probes use the manager; update/add only when a dependency is absent.
 (
- eval "$package_installed_orig"
+ eval "$pkg_installed_orig"
  apk() {
   echo "apk $*" >>"$apk_log"
   if [ "$1" = info ]; then [[ " $present_deps " == *" $3 "* ]]; fi
@@ -249,13 +252,13 @@ pass "core error shown"
  printf '#!/bin/sh\necho "$*" >>"%s"\n' "$tmpdir/init.calls" >"$tmpdir/init-mihowrt"
  chmod +x "$tmpdir/init-mihowrt"
  resolve_language() { echo en; }
- package_installed() { [ "$1" = "$PKG" ] && [ "$fresh_case" = 0 ]; }
- apk() { [ "$*" = "info -v $PKG" ] && cat "$tmpdir/installed.version"; }
- install_packages() { echo "$PKG-$next_version" >"$tmpdir/installed.version"; }
+ pkg_installed() { [ "$1" = "$PKG" ] && [ "$fresh_case" = 0 ]; }
+ pkg_version() { cat "$tmpdir/installed.version"; }
+ install_packages() { echo "$next_version" >"$tmpdir/installed.version"; }
  for fresh_case in 1 0; do
   for old_version in 0.9.0-r1 0.10.0-r1; do
    next_version=0.10.0-r1
-   echo "$PKG-$old_version" >"$tmpdir/installed.version"
+   echo "$old_version" >"$tmpdir/installed.version"
    : >"$tmpdir/init.calls"
    out="$(do_install)"
    if [ "$fresh_case" = 1 ]; then
@@ -273,3 +276,152 @@ pass "core error shown"
  done
 )
 pass "install preserves autostart and reports version changes"
+
+# opkg (OpenWrt 24.10): .ipk assets from the same SHA256SUMS, opkg commands,
+# both file name formats in release_version.
+mkdir -p "$tmpdir/obin"
+printf '#!/bin/sh\necho "opkg $*" >>"%s"\n' "$tmpdir/opkg.log" >"$tmpdir/obin/opkg"
+chmod +x "$tmpdir/obin/opkg"
+# The test image is Alpine and ships apk: an opkg-only PATH carries just the tools used.
+for tool in awk grep cat rm mkdir sha256sum cut sed tr wc head df; do
+ ln -s "$(command -v "$tool")" "$tmpdir/obin/$tool"
+done
+(
+ set +u
+ source_install_lib
+ set -u
+ check_space() { :; }
+ # shellcheck disable=SC2030,SC2031
+ export PATH="$tmpdir/obin"
+ opkg_log="$tmpdir/opkg.log"
+ select_manager
+ assert_eq opkg "$MANAGER" "opkg selected without apk"
+ assert_eq ipk "$EXT" "opkg uses ipk assets"
+ curl() {
+  local out="" prev="" a url=""
+  for a in "$@"; do
+   [ "$prev" = "-o" ] && out="$a"
+   prev="$a"
+   url="$a"
+  done
+  echo "$url" >>"$tmpdir/downloads"
+  app="$(printf 'app-ipk' | sha256sum | cut -d' ' -f1)"
+  ru="$(printf 'ru-ipk' | sha256sum | cut -d' ' -f1)"
+  case "$url" in
+  */SHA256SUMS) printf '%s  luci-app-mihowrt_0.11.0-r2_all.ipk\n%s  luci-app-mihowrt.ipk\n%s  luci-i18n-mihowrt-ru_0.11.0-r2_all.ipk\n%s  luci-i18n-mihowrt-ru.ipk\n' "$app" "$app" "$ru" "$ru" >"$out" ;;
+  */luci-app-mihowrt.ipk) printf 'app-ipk' >"$out" ;;
+  */luci-i18n-mihowrt-ru.ipk) printf 'ru-ipk' >"$out" ;;
+  *) return 22 ;;
+  esac
+ }
+ new_work() { rm -f "$tmpdir/downloads" "$opkg_log"; WORK="$tmpdir/owork.$RANDOM"; mkdir -p "$WORK"; }
+
+ # All dependencies present: no update, no feed install.
+ pkg_installed_names() { printf '%s\n' luci-base nftables-json jq kmod-nft-tproxy curl; }
+ new_work
+ out="$(install_packages ru 2>&1)" || fail "opkg install must succeed: $out"
+ [[ "$out" == *"Installing 0.11.0-r2..."* ]] || fail "ipk version from SHA256SUMS: $out"
+ assert_eq "opkg install $WORK/luci-app-mihowrt.ipk
+opkg install $WORK/luci-i18n-mihowrt-ru.ipk" "$(cat "$opkg_log")" "present dependencies: only the two ipk files install"
+ assert_eq "$BASE/SHA256SUMS
+$BASE/luci-app-mihowrt.ipk
+$BASE/luci-i18n-mihowrt-ru.ipk" "$(cat "$tmpdir/downloads")" "ipk assets from the same release"
+
+ # nftables-nojson also satisfies nftables; missing deps are updated and installed once.
+ pkg_installed_names() { printf '%s\n' luci-base nftables-nojson kmod-nft-tproxy; }
+ new_work
+ install_packages en >/dev/null 2>&1 || fail "opkg install with missing deps must succeed"
+ assert_eq "opkg update
+opkg install jq curl
+opkg install $WORK/luci-app-mihowrt.ipk" "$(cat "$opkg_log")" "only missing deps installed through opkg"
+ pkg_installed_names() { printf '%s\n' luci-base kmod-nft-tproxy jq curl; }
+ new_work
+ install_packages en >/dev/null 2>&1 || fail "opkg install without nftables must succeed"
+ assert_file_contains "$opkg_log" "opkg install nftables" "nftables installed when no variant is present"
+
+ # Switching to English removes the Russian package with opkg.
+ pkg_installed_names() { printf '%s\n' luci-base nftables-json jq kmod-nft-tproxy curl luci-i18n-mihowrt-ru; }
+ new_work
+ install_packages en >/dev/null 2>&1 || fail "opkg english reinstall must succeed"
+ assert_file_contains "$opkg_log" "opkg remove luci-i18n-mihowrt-ru" "Russian package removed for English"
+
+ # Version by hash also reads the apk name format when the manager is apk.
+ EXT=apk
+ curl() {
+  local out="" prev="" a url=""
+  for a in "$@"; do [ "$prev" = "-o" ] && out="$a"; prev="$a"; url="$a"; done
+  app="$(printf 'app-bytes' | sha256sum | cut -d' ' -f1)"
+  case "$url" in
+  */SHA256SUMS) printf '%s  luci-app-mihowrt-0.12.0-r3.apk\n%s  luci-app-mihowrt.apk\n' "$app" "$app" >"$out" ;;
+  esac
+ }
+ new_work
+ curl -o "$WORK/SHA256SUMS" "$BASE/SHA256SUMS"
+ assert_eq 0.12.0-r3 "$(release_version)" "apk name format"
+ EXT=ipk
+ printf '%s  luci-app-mihowrt_0.12.0-r3_all.ipk\n%s  luci-app-mihowrt.ipk\n' "$app" "$app" >"$WORK/SHA256SUMS"
+ assert_eq 0.12.0-r3 "$(release_version)" "ipk name format"
+ printf '%s  luci-app-mihowrt-0.12.0-r3.apk\n%s  luci-app-mihowrt.ipk\n' "$app" "$app" >"$WORK/SHA256SUMS"
+ assert_eq "" "$(release_version)" "an apk line is not an ipk version"
+)
+pass "opkg install"
+
+# opkg remove removes the translation before the app.
+(
+ set +u
+ source_install_lib
+ set -u
+ # shellcheck disable=SC2030,SC2031
+ export PATH="$tmpdir/obin"
+ select_manager
+ : >"$tmpdir/opkg.log"
+ pkg_installed_names() { printf '%s\n' luci-app-mihowrt luci-i18n-mihowrt-ru; }
+ (do_remove) >/dev/null
+ assert_eq "opkg remove luci-i18n-mihowrt-ru
+opkg remove luci-app-mihowrt" "$(cat "$tmpdir/opkg.log")" "opkg removes translation, then app"
+ : >"$tmpdir/opkg.log"
+ pkg_installed_names() { :; }
+ out="$(do_remove)"
+ [[ "$out" == *"MihoWRT is not installed."* ]] || fail "opkg absent removal: $out"
+ [[ ! -s "$tmpdir/opkg.log" ]] || fail "opkg absent removal must not call opkg"
+)
+pass "opkg remove"
+
+# Platform gate: fw4 everywhere; opkg needs OpenWrt 24.10 or newer.
+(
+ FW4_BIN="$tmpdir/no-such-fw4"
+ MANAGER=apk
+ out="$( (check_platform) 2>&1)" && fail "missing fw4 must abort"
+ [[ "$out" == *"firewall4"* ]] || fail "fw4 message: $out"
+ FW4_BIN="$tmpdir/fw4"
+ check_platform || fail "apk with fw4 must pass without a release file"
+ MANAGER=opkg
+ OPENWRT_RELEASE_FILE="$tmpdir/openwrt_release"
+ gate() { printf "DISTRIB_ID='OpenWrt'\nDISTRIB_RELEASE='%s'\n" "$1" >"$OPENWRT_RELEASE_FILE"; (check_platform) 2>&1; }
+ for ok_release in 24.10.0 24.10.8 24.10.0-rc1 24.10-SNAPSHOT 25.12.6 25.12.0-rc2 100.1.0; do
+  gate "$ok_release" >/dev/null || fail "release $ok_release must be accepted"
+ done
+ for old_release in 23.05.5 24.9.9 24.09.1 22.03.7 21.02.0; do
+  out="$(gate "$old_release")" && fail "release $old_release must be refused"
+  [[ "$out" == *"needs 24.10 or newer"* ]] || fail "old release message for $old_release: $out"
+ done
+ for odd_release in SNAPSHOT '' 24 24. .10 x.y; do
+  out="$(gate "$odd_release")" && fail "release '$odd_release' must be refused"
+  [[ "$out" == *"unrecognized OpenWrt release"* ]] || fail "odd release message for '$odd_release': $out"
+ done
+ rm -f "$OPENWRT_RELEASE_FILE"
+ out="$( (check_platform) 2>&1)" && fail "missing release file must abort on opkg"
+ [[ "$out" == *"unrecognized OpenWrt release 'unknown'"* ]] || fail "missing release file message: $out"
+ FW4_BIN="$tmpdir/no-such-fw4"
+ out="$( (check_platform) 2>&1)" && fail "opkg without fw4 must abort"
+ [[ "$out" == *"firewall4"* ]] || fail "opkg fw4 message: $out"
+)
+pass "platform gate"
+
+# No package manager at all: clear message, nothing touched.
+(
+ pkg_manager() { return 1; }
+ out="$( (select_manager) 2>&1)" && fail "no manager must abort"
+ [[ "$out" == *"no supported package manager (apk or opkg)"* ]] || fail "no manager message: $out"
+)
+pass "no package manager"

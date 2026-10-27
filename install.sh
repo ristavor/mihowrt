@@ -1,6 +1,7 @@
 #!/bin/sh
 # MihoWRT installer: installs or updates the LuCI package (and the optional
-# Russian translation), then lets /usr/bin/mihowrt install the Mihomo core.
+# Russian translation) with apk (OpenWrt 25.12+) or opkg (24.10), then lets
+# /usr/bin/mihowrt install the Mihomo core.
 # Non-interactive: MIHOWRT_ACTION=install|remove MIHOWRT_LANGUAGE=en|ru
 set -eu
 
@@ -11,7 +12,11 @@ I18N_PKG="luci-i18n-mihowrt-ru"
 DEPS="luci-base nftables jq kmod-nft-tproxy curl"
 CORE="/opt/clash/bin/clash"
 MIHOWRT_BIN="/usr/bin/mihowrt"
+OPENWRT_RELEASE_FILE="/etc/openwrt_release"
+FW4_BIN="/sbin/fw4"
 WORK=""
+MANAGER="apk"
+EXT="apk"
 
 log() { printf '%s\n' "$*"; }
 err() { printf 'Error: %s\n' "$*" >&2; }
@@ -44,8 +49,124 @@ ask() {
 	done
 }
 
-package_installed() {
-	apk info -e "$1" >/dev/null 2>&1
+# Verbatim copy of rootfs/usr/lib/mihowrt/pkg.sh (tests/test_pkg.sh checks parity).
+pkg_manager() {
+	if command -v apk >/dev/null 2>&1; then
+		echo apk
+	elif command -v opkg >/dev/null 2>&1; then
+		echo opkg
+	else
+		return 1
+	fi
+}
+
+# Read names directly: no package-manager process or per-package queries.
+pkg_installed_names() {
+	if [ -f /lib/apk/db/installed ]; then
+		awk '/^P:/ { print substr($0, 3) }' /lib/apk/db/installed
+	elif [ -f /usr/lib/opkg/status ]; then
+		# opkg keeps records like "Status: deinstall ok not-installed"; list only installed ones.
+		awk '/^Package: / { name = substr($0, 10) } /^Status: .* installed$/ { print name }' /usr/lib/opkg/status
+	fi
+}
+
+# pkg_installed <name>: apk also resolves virtual names; opkg lists real packages only.
+pkg_installed() {
+	case "$(pkg_manager)" in
+	apk) apk info -e "$1" >/dev/null 2>&1 ;;
+	opkg) pkg_installed_names | grep -qxF "$1" ;;
+	*) return 1 ;;
+	esac
+}
+
+# pkg_version <name>: installed "<version>-<release>", empty when not installed.
+pkg_version() {
+	local version=""
+
+	case "$(pkg_manager)" in
+	apk)
+		version="$(apk info -v "$1" 2>/dev/null)" || version=""
+		[ -z "$version" ] || echo "${version#"$1"-}"
+		;;
+	opkg)
+		[ -f /usr/lib/opkg/status ] || return 0
+		awk -v n="$1" '/^Package: / { name = substr($0, 10) } /^Version: / { ver = substr($0, 10) } name == n && /^Status: .* installed$/ { print ver; exit }' /usr/lib/opkg/status
+		;;
+	esac
+}
+
+# pkg_install_file <path>: a downloaded package file (apk needs --allow-untrusted).
+pkg_install_file() {
+	case "$(pkg_manager)" in
+	apk) apk add --allow-untrusted "$1" ;;
+	opkg) opkg install "$1" ;;
+	*) return 1 ;;
+	esac
+}
+
+# pkg_install <name>...: packages from the configured feeds.
+pkg_install() {
+	case "$(pkg_manager)" in
+	apk) apk add "$@" ;;
+	opkg) opkg install "$@" ;;
+	*) return 1 ;;
+	esac
+}
+
+pkg_remove() {
+	case "$(pkg_manager)" in
+	apk) apk del "$@" ;;
+	opkg) opkg remove "$@" ;;
+	*) return 1 ;;
+	esac
+}
+
+pkg_update() {
+	case "$(pkg_manager)" in
+	apk) apk update ;;
+	opkg) opkg update ;;
+	*) return 1 ;;
+	esac
+}
+
+# dep_installed <name>: opkg lists real names only, so nftables is satisfied by
+# either variant; apk resolves the virtual name itself.
+dep_installed() {
+	case "$1" in
+	nftables) pkg_installed nftables || pkg_installed nftables-json || pkg_installed nftables-nojson ;;
+	*) pkg_installed "$1" ;;
+	esac
+}
+
+# select_manager: apk -> .apk assets, opkg -> .ipk assets.
+select_manager() {
+	MANAGER="$(pkg_manager)" || die "no supported package manager (apk or opkg) found"
+	case "$MANAGER" in
+	apk) EXT=apk ;;
+	opkg) EXT=ipk ;;
+	esac
+}
+
+# check_platform: fw4/nftables is required; opkg systems must be 24.10 or newer
+# (apk implies 25.12+).
+check_platform() {
+	local release="" major="" minor="" valid=0
+
+	[ -x "$FW4_BIN" ] || die "this installer needs OpenWrt 24.10 or newer with firewall4 (fw4 and nftables)"
+	[ "$MANAGER" = opkg ] || return 0
+	release="$(awk -F"'" '$1 == "DISTRIB_RELEASE=" { print $2; exit }' "$OPENWRT_RELEASE_FILE" 2>/dev/null)"
+	major="${release%%.*}"
+	minor="${release#*.}"
+	minor="${minor%%[!0-9]*}"
+	case "$release" in
+	*.*) [ -n "$major" ] && [ -n "$minor" ] && valid=1 ;;
+	esac
+	case "$major$minor" in
+	*[!0-9]*) valid=0 ;;
+	esac
+	[ "$valid" = 1 ] || die "unrecognized OpenWrt release '${release:-unknown}': this installer needs 24.10 or newer"
+	[ "$major" -gt 24 ] || { [ "$major" -eq 24 ] && [ "$minor" -ge 10 ]; } ||
+		die "OpenWrt $release is not supported: this installer needs 24.10 or newer"
 }
 
 resolve_action() {
@@ -69,8 +190,8 @@ resolve_language() {
 	'') ;;
 	*) die "invalid MIHOWRT_LANGUAGE: $MIHOWRT_LANGUAGE" ;;
 	esac
-	if package_installed "$PKG"; then
-		package_installed "$I18N_PKG" && echo ru || echo en
+	if pkg_installed "$PKG"; then
+		pkg_installed "$I18N_PKG" && echo ru || echo en
 	elif can_prompt; then
 		[ "$(ask "Choose language / Выберите язык" "English" "Русский")" = 2 ] && echo ru || echo en
 	else
@@ -116,39 +237,42 @@ verify_asset() {
 	[ "$got" = "$want" ] || die "sha256 mismatch for $1"
 }
 
-# release_version: <version>-<release> from the versioned app APK line of
-# SHA256SUMS whose hash equals the hash of the fixed-name app APK.
+# release_version: <version>-<release> from the versioned app package line of
+# SHA256SUMS whose hash equals the hash of the fixed-name app package
+# (luci-app-mihowrt-<ver>.apk or luci-app-mihowrt_<ver>_all.ipk).
 release_version() {
 	local hash="" name=""
 
-	hash="$(awk -v n="$PKG.apk" '{ f = $2; sub(/^\*/, "", f) } f == n { print $1; exit }' "$WORK/SHA256SUMS")"
+	hash="$(awk -v n="$PKG.$EXT" '{ f = $2; sub(/^\*/, "", f) } f == n { print $1; exit }' "$WORK/SHA256SUMS")"
 	[ -n "$hash" ] || return 0
-	name="$(awk -v p="$PKG-" -v h="$hash" '{ f = $2; sub(/^\*/, "", f) } $1 == h && index(f, p) == 1 && f ~ /\.apk$/ { print f; exit }' "$WORK/SHA256SUMS")"
-	name="${name#"$PKG"-}"
-	echo "${name%.apk}"
+	name="$(awk -v p="$PKG" -v fixed="$PKG.$EXT" -v e=".$EXT" -v h="$hash" '{ f = $2; sub(/^\*/, "", f) } $1 == h && f != fixed && index(f, p) == 1 && substr(f, length(f) - length(e) + 1) == e { print f; exit }' "$WORK/SHA256SUMS")"
+	name="${name#"$PKG"}"
+	name="${name#[-_]}"
+	name="${name%.apk}"
+	echo "${name%_all.ipk}"
 }
 
 install_packages() {
 	local lang="$1" version="" with_ru=0 dep="" missing=""
 
 	for dep in $DEPS; do
-		package_installed "$dep" || missing="${missing:+$missing }$dep"
+		dep_installed "$dep" || missing="${missing:+$missing }$dep"
 	done
 	if [ -n "$missing" ]; then
 		log "Installing dependencies..."
-		apk update >/dev/null || die "apk update failed"
+		pkg_update >/dev/null || die "$MANAGER update failed"
 		# shellcheck disable=SC2086
-		apk add $missing >/dev/null || die "cannot install dependencies: $missing"
+		pkg_install $missing >/dev/null || die "cannot install dependencies: $missing"
 	fi
 	check_space
 
 	log "Downloading the latest MihoWRT release..."
 	download_file SHA256SUMS "$WORK/SHA256SUMS" || die "cannot download the release checksums"
-	download_file "$PKG.apk" "$WORK/$PKG.apk" || die "cannot download $PKG.apk"
-	verify_asset "$PKG.apk" "$WORK/$PKG.apk"
+	download_file "$PKG.$EXT" "$WORK/$PKG.$EXT" || die "cannot download $PKG.$EXT"
+	verify_asset "$PKG.$EXT" "$WORK/$PKG.$EXT"
 	if [ "$lang" = ru ]; then
-		if download_file "$I18N_PKG.apk" "$WORK/$I18N_PKG.apk"; then
-			verify_asset "$I18N_PKG.apk" "$WORK/$I18N_PKG.apk"
+		if download_file "$I18N_PKG.$EXT" "$WORK/$I18N_PKG.$EXT"; then
+			verify_asset "$I18N_PKG.$EXT" "$WORK/$I18N_PKG.$EXT"
 			with_ru=1
 		else
 			warn "release has no Russian translation package"
@@ -157,11 +281,11 @@ install_packages() {
 
 	version="$(release_version)"
 	log "Installing ${version:-the latest release}..."
-	apk add --allow-untrusted "$WORK/$PKG.apk" >/dev/null || die "package installation failed"
+	pkg_install_file "$WORK/$PKG.$EXT" >/dev/null || die "package installation failed"
 	if [ "$with_ru" = 1 ]; then
-		apk add --allow-untrusted "$WORK/$I18N_PKG.apk" >/dev/null || err "Russian translation failed to install"
-	elif [ "$lang" != ru ] && package_installed "$I18N_PKG"; then
-		apk del "$I18N_PKG" >/dev/null || true
+		pkg_install_file "$WORK/$I18N_PKG.$EXT" >/dev/null || err "Russian translation failed to install"
+	elif [ "$lang" != ru ] && pkg_installed "$I18N_PKG"; then
+		pkg_remove "$I18N_PKG" >/dev/null || true
 	fi
 }
 
@@ -169,9 +293,9 @@ do_install() {
 	local lang="" fresh=1 result="" reason="" before="" after=""
 
 	lang="$(resolve_language)"
-	if package_installed "$PKG"; then
+	if pkg_installed "$PKG"; then
 		fresh=0
-		before="$(apk info -v "$PKG" 2>/dev/null)" || before=""
+		before="$(pkg_version "$PKG")"
 	fi
 	WORK="$(mktemp -d /tmp/mihowrt-install.XXXXXX)" || die "cannot create a temporary directory"
 	install_packages "$lang"
@@ -189,7 +313,7 @@ do_install() {
 		/etc/init.d/mihowrt enable
 		log "MihoWRT is installed. Open LuCI → Services → MihoWRT and connect your subscription."
 	else
-		after="$(apk info -v "$PKG" 2>/dev/null)" || after=""
+		after="$(pkg_version "$PKG")"
 		if [ -n "$before" ] && [ -n "$after" ] && [ "$before" != "$after" ]; then
 			log "MihoWRT is updated."
 		else
@@ -202,12 +326,12 @@ do_remove() {
 	local removed=0
 
 	log "Removing MihoWRT..."
-	if package_installed "$I18N_PKG"; then
-		apk del "$I18N_PKG" >/dev/null
+	if pkg_installed "$I18N_PKG"; then
+		pkg_remove "$I18N_PKG" >/dev/null
 		removed=1
 	fi
-	if package_installed "$PKG"; then
-		apk del "$PKG" >/dev/null
+	if pkg_installed "$PKG"; then
+		pkg_remove "$PKG" >/dev/null
 		removed=1
 	fi
 	if [ "$removed" = 1 ]; then
@@ -218,7 +342,8 @@ do_remove() {
 }
 
 main() {
-	command -v apk >/dev/null 2>&1 || die "this installer needs OpenWrt 25.12 or newer (apk)"
+	select_manager
+	check_platform
 	trap cleanup EXIT
 	case "$(resolve_action)" in
 	install) do_install ;;

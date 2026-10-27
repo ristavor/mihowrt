@@ -252,7 +252,7 @@ function groupsSection(groups) {
 			// empty ping only keeps the Test buttons in one column.
 			const status = E('span', { id: id + '-ping', class: fixedOnly ? null : 'mw-muted mw-ping' }, text(pingText(group)));
 			const ping = fixedOnly ? E('span', { class: 'mw-muted mw-ping' }) : status;
-			let debounce = null, writing = false;
+			let debounce = null, writing = false, inFlightValue = null;
 			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null, 'aria-describedby': id + '-ping' });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
@@ -278,6 +278,7 @@ function groupsSection(groups) {
 				if (value === previous)
 					return;
 				writing = true;
+				inFlightValue = value;
 				select.setAttribute('aria-busy', 'true');
 				const ok = await api.busy(null, async () => {
 					await api.write('select-proxy', group.name, value);
@@ -307,7 +308,7 @@ function groupsSection(groups) {
 			select.addEventListener('change', () => {
 				// Themes with custom dropdowns (footstrap) may repeat "change".
 				clearTimeout(debounce);
-				debounce = select.value === previous ? null : setTimeout(commit, 600);
+				debounce = select.value === (writing ? inFlightValue : previous) ? null : setTimeout(commit, 600);
 			});
 			test.addEventListener('click', async () => {
 				const before = status.textContent;

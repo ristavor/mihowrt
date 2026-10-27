@@ -665,6 +665,32 @@ seq(async () => {
  console.log('ok - overview select debounce and guard');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// C14: returning to the last committed choice must undo an in-flight switch.
+seq(async () => {
+ const clock = fakeTimers(), writes = []; let release, stored = 'B';
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, view: { extend: v => v }, poll: { add() {} }, ...clock.globals, api: { ...api,
+   busy: (el, fn) => fn(),
+   write: (...args) => {
+    writes.push(args);
+    return new Promise(resolve => { release = () => { stored = args[2]; resolve({}); }; });
+   }
+  } }).module;
+ const p = ov.render([{ ...base, subscription_configured: true, running: true }, {}, [{ name: 'G', type: 'Selector', now: 'B', all: ['A', 'B'] }]]);
+ const select = collect(p).find(n => n.tag === 'select');
+ select.value = 'A'; select.listeners.change(); clock.flush(); await settle();
+ h.assertEq(writes.map(w => w[2]).join(','), 'A', 'first switch is in flight');
+ select.value = 'B'; select.listeners.change();
+ release(); await settle();
+ h.assertEq(select.value, 'B', 'return to committed choice survives in-flight write');
+ clock.flush(); await settle();
+ h.assertEq(writes.map(w => w[2]).join(','), 'A,B', 'return to committed choice written after first switch');
+ release(); await settle();
+ h.assertEq(select.value, 'B', 'final UI is the latest choice');
+ h.assertEq(stored, 'B', 'final stored proxy is the latest choice');
+ console.log('ok - overview return to previous proxy during write');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 17: long actions, service state polling and partial group failures.
 seq(async () => {
  const calls = [], polls = [];

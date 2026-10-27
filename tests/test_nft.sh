@@ -25,6 +25,31 @@ pass 'runtime paths provide host-independent IPv6 state'
 )
 pass 'nft active check omits set elements'
 
+(
+ content='first transaction'
+ nft_render() { printf '%s\n' "$content" >"$1"; }
+ nft_active() { return 0; }
+ nft() { printf '%s\n' "$*" >>"$tmpdir/hash.calls"; }
+ expected_hash() { printf '%s\n' "$content" | busybox sha256sum | cut -d ' ' -f1; }
+ nft_apply
+ assert_eq "$(expected_hash)" "$(cat "$NFT_APPLIED_FILE")" 'applied cache stores only SHA-256'
+ printf stale >"$NET_FP_FILE"
+ nft_apply
+ assert_eq 1 "$(wc -l <"$tmpdir/hash.calls" | tr -d ' ')" 'identical hash skips apply'
+ assert_false 'hash skip invalidates network fingerprint' test -e "$NET_FP_FILE"
+ content='changed transaction'
+ nft_apply
+ assert_eq 2 "$(wc -l <"$tmpdir/hash.calls" | tr -d ' ')" 'changed hash applies'
+ assert_eq "$(expected_hash)" "$(cat "$NFT_APPLIED_FILE")" 'changed hash replaces cache'
+ printf '%s\n' "$content" >"$NFT_APPLIED_FILE"
+ nft_apply
+ assert_eq 3 "$(wc -l <"$tmpdir/hash.calls" | tr -d ' ')" 'legacy text cache applies once'
+ assert_eq "$(expected_hash)" "$(cat "$NFT_APPLIED_FILE")" 'legacy text cache upgraded to hash'
+ nft_apply
+ assert_eq 3 "$(wc -l <"$tmpdir/hash.calls" | tr -d ' ')" 'upgraded cache skips identical apply'
+)
+pass 'applied ruleset hash skips identical and upgrades legacy cache'
+
 # Plain entries predicate must not treat scoped addresses as set members.
 (
  file="$tmpdir/plain.txt"
@@ -453,18 +478,21 @@ pass 'empty MAC lists emit no ether saddr rules'
 
 # Enabling/disabling the boundary uses the same single atomic replacement.
 (
- nft() { printf '%s\n' "$*" >>"$tmpdir/boundary-apply.calls"; }
+ nft() {
+  printf '%s\n' "$*" >>"$tmpdir/boundary-apply.calls"
+  cp "$2" "$tmpdir/boundary-transaction.nft"
+ }
  nft_active() { return 0; }
  rm -f "$NFT_APPLIED_FILE"
  : >"$tmpdir/boundary-apply.calls"
  POLICY_MODE=direct-first
  for BLOCK_CLIENT_IPV6 in 0 1 0; do
   nft_apply
-  assert_eq $'add table inet mihowrt\ndelete table inet mihowrt\nadd table inet mihowrt' "$(head -n3 "$NFT_APPLIED_FILE")" 'toggle stays atomic'
+  assert_eq $'add table inet mihowrt\ndelete table inet mihowrt\nadd table inet mihowrt' "$(head -n3 "$tmpdir/boundary-transaction.nft")" 'toggle stays atomic'
   if [ "$BLOCK_CLIENT_IPV6" = 1 ]; then
-   assert_file_contains "$NFT_APPLIED_FILE" client_ipv6_egress 'enabled transaction includes boundary'
+   assert_file_contains "$tmpdir/boundary-transaction.nft" client_ipv6_egress 'enabled transaction includes boundary'
   else
-   assert_file_not_contains "$NFT_APPLIED_FILE" client_ipv6_egress 'disabled transaction removes boundary'
+   assert_file_not_contains "$tmpdir/boundary-transaction.nft" client_ipv6_egress 'disabled transaction removes boundary'
   fi
  done
  assert_eq 3 "$(wc -l <"$tmpdir/boundary-apply.calls" | tr -d ' ')" 'one nft invocation per toggle'

@@ -339,11 +339,16 @@ nft_apply() {
 	rm -f "$NET_FP_FILE"
 	settings_require || return 1
 
-	local dir="$PKG_TMP_DIR/nft" rc=0
+	local dir="$PKG_TMP_DIR/nft" rc=0 hash="" previous=""
 
 	ensure_dir "$dir" || return 1
 	nft_render "$dir/ruleset.nft" "$dir" || rc=1
-	if [ "$rc" -eq 0 ] && cmp -s "$dir/ruleset.nft" "$NFT_APPLIED_FILE" && nft_active; then
+	if [ "$rc" -eq 0 ]; then
+		hash="$(sha256sum "$dir/ruleset.nft")" || rc=1
+		hash="${hash%% *}"
+	fi
+	{ IFS= read -r previous <"$NFT_APPLIED_FILE"; } 2>/dev/null || :
+	if [ "$rc" -eq 0 ] && [ "$hash" = "$previous" ] && nft_active; then
 		rm -rf "$dir"
 		return 0
 	fi
@@ -353,7 +358,8 @@ nft_apply() {
 		err "Failed to apply nftables policy (see $dir/ruleset.nft)"
 		return 1
 	fi
-	mv -f "$dir/ruleset.nft" "$NFT_APPLIED_FILE" || rm -f "$NFT_APPLIED_FILE"
+	{ printf '%s\n' "$hash" >"$dir/ruleset.sha256" &&
+		mv -f "$dir/ruleset.sha256" "$NFT_APPLIED_FILE"; } || rm -f "$NFT_APPLIED_FILE"
 	rm -rf "$dir"
 	return 0
 }

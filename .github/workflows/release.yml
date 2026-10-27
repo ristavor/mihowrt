@@ -5,6 +5,10 @@ on:
     tags: ['v*']
   workflow_dispatch:
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 permissions: {}
 
 jobs:
@@ -12,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    timeout-minutes: 45
     outputs:
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
@@ -215,6 +220,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    timeout-minutes: 45
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download release files

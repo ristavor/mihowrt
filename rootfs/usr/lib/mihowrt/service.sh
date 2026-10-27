@@ -258,7 +258,11 @@ run_service() {
 	pid=$!
 	echo "$pid" >"$SERVICE_PID_FILE"
 
-	if wait_for_ready "$pid" && with_lock policy_reapply; then
+	if ! wait_for_ready "$pid"; then
+		service_error "Mihomo did not become ready; router stays on direct routing"
+	elif with_lock policy_reapply 2>"$error"; then
+		cat "$error" >&2
+		rm -f "$error"
 		echo "$$" >"$RUNNING_MARKER"
 		rm -f "$LAST_ERROR_FILE"
 		log "MihoWRT ready (Mihomo pid $pid)"
@@ -309,7 +313,10 @@ run_service() {
 			rc=1
 		}
 	else
-		service_error "Mihomo did not become ready; router stays on direct routing"
+		last_error_record "$error"
+		rm -f "$error"
+		error="$(cat "$LAST_ERROR_FILE")"
+		service_error "Failed to apply routing rules: $error"
 		rc=1
 	fi
 

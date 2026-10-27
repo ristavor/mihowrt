@@ -143,9 +143,12 @@ mihomo_config_test() {
 	}
 	memlimit="$(mihomo_memory_limit)"
 	memlimit="$(uint_norm "${memlimit%MiB}")"
+	# A candidate core runs beside the old one, so it gets half; a quarter-RAM
+	# limit on the installed core made large configs GC-bound (8 MiB: 18 → 35 s).
+	[ "$bin" = "$CLASH_BIN" ] || memlimit=$((memlimit / 2))
 	if CONFIG_TEST_OUTPUT="$(
 		if [ "$memlimit" -gt 0 ]; then
-			export GOMEMLIMIT="$((memlimit / 2))MiB"
+			export GOMEMLIMIT="${memlimit}MiB"
 		fi
 		"$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1
 	)"; then

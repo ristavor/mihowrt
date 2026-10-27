@@ -42,7 +42,8 @@ assert_eq 'previous version' "$(cat <&8)" 'core cache publication replaces inode
 exec 8<&-
 pass 'core version cache'
 
-# Every config validation gets half the running core's memory budget.
+# The installed core validates with the running core's budget; a candidate
+# binary (core update, old core still running) gets half of it.
 (
  mihomo_memory_limit() { echo "$memory_limit"; }
  env_core="$tmpdir/env-core"
@@ -54,13 +55,16 @@ N
  chmod +x "$env_core"
  export CORE_TEST_ENV="$tmpdir/core-test.env" GOMEMLIMIT=123MiB
  for memory_limit in 128MiB 0097MiB 0MiB ''; do
-  case "$memory_limit" in 128MiB) expected=64MiB ;; 0097MiB) expected=48MiB ;; *) expected=123MiB ;; esac
-  for binary_arg in candidate installed; do
-   if [ "$binary_arg" = candidate ]; then
-    mihomo_config_test "$CLASH_CONFIG" "$env_core"
-   else
-    CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
-   fi
+  for binary_arg in candidate installed installed-explicit; do
+   case "$binary_arg:$memory_limit" in
+   candidate:128MiB) expected=64MiB ;; candidate:0097MiB) expected=48MiB ;;
+   *:128MiB) expected=128MiB ;; *:0097MiB) expected=97MiB ;; *) expected=123MiB ;;
+   esac
+   case "$binary_arg" in
+   candidate) mihomo_config_test "$CLASH_CONFIG" "$env_core" ;;
+   installed) CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG" ;;
+   installed-explicit) CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG" "$env_core" ;;
+   esac
    assert_eq "$expected" "$(cat "$CORE_TEST_ENV")" "$binary_arg test uses bounded memory when available"
    assert_eq 123MiB "$GOMEMLIMIT" 'test limit does not leak into caller'
   done

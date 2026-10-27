@@ -16,7 +16,7 @@ printf '%s\n' "${GOMEMLIMIT:-unset}" >"$CORE_MEMORY_ENV"
 CORE
 chmod +x "$CLASH_BIN"
 echo 'mode: rule' >"$CLASH_CONFIG"
-expected="$(awk '/^MemTotal:/ { print int(int($2 / 2048) / 2) "MiB" }' /proc/meminfo)"
+expected="$(awk '/^MemTotal:/ { print int($2 / 2048) "MiB" }' /proc/meminfo)"
 if ! mihomo_config_test "$CLASH_CONFIG" 2>"$tmpdir/test.err"; then
  fail "standalone config test: $(cat "$tmpdir/test.err")"
 fi

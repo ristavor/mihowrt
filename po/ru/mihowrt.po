@@ -35,7 +35,7 @@ msgid "Service is running"
 msgstr "Сервис запущен"
 
 msgid "Press Start on Overview. If it stops again, check the log below."
-msgstr "Нажмите «Запустить» на странице «Обзор». Если он снова остановится, посмотрите журнал ниже."
+msgstr "Нажмите «Запустить» на странице «Обзор». Если сервис снова остановится, посмотрите журнал ниже."
 
 msgid "Mihomo answers DNS queries"
 msgstr "Mihomo отвечает на DNS-запросы"
@@ -87,6 +87,12 @@ msgstr "да"
 
 msgid "no"
 msgstr "нет"
+
+msgid "in effect"
+msgstr "действует"
+
+msgid "no effect in this mode"
+msgstr "в этом режиме не действует"
 
 msgid "Log"
 msgstr "Журнал"
@@ -308,7 +314,10 @@ msgid "Block external IPv6 from clients"
 msgstr "Блокировать внешний IPv6 клиентов"
 
 msgid "Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the \"Only selected traffic via proxy\" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire."
-msgstr "Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Существующие соединения в flowtable могут работать до истечения срока их записей."
+msgstr "Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Уже установленные соединения с аппаратным/программным ускорением (offloading) могут продолжаться до своего завершения."
+
+msgid "No effect in the current mode."
+msgstr "В текущем режиме не действует."
 
 msgid "Redirect client DNS to Mihomo"
 msgstr "Перенаправлять DNS клиентов в Mihomo"
@@ -617,7 +626,7 @@ msgid "Lost connection to the router while waiting for the result."
 msgstr "Во время ожидания результата потеряна связь с роутером."
 
 msgid "\"%s\" is running…"
-msgstr "Выполняется «%s»…"
+msgstr "Выполняется операция «%s»…"
 
 msgid "\"%s\" failed: %s"
 msgstr "«%s» не удалось: %s"
@@ -670,8 +679,14 @@ msgstr "YAML Mihomo"
 msgid "Choose which traffic goes through Mihomo. Save & Apply applies the changes."
 msgstr "Выберите, какой трафик пойдёт через Mihomo. Кнопка «Сохранить и применить» применяет изменения."
 
-msgid "To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for \"Only selected\", anything else for \"All traffic\"."
-msgstr "Для режима «Через прокси только выбранный трафик» в YAML нужны dns.enhanced-mode: fake-ip и dns.fake-ip-filter-mode: whitelist; любые другие значения включают режим «Весь трафик через прокси, кроме исключений»."
+msgid "Everything goes via proxy except the addresses and devices below."
+msgstr "Через прокси идёт всё, кроме адресов и устройств ниже."
+
+msgid "Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct."
+msgstr "Через прокси идут только адреса и устройства ниже и сайты, выбранные подпиской; остальное — напрямую."
+
+msgid "The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it."
+msgstr "Режим задают настройки DNS вашей подписки (YAML); чтобы сменить его, обратитесь к VPN-сервису."
 
 msgid "%s: %d saved entry, used in the other mode."
 msgid_plural "%s: %d saved entries, used in the other mode."
@@ -773,7 +788,7 @@ msgid "The subscription link uses plain http"
 msgstr "Ссылка на подписку использует обычный http"
 
 msgid "Anyone on the way can change your configuration. Ask your provider for an https link."
-msgstr "Любой посредник может изменить вашу конфигурацию. Попросите у провайдера ссылку https."
+msgstr "Любой узел на пути может подменить вашу конфигурацию. Попросите у VPN-сервиса ссылку https://"
 
 msgid "Automatic update"
 msgstr "Автоматическое обновление"

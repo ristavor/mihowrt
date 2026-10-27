@@ -28,7 +28,7 @@ function checks(st, diagnostics) {
 			: [ st.config_valid, st.config_valid ? _('Configuration is valid') : _('Configuration has errors'),
 				_('Update the subscription or fix the YAML on the Subscription page.') +
 				(st.config_error ? '\n' + _('Mihomo says: %s').format(coreError(st.config_error)) : '') ],
-		[ st.subscription_configured, _('Subscription configured'),
+		[ st.subscription_configured || null, _('Subscription configured'),
 			_('Without a subscription only the YAML you entered is used.') ],
 		state === 'starting' ? [ null, _('Starting…'), '' ] : [ up, _('Service is running'), serviceHint ]
 	];
@@ -89,6 +89,8 @@ function details(st, profile, diagnostics) {
 		[ _('MihoWRT version'), st.version ],
 		[ _('Traffic mode'), api.modeLabel(st.mode) ],
 		[ _('DNS mode'), st.dns_mode || '' ],
+		[ _('Block external IPv6 from clients'), !st.block_client_ipv6 ? _('no')
+			: st.mode === 'direct-first' ? _('in effect') : _('no effect in this mode') ],
 		[ _('Provider settings'), Object.keys(profile?.provider || {}).join(', ') || _('none') ],
 		[ _('Provider lists'), providerLists(profile) ],
 		[ _('Client interfaces'), (st.interfaces || []).join(', ') ],

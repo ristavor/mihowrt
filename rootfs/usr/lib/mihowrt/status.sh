@@ -94,6 +94,7 @@ status_json() {
 		--arg version "$PKG_VERSION" \
 		--arg core "$(core_version)" \
 		--arg mode "${POLICY_MODE:-}" \
+		--arg block_client_ipv6 "${BLOCK_CLIENT_IPV6:-0}" \
 		--arg url "${SUBSCRIPTION_URL:-}" \
 		--arg custom "$(dns_global_custom_servers | tr '\n' ' ')" \
 		--arg table "${ROUTE_TABLE:-}" \
@@ -107,7 +108,7 @@ status_json() {
 		 core_installed: ($core != ""), subscription_configured: ($url != ""),
 		 subscription_insecure: ($url | ascii_downcase | startswith("http://")),
 		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
-		 mode: $mode, interfaces: ($interfaces | words),
+		 mode: $mode, block_client_ipv6: ($block_client_ipv6 == "1"), interfaces: ($interfaces | words),
 		 custom_dns_servers: ($custom | words),
 		 lists: {dst: ($dst | tonumber), src: ($src | tonumber), direct: ($direct | tonumber), direct_src: ($direct_src | tonumber)},
 		 route: {table: $table, priority: $priority},

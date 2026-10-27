@@ -254,9 +254,17 @@ seq(async () => {
   }
   return tv.map.options;
  };
- let opts = await renderTraffic({ mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } });
+ const directFirstProfile = { mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } };
+ let opts = await renderTraffic(directFirstProfile);
  h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'mode value is only the label and its reason');
- h.assert(opts._mode.description.startsWith('To change the mode'), 'mode help is the option description');
+ const modeTail = 'The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it.';
+ h.assertEq(opts._mode.description, 'Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct. ' + modeTail, 'direct-first mode meaning first, then where it comes from');
+ h.assertEq(opts.block_client_ipv6.description.endsWith('No effect in the current mode.'), false, 'client IPv6 flag note absent in direct-first');
+ const proxyFirstOpts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
+ h.assertEq(proxyFirstOpts._mode.description, 'Everything goes via proxy except the addresses and devices below. ' + modeTail, 'proxy-first mode meaning first, then where it comes from');
+ h.assert(proxyFirstOpts.block_client_ipv6.description.endsWith(' No effect in the current mode.'), 'client IPv6 flag note in proxy-first');
+ h.assert((await renderTraffic({ dns: 'redir-host', provider: {}, lists: {} }))._mode.description === modeTail, 'unknown mode: only the origin note');
+ opts = await renderTraffic(directFirstProfile);
  // Own msgid: LuCI's base catalog translates plain "Mode" as "Режим работы".
  h.assertEq(opts._mode.title, 'Traffic mode', 'mode title has its own msgid');
  h.assert(!opts.policy_mode && !opts._direct && !opts._direct_src, 'manual mode and inactive lists absent');
@@ -1151,7 +1159,7 @@ seq(async () => {
   const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
   for (const [english, russian] of [
    [ipv6Title, 'Блокировать внешний IPv6 клиентов'],
-   [ipv6Description, 'Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Существующие соединения в flowtable могут работать до истечения срока их записей.']
+   [ipv6Description, 'Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Уже установленные соединения с аппаратным/программным ускорением (offloading) могут продолжаться до своего завершения.']
   ]) h.assert(catalog.includes(`msgid "${english.replace(/"/g, '\\"')}"\nmsgstr "${russian}"`), 'exact Russian translation: ' + english);
  });
  await check('provider on readonly', async () => {
@@ -1296,7 +1304,7 @@ seq(async () => {
  });
  await check('mode help and inactive lists', async () => {
   const t = setup(); await t.render({ ...lists, dst: '# comment\n1.1.1.1\n\n2.2.2.2\n3.3.3.3' }, { mode: 'proxy-first' });
-  h.assertEq(t.tv.map.options._mode.description, 'To change the mode, the YAML must use dns.enhanced-mode: fake-ip with dns.fake-ip-filter-mode: whitelist for "Only selected", anything else for "All traffic".', 'mode help verbatim as the option description');
+  h.assertEq(t.tv.map.options._mode.description, 'Everything goes via proxy except the addresses and devices below. The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it.', 'mode help verbatim as the option description');
   h.assertEq(t.tv.map.options._mode.cfgvalue(), 'All traffic via proxy except exclusions (follows the DNS settings of your YAML)', 'mode value without a subscription');
   const rowText = Object.values(t.tv.map.options).map(o => o.cfgvalue?.()).filter(v => typeof v === 'string');
   h.assert(rowText.includes('Addresses via proxy: 3 saved entries, used in the other mode.'), 'inactive list summary');
@@ -1468,6 +1476,18 @@ seq(async () => {
   const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
   for (const message of [label, hint])
    h.assert(catalog.includes('msgid "' + message + '"\nmsgstr "') && !catalog.includes('msgid "' + message + '"\nmsgstr ""'), 'Russian translation: ' + message);
+ });
+ await check('subscription row is unknown without a subscription', () => {
+  const row = item(render({ ...healthy, subscription_configured: false }), 'Subscription configured');
+  h.assert(row && texts(row).includes('Unknown:') && !texts(row).includes('Problem:'), 'no subscription is not a failed check');
+  h.assert(texts(item(render({ ...healthy, subscription_configured: true }), 'Subscription configured')).includes('OK:'), 'subscription present is OK');
+ });
+ await check('client IPv6 flag effect', () => {
+  const value = (st) => { const p = render(st); const t = texts(p); const i = t.indexOf('Block external IPv6 from clients'); return i < 0 ? null : t[i + 1]; };
+  h.assertEq(value({ ...healthy, block_client_ipv6: false, mode: 'direct-first' }), 'no', 'flag off');
+  h.assertEq(value({ ...healthy, block_client_ipv6: true, mode: 'direct-first' }), 'in effect', 'flag on in direct-first');
+  h.assertEq(value({ ...healthy, block_client_ipv6: true, mode: 'proxy-first' }), 'no effect in this mode', 'flag on in proxy-first');
+  h.assertEq(value({ ...healthy, mode: 'direct-first' }), 'no', 'old backend without the field');
  });
  await check('failed state', () => {
   const row = item(render({ ...healthy, state: 'failed', last_error: 'x' }), 'Service is running');

@@ -102,6 +102,13 @@ touch "$CLASH_CONFIG_BACKUP"
 assert_eq true "$(status_json | jq .config_backup)" 'backup flag'
 pass 'status backup flag'
 
+# Diagnostics needs the stored flag next to the mode to say whether it has any effect.
+assert_eq false "$(status_json | jq .block_client_ipv6)" 'client IPv6 flag off by default'
+fake_uci_set mihowrt.settings.block_client_ipv6 1
+assert_eq true "$(status_json | jq .block_client_ipv6)" 'client IPv6 flag reported'
+uci delete mihowrt.settings.block_client_ipv6
+pass 'status client IPv6 flag'
+
 # Every state-table row, including precedence when multiple files exist.
 service_running() { true; }
 touch "$DEGRADED_FILE" "$RUNNING_MARKER" "$USER_STOP_FILE" "$LAST_ERROR_FILE"

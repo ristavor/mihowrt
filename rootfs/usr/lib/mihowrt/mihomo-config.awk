@@ -126,31 +126,6 @@ BEGIN {
 	in_dns = in_x = in_groups = skip = seen_dns = seen_sniffer = dns_pending = dskip = 0
 	child = enh = filter = group = top_ipv6 = ""
 }
-# Plain or quoted mapping key at the start of the text.
-function key_of(text) {
-	if (text !~ /^["\047]?[A-Za-z0-9_-]+["\047]?[[:space:]]*:/)
-		return ""
-	sub(/[[:space:]]*:.*/, "", text)
-	gsub(/["\047]/, "", text)
-	return text
-}
-# Value after "key:" without a trailing comment.
-function value_of(text) {
-	sub(/^[^:]*:[[:space:]]*/, "", text)
-	sub(/^#.*/, "", text)
-	sub(/[[:space:]]+#.*/, "", text)
-	sub(/[[:space:]]+$/, "", text)
-	return text
-}
-function unquote(text) {
-	if (text ~ /^".*"$/)
-		text = substr(text, 2, length(text) - 2)
-	else if (text ~ /^\047.*\047$/) {
-		text = substr(text, 2, length(text) - 2)
-		gsub(/\047\047/, "\047", text)
-	}
-	return text
-}
 # First "- name:" item of the block-style proxy-groups list.
 function group_item(line) {
 	if (in_groups && group == "" && line ~ /^[[:space:]]*-[[:space:]]+["\047]?name["\047]?[[:space:]]*:/) {
@@ -158,10 +133,6 @@ function group_item(line) {
 		if (group == "")
 			group = "-"
 	}
-}
-function indent_of(text) {
-	match(text, /^[[:space:]]*/)
-	return RLENGTH
 }
 function flush_dns(ind) {
 	# "dns:" without children is null: the managed block is used.

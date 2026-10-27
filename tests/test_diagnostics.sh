@@ -33,6 +33,7 @@ sed "s|/proc/|$tmpdir/proc/|g" "$MIHOWRT_LIB_DIR/status.sh" >"$tmpdir/status.sh"
 cat >"$tmpdir/diagnostics" <<'RUN'
 #!/bin/ash
 . "$MIHOWRT_LIB_DIR/constants.sh"
+. "$MIHOWRT_LIB_DIR/helpers.sh"
 . "$DIAG_FIXTURE/status.sh"
 RUNTIME_CONFIG="$DIAG_FIXTURE/runtime.yaml"
 service_pid() { cat "$DIAG_FIXTURE/pid" 2>/dev/null; }

@@ -153,7 +153,7 @@ diagnostics_json() {
 	if pid="$(service_pid)"; then
 		rss="$(awk '$1 == "VmRSS:" && $2 ~ /^[0-9]+$/ { print $2; exit }' "/proc/$pid/status" 2>/dev/null)"
 	fi
-	ports="$(awk '
+	ports="$(awk -f "$(mihowrt_lib_dir)/yaml-lex.awk" -f - "$RUNTIME_CONFIG" 2>/dev/null <<'AWK'
 		function report_port(value) {
 			if (value ~ /^[0-9]+$/ && value + 0 > 0 && !seen[value + 0]++)
 				printf "%.0f\n", value + 0
@@ -164,47 +164,35 @@ diagnostics_json() {
 			if ($0 !~ /^-[[:space:]]/) listeners_block = 0
 		}
 		/^([\042\047]?listeners[\042\047]?)[[:space:]]*:/ {
-			value = $0
-			sub(/^[^:]*:[[:space:]]*/, "", value)
-			sub(/[[:space:]]+#.*$/, "", value)
-			sub(/[[:space:]]+$/, "", value)
+			value = value_of($0, 1)
 			listeners_block = (value == "")
 			item_indent = -1
 			listener = 0
 			next
 		}
 		listeners_block {
-			match($0, /^[[:space:]]*/)
-			indent = RLENGTH
+			indent = indent_of($0)
 			line = substr($0, indent + 1)
 			if (line ~ /^-[[:space:]]/ && (item_indent < 0 || indent == item_indent)) {
 				item_indent = indent
 				listener = ++listener_count
 				sub(/^-[[:space:]]+/, "", line)
 			} else if (!listener || indent != item_indent + 2) next
-			if (line !~ /^([\042\047]?(type|port|users)[\042\047]?)[[:space:]]*:/) next
-			key = line
-			sub(/[[:space:]]*:.*$/, "", key)
-			gsub(/[\042\047]/, "", key)
-			value = line
-			sub(/^[^:]*:[[:space:]]*/, "", value)
-			sub(/[[:space:]]+#.*$/, "", value)
-			sub(/[[:space:]]+$/, "", value)
+			key = key_of(line)
+			if (key != "type" && key != "port" && key != "users") next
+			value = value_of(line, 1)
 			if (key == "users") {
 				users_present[listener] = 1
 				users_empty[listener] = (value ~ /^\[[[:space:]]*\]$/)
 			} else {
-				gsub(/^[[:space:]\042\047]+|[[:space:]\042\047]+$/, "", value)
+				value = unquote(value, 1)
 				if (key == "type") listener_type[listener] = value
 				else listener_port[listener] = value
 			}
 			next
 		}
 		/^([\042\047]?authentication[\042\047]?)[[:space:]]*:/ {
-			value = $0
-			sub(/^[^:]*:[[:space:]]*/, "", value)
-			sub(/[[:space:]]+#.*$/, "", value)
-			sub(/[[:space:]]+$/, "", value)
+			value = value_of($0, 1)
 			if (value == "" || value == "null" || value == "~")
 				auth_block = 1
 			else if (value !~ /^\[[[:space:]]*\]$/)
@@ -212,10 +200,8 @@ diagnostics_json() {
 		}
 		auth_block && /^[[:space:]]+-[[:space:]]/ { auth = 1 }
 		/^(mixed-port|port|socks-port|redir-port)[[:space:]]*:/ {
-			value = $0
-			sub(/^[^:]*:[[:space:]]*/, "", value)
-			sub(/[[:space:]]+#.*$/, "", value)
-			gsub(/^[[:space:]\042\047]+|[[:space:]\042\047]+$/, "", value)
+			value = value_of($0, 1)
+			value = unquote(value, 1)
 			top_ports[++port_count] = value
 		}
 		END {
@@ -226,7 +212,8 @@ diagnostics_json() {
 				    (users_empty[i] || (!users_present[i] && !auth)))
 					report_port(listener_port[i])
 		}
-	' "$RUNTIME_CONFIG" 2>/dev/null)"
+AWK
+)"
 	jq -nc --arg conflicts "$conflicts" --arg flash "$flash" --arg ram "$ram" \
 		--arg rss "$rss" --arg ports "$ports" '
 		def lines: split("\n") | map(select(length > 0));

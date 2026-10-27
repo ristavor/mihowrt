@@ -15,3 +15,11 @@ checked by the existing assertions; there is no runtime output to snapshot.
 
 The E10 fake-IP direct-device listener and first rule are appended in vectors
 18 and 19 (proxy-first fake-IP); other baseline bytes remain unchanged.
+
+`legacy-renderer.awk` freezes the renderer at `f31cce69`, before the streaming
+refactor. `tests/test_mihomo_config_golden.sh` runs it and the current renderer
+against all 45 YAML fixtures (these runtimes, YAML-form inputs and the shipped
+config), comparing YAML, profile, warnings and exit status with GNU and BusyBox
+awk. `tests/test_mihomo_config_streaming.sh` also checks collision boundaries
+and validation before output. Keep the frozen renderer independent of shared
+production helpers so it remains an effective byte-for-byte oracle.

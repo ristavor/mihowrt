@@ -52,7 +52,7 @@ run_all_tests() {
 	printf 'ok - shell syntax\n'
 
 	printf '==> awk syntax\n'
-	awk -v profile=/dev/null -v warnfile=/dev/null -f "$ROOT_DIR/rootfs/usr/lib/mihowrt/mihomo-config.awk" </dev/null >/dev/null
+	awk -v profile=/dev/null -v warnfile=/dev/null -f "$ROOT_DIR/rootfs/usr/lib/mihowrt/yaml-lex.awk" -f "$ROOT_DIR/rootfs/usr/lib/mihowrt/mihomo-config.awk" </dev/null >/dev/null
 	printf 'ok - awk syntax\n'
 
 	printf '==> shell lint\n'

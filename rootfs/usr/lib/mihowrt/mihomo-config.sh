@@ -47,7 +47,7 @@ mihomo_config_generate() {
 	}
 	ensure_dir "$(dirname "$dst")" || return 1
 	tmp="$dst.tmp.$$"
-	awk -f "$(mihowrt_lib_dir)/mihomo-config.awk" \
+	awk -f "$(mihowrt_lib_dir)/yaml-lex.awk" -f "$(mihowrt_lib_dir)/mihomo-config.awk" \
 		-v drop=" $MIHOMO_OWNED_KEYS " \
 		-v dnsdrop=" $MIHOMO_OWNED_DNS_KEYS " \
 		-v dns_port="$MIHOMO_DNS_PORT" \

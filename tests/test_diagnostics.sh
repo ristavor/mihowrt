@@ -57,10 +57,10 @@ all|conflicts)
  assert_eq '["podkop","https-dns-proxy"]' "$(diag | jq -c .conflicts)" 'installed conflicts in authoritative order'
  assert_eq 1 "$(wc -l <"$tmpdir/db.reads" | tr -d ' ')" 'one awk reads package database'
  assert_false 'diagnostics does not invoke package manager' test -e "$tmpdir/apk.calls"
- printf 'Package: adguardhome\nStatus: install ok installed\n\nPackage: foo\n' >"$tmpdir/opkg-status"
+ printf 'Package: adguardhome\nStatus: install ok installed\n\nPackage: podkop\nStatus: deinstall ok not-installed\n\nPackage: foo\n' >"$tmpdir/opkg-status"
  assert_eq '["podkop","https-dns-proxy"]' "$(diag | jq -c .conflicts)" 'apk database takes precedence'
  rm "$tmpdir/apk-installed"
- assert_eq '["adguardhome"]' "$(diag | jq -c .conflicts)" 'opkg installed names'
+ assert_eq '["adguardhome"]' "$(diag | jq -c .conflicts)" 'opkg installed names skip not-installed entries'
  rm "$tmpdir/opkg-status"
  assert_eq '[]' "$(diag | jq -c .conflicts)" 'no installed conflicts'
  pass 'diagnostics conflicts'

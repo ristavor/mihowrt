@@ -334,6 +334,22 @@ assert_file_contains "$out" "ct direction original meta mark 0x1bd00 meta l4prot
 assert_file_contains "$out" "meta mark { 0x1bd10, 0x1bd11, 0x1bd20, 0x1bd21, 0x1bd22 } return" "NetBird dataplane bypass"
 pass "netbird rules kept"
 
+(
+ for POLICY_MODE in direct-first proxy-first; do
+  for NETBIRD_PROXY in 0 1; do
+   render
+   assert_file_not_contains "$out" 'ct direction reply meta mark' 'NetBird has no redundant reply guard'
+   assert_true "$POLICY_MODE/$NETBIRD_PROXY reply return precedes NetBird output rules" awk '
+    $5 != "mangle_output" { next }
+    /ct direction reply return$/ { guarded = 1 }
+    /meta mark (\{|0x1bd00)/ { seen = 1; if (!guarded) exit 1 }
+    END { if (!seen) exit 1 }
+   ' "$out"
+  done
+ done
+ pass 'shared output reply return precedes every NetBird path'
+)
+
 if command -v nft >/dev/null 2>&1 && nft -c -f "$out" 2>/dev/null; then
 	pass "nft accepts ruleset"
 else

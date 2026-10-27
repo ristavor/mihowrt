@@ -185,7 +185,6 @@ nft_render_netbird_output() {
 	if [ "$NETBIRD_PROXY" = "1" ]; then
 		# Control-plane mark covers management, signal, relay, ICE and WireGuard
 		# transport; dataplane marks and replies to inbound flows stay direct.
-		nft_rule mangle_output "ct direction reply meta mark $m0 return"
 		nft_rule mangle_output "meta mark { $dp } return"
 		nft_rule mangle_output "ct direction original meta mark $m0 meta l4proto { tcp, udp } $NFT_MARK_SET accept"
 	else

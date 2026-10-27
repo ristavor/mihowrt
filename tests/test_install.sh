@@ -65,6 +65,13 @@ assert_eq $'apk del luci-i18n-mihowrt-ru\napk del luci-app-mihowrt' "$(cat "$cal
 [[ -e "$CORE" ]] || fail "installer must leave core cleanup to prerm"
 pass "remove"
 
+installed=""
+: >"$calls"
+out="$(do_remove)"
+[[ "$out" == *"MihoWRT is not installed."* ]] || fail "absent removal must report not installed: $out"
+[[ ! -s "$calls" ]] || fail "absent removal must not delete packages"
+pass "remove absent package"
+
 # Installer: fixed asset names from releases/latest, verified by SHA256SUMS.
 BASE="https://github.com/ristavor/mihowrt/releases/latest/download"
 check_space() { :; }
@@ -231,3 +238,38 @@ printf '#!/bin/sh\necho "Error: boom" >&2\nexit 1\n' >"$MIHOWRT_BIN"
 out="$( (MIHOWRT_ACTION=install do_install) 2>&1 >/dev/null)" && fail "no-JSON failure must abort"
 [[ "$out" == *"Mihomo core installation failed"* ]] || fail "generic failure message: $out"
 pass "core error shown"
+
+# Exercise successful installs with only the init-script path relocated.
+(
+ sed -e '/^main "\$@"$/d' -e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" "$ROOT_DIR/install.sh" >"$tmpdir/install-success.sh"
+ source "$tmpdir/install-success.sh"
+ CORE="$tmpdir/existing-core"
+ touch "$CORE"
+ chmod +x "$CORE"
+ printf '#!/bin/sh\necho "$*" >>"%s"\n' "$tmpdir/init.calls" >"$tmpdir/init-mihowrt"
+ chmod +x "$tmpdir/init-mihowrt"
+ resolve_language() { echo en; }
+ package_installed() { [ "$1" = "$PKG" ] && [ "$fresh_case" = 0 ]; }
+ apk() { [ "$*" = "info -v $PKG" ] && cat "$tmpdir/installed.version"; }
+ install_packages() { echo "$PKG-$next_version" >"$tmpdir/installed.version"; }
+ for fresh_case in 1 0; do
+  for old_version in 0.9.0-r1 0.10.0-r1; do
+   next_version=0.10.0-r1
+   echo "$PKG-$old_version" >"$tmpdir/installed.version"
+   : >"$tmpdir/init.calls"
+   out="$(do_install)"
+   if [ "$fresh_case" = 1 ]; then
+    assert_eq enable "$(cat "$tmpdir/init.calls")" "fresh install enables service"
+    [[ "$out" == *"MihoWRT is installed."* ]] || fail "fresh install message: $out"
+   else
+    [[ ! -s "$tmpdir/init.calls" ]] || fail "existing install must preserve autostart preference"
+    if [ "$old_version" = "$next_version" ]; then
+     [[ "$out" == *"MihoWRT is reinstalled (version unchanged)."* ]] || fail "same version message: $out"
+    else
+     [[ "$out" == *"MihoWRT is updated."* ]] || fail "changed version message: $out"
+    fi
+   fi
+  done
+ done
+)
+pass "install preserves autostart and reports version changes"

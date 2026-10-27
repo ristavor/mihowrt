@@ -166,10 +166,13 @@ install_packages() {
 }
 
 do_install() {
-	local lang="" fresh=1 result="" reason=""
+	local lang="" fresh=1 result="" reason="" before="" after=""
 
 	lang="$(resolve_language)"
-	package_installed "$PKG" && fresh=0
+	if package_installed "$PKG"; then
+		fresh=0
+		before="$(apk info -v "$PKG" 2>/dev/null)" || before=""
+	fi
 	WORK="$(mktemp -d /tmp/mihowrt-install.XXXXXX)" || die "cannot create a temporary directory"
 	install_packages "$lang"
 
@@ -181,21 +184,37 @@ do_install() {
 			die "Mihomo core installation failed${reason:+: $reason}; retry from LuCI → Services → MihoWRT"
 		}
 	fi
-	/etc/init.d/mihowrt enable
-
 	log ""
 	if [ "$fresh" = 1 ]; then
+		/etc/init.d/mihowrt enable
 		log "MihoWRT is installed. Open LuCI → Services → MihoWRT and connect your subscription."
 	else
-		log "MihoWRT is updated."
+		after="$(apk info -v "$PKG" 2>/dev/null)" || after=""
+		if [ -n "$before" ] && [ -n "$after" ] && [ "$before" != "$after" ]; then
+			log "MihoWRT is updated."
+		else
+			log "MihoWRT is reinstalled (version unchanged)."
+		fi
 	fi
 }
 
 do_remove() {
+	local removed=0
+
 	log "Removing MihoWRT..."
-	package_installed "$I18N_PKG" && apk del "$I18N_PKG" >/dev/null
-	package_installed "$PKG" && apk del "$PKG" >/dev/null
-	log "MihoWRT and the Mihomo core are removed. Your configs stay in /opt/clash."
+	if package_installed "$I18N_PKG"; then
+		apk del "$I18N_PKG" >/dev/null
+		removed=1
+	fi
+	if package_installed "$PKG"; then
+		apk del "$PKG" >/dev/null
+		removed=1
+	fi
+	if [ "$removed" = 1 ]; then
+		log "MihoWRT and the Mihomo core are removed. Your configs stay in /opt/clash."
+	else
+		log "MihoWRT is not installed."
+	fi
 }
 
 main() {

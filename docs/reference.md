@@ -198,8 +198,36 @@ For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it 
 
 `update-subscription [url]` saves a new URL only after a successful download and validation. `core-update --file` accepts an architecture-compatible local gzip or executable, skips the release digest check with a warning, then uses the normal version/config test and atomic replacement. Verify local files yourself. Online update checks the GitHub release digest when available; API fallback via the latest-release redirect has no digest and logs a warning. Download stalls are bounded (below 2048 bytes/s for 60 s, two retries), not a fixed five-minute total.
 
-`mihowrt uninstall` stops the service, removes policy/runtime state, core, dashboard and geodata; configs stay. It does **not** remove the package: use the installer, `apk del` or `opkg remove` (see [README](../README.md#remove)).
+`mihowrt uninstall` stops the service and removes DNS/nftables/routes, its cron entry, runtime state, core, dashboard, geodata, `/etc/mihowrt/subscription.json` (subscription metadata), `/etc/mihowrt/cache.db` (saved proxy selection/fake-IP cache) and `/etc/mihowrt/policy-cache/` (remote lists). Your YAML and `config.yaml.bak`, policy list files, UCI settings, API secret and `/etc/mihowrt/hwid` stay. Keeping HWID lets the provider recognise the same device after reinstall. Package removal calls the same cleanup. It does **not** remove the package: use the installer, `apk del` or `opkg remove` (see [README](../README.md#remove)).
 
+### Core asset selection
+
+Read `DISTRIB_ARCH` on the router with `grep '^DISTRIB_ARCH=' /etc/openwrt_release`; do not use the PC's architecture. The first matching row below follows `core_arch()` and `core_asset_names()` in `rootfs/usr/lib/mihowrt/core.sh`. Asset names are `mihomo-linux-<suffix>-<tag>.gz` (for example `mihomo-linux-arm64-v1.19.33.gz`). Where alternatives are listed, the updater tries them in order; availability depends on the Mihomo release.
+
+| OpenWrt `DISTRIB_ARCH` pattern | Asset suffix(es), in order |
+|---|---|
+| `aarch64_*` | `arm64` |
+| `x86_64` | `amd64-compatible`, `amd64-v1`, `amd64` |
+| `i386_*` | `386`, `386-softfloat` |
+| `riscv64_*` | `riscv64` |
+| `loongarch64_*` | `loong64-abi1`, `loong64-abi2`, `loong64` |
+| `mips64el_*` | `mips64le` |
+| `mips64_*` | `mips64` |
+| `mipsel_*hardfloat*` | `mipsle-hardfloat` |
+| other `mipsel_*` | `mipsle-softfloat` |
+| `mips_*hardfloat*` | `mips-hardfloat` |
+| other `mips_*` | `mips-softfloat` |
+| `arm_*neon-vfp*` | `armv7` |
+| other `arm_*neon*` or `arm_*vfp*` | `armv6` |
+| other `arm_*` | `armv5` |
+
+Other architecture names are not automatically supported. A local `--file` bypasses automatic asset selection, not compatibility testing. Keep the package filenames for checksum verification; the local core can be named `mihomo.gz`. The updater does not delete a user-supplied `--file`: remove it yourself afterwards to reclaim tmpfs.
+
+### Flash budget and checks
+
+100 MiB+ free flash is a safe budget, not the installer's hard minimum. The core is about 12 MiB compressed and up to about 55 MiB unpacked, architecture/version dependent; updates need old and new cores side by side. Compressing overlays (UBIFS/JFFS2) can store it near its compressed size and need less physical flash. Geodata and the optional dashboard are extra.
+
+`install.sh` checks for 2048 KiB free on `/opt/clash` for packages. `core.sh` checks free space beside the core ≥ source/download size + 4194304 bytes (4 MiB); on an uncompressed filesystem that estimate may be insufficient, so an unpack/copy failure aborts without replacing the installed core. The compressed online download is in tmpfs and is deleted after unpacking, before candidate validation; an offline source file stays until you remove it.
 
 ## Files
 
@@ -207,10 +235,13 @@ For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it 
 |---|---|
 | `/etc/config/mihowrt` | Settings (UCI) |
 | `/etc/mihowrt/api_secret` | Mihomo controller secret (root-only, mode 600) |
-| `/opt/clash/config.yaml` | Your Mihomo YAML (backup: `config.yaml.bak`) |
+| `/opt/clash/config.yaml` | Your Mihomo YAML (backup: `config.yaml.bak`); both retained on removal |
 | `/opt/clash/lst/*.txt` | Policy lists (`direct_src.txt`: devices always direct) |
 | `/opt/clash/bin/clash` | Mihomo core |
-| `/etc/mihowrt/` | HWID, subscription metadata, remote list cache, saved proxy selection |
+| `/etc/mihowrt/hwid` | Device ID retained on removal, so a reinstall keeps the provider identity |
+| `/etc/mihowrt/subscription.json` | Subscription metadata; removed by uninstall/package removal |
+| `/etc/mihowrt/cache.db` | Persisted proxy selection/fake-IP cache; removed by uninstall/package removal |
+| `/etc/mihowrt/policy-cache/` | Remote-list cache on flash; removed by uninstall/package removal |
 | `/opt/clash/ui/` | Optional dashboard on flash |
 | `/tmp/clash/` | Runtime rulesets, providers, cache.db and controller socket |
 | `/var/run/mihowrt/` | Health, job state, locks, network fingerprint and config test stamp (tmpfs) |
@@ -218,9 +249,8 @@ For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it 
 
 ## Known limits
 
-- **Dumb AP mode:** if the default route is via the LAN bridge, MihoWRT treats that bridge as WAN and does not exclude its non-RFC1918 connected subnets. This follows the connected-network algorithm; do not assume AP mode has the same exclusions as routed LAN mode.
-- **RAM:** 128 MiB is for small YAML. Large configs (several MiB) need 256 MiB+; an 8 MiB fixture OOMed on 128 MiB in all tested builds, including 0.10. The 8 MiB upload limit is not a capacity guarantee. 512 MiB passed; 256 MiB has not been measured. Core updates succeeded on 128 MiB in the VM with only about 6–8 MiB MemAvailable at the low point; this is not a physical-router guarantee.
-
+- Dumb AP mode: if the default route is via the LAN bridge, MihoWRT treats that bridge as WAN and does not exclude its non-RFC1918 connected subnets. This follows the connected-network algorithm; do not assume AP mode has the same exclusions as routed LAN mode.
+- RAM: 128 MiB is for small YAML. Large configs (several MiB) need 256 MiB+; an 8 MiB fixture OOMed on 128 MiB in all tested builds, including 0.10. The 8 MiB upload limit is not a capacity guarantee. 512 MiB passed; 256 MiB has not been measured. Core updates succeeded on 128 MiB in the VM with only about 6–8 MiB MemAvailable at the low point; this is not a physical-router guarantee.
 - The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
   provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
   Mihomo*, controller secret hidden) and the subscription link to every LuCI

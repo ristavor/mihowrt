@@ -26,7 +26,8 @@ return view.extend({
 				return lists;
 			}).catch((e) => ({ error: api.errorText(e) })),
 			api.read('profile-json').catch(() => ({})),
-			callLeases().catch(() => null)
+			callLeases().catch(() => null),
+			api.readOnly() ? Promise.resolve(null) : api.write('dashboard-json').catch(() => null)
 		]);
 	},
 
@@ -125,7 +126,7 @@ return view.extend({
 		return real;
 	},
 
-	render: function([ lists, profile, leases ]) {
+	render: function([ lists, profile, leases, dashboard ]) {
 		this.listsError = lists.error;
 		this.lists = this.listsError ? { dst: '', src: '', direct: '', direct_src: '' } : lists;
 		this.edited = {};
@@ -201,6 +202,12 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 
+		if (!api.readOnly() && dashboard) {
+			o = s.taboption('advanced', form.DummyValue, '_dashboard', _('Mihomo dashboard'),
+				_('Web panel of Mihomo itself. Not needed for MihoWRT; it only takes space on the router.'));
+			o.renderWidget = () => this.dashboardWidget(dashboard);
+		}
+
 		this.map = m;
 		return m.render().then((node) => {
 			// Right after the heading and description, like on the other pages.
@@ -236,6 +243,25 @@ return view.extend({
 		o.renderWidget = function() {
 			return extra(render.apply(this, arguments));
 		};
+	},
+
+	dashboardWidget: function(state) {
+		const row = E('div', { class: 'mw-row', 'aria-live': 'polite' });
+		const show = () => {
+			const status = E('span', {}, text(state.installed ? _('Installed, %s').format(api.formatBytes(state.size)) : _('Not installed')));
+			const action = E('button', { type: 'button', class: 'cbi-button', 'data-mw-job': '', disabled: api.jobRunning || null },
+				text(state.installed ? _('Remove') : _('Install')));
+			action.addEventListener('click', () => api.busy(action, async () => {
+				if (state.installed && !window.confirm(_('Remove the dashboard? You can install it again from the Overview page.')))
+					return;
+				await api.job(state.installed ? 'dashboard-remove' : 'dashboard-install');
+				state = await api.write('dashboard-json');
+				show();
+			}));
+			row.replaceChildren(status, ...(state.installed || state.running ? [ action ] : []));
+		};
+		show();
+		return row;
 	},
 
 	refreshButton: function() {

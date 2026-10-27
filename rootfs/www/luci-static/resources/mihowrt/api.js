@@ -44,6 +44,8 @@ const CSS = `
 const JOB_LABELS = {
 	'connect': _('Connect'),
 	'core-update': _('Update Mihomo core'),
+	'dashboard-install': _('Install Mihomo dashboard'),
+	'dashboard-remove': _('Remove Mihomo dashboard'),
 	'auto-update': _('Automatic update'),
 	'update-subscription': _('Update subscription'),
 	'update-lists': _('Update remote lists'),
@@ -78,6 +80,8 @@ function backendErrorText(message) {
 		return _('Another operation is running: "%s". Wait until it finishes.').format(jobLabel(m[1]));
 	if ((m = /^Unsupported (\S+) form: use a block mapping$/.exec(raw)))
 		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
+	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
+		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
 	if (/^Interrupted:/.test(raw))
 		return _('The operation was interrupted (for example, by a router reboot). You can run it again.');
 	if (/not a Clash\/Mihomo config/.test(raw))

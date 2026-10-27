@@ -339,11 +339,32 @@ function groupsSection(groups) {
 	]);
 }
 
-function toolsSection(status) {
-	const dashboard = E('button', { class: 'cbi-button' }, text(_('Open dashboard')));
+const DASHBOARD_DOWNLOAD_MB = 5;
+
+function toolsSection(status, dashboardState) {
+	const dashboard = E('button', { class: 'cbi-button', type: 'button' });
+	const updateDashboard = () => {
+		dashboard.textContent = dashboardState?.installed ? _('Open dashboard') : _('Install dashboard');
+		if (dashboardState?.installed) {
+			dashboard.removeAttribute('title');
+			dashboard.removeAttribute('data-mw-job');
+		}
+		else {
+			dashboard.setAttribute('title', _('Downloads the Mihomo web panel (about %s MB) to the router.').format(DASHBOARD_DOWNLOAD_MB));
+			dashboard.setAttribute('data-mw-job', '');
+			dashboard.disabled = api.jobRunning || false;
+		}
+	};
+	updateDashboard();
 	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
 
 	dashboard.addEventListener('click', () => {
+		if (!dashboardState?.installed)
+			return api.busy(dashboard, async () => {
+				await api.job('dashboard-install');
+				dashboardState = await api.write('dashboard-json');
+				updateDashboard();
+			});
 		// Opened inside the click: browsers block windows opened after the RPC.
 		const win = window.open('about:blank', '_blank');
 		if (win)
@@ -374,7 +395,7 @@ function toolsSection(status) {
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-row' }, [ dashboard, core,
+		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : null, core,
 			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
 	]);
 }
@@ -385,10 +406,11 @@ return view.extend({
 	load: () => Promise.all([
 		api.read('status-json'),
 		api.read('subscription-json').catch(() => ({})),
-		api.readLarge('proxies-json').catch(e => ({ error: api.errorText(e) }))
+		api.readLarge('proxies-json').catch(e => ({ error: api.errorText(e) })),
+		api.readOnly() ? Promise.resolve(null) : api.write('dashboard-json').catch(() => null)
 	]),
 
-	render: ([ status, sub, groups ]) => {
+	render: ([ status, sub, groups, dashboardState ]) => {
 		const body = [ api.style(), E('h2', text(_('MihoWRT'))), api.jobNotice() ];
 
 		// Without the core nothing else can work yet: only the install card.
@@ -407,7 +429,7 @@ return view.extend({
 				: groups.error ? E('div', { class: 'cbi-section alert-message error' },
 				text(_('Cannot load the proxy groups: %s').format(groups.error)))
 				: groupsSection(Array.isArray(groups) ? groups : []));
-		body.push(toolsSection(status));
+		body.push(toolsSection(status, dashboardState));
 		return E('div', { class: 'mw-page' }, body);
 	},
 

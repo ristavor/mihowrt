@@ -200,7 +200,7 @@ seq(async () => {
 			api: Object.assign({}, api, { busy: async (b, fn) => { try { return await fn(); } catch (e) { order.push('error:' + e.message); return null; } },
 				write: async () => { order.push('rpc'); return reply; } })
 		}).module;
-		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true }), {}, [] ]))
+		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true }), {}, [], { installed: true } ]))
 			.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
 	};
 	let order = [], popup = { location: '', opener: 'page', close() { order.push('close'); } };
@@ -216,6 +216,39 @@ seq(async () => {
 		console.log('ok - dashboard link');
 	}).catch((err) => { console.error(err); process.exitCode = 1; });
 }
+
+seq(async () => {
+ const calls = [];
+ let state = { running: true, installed: false };
+ let readonly = false;
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, view: { extend: v => v }, poll: { add() {} }, window: { open: () => { throw new Error('install must not open window'); } },
+  api: { ...api, readOnly: () => readonly, busy: (b, fn) => fn(),
+   read: async () => ({}), readLarge: async () => [],
+   write: async cmd => { calls.push(cmd); return state; },
+   job: async op => { calls.push(op); state = { running: true, installed: true }; return {}; }
+  }
+ }).module;
+ const running = { ...base, running: true, subscription_configured: true };
+ let p = ov.render([running, {}, [], state]);
+ const install = findButton(p, 'Install dashboard');
+ h.assert(install, 'uninstalled dashboard has Install on Overview');
+ h.assertEq(install.attrs.title, 'Downloads the Mihomo web panel (about 5 MB) to the router.', 'one provisional panel size hint');
+ await install.listeners.click();
+ h.assert(findButton(p, 'Open dashboard'), 'same button becomes Open after install');
+ h.assertEq(calls.join(','), 'dashboard-install,dashboard-json', 'install job then refresh status, no popup');
+ h.assert(!findButton(p, 'Remove'), 'no remove on Overview');
+ p = ov.render([{ ...running, running: false }, {}, [], { installed: false, running: false }]);
+ h.assert(!findButton(p, 'Install dashboard'), 'stopped Overview has no Install');
+ readonly = true; calls.length = 0;
+ await ov.load();
+ h.assertEq(calls.length, 0, 'read-only Overview skips secret-bearing dashboard RPC');
+ p = ov.render([running, {}, [], { installed: true }]);
+ h.assert(!findButton(p, 'Open dashboard') && !findButton(p, 'Install dashboard'), 'read-only dashboard action hidden');
+ h.assertEq(api.jobLabel('dashboard-install'), 'Install Mihomo dashboard', 'install job label');
+ h.assertEq(api.jobLabel('dashboard-remove'), 'Remove Mihomo dashboard', 'remove job label');
+ console.log('ok - dashboard Overview install, stopped and read-only states');
+});
 
 // Provider-first form and event contracts (Tasks 11-14).
 seq(async () => {
@@ -1147,10 +1180,10 @@ seq(async () => {
   };
   const ui = { changes: { apply: checked => calls.push(['apply', checked]) } };
   const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
-   E, api: bridge, form, uci, ui, Event, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
+   E, api: bridge, form, uci, ui, Event, window: { confirm: msg => { calls.push(['confirm', msg]); return true; } }, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
   }).module;
-  const render = async (data = { ...lists }, profile = {}) => {
-   const page = await tv.render([data, profile, {}]);
+  const render = async (data = { ...lists }, profile = {}, dashboard = {}) => {
+   const page = await tv.render([data, profile, {}, dashboard]);
    for (const o of Object.values(tv.map.options)) Object.assign(o, { uci, options: tv.map.options });
    return page;
   };
@@ -1165,6 +1198,36 @@ seq(async () => {
   try { await fn(); console.log('ok - traffic ' + name); }
   catch (e) { console.error('not ok - traffic ' + name, e); process.exitCode = 1; }
  }
+ await check('dashboard immediate actions and stopped state', async () => {
+  let state = { installed: false, running: true };
+  const t = setup({ write: async () => state });
+  await t.render(undefined, {}, state);
+  const o = t.tv.map.options._dashboard;
+  h.assert(o && o.tab === 'advanced', 'dashboard standalone Advanced row');
+  h.assertEq(Object.keys(t.tv.map.options).at(-1), '_dashboard', 'dashboard row last');
+  let widget = o.renderWidget();
+  h.assert(findButton(widget, 'Install'), 'running Advanced offers Install');
+  state = { installed: true, running: true, size: 4096 };
+  await findButton(widget, 'Install').listeners.click();
+  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-install', 'Advanced install job');
+  h.assert(texts(widget).includes('Installed, 4.0 KiB'), 'installed byte size shown');
+  h.assert(findButton(widget, 'Remove'), 'same widget offers Remove after install');
+  // Removal remains available while stopped; it is an immediate job, not a UCI save.
+  await t.render(undefined, {}, { installed: true, running: false, size: 4096 });
+  widget = t.tv.map.options._dashboard.renderWidget();
+  state = { installed: false, running: false };
+  await findButton(widget, 'Remove').listeners.click();
+  h.assertEq(t.calls.filter(c => c[0] === 'confirm').at(-1)[1], 'Remove the dashboard? You can install it again from the Overview page.', 'exact removal confirmation');
+  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-remove', 'stopped Advanced removal job');
+  h.assert(texts(widget).includes('Not installed') && !findButton(widget, 'Install'), 'removed stopped panel stays status-only');
+  await t.render(undefined, {}, { installed: false, running: false });
+  widget = t.tv.map.options._dashboard.renderWidget();
+  h.assert(texts(widget).includes('Not installed'), 'stopped status text');
+  h.assert(!findButton(widget, 'Install'), 'stopped Advanced has no Install');
+  const ro = setup({ readOnly: () => true, write: async () => { throw new Error('secret RPC for read-only'); } });
+  await ro.tv.load(); await ro.render();
+  h.assert(!ro.tv.map.options._dashboard, 'read-only Advanced hides row');
+ });
  // Plan task 20: Advanced client IPv6 policy uses the existing provider controls.
  const ipv6Flag = t => {
   const o = t.tv.map.options.block_client_ipv6;

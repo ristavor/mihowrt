@@ -798,3 +798,39 @@ msgstr "Временные файлы Mihomo (наборы правил, про�
 
 msgid "Free temporary storage"
 msgstr "Свободно во временном хранилище"
+
+msgid "Install dashboard"
+msgstr "Установить панель"
+
+msgid "Downloads the Mihomo web panel (about %s MB) to the router."
+msgstr "Скачает веб-панель Mihomo (около %s МБ) на роутер."
+
+msgid "Mihomo dashboard"
+msgstr "Панель Mihomo"
+
+msgid "Installed, %s"
+msgstr "Установлена, %s"
+
+msgid "Remove"
+msgstr "Удалить"
+
+msgid "Install"
+msgstr "Установить"
+
+msgid "Not installed"
+msgstr "Не установлена"
+
+msgid "Remove the dashboard? You can install it again from the Overview page."
+msgstr "Удалить панель? Её можно снова установить на странице «Обзор»."
+
+msgid "Web panel of Mihomo itself. Not needed for MihoWRT; it only takes space on the router."
+msgstr "Собственная веб-панель Mihomo. Для работы MihoWRT не нужна, только занимает место на роутере."
+
+msgid "Install Mihomo dashboard"
+msgstr "Установка панели Mihomo"
+
+msgid "Remove Mihomo dashboard"
+msgstr "Удаление панели Mihomo"
+
+msgid "Could not download the dashboard. Check that GitHub is reachable from the router."
+msgstr "Не удалось скачать панель. Проверьте, что GitHub доступен с роутера."

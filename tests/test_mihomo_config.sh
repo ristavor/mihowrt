@@ -235,10 +235,16 @@ done
 for key in enable listen fake-ip-range; do
 	if grep -q "^  $key:" "$ROOT_DIR/rootfs/opt/clash/config.yaml"; then fail "built-in config sets router-owned dns.$key"; fi
 done
+assert_file_not_contains "$ROOT_DIR/rootfs/opt/clash/config.yaml" 'rule-providers:' 'built-in config has no remote rule-provider'
+assert_file_not_contains "$ROOT_DIR/rootfs/opt/clash/config.yaml" 'rule-set:' 'built-in config has no dangling rule-set filter'
+assert_file_contains "$ROOT_DIR/rootfs/opt/clash/config.yaml" '  fake-ip-filter: []' 'built-in whitelist has no proxy domains without a subscription'
 mihomo_config_generate "$ROOT_DIR/rootfs/opt/clash/config.yaml" "$out" || fail "built-in config must generate"
 assert_eq 1 "$(count '^tproxy-port: 7894')" "managed tproxy-port"
 assert_eq 1 "$(count '  enhanced-mode: fake-ip')" "managed dns mode"
 assert_eq 1 "$(count '  fake-ip-filter-mode: whitelist')" "user dns options kept"
+assert_file_contains "$out.profile" 'mode direct-first' 'built-in config stays direct-first'
+assert_file_not_contains "$out" 'rule-providers:' 'built-in runtime has no rule-provider'
+assert_file_contains "$out" '  fake-ip-filter: []' 'built-in runtime keeps the empty whitelist'
 pass "built-in config is minimal"
 
 # profile is router-owned: selection and fake-ip mappings survive restarts.

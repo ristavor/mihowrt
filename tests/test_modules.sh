@@ -22,7 +22,7 @@ for module in core.sh subscription.sh lists.sh; do
   load_modules "$module"
   case "$module" in
   core.sh) declare -F core_update >/dev/null ;;
-  subscription.sh) declare -F subscription_update userinfo_field subscription_due >/dev/null ;;
+  subscription.sh) declare -F subscription_update subscription_due >/dev/null ;;
   lists.sh) declare -F lists_install lists_apply lists_refresh >/dev/null ;;
   esac
  ) || fail "$module owns its interfaces"

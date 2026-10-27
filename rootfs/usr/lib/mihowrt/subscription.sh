@@ -33,10 +33,6 @@ subscription_decode_metadata_value() {
 	printf '%s' "$decoded"
 }
 
-userinfo_field() {
-	printf '%s' "$1" | tr ';' '\n' | sed -n "s/^[[:space:]]*$2=\([0-9]*\).*/\1/p" | head -n 1
-}
-
 subscription_metadata_from_headers() {
 	local file="${FETCH_HDR:-/dev/null}"
 	local title="" announce="" support="" web="" interval=""

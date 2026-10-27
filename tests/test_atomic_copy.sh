@@ -46,6 +46,8 @@ for consumer in remote metadata database list; do
  (
   setup_runtime_paths "$tmpdir/$consumer-$outcome"
   target="$PKG_PERSIST_DIR/output"
+  : >"$tmpdir/warnings"
+  warn() { echo "$*" >>"$tmpdir/warnings"; }
   case "$consumer" in
   remote)
    POLICY_CACHE_DIR="$PKG_PERSIST_DIR/cache"
@@ -65,10 +67,11 @@ for consumer in remote metadata database list; do
    subscription_metadata_from_headers() { echo '{"profile_title":"new"}'; }
    config_api_wait() { :; }
    with_lock() { "$@"; }
-   config_install() { echo '{"action":"unchanged"}'; }
-   lists_urls() { :; }
-   cron_update() { :; }
-   publish() { subscription_update; }
+   config_install() { echo '{"action":"hot_reloaded"}'; }
+   lists_urls() { echo https://lists.example/test; }
+   lists_update_remote() { echo refresh >>"$PKG_TMP_DIR/events"; echo unchanged; }
+   cron_update() { echo cron >>"$PKG_TMP_DIR/events"; }
+   publish() { subscription_update https://new.example/config; }
    expected='{"profile_title":"new"}'
    ;;
   database)
@@ -110,10 +113,26 @@ for consumer in remote metadata database list; do
    assert_eq 0 "$rc" "$consumer publishes successfully"
    assert_eq "$expected" "$(cat "$target")" "$consumer replaces content"
   else
-   assert_eq 1 "$rc" "$consumer propagates publish failure"
+   if [ "$consumer" = metadata ]; then
+    assert_eq 0 "$rc" 'metadata failure does not fail the installed subscription'
+    assert_eq "Cannot write $target" "$(cat "$tmpdir/warnings")" 'metadata failure warns'
+   else
+    assert_eq 1 "$rc" "$consumer propagates publish failure"
+   fi
    assert_eq old "$(cat "$target")" "$consumer failure keeps old content"
+   if [ "$consumer" = remote ]; then
+    assert_eq 'Remote list cache write failed: lists.example' "$(cat "$tmpdir/warnings")" 'remote cache write failure warns with host'
+   fi
   fi
   assert_eq '' "$(find "${target%/*}" -name '*.new.*' -print)" "$consumer removes staging files"
+  if [ "$consumer" = metadata ]; then
+   assert_eq https://new.example/config "$(uci_get subscription_url)" 'installed subscription saves the new URL'
+   assert_true 'installed subscription advances update stamp' test -f "$PKG_STATE_DIR/subscription.stamp"
+   assert_eq $'refresh\ncron' "$(cat "$PKG_TMP_DIR/events")" 'installed subscription refreshes lists and cron'
+   assert_eq '{"action":"hot_reloaded"}' "$(cat "$tmpdir/out")" 'installed subscription returns result'
+   assert_false 'metadata scratch removed' test -e "$PKG_TMP_DIR/subscription.json"
+   assert_false 'subscription headers removed' test -e "$PKG_TMP_DIR/subscription.$$.headers"
+  fi
  )
  pass "$consumer $outcome uses atomic_copy publication"
  done

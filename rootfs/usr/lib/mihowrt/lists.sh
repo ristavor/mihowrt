@@ -336,6 +336,7 @@ lists_update_remote() {
 			if atomic_copy "$tmp.clean" "$cache"; then
 				changed=1
 			else
+				warn "Remote list cache write failed: $(url_host "$url")"
 				failed=1
 			fi
 		fi

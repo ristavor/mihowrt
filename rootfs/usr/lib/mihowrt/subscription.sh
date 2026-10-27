@@ -179,9 +179,7 @@ subscription_update() {
 		printf '%s\n' "$meta" >"$PKG_TMP_DIR/subscription.json"
 		if ! cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" &&
 			! atomic_copy "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"; then
-			rm -f "$PKG_TMP_DIR/subscription.json" "$headers_file"
-			err "Cannot write $SUBSCRIPTION_META_FILE"
-			return 1
+			warn "Cannot write $SUBSCRIPTION_META_FILE"
 		fi
 		rm -f "$PKG_TMP_DIR/subscription.json"
 	else

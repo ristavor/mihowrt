@@ -132,7 +132,8 @@ net_refresh() {
 }$line"
 		done <"$NET_FP_FILE"
 	} 2>/dev/null || :
-	[ "$fingerprint" != "$previous" ] || return 0
+	# A flushed policy table must still be restored by the next interface event.
+	[ "$fingerprint" != "$previous" ] || ! nft_active || return 0
 	dns_apply || rc=1
 	# New prefixes must reach nft even when dnsmasq could not be updated.
 	nft_apply || rc=1

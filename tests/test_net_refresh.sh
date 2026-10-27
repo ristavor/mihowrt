@@ -12,6 +12,7 @@ NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 RUNNING_MARKER="$PKG_STATE_DIR/running"
 touch "$RUNNING_MARKER"
 service_running() { return 0; }
+nft_active() { return 0; }
 settings_load() { :; }
 printf 'nameserver 10.0.0.1\n' >"$DNS_AUTO_RESOLVFILE"
 printf '203.0.113.0/24 dev br-lan\n' >"$tmpdir/routes.4"
@@ -38,6 +39,12 @@ check_refresh() (
   : >"$events"
   net_refresh
   assert_eq '' "$(cat "$events")" 'same fingerprint skips both renderers'
+  ;;
+ table_missing)
+  : >"$events"
+  nft_active() { return 1; }
+  net_refresh
+  assert_eq $'dns\nnft' "$(cat "$events")" 'missing policy table refreshes despite same fingerprint'
   ;;
  prefix4 | prefix6 | dns)
   : >"$events"
@@ -95,7 +102,7 @@ check_invalidation() (
 )
 
 failed=0
-for scenario in same prefix4 prefix6 dns failure snapshot; do
+for scenario in same table_missing prefix4 prefix6 dns failure snapshot; do
  if check_refresh "$scenario"; then pass "net refresh fingerprint: $scenario"; else failed=1; fi
 done
 for scenario in start stop settings lists dns nft_failure dns_failure; do

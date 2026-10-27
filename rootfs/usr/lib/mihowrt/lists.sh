@@ -369,7 +369,10 @@ lists_update_remote() {
 			# Count once, only when a fetch would change a cache. Failed writes
 			# do not consume space; replacing a cache releases its old bytes.
 			if [ -z "$total" ]; then
-				total="$(find "$POLICY_CACHE_DIR" -name '*.txt' -type f -exec wc -c {} + | awk '$2 != "total" { n += $1 } END { printf "%.0f", n }')"
+				# Globbing is off for provider URLs; re-enable it only in this subshell.
+				# (OpenWrt BusyBox may lack find -exec {} +.)
+				total="$(set +f; cat "$POLICY_CACHE_DIR"/*.txt 2>/dev/null | wc -c)"
+				total="${total##* }"
 			fi
 			if ! next_total="$({ wc -c "$tmp.clean" "$cache" 2>/dev/null || true; } | awk -v total="$total" -v max="$LISTS_CACHE_MAX_TOTAL" '
 				NR == 1 { size = $1 }

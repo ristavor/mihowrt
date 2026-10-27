@@ -227,10 +227,6 @@ stop_child() {
 	return 0
 }
 
-mihomo_memory_limit() {
-	awk '/^MemTotal:/ { print int($2 / 2048) "MiB" }' /proc/meminfo 2>/dev/null
-}
-
 service_error() {
 	atomic_write "$LAST_ERROR_FILE" "$*"
 	err "$*"

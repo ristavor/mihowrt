@@ -125,6 +125,10 @@ mihomo_config_test_key() {
 	printf '%s %s\n' "${hash%% *}" "$version"
 }
 
+mihomo_memory_limit() {
+	awk '/^MemTotal:/ { print int($2 / 2048) "MiB" }' /proc/meminfo 2>/dev/null
+}
+
 # Validate a generated config with Mihomo itself. Its own error text is the
 # most useful message for the user, so it is passed through.
 mihomo_config_test() {

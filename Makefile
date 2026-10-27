@@ -182,11 +182,10 @@ define Package/$(PKG_NAME)/postrm
 [ -n "$$IPKG_INSTROOT" ] || {
 	rm -rf /tmp/mihowrt /var/run/mihowrt /tmp/clash
 	[ ! -f /opt/clash/config.yaml.keep ] || mv -f /opt/clash/config.yaml.keep /opt/clash/config.yaml
-	mkdir -p /opt/clash/lst
 	for list in $(MIHOWRT_LISTS); do
 		[ ! -f /opt/clash/lst/$$list.txt.keep ] || mv -f /opt/clash/lst/$$list.txt.keep /opt/clash/lst/$$list.txt
 	done
-	rmdir /opt/clash/bin /opt/clash /etc/mihowrt 2>/dev/null || true
+	rmdir /opt/clash/bin /opt/clash/lst /opt/clash /etc/mihowrt 2>/dev/null || true
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
 	rm -rf /tmp/luci-modulecache 2>/dev/null || true
 }

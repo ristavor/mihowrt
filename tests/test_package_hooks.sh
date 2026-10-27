@@ -349,6 +349,16 @@ IPKG_INSTROOT="" ash "$tmpdir/postrm.sh"
 for leftover in tmp/mihowrt var/run/mihowrt tmp/clash; do
 	[[ ! -e "$postrm_root/$leftover" ]] || fail "postrm removes $leftover"
 done
+[[ ! -e "$postrm_root/opt/clash" ]] || fail "postrm must not create clash directory without keep files"
+mkdir -p "$postrm_root/opt/clash/bin" "$postrm_root/opt/clash/lst"
+IPKG_INSTROOT="" ash "$tmpdir/postrm.sh"
+[[ ! -e "$postrm_root/opt/clash" ]] || fail "postrm removes empty clash and list directories"
+mkdir -p "$postrm_root/opt/clash/lst"
+printf 'user-data\n' >"$postrm_root/opt/clash/lst/custom.txt"
+IPKG_INSTROOT="" ash "$tmpdir/postrm.sh"
+assert_file_contains "$postrm_root/opt/clash/lst/custom.txt" user-data "postrm preserves unrelated user files"
+pass "postrm removes empty directories without deleting user files"
+
 assert_file_contains "$ROOT_DIR/Makefile" '+curl' "package should depend on curl for Mihomo API hot reload"
 installer_deps="$(sed -n 's/^DEPS="\(.*\)"$/\1/p' "$ROOT_DIR/install.sh")"
 for dep in $installer_deps; do

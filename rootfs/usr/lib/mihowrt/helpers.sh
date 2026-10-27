@@ -34,6 +34,17 @@ atomic_write() {
 	return 1
 }
 
+# Stage beside the destination so publication is a same-filesystem rename.
+atomic_copy() {
+	local src="$1" dst="$2"
+
+	if cp "$src" "$dst.new.$$" && mv -f "$dst.new.$$" "$dst"; then
+		return 0
+	fi
+	rm -f "$dst.new.$$"
+	return 1
+}
+
 # Collapse a value to one printable line (used for HTTP header metadata).
 single_line() {
 	tr '\r\n\t' '   ' | tr -d '\000-\037' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//'

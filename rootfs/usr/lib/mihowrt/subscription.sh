@@ -177,8 +177,12 @@ subscription_update() {
 	# Written only on change to spare flash, and only if it is valid JSON.
 	if [ -n "$meta" ]; then
 		printf '%s\n' "$meta" >"$PKG_TMP_DIR/subscription.json"
-		cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" ||
-			mv -f "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"
+		if ! cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" &&
+			! atomic_copy "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"; then
+			rm -f "$PKG_TMP_DIR/subscription.json" "$headers_file"
+			err "Cannot write $SUBSCRIPTION_META_FILE"
+			return 1
+		fi
 		rm -f "$PKG_TMP_DIR/subscription.json"
 	else
 		warn "Subscription metadata could not be parsed; keeping the previous one"

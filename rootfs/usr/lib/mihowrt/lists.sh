@@ -333,7 +333,11 @@ lists_update_remote() {
 		if cmp -s "$tmp.clean" "$cache"; then
 			touch "$cache"
 		else
-			mv -f "$tmp.clean" "$cache" && changed=1
+			if atomic_copy "$tmp.clean" "$cache"; then
+				changed=1
+			else
+				failed=1
+			fi
 		fi
 	done
 	set +f
@@ -422,12 +426,7 @@ lists_install() {
 			;;
 		esac
 		if ! cmp -s "$tmp" "$dst"; then
-			# Copy next to the target and rename: a full flash cannot leave
-			# a half-written list.
-			if ! { cp "$tmp" "$dst.new" && mv -f "$dst.new" "$dst"; }; then
-				rm -f "$dst.new"
-				return 1
-			fi
+			atomic_copy "$tmp" "$dst" || return 1
 			changed=1
 		fi
 	done

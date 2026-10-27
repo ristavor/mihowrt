@@ -1,97 +1,130 @@
-# Buffer rendered lines until DNS mode is known, regardless of key order.
-function emit(text) { output[++output_count] = text }
-function inject(text) { candidate[++candidate_count] = text }
+# Analyse the rendered shape in pass 1; emit each line immediately in pass 2.
+# Only collision ranges are retained, never the source or rendered document.
+function emit(text,   kind) {
+	rendered_line++
+	if (pass == 1) {
+		scan_direct(text)
+		return
+	}
+	if (!direct_enabled) {
+		print text
+		return
+	}
+	kind = ""
+	if (("listeners" in section_start) && rendered_line == section_start["listeners"]) kind = "listeners"
+	else if (("rules" in section_start) && rendered_line == section_start["rules"]) kind = "rules"
+	if (kind != "") {
+		print_direct(kind, value_of(text) == "" ? text : kind ":")
+		return
+	}
+	if (rendered_line in collision_end)
+		suppress_until = collision_end[rendered_line]
+	if (rendered_line > suppress_until)
+		print text
+}
 function injection_error(section) {
-	unsupported_section = section
+	if (unsupported_section == "") unsupported_section = section
 }
-# Print a provider list with the managed entry first. Only empty/null flow
-# forms are safe to rewrite without a YAML parser. Buffer the candidate so
-# unsupported forms can fall back without publishing any partial injection.
-function direct_section(kind, start, end,   i, j, ind, val, text, rest, item, name, collision, rootind) {
-	val = start ? value_of(output[start]) : ""
-	if (val != "" && val !~ /^(null|~|\[[[:space:]]*\])$/)
-		return injection_error(kind)
-	ind = "  "
-	for (i = start + 1; start && i <= end; i++) {
-		if (output[i] ~ /^[[:space:]]*($|#)/) continue
-		text = output[i]
-		sub(/^[[:space:]]*/, "", text)
-		if (text !~ /^-[[:space:]]+/) return injection_error(kind)
-		ind = substr(output[i], 1, indent_of(output[i]))
-		break
+function finish_listener() {
+	if (item_collision) {
+		collision_end[item_start] = rendered_line - 1
+		listener_collision = 1
 	}
-	inject(start && val == "" ? output[start] : kind ":")
+	item_start = 0
+	item_collision = 0
+}
+# Match the old injection boundaries, including comments after a listener item.
+function scan_direct(text,   kind, rest, name, ind) {
+	if (unsupported_section != "") return
+	if (direct_section != "" && text ~ /^[^[:space:]#-]/) {
+		finish_listener()
+		direct_section = ""
+	}
+	if (direct_section == "") {
+		kind = key_of(text)
+		if (kind != "listeners" && kind != "rules") return
+		if (kind in section_start) return injection_error(kind)
+		section_start[kind] = rendered_line
+		direct_section = kind
+		section_indent[kind] = "  "
+		section_has_item = 0
+		rest = value_of(text)
+		if (rest != "" && rest !~ /^(null|~|\[[[:space:]]*\])$/)
+			injection_error(kind)
+		return
+	}
+	if (text ~ /^[[:space:]]*($|#)/) return
+	if (direct_section == "rules" && section_has_item) return
+	ind = indent_of(text)
+	if (!section_has_item) {
+		rest = substr(text, ind + 1)
+		if (rest !~ /^-[[:space:]]+/) return injection_error(direct_section)
+		section_indent[direct_section] = substr(text, 1, ind)
+		section_has_item = 1
+	}
+	if (direct_section == "rules") return
+	if (item_start && ind <= length(section_indent[direct_section]))
+		finish_listener()
+	if (!item_start) {
+		rest = substr(text, length(section_indent[direct_section]) + 1)
+		if (rest !~ /^-[[:space:]]+/) return injection_error(direct_section)
+		match(rest, /^-[[:space:]]+/)
+		item_root_indent = length(section_indent[direct_section]) + RLENGTH
+		sub(/^-[[:space:]]+/, "", rest)
+		if (key_of(rest) == "") return injection_error(direct_section)
+		item_start = rendered_line
+	} else {
+		if (ind != item_root_indent) return
+		rest = substr(text, item_root_indent + 1)
+	}
+	if (rest ~ /^<</) return injection_error(direct_section)
+	if (key_of(rest) != "name") return
+	name = unquote(value_of(rest))
+	if (name ~ /^[*&!|>]/ || index(name, "\\")) return injection_error(direct_section)
+	if (name == "mihowrt-direct") item_collision = 1
+}
+function print_direct(kind, header,   ind) {
+	ind = (kind in section_indent) ? section_indent[kind] : "  "
+	print header
 	if (kind == "rules")
-		inject(ind "- IN-NAME,mihowrt-direct,DIRECT")
+		print ind "- IN-NAME,mihowrt-direct,DIRECT"
 	else {
-		inject(ind "- name: mihowrt-direct")
-		inject(ind "  type: tproxy")
-		inject(ind "  listen: 0.0.0.0")
-		inject(ind "  port: " direct_tproxy)
-		inject(ind "  udp: true")
-	}
-	for (i = start + 1; start && i <= end; i++) {
-		if (kind != "listeners" || output[i] ~ /^[[:space:]]*($|#)/) {
-			inject(output[i])
-			continue
-		}
-		text = substr(output[i], length(ind) + 1)
-		if (text !~ /^-[[:space:]]+/) return injection_error(kind)
-		# Find the whole mapping item, including nested listener settings.
-		for (j = i + 1; j <= end; j++)
-			if (output[j] !~ /^[[:space:]]*($|#)/ && indent_of(output[j]) <= length(ind)) break
-		item = j - 1
-		match(text, /^-[[:space:]]+/)
-		rootind = length(ind) + RLENGTH
-		sub(/^-[[:space:]]+/, "", text)
-		if (key_of(text) == "") return injection_error(kind)
-		collision = 0
-		for (j = i; j <= item; j++) {
-			rest = j == i ? text : substr(output[j], rootind + 1)
-			if (j != i && indent_of(output[j]) != rootind) continue
-			if (rest ~ /^<</) return injection_error(kind)
-			if (key_of(rest) != "name") continue
-			name = unquote(value_of(rest))
-			if (name ~ /^[*&!|>]/ || index(name, "\\")) return injection_error(kind)
-			if (name == "mihowrt-direct") collision = 1
-		}
-		if (collision)
-			listener_collision = 1
-		else
-			for (j = i; j <= item; j++) inject(output[j])
-		i = item
+		print ind "- name: mihowrt-direct"
+		print ind "  type: tproxy"
+		print ind "  listen: 0.0.0.0"
+		print ind "  port: " direct_tproxy
+		print ind "  udp: true"
 	}
 }
-function print_runtime(   i, j, kind, found_listeners, found_rules) {
+# The source is a regular file supplied by mihomo_config_generate. Reopen it
+# after analysis rather than keeping two copies of a potentially large YAML.
+BEGIN {
+	pass = 1
+	source = ARGC > 1 ? ARGV[ARGC - 1] : "/dev/null"
+	while ((read_status = (getline < source)) > 0)
+		process_line($0, ++source_line)
+	close(source)
+	if (read_status < 0) {
+		failed = 1
+		exit 1
+	}
+	finish_document()
+	rendered_line++
+	finish_listener()
 	if (dns_mode() == "fake-ip" && filter != "whitelist") {
-		for (i = 1; i <= output_count; i++) {
-			kind = key_of(output[i])
-			if (kind != "listeners" && kind != "rules") {
-				inject(output[i])
-				continue
-			}
-			if ((kind == "listeners" && found_listeners++) || (kind == "rules" && found_rules++)) {
-				injection_error(kind)
-				break
-			}
-			for (j = i + 1; j <= output_count; j++)
-				if (output[j] ~ /^[^[:space:]#-]/) break
-			direct_section(kind, i, j - 1)
-			if (unsupported_section != "") break
-			i = j - 1
-		}
-		if (unsupported_section == "") {
-			if (!found_listeners) direct_section("listeners", 0, 0)
-			if (!found_rules) direct_section("rules", 0, 0)
-			for (i = 1; i <= candidate_count; i++) print candidate[i]
+		if (unsupported_section != "")
+			print "Devices always direct with fake-IP DNS is unavailable: the provider\047s " unsupported_section " list uses a form MihoWRT cannot extend" >warnfile
+		else {
+			direct_enabled = 1
 			print "direct_listener 1" >profile
 			if (listener_collision)
 				print "Provider listener mihowrt-direct replaced by the MihoWRT direct listener" >warnfile
-			return
 		}
-		print "Devices always direct with fake-IP DNS is unavailable: the provider\047s " unsupported_section " list uses a form MihoWRT cannot extend" >warnfile
 	}
-	for (i = 1; i <= output_count; i++) print output[i]
+	pass = 2
+	rendered_line = 0
+	in_dns = in_x = in_groups = skip = seen_dns = seen_sniffer = dns_pending = dskip = 0
+	child = enh = filter = group = top_ipv6 = ""
 }
 # Plain or quoted mapping key at the start of the text.
 function key_of(text) {
@@ -213,17 +246,16 @@ function x_line(line,   ind, rest, key, item) {
 	if (key != "")
 		x_key(key, value_of(rest))
 }
-{
-	sub(/\r$/, "")
-	if (NR == 1)
-		sub(/^\357\273\277/, "")
-	line = $0
+function process_line(line, number) {
+	sub(/\r$/, "", line)
+	if (number == 1)
+		sub(/^\357\273\277/, "", line)
 	# Indentless list item ("key:\n- a"): part of the previous key.
 	if (line ~ /^-([[:space:]]|$)/) {
 		group_item(line)
 		if (!skip)
 			emit(line)
-		next
+		return
 	}
 	if (line ~ /^[^[:space:]#]/) {
 		if (in_dns)
@@ -253,7 +285,7 @@ function x_line(line,   ind, rest, key, item) {
 		}
 		# "dns: ~" or "dns: null" holds no block: use the managed one.
 		if (key == "dns" && value_of(line) != "")
-			next
+			return
 		if (key == "dns") {
 			seen_dns = 1
 			in_dns = 1
@@ -261,17 +293,17 @@ function x_line(line,   ind, rest, key, item) {
 			dskip = 0
 			dns_line = line
 			dns_pending = 1
-			next
+			return
 		}
 		if (!skip)
 			emit(line)
-		next
+		return
 	}
-	if (in_x)
+	if (in_x && pass == 1)
 		x_line(line)
 	group_item(line)
 	if (skip)
-		next
+		return
 	if (in_dns && line ~ /^[[:space:]]+[^[:space:]#]/) {
 		if (dns_pending) {
 			emit(dns_line)
@@ -291,26 +323,26 @@ function x_line(line,   ind, rest, key, item) {
 				filter = tolower(unquote(value_of(substr(line, RLENGTH + 1))))
 		}
 		if (dskip)
-			next
+			return
 	}
 	emit(line)
 }
-END {
-	if (failed)
-		exit 1
+function finish_document() {
 	if (in_dns)
 		flush_dns()
 	if (!seen_dns)
 		enh = "redir-host"
-	print "mode " ((dns_mode() == "fake-ip" && filter == "whitelist") ? "direct-first" : "proxy-first") >profile
-	print "dns " dns_mode() >profile
+	if (pass == 1) {
+		print "mode " ((dns_mode() == "fake-ip" && filter == "whitelist") ? "direct-first" : "proxy-first") >profile
+		print "dns " dns_mode() >profile
+	}
 	emit("")
 	emit("# --- MihoWRT managed: generated, edits here are discarded ---")
 	if (!seen_dns) {
 		suffix = ""
 		if (group != "" && group != "-" && group !~ /[#&"\\]/)
 			suffix = "#" group
-		else
+		else if (pass == 1)
 			print "No usable first proxy group: default DNS servers are queried directly" >warnfile
 		emit("dns:")
 		child = ""
@@ -358,5 +390,13 @@ END {
 	emit("secret: \"" secret "\"")
 	emit("external-ui: ui")
 	emit("external-ui-url: \"" ui_url "\"")
-	print_runtime()
+}
+{ process_line($0, FNR) }
+END {
+	if (failed) exit 1
+	finish_document()
+	if (direct_enabled) {
+		if (!("listeners" in section_start)) print_direct("listeners", "listeners:")
+		if (!("rules" in section_start)) print_direct("rules", "rules:")
+	}
 }

@@ -42,6 +42,7 @@ EOF
   cp "$src" "$tmpdir/source-copy"
   : >"$tmpdir/warnings"
   mihomo_config_generate "$src" "$out"
+  assert_file_contains "$out.profile" "set direct_listener 1" "$dialect/$style listener profile"
   assert_true "$dialect/$style source untouched" cmp -s "$src" "$tmpdir/source-copy"
   assert_eq 1 "$(grep -c '^listeners:' "$out")" "$dialect/$style one listener block"
   assert_eq 1 "$(grep -c '^rules:' "$out")" "$dialect/$style one rule block"
@@ -64,14 +65,23 @@ EOF
    assert_file_contains "$out" '# provider rule comment retained' "$dialect rule comment kept"
   fi
  done
- for unsupported in 'listeners: [{name: custom, type: mixed, port: 17890}]' 'rules: [MATCH,DIRECT]' 'listeners: *shared' 'listeners: |' $'listeners:\n  - {name: custom, type: mixed}' $'listeners:\n  - *shared' 'listeners:
+ for unsupported in 'listeners: [{name: custom, type: mixed, port: 17890}]' 'rules: [MATCH,DIRECT]' 'listeners: *shared' 'listeners: &shared []' $'listeners:\n  - name: mihowrt-direct\n    type: mixed\n    port: 17891\nrules: [MATCH,DIRECT]' $'listeners: []\nlisteners: []' $'rules: []\nrules: []' 'listeners: |' $'listeners:\n  - {name: custom, type: mixed}' $'listeners:\n  - *shared' 'listeners:
   - name: "mihowrt-\u0064irect"
     type: tproxy
     port: 17891'; do
   printf '%s\ndns:\n  enhanced-mode: fake-ip\n' "$unsupported" >"$src"
-  cp "$out" "$tmpdir/previous"
-  assert_false "$dialect unsafe injection rejected" mihomo_config_generate "$src" "$out"
-  assert_true "$dialect rejection preserves published YAML" cmp -s "$out" "$tmpdir/previous"
+  # Whitelist disables injection: remove only that added line for the baseline.
+  sed '/enhanced-mode:/a\  fake-ip-filter-mode: whitelist' "$src" >"$tmpdir/baseline-source"
+  mihomo_config_generate "$tmpdir/baseline-source" "$tmpdir/baseline"
+  sed '/fake-ip-filter-mode: whitelist/d' "$tmpdir/baseline" >"$tmpdir/expected"
+  : >"$tmpdir/warnings"
+  assert_true "$dialect unsupported injection falls back" mihomo_config_generate "$src" "$out"
+  assert_true "$dialect fallback preserves pre-injection runtime" cmp -s "$out" "$tmpdir/expected"
+  assert_file_not_contains "$out" 'IN-NAME,mihowrt-direct,DIRECT' "$dialect no injected rule"
+  assert_file_not_contains "$out" "port: $MIHOMO_DIRECT_TPROXY_PORT" "$dialect no injected listener"
+  assert_file_not_contains "$out.profile" 'set direct_listener 1' "$dialect no listener profile"
+  assert_eq 1 "$(wc -l <"$tmpdir/warnings" | tr -d ' ')" "$dialect one fallback warning"
+  assert_file_contains "$tmpdir/warnings" 'Devices always direct with fake-IP DNS is unavailable' "$dialect fallback warning"
  done
  for mode in whitelist redir-host normal; do
   if [ "$mode" = whitelist ]; then
@@ -81,6 +91,7 @@ EOF
   fi
   printf 'listeners: [{name: custom, type: mixed, port: 17890}]\nrules: [MATCH,DIRECT]\n' >>"$src"
   mihomo_config_generate "$src" "$out"
+  assert_file_not_contains "$out.profile" "set direct_listener 1" "$dialect/$mode no listener profile"
   assert_file_not_contains "$out" mihowrt-direct "$dialect/$mode no injection"
   assert_file_contains "$out" 'listeners: [{name: custom, type: mixed, port: 17890}]' "$dialect/$mode untouched flow block"
  done
@@ -91,6 +102,7 @@ done
 settings_load
 POLICY_MODE=proxy-first
 DNS_MODE=fake-ip
+DIRECT_LISTENER=1
 DISABLE_QUIC=1
 mkdir -p "$tmpdir/work"
 printf 'aa:bb:cc:dd:ee:ff\n192.0.2.2\n2001:db8::2\n192.0.2.3;80,443\n2001:db8::3;443\n;8080\n' >"$DIRECT_SRC_LIST_FILE"
@@ -112,3 +124,18 @@ DISABLE_QUIC=0
 nft_render "$out" "$tmpdir/work"
 assert_file_not_contains "$out" 'udp dport 443 reject' 'fake direct QUIC allowed when disabled'
 pass 'fake-IP direct devices nft policy'
+
+DIRECT_LISTENER=0
+nft_render "$out" "$tmpdir/work"
+assert_file_not_contains "$out" direct_device_policy 'no fake-IP direct chain without listener'
+assert_file_not_contains "$out" "127.0.0.1:$MIHOMO_DIRECT_TPROXY_PORT" 'no dedicated TPROXY without listener'
+assert_file_not_contains "$out" 'prerouting_policy ether saddr @direct_src' 'fake-IP direct devices skipped without listener'
+assert_file_not_contains "$out" 'add element inet mihowrt direct_src' 'no direct source sets populated without listener'
+assert_file_contains "$out" "prerouting_policy meta l4proto { tcp, udp } meta mark set" 'fallback keeps generic fake-IP interception'
+printf 'mode proxy-first\ndns fake-ip\nset direct_listener 1\n' >"$PROFILE_FILE"
+settings_load
+assert_eq 1 "$DIRECT_LISTENER" 'settings loads injected listener flag'
+printf 'mode proxy-first\ndns fake-ip\n' >"$PROFILE_FILE"
+settings_load
+assert_eq 0 "$DIRECT_LISTENER" 'settings resets absent listener flag'
+pass 'fake-IP direct devices fallback without listener'

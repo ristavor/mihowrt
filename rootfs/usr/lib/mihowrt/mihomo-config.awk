@@ -1,42 +1,42 @@
 # Buffer rendered lines until DNS mode is known, regardless of key order.
 function emit(text) { output[++output_count] = text }
+function inject(text) { candidate[++candidate_count] = text }
 function injection_error(section) {
-	print "Cannot inject mihowrt-direct into " section "; use a block-style list with plain entries" >"/dev/stderr"
-	exit 1
+	unsupported_section = section
 }
 # Print a provider list with the managed entry first. Only empty/null flow
-# forms are safe to rewrite without a YAML parser; reject aliases/anchors and
-# non-empty flow forms rather than risk duplicate keys or an invalid runtime.
+# forms are safe to rewrite without a YAML parser. Buffer the candidate so
+# unsupported forms can fall back without publishing any partial injection.
 function direct_section(kind, start, end,   i, j, ind, val, text, rest, item, name, collision, rootind) {
 	val = start ? value_of(output[start]) : ""
 	if (val != "" && val !~ /^(null|~|\[[[:space:]]*\])$/)
-		injection_error(kind)
+		return injection_error(kind)
 	ind = "  "
 	for (i = start + 1; start && i <= end; i++) {
 		if (output[i] ~ /^[[:space:]]*($|#)/) continue
 		text = output[i]
 		sub(/^[[:space:]]*/, "", text)
-		if (text !~ /^-[[:space:]]+/) injection_error(kind)
+		if (text !~ /^-[[:space:]]+/) return injection_error(kind)
 		ind = substr(output[i], 1, indent_of(output[i]))
 		break
 	}
-	print (start && val == "" ? output[start] : kind ":")
+	inject(start && val == "" ? output[start] : kind ":")
 	if (kind == "rules")
-		print ind "- IN-NAME,mihowrt-direct,DIRECT"
+		inject(ind "- IN-NAME,mihowrt-direct,DIRECT")
 	else {
-		print ind "- name: mihowrt-direct"
-		print ind "  type: tproxy"
-		print ind "  listen: 0.0.0.0"
-		print ind "  port: " direct_tproxy
-		print ind "  udp: true"
+		inject(ind "- name: mihowrt-direct")
+		inject(ind "  type: tproxy")
+		inject(ind "  listen: 0.0.0.0")
+		inject(ind "  port: " direct_tproxy)
+		inject(ind "  udp: true")
 	}
 	for (i = start + 1; start && i <= end; i++) {
 		if (kind != "listeners" || output[i] ~ /^[[:space:]]*($|#)/) {
-			print output[i]
+			inject(output[i])
 			continue
 		}
 		text = substr(output[i], length(ind) + 1)
-		if (text !~ /^-[[:space:]]+/) injection_error(kind)
+		if (text !~ /^-[[:space:]]+/) return injection_error(kind)
 		# Find the whole mapping item, including nested listener settings.
 		for (j = i + 1; j <= end; j++)
 			if (output[j] !~ /^[[:space:]]*($|#)/ && indent_of(output[j]) <= length(ind)) break
@@ -44,44 +44,54 @@ function direct_section(kind, start, end,   i, j, ind, val, text, rest, item, na
 		match(text, /^-[[:space:]]+/)
 		rootind = length(ind) + RLENGTH
 		sub(/^-[[:space:]]+/, "", text)
-		if (key_of(text) == "") injection_error(kind)
+		if (key_of(text) == "") return injection_error(kind)
 		collision = 0
 		for (j = i; j <= item; j++) {
 			rest = j == i ? text : substr(output[j], rootind + 1)
 			if (j != i && indent_of(output[j]) != rootind) continue
-			if (rest ~ /^<</) injection_error(kind)
+			if (rest ~ /^<</) return injection_error(kind)
 			if (key_of(rest) != "name") continue
 			name = unquote(value_of(rest))
-			if (name ~ /^[*&!|>]/ || index(name, "\\")) injection_error(kind)
+			if (name ~ /^[*&!|>]/ || index(name, "\\")) return injection_error(kind)
 			if (name == "mihowrt-direct") collision = 1
 		}
 		if (collision)
-			print "Provider listener mihowrt-direct replaced by the MihoWRT direct listener" >warnfile
+			listener_collision = 1
 		else
-			for (j = i; j <= item; j++) print output[j]
+			for (j = i; j <= item; j++) inject(output[j])
 		i = item
 	}
 }
 function print_runtime(   i, j, kind, found_listeners, found_rules) {
-	if (dns_mode() != "fake-ip" || filter == "whitelist") {
-		for (i = 1; i <= output_count; i++) print output[i]
-		return
-	}
-	for (i = 1; i <= output_count; i++) {
-		kind = key_of(output[i])
-		if (kind != "listeners" && kind != "rules") {
-			print output[i]
-			continue
+	if (dns_mode() == "fake-ip" && filter != "whitelist") {
+		for (i = 1; i <= output_count; i++) {
+			kind = key_of(output[i])
+			if (kind != "listeners" && kind != "rules") {
+				inject(output[i])
+				continue
+			}
+			if ((kind == "listeners" && found_listeners++) || (kind == "rules" && found_rules++)) {
+				injection_error(kind)
+				break
+			}
+			for (j = i + 1; j <= output_count; j++)
+				if (output[j] ~ /^[^[:space:]#-]/) break
+			direct_section(kind, i, j - 1)
+			if (unsupported_section != "") break
+			i = j - 1
 		}
-		if ((kind == "listeners" && found_listeners++) || (kind == "rules" && found_rules++))
-			injection_error(kind)
-		for (j = i + 1; j <= output_count; j++)
-			if (output[j] ~ /^[^[:space:]#-]/) break
-		direct_section(kind, i, j - 1)
-		i = j - 1
+		if (unsupported_section == "") {
+			if (!found_listeners) direct_section("listeners", 0, 0)
+			if (!found_rules) direct_section("rules", 0, 0)
+			for (i = 1; i <= candidate_count; i++) print candidate[i]
+			print "set direct_listener 1" >profile
+			if (listener_collision)
+				print "Provider listener mihowrt-direct replaced by the MihoWRT direct listener" >warnfile
+			return
+		}
+		print "Devices always direct with fake-IP DNS is unavailable: the provider\047s " unsupported_section " list uses a form MihoWRT cannot extend" >warnfile
 	}
-	if (!found_listeners) direct_section("listeners", 0, 0)
-	if (!found_rules) direct_section("rules", 0, 0)
+	for (i = 1; i <= output_count; i++) print output[i]
 }
 # Plain or quoted mapping key at the start of the text.
 function key_of(text) {

@@ -155,14 +155,20 @@ The mode follows the DNS settings of your YAML; there is no switch:
   on port 7895 and its first `IN-NAME,mihowrt-direct,DIRECT` rule: Mihomo resolves the real
   destination and sends the connection DIRECT. `redir-host` / `normal` retain
   full nft bypass. QUIC blocking still applies to fake destinations when enabled.
+  The `IN-NAME` rule applies only in Mihomo `mode: rule`; `global` and `direct`
+  modes ignore rules.
 
 Apart from the dedicated fake-IP direct-device inbound, Mihomo's own rules
 decide the outbound (proxy group or DIRECT). Domain filtering remains the
 provider's job; MihoWRT does not add vendor/private domains to `fake-ip-filter`.
 The name `mihowrt-direct` is reserved: a same-named provider listener is replaced
-with a warning. For proxy-first fake-IP, `listeners` and `rules` must use block
-lists (empty `[]` / null are accepted); non-empty flow lists and listener aliases
-are rejected rather than rewritten unsafely.
+with a warning when injection succeeds. For proxy-first fake-IP, `listeners` and
+`rules` support block lists (empty `[]` / null are accepted). Unsupported forms
+(non-empty flow lists, aliases/anchors, flow listener items, escaped listener
+names or duplicate top-level lists) leave the runtime YAML unchanged from
+normal generation, with one warning and no direct-listener injection. The
+subscription still applies, but *Devices always direct* is unavailable with
+fake-IP DNS, as before this feature; those devices follow the normal policy.
 
 ### Provider settings (`x-mihowrt`)
 

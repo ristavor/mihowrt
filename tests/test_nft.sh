@@ -281,6 +281,7 @@ a=$(grep -n 'prerouting_policy ip saddr @direct_src return' "$out" | cut -d: -f1
 b=$(grep -n 'prerouting_policy meta l4proto { tcp, udp } meta mark set' "$out" | cut -d: -f1)
 assert_true "device return precedes catch-all" test "$a" -lt "$b"
 DNS_MODE=fake-ip
+DIRECT_LISTENER=1
 render
 assert_file_contains "$out" 'ip saddr @direct_src goto direct_device_policy' "fake-IP sends direct devices through split policy"
 nft() { echo "$*" >>"$tmpdir/nft.calls"; }

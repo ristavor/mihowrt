@@ -62,7 +62,7 @@ core_free_kb() {
 core_fail() {
 	CORE_ERROR="$*"
 	err "Core update: $*"
-	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
+	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new" "$PKG_TMP_DIR/core-test.yaml" "$PKG_TMP_DIR/core-test.yaml.profile"
 	return 1
 }
 
@@ -144,6 +144,7 @@ core_update() {
 		fi
 		return 1
 	fi
+	rm -f "$gz" "$json"
 	chmod 755 "$CLASH_BIN.new" || core_fail "unpack failed" || return 1
 	[ -n "$(core_version "$CLASH_BIN.new")" ] || core_fail "new binary does not run on this router" || return 1
 	if [ -r "$CLASH_CONFIG" ] && mihomo_config_generate "$CLASH_CONFIG" "$config" 2>/dev/null; then

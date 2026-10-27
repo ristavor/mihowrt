@@ -101,6 +101,42 @@ http_fetch() {
 free_kb=1000000
 core_free_kb() { echo "$free_kb"; }
 
+# Download buffers must be released before either candidate execution.
+(
+ original_version="$(declare -f core_version)"
+ eval "${original_version/core_version ()/installed_core_version ()}"
+ core_version() {
+  if [ "${1:-$CLASH_BIN}" = "$CLASH_BIN.new" ]; then
+   assert_false 'gzip removed before candidate -v' test -e "$CORE_TMP_DIR/mihomo.gz"
+   assert_false 'release metadata removed before candidate -v' test -e "$CORE_TMP_DIR/release.json"
+  fi
+  installed_core_version "$@"
+ }
+ mihomo_config_test() {
+  assert_false 'gzip removed before candidate -t' test -e "$CORE_TMP_DIR/mihomo.gz"
+  assert_false 'release metadata removed before candidate -t' test -e "$CORE_TMP_DIR/release.json"
+  test -f "$1" && test -f "$1.profile"
+ }
+ core_update || fail "buffers released before validation: $CORE_ERROR"
+ assert_false 'success removes test YAML' test -e "$PKG_TMP_DIR/core-test.yaml"
+ assert_false 'success removes test profile' test -e "$PKG_TMP_DIR/core-test.yaml.profile"
+)
+printf '#!/bin/sh\necho "Mihomo Meta v1.19.30 linux"\n' >"$CLASH_BIN"
+rm -f "$CORE_VERSION_CACHE"
+pass 'download buffers released before candidate validation'
+
+# Even an early failure removes test artifacts left by an interrupted update.
+(
+ mkdir -p "$PKG_TMP_DIR"
+ echo stale >"$PKG_TMP_DIR/core-test.yaml"
+ echo stale >"$PKG_TMP_DIR/core-test.yaml.profile"
+ asset_digest="sha256:bad"
+ if core_update 2>/dev/null; then fail 'bad digest must fail'; fi
+ assert_false 'failure removes test YAML' test -e "$PKG_TMP_DIR/core-test.yaml"
+ assert_false 'failure removes test profile' test -e "$PKG_TMP_DIR/core-test.yaml.profile"
+)
+pass 'core failure removes test artifacts'
+
 # A real, highly compressible executable in a valid gzip padded to exactly 1 MiB.
 large_asset="$tmpdir/one-mib.gz"
 { cat "$new_core"; dd if=/dev/zero bs=1048576 count=8 2>/dev/null; } | gzip -nc >"$tmpdir/large.gz"
@@ -177,6 +213,8 @@ pass 'unpack failed'
 free_kb=1000000
 if NEW_CORE_REJECTS=1 core_update 2>/dev/null; then fail "config rejection must fail"; fi
 assert_eq "v1.19.30" "$(core_version)" "old core kept when new rejects config"
+assert_false "config rejection removes test YAML" test -e "$PKG_TMP_DIR/core-test.yaml"
+assert_false "config rejection removes profile" test -e "$PKG_TMP_DIR/core-test.yaml.profile"
 pass "bad binary keeps old"
 
 asset_digest="sha256:$(printf '0%.0s' {1..64})"

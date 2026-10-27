@@ -61,6 +61,10 @@ policy_reapply() {
 	settings_load && policy_apply
 }
 
+policy_reapply_ready() {
+	policy_reapply && echo "$$" >"$RUNNING_MARKER"
+}
+
 policy_cleanup() {
 	dns_cleanup
 	nft_cleanup
@@ -260,10 +264,9 @@ run_service() {
 
 	if ! wait_for_ready "$pid"; then
 		service_error "Mihomo did not become ready; router stays on direct routing"
-	elif with_lock policy_reapply 2>"$error"; then
+	elif with_lock policy_reapply_ready 2>"$error"; then
 		cat "$error" >&2
 		rm -f "$error"
-		echo "$$" >"$RUNNING_MARKER"
 		rm -f "$LAST_ERROR_FILE"
 		log "MihoWRT ready (Mihomo pid $pid)"
 		rc=0
@@ -277,8 +280,7 @@ run_service() {
 				atomic_write "$HEALTH_FILE" ok
 				fails=0
 				[ "$degraded" -eq 1 ] || continue
-				if with_lock policy_reapply; then
-					echo "$$" >"$RUNNING_MARKER"
+				if with_lock policy_reapply_ready; then
 					degraded=0
 					rm -f "$DEGRADED_FILE"
 					log "watchdog: Mihomo DNS recovered, policy restored"

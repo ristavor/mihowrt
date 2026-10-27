@@ -11,9 +11,9 @@ ifup | ifupdate) ;;
 esac
 [ "$INTERFACE" = loopback ] && exit 0
 
-if [ -f "$RUNNING_MARKER" ]; then
+if [ -f "$RUNNING_MARKER" ] || pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1; then
 	/usr/bin/mihowrt net-refresh 6>&- 9>&- >/dev/null 2>&1 &
-elif [ "$ACTION" = ifup ] && [ ! -f "$USER_STOP_FILE" ] && /etc/init.d/mihowrt enabled 6>&- 9>&- &&
-	! pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1; then
+elif [ "$ACTION" = ifup ] && [ ! -f "$USER_STOP_FILE" ] &&
+	! [ "$LAST_ERROR_FILE" -nt "$CLASH_CONFIG" ] && /etc/init.d/mihowrt enabled 6>&- 9>&-; then
 	/etc/init.d/mihowrt start 6>&- 9>&- >/dev/null 2>&1 &
 fi

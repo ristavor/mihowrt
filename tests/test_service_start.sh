@@ -36,3 +36,29 @@ for scenario in readiness policy; do
  )
  pass "startup error: $scenario"
 done
+
+(
+ rm -f "$RUNNING_MARKER"
+ applied=0
+ marker_at_unlock=no
+ eval "$(declare -f lock_release | sed '1s/lock_release/real_lock_release/')"
+ lock_release() {
+  if [ "$applied" = 1 ]; then
+   assert_eq 1 "$LOCK_DEPTH" 'startup policy owns runtime lock'
+   [ ! -f "$RUNNING_MARKER" ] || marker_at_unlock=yes
+   applied=2
+  fi
+  real_lock_release
+ }
+ wait_for_ready() { return 0; }
+ policy_reapply() {
+  assert_eq 1 "$LOCK_DEPTH" 'startup policy applied inside runtime lock'
+  applied=1
+ }
+ WATCHDOG_INTERVAL=0.01
+ api_dns_probe() { stop=1; return 0; }
+ run_service
+ assert_eq 2 "$applied" 'startup readiness publication checked under lock'
+ assert_eq yes "$marker_at_unlock" 'startup marker published before releasing policy lock'
+)
+pass 'startup marker and policy share runtime lock'

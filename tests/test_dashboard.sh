@@ -7,7 +7,8 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
 setup_runtime_paths "$tmpdir"
 # Source the real CLI functions without dispatching a command.
-sed '/^cmd=/,$d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$tmpdir/cli-functions.sh"
+sed '/^cmd=/,$d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" |
+ sed "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" >"$tmpdir/cli-functions.sh"
 source "$tmpdir/cli-functions.sh"
 settings_load() { DASHBOARD_ENABLED="$(uci_get dashboard 0)"; API_SECRET=secret; }
 lan_ip_detect() { echo 192.0.2.1; }
@@ -28,6 +29,19 @@ pass 'dashboard-json flag, index and optional byte size'
 
 load_modules job.sh
 reloads=0
+service_running() { return 0; }
+export DOWNLOAD=0 RESTART_FAIL=0
+cat >"$tmpdir/init-mihowrt" <<EOF
+#!/bin/ash
+[ ! -e /proc/self/fd/9 ] || exit 1
+printf '%s\n' "\$*" >>"$tmpdir/init-calls"
+[ "\$RESTART_FAIL" = 0 ] || exit 1
+if [ "\$DOWNLOAD" = 1 ]; then
+ mkdir -p "$CLASH_DIR/ui"; printf panel >"$CLASH_DIR/ui/index.html"
+fi
+EOF
+chmod +x "$tmpdir/init-mihowrt"
+: >"$tmpdir/init-calls"
 with_lock() { "$@"; }
 service_reload() {
  reloads=$((reloads + 1))
@@ -41,18 +55,21 @@ rm -rf "$CLASH_DIR/ui"
 fake_uci_set mihowrt.settings.dashboard 0
 DOWNLOAD=1
 job_validate dashboard-install
-job_execute dashboard-install >"$tmpdir/result"
+job_execute dashboard-install 9>"$tmpdir/runtime.lock" >"$tmpdir/result"
 assert_eq 1 "$(uci_get dashboard)" 'install enables panel'
 assert_true 'install downloads index' test -f "$CLASH_DIR/ui/index.html"
-assert_eq 1 "$reloads" 'install reloads once'
+assert_eq restart "$(cat "$tmpdir/init-calls")" 'running install restarts once'
+assert_eq 0 "$reloads" 'running install does not reload'
 job_execute dashboard-install >/dev/null
-assert_eq 1 "$reloads" 'installed panel no-op'
+assert_eq 1 "$(wc -l <"$tmpdir/init-calls")" 'installed panel no restart'
+assert_eq 0 "$reloads" 'installed panel no reload'
 job_execute dashboard-remove >/dev/null
 assert_eq 0 "$(uci_get dashboard)" 'remove disables panel'
 assert_false 'remove clears files' test -d "$CLASH_DIR/ui"
-assert_eq 2 "$reloads" 'remove reloads once'
+assert_eq 1 "$reloads" 'remove reloads once'
+assert_eq 1 "$(wc -l <"$tmpdir/init-calls")" 'remove never restarts'
 job_execute dashboard-remove >/dev/null
-assert_eq 2 "$reloads" 'removed panel no-op'
+assert_eq 1 "$reloads" 'removed panel no-op'
 pass 'dashboard jobs install, remove and no-op'
 DOWNLOAD=0
 mkdir -p "$CLASH_DIR/ui"; echo partial >"$CLASH_DIR/ui/partial"
@@ -60,18 +77,33 @@ if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 
 assert_eq 0 "$(uci_get dashboard)" 'timeout resets flag'
 assert_false 'timeout deletes partial files' test -d "$CLASH_DIR/ui"
 assert_eq 'Error: Could not download the dashboard. Check that GitHub is reachable from the router.' "$(cat "$tmpdir/error")" 'exact timeout error'
-assert_eq 4 "$reloads" 'timeout reload and rollback reload'
-RELOAD_FAIL=1
-if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'reload failure must fail'; fi
-assert_eq 0 "$(uci_get dashboard)" 'reload failure resets flag'
-assert_file_contains "$tmpdir/error" 'Could not download the dashboard. Check that GitHub is reachable from the router.' 'reload failure exact error'
-RELOAD_FAIL=0
-pass 'dashboard install timeout and reload failure roll back'
+assert_eq 2 "$reloads" 'timeout rollback reload only'
+assert_eq 2 "$(wc -l <"$tmpdir/init-calls")" 'timeout attempts restart'
+RESTART_FAIL=1
+if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'restart failure must fail'; fi
+assert_eq 0 "$(uci_get dashboard)" 'restart failure resets flag'
+assert_file_contains "$tmpdir/error" 'Could not download the dashboard. Check that GitHub is reachable from the router.' 'restart failure exact error'
+RESTART_FAIL=0
+pass 'dashboard install timeout and restart failure roll back'
+
+# Stopped install applies no service action; failure still uses rollback reload.
+service_running() { return 1; }
+before_restarts="$(wc -l <"$tmpdir/init-calls")"
+before_reloads="$reloads"
+if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'stopped install without a download must fail'; fi
+assert_eq "$before_restarts" "$(wc -l <"$tmpdir/init-calls")" 'stopped install never restarts'
+assert_eq "$((before_reloads + 2))" "$reloads" 'stopped install and rollback use reload'
+pass 'dashboard install while stopped keeps reload path'
 
 # Use the actual stopped-service reload, then generate the next-start config.
 load_modules service.sh
 service_ready() { return 1; }
 cron_update() { return 0; }
+if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'actual stopped reload cannot download'; fi
+assert_eq "$before_restarts" "$(wc -l <"$tmpdir/init-calls")" 'actual stopped install starts no service'
+assert_eq 0 "$(uci_get dashboard)" 'actual stopped install rolls back flag'
+assert_false 'actual stopped install clears partial files' test -d "$CLASH_DIR/ui"
+
 fake_uci_set mihowrt.settings.dashboard 1
 mkdir -p "$CLASH_DIR/ui"; echo panel >"$CLASH_DIR/ui/index.html"
 job_execute dashboard-remove >/dev/null

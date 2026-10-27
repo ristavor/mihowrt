@@ -49,7 +49,14 @@ dashboard_install() {
 	}
 	is_uint "$wait_seconds" || wait_seconds=90
 	wait_seconds="$(uint_norm "$wait_seconds")"
-	if uci_set dashboard 1 && uci_commit && with_lock service_reload >/dev/null 2>&1; then
+	if uci_set dashboard 1 && uci_commit && {
+		if service_running; then
+			# Hot reload does not mount /ui/; restart serves it, and init takes the runtime lock itself.
+			/etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1
+		else
+			with_lock service_reload >/dev/null 2>&1
+		fi
+	}; then
 		while [ "$elapsed" -lt "$wait_seconds" ]; do
 			[ ! -f "$CLASH_DIR/ui/index.html" ] || { printf '{}\n'; return 0; }
 			sleep 1

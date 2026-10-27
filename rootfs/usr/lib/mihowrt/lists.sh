@@ -321,6 +321,7 @@ lists_remote_due() {
 # Fetch due remote lists into the cache. Prints "changed" or "unchanged".
 lists_update_remote() {
 	local force="${1:-0}" urls="${2-$(lists_urls)}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0 first_error=""
+	local total="" next_total=""
 
 	ensure_dir "$POLICY_CACHE_DIR" && ensure_dir "$PKG_STATE_DIR/lists-stamp" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
@@ -346,7 +347,24 @@ lists_update_remote() {
 		if cmp -s "$tmp.clean" "$cache"; then
 			: >"$(lists_stamp_file "$cache")"
 		else
+			# Count once, only when a fetch would change a cache. Failed writes
+			# do not consume space; replacing a cache releases its old bytes.
+			if [ -z "$total" ]; then
+				total="$(find "$POLICY_CACHE_DIR" -name '*.txt' -type f -exec wc -c {} + | awk '$2 != "total" { n += $1 } END { printf "%.0f", n }')"
+			fi
+			if ! next_total="$({ wc -c "$tmp.clean" "$cache" 2>/dev/null || true; } | awk -v total="$total" -v max="$LISTS_CACHE_MAX_TOTAL" '
+				NR == 1 { size = $1 }
+				NR == 2 && $2 != "total" { old = $1 }
+				END { n = total + size - old; if (n > max) exit 1; printf "%.0f", n }
+			')"; then
+				line="Remote lists exceed 8 MiB in total"
+				warn "$line"
+				[ -n "$first_error" ] || first_error="$line"
+				failed=$((failed + 1))
+				continue
+			fi
 			if atomic_copy "$tmp.clean" "$cache"; then
+				total="$next_total"
 				changed=1
 				: >"$(lists_stamp_file "$cache")"
 			else

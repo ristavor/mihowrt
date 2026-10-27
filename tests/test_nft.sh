@@ -11,6 +11,21 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh
 setup_runtime_paths "$tmpdir"
 
+# Plain entries predicate must not treat scoped addresses as set members.
+(
+ file="$tmpdir/plain.txt"
+ assert_false 'missing list has no plain entries' nft_has_plain_entries "$file"
+ : >"$file"
+ assert_false 'empty list has no plain entries' nft_has_plain_entries "$file"
+ printf '1.1.1.1;443\n;53\n' >"$file"
+ assert_false 'port-only list has no plain entries' nft_has_plain_entries "$file"
+ printf '2001:db8::1\n' >>"$file"
+ assert_true 'mixed list has plain entries' nft_has_plain_entries "$file"
+ printf '1.1.1.1\n' >"$file"
+ assert_true 'plain list has entries' nft_has_plain_entries "$file"
+ pass 'plain-entry predicate handles missing, empty, scoped and mixed lists'
+)
+
 # Port rules group exact specs in first-appearance order, with bounded chunks.
 (
  NFT_FILE="$tmpdir/port-rules.nft"

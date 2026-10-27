@@ -29,12 +29,8 @@ nft_fill_set() {
 	' >>"$NFT_FILE"
 }
 
-nft_set_count() {
-	[ -s "$1" ] || {
-		echo 0
-		return 0
-	}
-	grep -vc ';' "$1" || true
+nft_has_plain_entries() {
+	[ -s "$1" ] && grep -qv ';' "$1"
 }
 
 # Group exact port specs in first-appearance order, at most 512 addresses per
@@ -202,9 +198,8 @@ nft_render_netbird_output() {
 nft_render_list_marks() {
 	local chain="$1" f4="$2" f6="$3" field="$4" set="$5"
 
-
-	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip $field @$set meta l4proto { tcp, udp } $NFT_MARK_SET"
-	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 $field @${set}6 meta l4proto { tcp, udp } $NFT_MARK_SET"
+	nft_has_plain_entries "$f4" && nft_rule "$chain" "ip $field @$set meta l4proto { tcp, udp } $NFT_MARK_SET"
+	nft_has_plain_entries "$f6" && nft_rule "$chain" "ip6 $field @${set}6 meta l4proto { tcp, udp } $NFT_MARK_SET"
 	nft_port_rules "$chain" "$f4" ip "$field" "$NFT_MARK_SET"
 	nft_port_rules "$chain" "$f6" ip6 "$field" "$NFT_MARK_SET"
 }
@@ -212,8 +207,8 @@ nft_render_list_marks() {
 nft_render_direct_returns() {
 	local chain="$1" f4="$2" f6="$3"
 
-	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip daddr @direct_dst return"
-	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 daddr @direct_dst6 return"
+	nft_has_plain_entries "$f4" && nft_rule "$chain" "ip daddr @direct_dst return"
+	nft_has_plain_entries "$f6" && nft_rule "$chain" "ip6 daddr @direct_dst6 return"
 	nft_port_rules "$chain" "$f4" ip daddr return
 	nft_port_rules "$chain" "$f6" ip6 daddr return
 }
@@ -232,9 +227,9 @@ nft_render_direct_devices() {
 		[ "$DISABLE_QUIC" = "1" ] && nft_rule direct_device_policy "ip daddr $FAKEIP_RANGE udp dport 443 reject"
 		nft_rule direct_device_policy "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } $NFT_MARK_SET | $NFT_DIRECT_MARK accept"
 	fi
-	[ "$(nft_set_count "$fmac")" -gt 0 ] && nft_rule "$chain" "ether saddr @direct_src_mac $action"
-	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip saddr @direct_src $action"
-	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 saddr @direct_src6 $action"
+	nft_has_plain_entries "$fmac" && nft_rule "$chain" "ether saddr @direct_src_mac $action"
+	nft_has_plain_entries "$f4" && nft_rule "$chain" "ip saddr @direct_src $action"
+	nft_has_plain_entries "$f6" && nft_rule "$chain" "ip6 saddr @direct_src6 $action"
 	nft_port_rules "$chain" "$f4" ip saddr "$action"
 	nft_port_rules "$chain" "$f6" ip6 saddr "$action"
 }

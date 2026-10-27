@@ -159,7 +159,7 @@ grep -q 'subscription.\$\$.yaml' "$MIHOWRT_LIB_DIR/subscription.sh" || fail "sub
 pass "per-process temp files"
 
 # Subscription download bypasses Mihomo only while it runs.
-load_modules lists.sh nft.sh
+load_modules lists.sh nft.sh route.sh
 nft_log="$tmpdir/nft.log"
 : >"$nft_log"
 nft() { echo "nft $*" >>"$nft_log"; }

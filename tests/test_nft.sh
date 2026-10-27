@@ -8,7 +8,7 @@ tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh
 setup_runtime_paths "$tmpdir"
 
 # Port rules group exact specs in first-appearance order, with bounded chunks.
@@ -136,6 +136,27 @@ render() {
 	mkdir -p "$tmpdir/work"
 	nft_render "$out" "$tmpdir/work"
 }
+
+# Disabled IPv6 must never receive an intercept mark without a local route.
+(
+ ROUTE_PROC_ROOT="$tmpdir/no-ipv6"
+ mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all"
+ : >"$ROUTE_PROC_ROOT/net/if_inet6"
+ echo 1 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+ for POLICY_MODE in direct-first proxy-first; do
+  render
+  assert_file_not_contains "$out" 'tproxy ip6' "$POLICY_MODE has no IPv6 TPROXY without route"
+  for chain in prerouting_policy mangle_output; do
+   assert_file_contains "$out" "$chain meta nfproto ipv6 return" "$POLICY_MODE/$chain skips disabled IPv6"
+   assert_true "$POLICY_MODE/$chain IPv6 guard before marking" awk -v chain="$chain" '
+    $5 != chain { next }
+    /meta nfproto ipv6 return$/ { guarded = 1 }
+    /meta mark set/ && !guarded { exit 1 }
+   ' "$out"
+  done
+ done
+ pass 'disabled IPv6 cannot be intercepted'
+)
 
 # Replies must leave every policy path before marks or IPv6 rejection.
 (

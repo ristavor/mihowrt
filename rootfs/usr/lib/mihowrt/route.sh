@@ -4,9 +4,21 @@
 # TPROXY socket can take them. Table id and rule priority are picked from free
 # ranges and remembered in $ROUTE_STATE_FILE for cleanup.
 
+route_ipv6_enabled() {
+	local root="${ROUTE_PROC_ROOT:-/proc}" scope="" disabled=""
+
+	[ -e "$root/net/if_inet6" ] || return 1
+	for scope in all lo; do
+		disabled=""
+		read -r disabled 2>/dev/null <"$root/sys/net/ipv6/conf/$scope/disable_ipv6" || true
+		[ "$disabled" != 1 ] || return 1
+	done
+	return 0
+}
+
 route_families() {
 	echo 4
-	[ -e /proc/net/if_inet6 ] && echo 6
+	route_ipv6_enabled && echo 6
 	return 0
 }
 

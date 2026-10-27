@@ -12,6 +12,23 @@ load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh li
 setup_runtime_paths "$tmpdir"
 
 
+# A compiled IPv6 stack is not necessarily enabled on the loopback route.
+(
+ ROUTE_PROC_ROOT="$tmpdir/proc"
+ mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/"{all,lo}
+ assert_eq 4 "$(route_families)" 'missing IPv6 stack'
+ : >"$ROUTE_PROC_ROOT/net/if_inet6"
+ for disabled in all lo neither; do
+  echo 0 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+  echo 0 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/lo/disable_ipv6"
+  [ "$disabled" = neither ] || echo 1 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/$disabled/disable_ipv6"
+  expected=4
+  [ "$disabled" != neither ] || expected=$'4\n6'
+  assert_eq "$expected" "$(route_families)" "IPv6 disabled on $disabled"
+ done
+ pass 'route families respect all and loopback IPv6 disable flags'
+)
+
 ROUTE_STATE_FILE="$tmpdir/route.state"
 calls="$tmpdir/calls"
 : >"$calls"
@@ -25,11 +42,9 @@ ip() {
 	esac
 	return 0
 }
-route_families() {
-	echo 4
-	[ "${WITH_V6:-0}" = 1 ] && echo 6
-	return 0
-}
+ROUTE_PROC_ROOT="$tmpdir/proc"
+mkdir -p "$ROUTE_PROC_ROOT/net"
+rm -f "$ROUTE_PROC_ROOT/net/if_inet6"
 
 route_setup || fail "setup must succeed"
 assert_file_contains "$ROUTE_STATE_FILE" "TABLE=202" "first free table skips used ids"
@@ -39,13 +54,14 @@ assert_file_not_contains "$calls" "ip -6" "no IPv6 calls without IPv6"
 pass "route v6 skipped without IPv6"
 
 : >"$calls"
-WITH_V6=1 route_setup
+: >"$ROUTE_PROC_ROOT/net/if_inet6"
+route_setup
 assert_file_contains "$calls" "ip -6 route replace local default dev lo table 202" "v6 local route"
 assert_file_contains "$calls" "ip -6 rule add fwmark 0x08000000/0x08000000 lookup 202 priority 10001" "v6 rule"
 pass "route v6 added with IPv6"
 
 : >"$calls"
-WITH_V6=1 route_cleanup
+route_cleanup
 assert_file_contains "$calls" "ip -4 rule del fwmark 0x08000000/0x08000000 lookup 202 priority 10001" "current mark rule removed"
 assert_file_not_contains "$calls" "0x00001000" "runtime cleanup must not remove legacy mark rules"
 assert_file_contains "$calls" "ip -6 route flush table 202" "v6 table flushed"

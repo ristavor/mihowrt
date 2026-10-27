@@ -4,7 +4,7 @@ source "$(dirname "$0")/testlib.sh"
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh
 setup_runtime_paths "$tmpdir"
 API_SECRET=s3cr3t-value-0001
 src="$tmpdir/source.yaml"

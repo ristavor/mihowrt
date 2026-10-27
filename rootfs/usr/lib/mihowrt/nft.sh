@@ -189,6 +189,7 @@ nft_render_client_ipv6() {
 nft_render_guards() {
 	local chain="$1"
 
+	route_ipv6_enabled || nft_rule "$chain" "meta nfproto ipv6 return"
 	nft_rule "$chain" "fib daddr type local return"
 	nft_rule "$chain" "ip daddr @localv4 return"
 	nft_rule "$chain" "ip6 daddr @localv6 return"
@@ -341,7 +342,7 @@ nft_render() {
 		nft_rule proxy_redirect "meta mark & $NFT_DIRECT_MARK == $NFT_DIRECT_MARK meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_DIRECT_TPROXY_PORT accept"
 	fi
 	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:$MIHOMO_TPROXY_PORT"
-	nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:$MIHOMO_TPROXY_PORT"
+	route_ipv6_enabled && nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:$MIHOMO_TPROXY_PORT"
 
 	# Router-originated traffic. Mihomo's own sockets carry the routing mark.
 	nft_rule mangle_output "meta mark $MIHOMO_ROUTING_MARK return"

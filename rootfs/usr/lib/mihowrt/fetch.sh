@@ -68,24 +68,6 @@ device_os_version() {
 
 # --- HTTP ------------------------------------------------------------------
 
-# Last value of a response header across redirect blocks.
-fetch_header() {
-	awk -v name="$2" '
-		BEGIN { name = tolower(name) }
-		/^HTTP\// { value = "" }
-		{
-			line = $0
-			sub(/\r$/, "", line)
-			i = index(line, ":")
-			if (i && tolower(substr(line, 1, i - 1)) == name) {
-				value = substr(line, i + 1)
-				sub(/^[[:space:]]+/, "", value)
-			}
-		}
-		END { print value }
-	' "$1" 2>/dev/null | single_line
-}
-
 # http_fetch <url> <out> <max_bytes> <timeout_seconds|core> <device_headers 0|1> [headers_file]
 # Sets FETCH_ERROR (network|too_large|http_<code>|invalid_url), FETCH_HTTP_STATUS
 # and FETCH_HDR (the explicit headers_file, otherwise empty).

@@ -147,6 +147,51 @@ assert_eq "3|1700000000|12" "$(jq -r '"\(.upload + .download)|\(.expire)|\(.head
 rm -f "$FETCH_HDR"
 pass "subscription metadata"
 
+# E7: freeze subscription metadata fixtures (redirect chain, CRLF, base64 title, empty fields, missing userinfo, spaces/odd order)
+fixture_header_test() {
+	local hdr="$1" expected="$2" name="$3"
+	local f="$tmpdir/fixture.headers"
+	printf '%b' "$hdr" >"$f"
+	FETCH_HDR="$f"
+	assert_eq "$expected" "$(subscription_metadata_from_headers)" "$name"
+	rm -f "$f"
+}
+
+fixture_header_test \
+	'HTTP/1.1 302 Found\r\nLocation: /next\r\nProfile-Title: Old Title\r\nsubscription-userinfo: upload=999\r\n\r\nHTTP/1.1 200 OK\r\nProfile-Title: New Title\r\nsubscription-userinfo: upload=100; download=200\r\n' \
+	'{"profile_title":"New Title","announce":"","support_url":"","web_page_url":"","header_interval":null,"upload":100,"download":200,"total":null,"expire":null}' \
+	"E7 fixture: redirect chain (two header blocks)"
+
+fixture_header_test \
+	'HTTP/1.1 200 OK\r\nprofile-title: CRLF Title\r\nsupport-url: https://help.example\r\nprofile-web-page-url: https://web.example\r\nprofile-update-interval: 24\r\nsubscription-userinfo: upload=10; download=20; total=30; expire=40\r\n' \
+	'{"profile_title":"CRLF Title","announce":"","support_url":"https://help.example","web_page_url":"https://web.example","header_interval":24,"upload":10,"download":20,"total":30,"expire":40}' \
+	"E7 fixture: CRLF"
+
+fixture_header_test \
+	'HTTP/1.1 200 OK\r\nProfile-Title: base64:0JvQuNGH0L3QsNGPIPCfmoA=\r\nannounce: base64:SGVsbG8gV29ybGQ=\r\n' \
+	'{"profile_title":"Личная 🚀","announce":"Hello World","support_url":"","web_page_url":"","header_interval":null,"upload":null,"download":null,"total":null,"expire":null}' \
+	"E7 fixture: base64 title and announce"
+
+fixture_header_test \
+	'HTTP/1.1 200 OK\r\nProfile-Title: \r\nprofile-update-interval: \r\nsubscription-userinfo: upload=; download=; total=; expire=\r\n' \
+	'{"profile_title":"","announce":"","support_url":"","web_page_url":"","header_interval":null,"upload":null,"download":null,"total":null,"expire":null}' \
+	"E7 fixture: empty fields"
+
+fixture_header_test \
+	'HTTP/1.1 200 OK\r\nProfile-Title: Just Title\r\n' \
+	'{"profile_title":"Just Title","announce":"","support_url":"","web_page_url":"","header_interval":null,"upload":null,"download":null,"total":null,"expire":null}' \
+	"E7 fixture: missing userinfo"
+
+fixture_header_test \
+	'HTTP/1.1 200 OK\r\nsubscription-userinfo:   expire=99999 ;  total=50000 ;  download=3000 ; upload=1000  \r\n' \
+	'{"profile_title":"","announce":"","support_url":"","web_page_url":"","header_interval":null,"upload":1000,"download":3000,"total":50000,"expire":99999}' \
+	"E7 fixture: userinfo with spaces and odd order"
+
+# E7: one awk pass in subscription.sh, no fetch_header
+assert_eq 1 "$(sed -n '/subscription_metadata_from_headers() {/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/subscription.sh" | grep -c 'awk ')" "single awk pass in subscription_metadata_from_headers"
+assert_false "no fetch_header calls in subscription.sh" grep -q 'fetch_header' "$ROOT_DIR/rootfs/usr/lib/mihowrt/subscription.sh"
+pass "frozen subscription header fixtures and one awk pass"
+
 printf '%s\n' "$meta" >"$SUBSCRIPTION_META_FILE"
 assert_eq 12 "$(settings_subscription_interval)" "auto interval from provider header"
 fake_uci_set mihowrt.settings.subscription_auto_update 0

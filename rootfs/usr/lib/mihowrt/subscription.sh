@@ -38,19 +38,89 @@ userinfo_field() {
 }
 
 subscription_metadata_from_headers() {
-	local userinfo=""
+	local file="${FETCH_HDR:-/dev/null}"
+	local title="" announce="" support="" web="" interval=""
+	local upload="" download="" total="" expire=""
 
-	userinfo="$(fetch_header "$FETCH_HDR" subscription-userinfo)"
+	[ -f "$file" ] || file=/dev/null
+	{
+		IFS= read -r title || true
+		IFS= read -r announce || true
+		IFS= read -r support || true
+		IFS= read -r web || true
+		IFS= read -r interval || true
+		IFS= read -r upload || true
+		IFS= read -r download || true
+		IFS= read -r total || true
+		IFS= read -r expire || true
+	} <<EOF
+$(awk '
+/^HTTP\// {
+	title = ""; announce = ""; support = ""; web = ""; interval = ""; userinfo = ""
+}
+{
+	line = $0
+	sub(/\r$/, "", line)
+	i = index(line, ":")
+	if (i) {
+		name = tolower(substr(line, 1, i - 1))
+		val = substr(line, i + 1)
+		gsub(/[\r\n\t]/, " ", val)
+		gsub(/[\001-\037]/, "", val)
+		sub(/^[[:space:]]+/, "", val)
+		sub(/[[:space:]]+$/, "", val)
+		if (name == "profile-title") title = val
+		else if (name == "announce") announce = val
+		else if (name == "support-url") support = val
+		else if (name == "profile-web-page-url") web = val
+		else if (name == "profile-update-interval") interval = val
+		else if (name == "subscription-userinfo") userinfo = val
+	}
+}
+END {
+	if (userinfo != "") {
+		n = split(userinfo, parts, ";")
+		for (k = 1; k <= n; k++) {
+			p = parts[k]
+			sub(/^[[:space:]]+/, "", p)
+			eq = index(p, "=")
+			if (eq) {
+				kname = substr(p, 1, eq - 1)
+				val = substr(p, eq + 1)
+				match(val, /^[0-9]*/)
+				digits = substr(val, RSTART, RLENGTH)
+				if (kname == "upload" && !has_u) { upload = digits; has_u = 1 }
+				else if (kname == "download" && !has_d) { download = digits; has_d = 1 }
+				else if (kname == "total" && !has_t) { total = digits; has_t = 1 }
+				else if (kname == "expire" && !has_e) { expire = digits; has_e = 1 }
+			}
+		}
+	}
+	print title
+	print announce
+	print support
+	print web
+	print interval
+	print upload
+	print download
+	print total
+	print expire
+}' "$file" 2>/dev/null)
+EOF
+
+	title="$(subscription_decode_metadata_value "$title")"
+	announce="$(subscription_decode_metadata_value "$announce")"
+
 	jq -nc \
-		--arg title "$(subscription_decode_metadata_value "$(fetch_header "$FETCH_HDR" profile-title)")" \
-		--arg announce "$(subscription_decode_metadata_value "$(fetch_header "$FETCH_HDR" announce)")" \
-		--arg support "$(fetch_header "$FETCH_HDR" support-url)" \
-		--arg web "$(fetch_header "$FETCH_HDR" profile-web-page-url)" \
-		--arg interval "$(fetch_header "$FETCH_HDR" profile-update-interval)" \
-		--arg upload "$(userinfo_field "$userinfo" upload)" \
-		--arg download "$(userinfo_field "$userinfo" download)" \
-		--arg total "$(userinfo_field "$userinfo" total)" \
-		--arg expire "$(userinfo_field "$userinfo" expire)" '
+		--arg title "$title" \
+		--arg announce "$announce" \
+		--arg support "$support" \
+		--arg web "$web" \
+		--arg interval "$interval" \
+		--arg upload "$upload" \
+		--arg download "$download" \
+		--arg total "$total" \
+		--arg expire "$expire" '
 		def num: if . == "" then null else (tonumber? // null) end;
 		{profile_title: $title, announce: $announce, support_url: $support,
 		 web_page_url: $web, header_interval: ($interval | num),

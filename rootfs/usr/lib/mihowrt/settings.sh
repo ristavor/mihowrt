@@ -58,6 +58,7 @@ settings_check_netbird_mark() {
 	esac
 	[ $((mark & 255)) -eq 0 ] || return 1
 	[ $((mark & intercept)) -eq 0 ] || return 1
+	[ $((mark & NFT_DIRECT_MARK)) -eq 0 ] || return 1
 	[ $((mark & ZAPRET_DESYNC_MARK)) -eq 0 ] || return 1
 	[ $((mark & ZAPRET_DESYNC_MARK_POSTNAT)) -eq 0 ] || return 1
 	[ "$MIHOMO_ROUTING_MARK" -lt "$mark" ] || [ "$MIHOMO_ROUTING_MARK" -gt $((mark + 255)) ]

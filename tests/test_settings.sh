@@ -94,6 +94,8 @@ expect_invalid() {
 }
 
 expect_invalid source_network_interfaces 'br;lan'
+expect_invalid netbird_mark 0x04000000
+expect_invalid netbird_mark 0x0401BD00
 expect_invalid netbird_mark 0x08000000
 expect_invalid netbird_mark 0x1BD01
 expect_invalid subscription_url 'ftp://x'

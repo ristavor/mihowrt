@@ -199,7 +199,7 @@ lists_classify() {
 			addr = $0; ports = ""
 			if (index($0, ";")) { addr = substr($0, 1, index($0, ";") - 1); ports = substr($0, index($0, ";") + 1) }
 			fam = ""
-			if (ports != "" && !ports_ok(ports)) fam = ""
+			if (index($0, ";") && !ports_ok(ports)) fam = ""
 			else if (addr == "") fam = (ports != "") ? "any" : ""
 			else if (v4(addr)) fam = "4"
 			else if (v6(addr)) fam = "6"

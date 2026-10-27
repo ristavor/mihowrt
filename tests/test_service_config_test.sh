@@ -33,6 +33,13 @@ assert_stamp() {
 }
 run_case() (
  case "$1" in
+ miss)
+  sha256sum() { echo hash >>"$tmpdir/hashes"; command sha256sum "$@"; }
+  runtime_config_build "$RUNTIME_CONFIG"
+  assert_eq 1 "$(wc -l <"$tmpdir/hashes" | tr -d ' ')" 'start stamp miss hashes runtime config only once'
+  assert_eq 1 "$(wc -l <"$tmpdir/calls" | tr -d ' ')" 'start stamp miss tests core'
+  assert_stamp "$RUNTIME_CONFIG" v1.2.3
+  ;;
  hit)
   runtime_config_build "$RUNTIME_CONFIG"
   runtime_config_build "$RUNTIME_CONFIG"
@@ -83,10 +90,10 @@ run_case() (
   ;;
  esac
 )
-cases=(hit config core candidate failed reload)
+cases=(miss hit config core candidate failed reload)
 [ $# -eq 0 ] || cases=("$@")
 for scenario in "${cases[@]}"; do
- rm -f "$tmpdir/calls" "$tmpdir/reject" "$CONFIG_TESTED_FILE" "$CORE_VERSION_CACHE"
+ rm -f "$tmpdir/calls" "$tmpdir/hashes" "$tmpdir/reject" "$CONFIG_TESTED_FILE" "$CORE_VERSION_CACHE"
  printf 'Mihomo v1.2.3\n' >"$tmpdir/version"
  printf 'mode: rule\n' >"$CLASH_CONFIG"
  run_case "$scenario"

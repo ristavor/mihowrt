@@ -128,7 +128,7 @@ mihomo_config_test_key() {
 # Validate a generated config with Mihomo itself. Its own error text is the
 # most useful message for the user, so it is passed through.
 mihomo_config_test() {
-	local config="$1" bin="${2:-$CLASH_BIN}" memlimit="" key=""
+	local config="$1" bin="${2:-$CLASH_BIN}" memlimit="" key="${3:-}"
 
 	CONFIG_TEST_OUTPUT=""
 	[ -x "$bin" ] || {
@@ -144,7 +144,7 @@ mihomo_config_test() {
 		fi
 		"$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1
 	)"; then
-		if key="$(mihomo_config_test_key "$config" "$bin")"; then
+		if [ -n "$key" ] || key="$(mihomo_config_test_key "$config" "$bin")"; then
 			ensure_dir "$PKG_STATE_DIR" && atomic_write "$CONFIG_TESTED_FILE" "$key"
 		fi
 		return 0

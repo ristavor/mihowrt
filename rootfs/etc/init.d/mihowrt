@@ -23,9 +23,10 @@ start_service() {
 		[ -n "$skip" ] && return 0
 	fi
 	mkdir -p "$PKG_STATE_DIR" || return 1
-	rm -f "$USER_STOP_FILE" "$LAST_ERROR_FILE" "$HEALTH_FILE" "$DEGRADED_FILE"
+	rm -f "$USER_STOP_FILE" "$LAST_ERROR_FILE" "$HEALTH_FILE" "$DEGRADED_FILE" "$CONFIG_INVALID_FILE"
 	# prepare records its error in LAST_ERROR_FILE; warnings stay quiet.
 	"$MIHOWRT" prepare 2>/dev/null || {
+		: >"$CONFIG_INVALID_FILE"
 		cat "$LAST_ERROR_FILE" >&2
 		logger -p daemon.err -t mihowrt "Start aborted: configuration is not valid: $(cat "$LAST_ERROR_FILE" 2>/dev/null)"
 		return 1

@@ -28,7 +28,7 @@ start) echo start >"$HOTPLUG_TEST_DIR/command" ;;
 esac
 INIT
 chmod +x "$tmpdir/bin/pgrep" "$tmpdir/cli" "$tmpdir/init"
-cases=(supervisor_ifup supervisor_ifupdate broken fixed stopped disabled marker)
+cases=(supervisor_ifup supervisor_ifupdate broken fixed not_ready core_exited watchdog stopped disabled marker)
 [ $# -eq 0 ] || cases=("$@")
 for scenario in "${cases[@]}"; do
  rm -f "$tmpdir/command" "$tmpdir/supervisor" "$tmpdir/disabled" "$tmpdir/run/"*
@@ -38,8 +38,22 @@ for scenario in "${cases[@]}"; do
  case "$scenario" in
  supervisor_ifup) touch "$tmpdir/supervisor" ;;
  supervisor_ifupdate) touch "$tmpdir/supervisor"; action=ifupdate ;;
- broken) touch -d '2021-01-01' "$tmpdir/run/last_error"; expected=none ;;
- fixed) touch -d '2019-01-01' "$tmpdir/run/last_error"; expected=start ;;
+ broken) touch -d '2021-01-01' "$tmpdir/run/config.invalid"; expected=none ;;
+ fixed)
+  touch -d '2021-01-01' "$tmpdir/run/config.invalid" "$tmpdir/run/last_error"
+  touch -d '2022-01-01' "$tmpdir/clash/config.yaml"
+  expected=start
+  ;;
+ not_ready | core_exited | watchdog)
+  case "$scenario" in
+  not_ready) error='Mihomo did not become ready; router stays on direct routing' ;;
+  core_exited) error='Mihomo exited unexpectedly' ;;
+  watchdog) error='Mihomo API is not responding; restarting core' ;;
+  esac
+  printf '%s\n' "$error" >"$tmpdir/run/last_error"
+  touch -d '2021-01-01' "$tmpdir/run/last_error"
+  expected=start
+  ;;
  stopped) touch "$tmpdir/run/stopped"; expected=none ;;
  disabled) touch "$tmpdir/disabled"; expected=none ;;
  marker) touch "$tmpdir/run/running" ;;

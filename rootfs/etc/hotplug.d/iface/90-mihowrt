@@ -4,6 +4,7 @@
 
 # WAN came up: refresh DNS bypass and connected networks, or restart an
 # enabled service that procd gave up on (e.g. watchdog during a long outage).
+# Invalid configuration blocks auto-start until the config changes or Start.
 # A service stopped by the user (Stop) stays stopped until Start or reboot.
 case "$ACTION" in
 ifup | ifupdate) ;;
@@ -14,6 +15,6 @@ esac
 if [ -f "$RUNNING_MARKER" ] || pgrep -f "$SUPERVISOR_CMD" >/dev/null 2>&1; then
 	/usr/bin/mihowrt net-refresh 6>&- 9>&- >/dev/null 2>&1 &
 elif [ "$ACTION" = ifup ] && [ ! -f "$USER_STOP_FILE" ] &&
-	! [ "$LAST_ERROR_FILE" -nt "$CLASH_CONFIG" ] && /etc/init.d/mihowrt enabled 6>&- 9>&-; then
+	! [ "$CONFIG_INVALID_FILE" -nt "$CLASH_CONFIG" ] && /etc/init.d/mihowrt enabled 6>&- 9>&-; then
 	/etc/init.d/mihowrt start 6>&- 9>&- >/dev/null 2>&1 &
 fi

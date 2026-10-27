@@ -71,13 +71,17 @@ pass 'startup marker and policy share runtime lock'
  export INIT_TEST_STATE="$PKG_STATE_DIR"
  cat >"$MIHOWRT" <<'CLI'
 #!/bin/sh
-for file in health degraded last_error; do
+for file in health degraded last_error config.invalid; do
  [ ! -e "$INIT_TEST_STATE/$file" ] || echo "$file" >>"$INIT_TEST_STATE/stale"
 done
+if [ -f "$INIT_TEST_STATE/reject" ]; then
+ echo 'Mihomo rejected the configuration' >"$INIT_TEST_STATE/last_error"
+ exit 1
+fi
 CLI
  chmod +x "$MIHOWRT"
- touch "$HEALTH_FILE" "$DEGRADED_FILE" "$LAST_ERROR_FILE"
- procd_open_instance() { :; }
+ touch "$HEALTH_FILE" "$DEGRADED_FILE" "$LAST_ERROR_FILE" "$CONFIG_INVALID_FILE"
+ procd_open_instance() { touch "$PKG_STATE_DIR/launched"; }
  procd_set_param() { :; }
  procd_close_instance() { :; }
  start_service
@@ -85,5 +89,17 @@ CLI
  assert_false 'start clears health before supervisor launch' test -e "$HEALTH_FILE"
  assert_false 'start clears degraded before supervisor launch' test -e "$DEGRADED_FILE"
  assert_false 'start clears last error before supervisor launch' test -e "$LAST_ERROR_FILE"
+ assert_false 'start clears config invalid marker before prepare' test -e "$CONFIG_INVALID_FILE"
+ assert_true 'valid configuration launches supervisor' test -f "$PKG_STATE_DIR/launched"
+ rm "$PKG_STATE_DIR/launched"
+ touch "$PKG_STATE_DIR/reject"
+ assert_false 'invalid configuration aborts start' start_service 2>"$tmpdir/prepare.err"
+ assert_true 'prepare failure marks configuration invalid' test -f "$CONFIG_INVALID_FILE"
+ assert_file_contains "$tmpdir/prepare.err" 'Mihomo rejected the configuration' 'prepare failure keeps error text'
+ assert_false 'invalid configuration never launches supervisor' test -e "$PKG_STATE_DIR/launched"
+ rm "$PKG_STATE_DIR/reject"
+ start_service
+ assert_false 'manual start clears previous configuration failure' test -e "$CONFIG_INVALID_FILE"
+ assert_true 'fixed configuration launches supervisor' test -f "$PKG_STATE_DIR/launched"
 )
-pass 'start removes stale health, degraded and last error'
+pass 'start removes stale state and marks only configuration failures'

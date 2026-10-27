@@ -211,6 +211,7 @@ setup_runtime_paths() {
 	HEALTH_FILE="$PKG_STATE_DIR/health"
 	DEGRADED_FILE="$PKG_STATE_DIR/degraded"
 	LAST_ERROR_FILE="$PKG_STATE_DIR/last_error"
+	CONFIG_INVALID_FILE="$PKG_STATE_DIR/config.invalid"
 	CORE_VERSION_CACHE="$PKG_STATE_DIR/core.version"
 	RUNNING_MARKER="$PKG_STATE_DIR/running"
 	USER_STOP_FILE="$PKG_STATE_DIR/stopped"

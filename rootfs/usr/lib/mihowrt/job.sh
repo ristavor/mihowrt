@@ -184,6 +184,18 @@ job_execute() {
 	esac
 }
 
+job_log_cap() {
+	local file="$1" max="${JOB_LOG_MAX:-65536}" tmp=""
+
+	[ -f "$file" ] || return 0
+	[ "$(wc -c <"$file" 2>/dev/null)" -gt "$max" ] 2>/dev/null || return 0
+	tmp="$file.cap.$$"
+	if tail -c "$max" "$file" >"$tmp" 2>/dev/null && mv -f "$tmp" "$file"; then
+		return 0
+	fi
+	rm -f "$tmp"
+}
+
 job_run() {
 	local id="${1:-}" op="${2:-}" state=ok result=null error=""
 
@@ -209,6 +221,8 @@ job_run() {
 		[ -n "$error" ] || error='The operation failed.'
 	fi
 	result="$(jq -sc 'if length == 1 then .[0] else null end' "$JOBS_DIR/$id.out" 2>/dev/null)" || result=null
+	job_log_cap "$JOBS_DIR/$id.out"
+	job_log_cap "$JOBS_DIR/$id.err"
 	job_with_state_lock job_complete "$id" "$state" "$result" "$error"
 }
 

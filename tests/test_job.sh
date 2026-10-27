@@ -38,6 +38,11 @@ lists_refresh() {
  text) echo not-json ;;
  empty) ;;
  lines) i=0; while [ "$i" -lt 25 ]; do echo "Error: line $i" >&2; i=$((i + 1)); done; return 1 ;;
+ big)
+  awk 'BEGIN { for (i = 1; i <= 2100; i++) printf "%099d\n", i; print "last-out-line" }'
+  awk 'BEGIN { for (i = 1; i <= 2100; i++) printf "%099d\n", i; print "last-err-line" }' >&2
+  return 1
+  ;;
  *) echo '{"changed":true}' ;;
  esac
 }
@@ -305,3 +310,21 @@ done
 rm -rf "$tmpdir/run/jobs"
 assert_eq '{"state":"none"}' "$(cli job-status)" 'empty job history'
 pass 'keeps five newest jobs'
+
+# X8: job .out and .err capped at JOB_LOG_MAX bytes, keeping tail; small output untouched.
+echo big >"$tmpdir/mode"
+start_job update-lists; wait_job
+out_size="$(wc -c <"$tmpdir/run/jobs/$id.out")"
+err_size="$(wc -c <"$tmpdir/run/jobs/$id.err")"
+assert_true "job .out capped at <= 65536 bytes (was $out_size)" test "$out_size" -le 65536
+assert_true "job .err capped at <= 65536 bytes (was $err_size)" test "$err_size" -le 65536
+assert_eq "last-out-line" "$(tail -n 1 "$tmpdir/run/jobs/$id.out")" "job .out ends with last line"
+assert_eq "last-err-line" "$(tail -n 1 "$tmpdir/run/jobs/$id.err")" "job .err ends with last line"
+
+echo ok >"$tmpdir/mode"
+start_job update-lists; wait_job
+small_out_size="$(wc -c <"$tmpdir/run/jobs/$id.out")"
+assert_true "small output <= 65536" test "$small_out_size" -le 65536
+assert_eq '{"changed":true}' "$(cat "$tmpdir/run/jobs/$id.out")" "small output untouched"
+pass 'job log cap limits large output to JOB_LOG_MAX and keeps tail'
+

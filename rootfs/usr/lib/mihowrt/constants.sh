@@ -5,6 +5,7 @@ CONFLICT_PACKAGES="podkop luci-app-podkop luci-app-passwall luci-app-passwall2 l
 PKG_TMP_DIR="/tmp/mihowrt"
 PKG_STATE_DIR="/var/run/mihowrt"
 JOBS_DIR="$PKG_STATE_DIR/jobs"
+JOB_LOG_MAX="65536"
 PKG_PERSIST_DIR="/etc/mihowrt"
 API_SECRET_FILE="$PKG_PERSIST_DIR/api_secret"
 POLICY_CACHE_DIR="$PKG_PERSIST_DIR/policy-cache"

@@ -3,23 +3,38 @@
 ## 0.11.0
 
 Added
+- OpenWrt 24.10 packages (`.ipk`, opkg) alongside OpenWrt 25.12 APKs; the installer selects the package manager. Both formats and the Russian translation are published with checksums.
+- Optional dashboard: fresh installs no longer download it automatically. Install it on Overview while MihoWRT is running, open it after installation, or remove it under Traffic → Advanced. Existing dashboard installations are retained.
+- Local Mihomo core installation with `mihowrt core-update --file <path.gz|binary>`, plus a configurable installer release asset base (`MIHOWRT_RELEASE_URL`) and offline installation instructions.
+- Diagnostics show runtime data size/free tmpfs and whether the client IPv6 block is in effect in the current mode.
 - Provider-controlled blocking of client IPv6 that would bypass Mihomo, with local IPv6 and router/Mihomo traffic preserved. It is off by default, works only in *Only selected traffic via proxy* mode, and can be set by the provider (`x-mihowrt.block-client-ipv6`) or switched on the *Traffic* page (*Use my own value*).
 - *Devices always direct* now also works in *All traffic via proxy* with fake-IP DNS: connections of those devices to fake addresses go through a dedicated Mihomo listener (`mihowrt-direct`, port 7895) and are sent DIRECT. If the provider YAML cannot be extended safely (for example non-empty flow-style `listeners` or `rules`), the subscription still applies, a warning is logged and the devices follow the normal policy, as in 0.10.
 - Diagnostics warn about a plain-http subscription link and report proxy listeners that are open without a password, including the ones defined under `listeners:`.
 
 Fixes
+- Replies to inbound connections (port forwards and router WAN services) are no longer intercepted. Routing rules use priorities 50–99 ahead of typical NetBird/mwan3 rules, and reject overlapping NetBird marks. Kernel-disabled IPv6 permits IPv4-only startup.
+- Failed subscription policy applies restore the previous YAML, runtime config and profile; the older backup is retained until success. Persistent list caches and subscription metadata are published atomically even across filesystems.
+- DNS and `x-mihowrt` block forms are checked consistently, including quoted/spaced keys. Empty port scopes are rejected. A partial remote-list update now reports failure while retaining old caches for failed downloads.
+- Remote-list caches are capped at 8 MiB total and background output/error logs at 64 KiB each. Remote-list check stamps and crontab comparisons avoid unnecessary flash writes; idle cron ticks skip list work.
+- Automatic subscription/list updates share the LuCI job slot. Start clears stale health/errors, hotplug retains startup events, and routing failures are no longer described as core-readiness failures.
+- Background jobs keep unsaved page edits. Saving a changed subscription link validates it through a download before storing it; list refresh is always accessible, proxy selection is debounced, and Overview refreshes once after startup. Read-only users no longer see write actions; errors and Russian translations are clearer.
+- The installer works without a controlling terminal when an action is supplied, installs only missing dependencies, preserves autostart on update and reports reinstall/removal accurately. Default HTTPS downloads cannot redirect to another protocol; the fallback script mirror is release-pinned.
+- Package upgrades/reinstalls clean unmerged APK UCI defaults; removal does not create empty config directories.
 - Router-owned DNS (queries sent to any address of the router, including a global IPv6 address) always reaches dnsmasq, so local names such as `<host>.lan` keep resolving to local addresses.
 - The controller secret is no longer stored in UCI or passed on command lines: it lives in `/etc/mihowrt/api_secret` (root-only) and is hidden in the read-only YAML view. An upgrade moves the old value there.
 - *Last update* of the subscription survives a reboot.
 - *Update now* with an empty subscription link is refused instead of downloading with the old link.
 - Lists with port-scoped entries (`;443`) produce one nftables rule per port spec instead of one per entry, and only the lists of the active mode are resolved.
 - Bursts of interface events (hotplug) are merged into one network refresh.
-- Reloading an unchanged configuration skips the core test; the proxy group list is built in linear time.
+- Reloading unchanged generator inputs reuses the runtime YAML and skips its core test; unchanged policy inputs skip list resolution/ruleset rendering. Network refreshes also skip unchanged connected-prefix/DNS inputs. The proxy group list is built in linear time.
 - Provider list URLs that point to local or reserved ranges (including `198.18.0.0/15`, `192.0.0.0/24`, multicast and `fec0::/10`) are rejected; `192.88.99.0/24` is treated as local.
 - Cached lists are kept when the provider profile cannot be read.
-- The test run of a downloaded Mihomo core is memory-limited, which gives more free RAM during a core update on 128 MiB routers (the lowest free memory seen in the VM rose from about 4.3–4.8 MiB to about 6.0 MiB; no out-of-memory kill in either case).
+- Core downloads use stall limits and retries instead of a fixed five-minute deadline; compressed downloads and test files are cleaned up earlier. Installed-core validation uses the running-core memory budget, while candidate-core validation keeps a smaller budget. Core updates worked in the 128 MiB VM with ≈6–8 MiB minimum MemAvailable; large YAML still needs more RAM.
+- The YAML renderer streams the source instead of storing the whole output; list resolution classifies entries in one pass, light status/job reads load fewer modules, and diagnostics read the package database once. These reduce transient work without adding a resident process.
 
 Project
+- User-focused English and Russian quick starts; separate user guide, technical reference and development/release instructions, including low-memory and dumb-AP limits.
+- Release CI builds both SDKs, inspects APK/IPK contents, supports build-only manual runs, and limits job time/concurrency. Bug reports request diagnostics, OpenWrt version and architecture; each new release candidate needs a new package revision.
 - The boot-time `mihowrt-recover` script is removed (a reboot already clears its state); an upgrade removes its leftover link.
 - Internal cleanups: one helper for locked configuration changes, one `yaml_has_top_key`, one curl call in `http_fetch`, no dead helpers.
 - `tools/build-sdk.sh` builds only in Docker; GitHub Actions are pinned to commit SHAs.

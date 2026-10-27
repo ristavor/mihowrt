@@ -141,4 +141,3 @@ A failed refresh reports an error even if some lists updated successfully; old c
 
 Provider list entries are validated the same way; invalid ones are dropped
 with a warning.
-

@@ -1,51 +1,46 @@
 # MihoWRT open issues
 
-State after 0.11.0 (branch `feat/0.11.0`, 2026-10-27). The release is not tagged or pushed yet.
-Each item says where it comes from: a review, VM verification (OpenWrt 25.12.6 x86/64) or the router acceptance run on wr3000s.
+State of the 0.11.0 stable-review documentation checkpoint (2026-10-28). This is not release approval or physical-router acceptance. See [reference limits](reference.md#known-limits) and [release procedure](development.md#versioning-and-releases).
 
-## Needs a decision
+## Addressed in this source tree
 
-None.
+- **D1 / subscription rollback:** YAML backup rotates only after a successful install/reload/policy apply. A failed apply restores the pre-install YAML/runtime/profile; a failed restore reports and retains recovery files.
+- **D6 / stale health:** start clears old health, degraded and error state before launching the supervisor.
+- **D15 / concurrent cron:** auto-update uses the LuCI job slot; a busy tick skips instead of competing with a running operation.
+- **Diagnostics IPv6 flag:** shows whether the configured client IPv6 block is in effect in the current mode.
+- **Large-list resolve:** one classification pass replaces repeated per-family passes. VM 10 000-entry comparisons showed reduced resolve time; that is not a physical-router timing guarantee. Unchanged policy and runtime generation are skipped on reload.
+- **Core-update memory:** temporary compressed data is removed before validation; candidate tests remain memory-limited. Core updates succeeded in the 128 MiB VM with ≈6–8 MiB minimum MemAvailable. This closes the review change, not all low-memory capacity concerns (see below).
+- **Stable-review fixes:** inbound replies bypass interception, policy priorities use 50–99, kernel-disabled IPv6 does not block IPv4 start, subscription policy rollback and persistent-file publication are safer, remote-cache/job-log budgets are bounded, UI jobs preserve unsaved edits, and the dashboard is opt-in. APK upgrades/reinstalls remove `.apk-new` defaults; read-only actions and upload ACLs were tightened.
+- **Earlier checkpoint items:** provider URL range policy (D2), keeping caches when the profile is unreadable (D3), test coverage gaps (D10), Docker-only SDK build (D13), pinned Actions (D16). D9 (`api.job`/`api.jobNotice` depend on `this`) was dropped because no caller destructures them.
 
-## Decisions of checkpoint C1 (2026-10-26)
+## Still deferred
 
-- **Runtime lock (G1): L0.** No lock-related failure in the unit suites, reviews or the VM; 10 `ifupdate` events in under 1 s with a slowed `nft_apply` gave one coalesced `net_refresh`, no `Runtime is busy` and no fd 6/9 leak. The lock code is unchanged; its two limits below are documented, not fixed.
-- **Done in 0.11.0:** provider list URL policy (all local and reserved ranges, D2), list cache kept when the profile is unreadable (D3), test gaps (D10), pinned GitHub Actions (D16), Docker-only SDK build (D13), bounded core-test memory (D11).
-- **Dropped:** D9 (`api.job`/`api.jobNotice` rely on `this`): no caller destructures them.
-- **Client IPv6 flag (user decision):** `block-client-ipv6` is an explicit, provider-controlled, client-only flag. It works only in direct-first mode (*Only selected traffic via proxy*), rejects (TCP reset / ICMPv6 administratively prohibited) non-local client IPv6 that would bypass Mihomo, and is off by default. It does not disable kernel or Mihomo IPv6 and does not guarantee an IPv4 fallback in applications.
-- **Devices always direct with fake-IP:** supported through the `mihowrt-direct` listener (port 7895). MihoWRT does not add private or vendor domains to `fake-ip-filter`; domain handling is the provider's job. Provider YAML forms that cannot be extended safely fall back to the old behaviour with one warning.
+### Runtime and capacity
 
-## Deferred (later releases)
+- **D4. A killed runtime-lock holder's foreground child may retain the lock until exit.** Checkpoint C1 kept L0: no new failure evidence justifies a lock redesign; normal locked children are short-lived.
+- **D5. Failure to write the lock owner file can silently drop the lock.** Also kept at L0 by C1; the timeout may say `(process )`. No new evidence changed that decision.
+- **D7. Dumb AP mode follows WAN detection.** A default route through the LAN bridge makes that bridge WAN; non-RFC1918 connected subnets on it are not excluded. Inherent in the algorithm, documented rather than redesigned.
+- **Large YAML on 128 MiB:** the 8 MiB fixture exhausted memory in all tested builds, including 0.10. Keep YAML small on 128 MiB; several-MiB configs need 256 MiB+. 512 MiB succeeded, 256 MiB was not measured. An upload limit does not promise enough runtime RAM.
+- **Unconfirmed physical-router memory-leak report:** investigation postponed by the user, not claimed fixed by resource optimisations.
 
-### Behaviour
-- **D1. Restore after a failed reload loses the older YAML.** `config_install` overwrites `.bak` before the reload; if the reload fails, the rollback puts back the current YAML and the former `.bak` is gone. The same applies to the editor. Fix idea: keep `.bak` until the reload succeeds.
-- **D4. The runtime lock can outlive a killed holder (G1 = L0).** Foreground children of a holder killed with SIGKILL keep it until they exit (seen in the VM: a `sleep` kept it 54 s). Runtime children under the lock are short-lived.
-- **D5. Losing the owner file drops the lock (G1 = L0).** If the owner file cannot be written (full tmpfs), the lock is dropped without a message. The timeout text then reads `(process )`.
-- **D6. Health files can outlive a SIGKILL.** If the supervisor is SIGKILLed, the `health`/`degraded` files stay until the next start. A TERM during startup can leave `last_error` behind.
-- **D7. AP mode is treated as WAN.** If the default route is via the LAN bridge (dumb AP), the bridge counts as WAN and its non-RFC1918 subnets are not excluded. This is inherent to the specified algorithm.
-- **D15. Cron auto-update can run next to a LuCI job.** Kept as is for 0.11.0 (C1 decision: keep deferred).
-- **Diagnostics does not show whether the IPv6 flag is in effect in the current mode.** The flag is stored, but it has no effect outside direct-first; the page does not say so.
-- **Large-list resolve speed.** `lists_resolve` (classify awk x2 + sort) takes about 6 s of about 9 s for 10 000 entries in the emulated VM (QEMU TCG, no KVM); re-measure on the router (F3) before optimising.
-- **Core update memory on 128 MiB routers.** With the bounded test run the lowest free memory seen in the VM during `core-update` is about 6.0 MiB (it was about 4.3 MiB before); no out-of-memory kill in either case. Measured only in the QEMU VM.
-- **Unconfirmed router memory-leak report:** not investigated in 0.11.0 (postponed by the user).
+### UI (theme-owned rendering)
 
-### UI (theme-only rule kept)
-- **D8. The "?" icon before field descriptions sits higher than the text:** theme rendering (footstrap). VM check 2026-10-23: the same offset (icon top 1 px above the glyph) on MihoWRT pages and on stock Network → DHCP and System. No MihoWRT change.
-- **D8. footstrap names both lease picker dropdowns after the field title** ("Devices always direct"): its `fs-select.js` replaces native selects with `ui.Dropdown` and sets `aria-label` from `.cbi-value-title`, ignoring the select's own `aria-label` (same on stock pages). Report upstream; other themes use our names.
+- **D8. Description `?` icon alignment in footstrap:** also observed on stock LuCI pages. No app styling workaround under the theme-only rule.
+- **D8. footstrap lease picker labels:** its dropdown replacement takes the field title instead of the select's own `aria-label`, also on stock pages. Upstream/theme issue; other themes use the supplied names.
 
-### Other
-- **D12. Two validator sets.** Shell and awk validate the same values separately; they are kept in sync by tests, not shared code.
-- **The fd 9 static check is line-based:** a background shell function started under the lock would not be caught (none exists).
-- **D14. APKs are not signed.** The installer checks every download against `SHA256SUMS` from the release.
+### Maintenance and distribution
 
-## Acceptance status and limits
+- **D12. Separate shell and awk validators:** retained deliberately, with parity tests; no shared-validator rewrite.
+- **D14. Packages are not signed; no signed opkg feed.** Key management needs a separate decision. Installer `SHA256SUMS` protects download integrity, not release authenticity.
+- **jq → ucode:** the proposed migration is not in this source tree; current package and installer still require jq. Do not describe that proposal as shipped.
+- **fd 9 static check:** line-based; it would not catch a background shell function started under a lock (none currently exists).
 
-- **Done:** container test suite and the repeatable synthetic VM acceptance (`./tests/router/run-network.sh`, evidence in `.build/verification-0110/`, not in git). The synthetic rows are marks, namespaces and a dummy interface; they are not a transport proof.
-- **Not tested yet (router acceptance F3, needs the user's yes):** wr3000s run, UI on footstrap (RU, 1440/390 px), real NetBird peers, split DNS and reconnect across NAT. Real NetBird compatibility is **not claimed** from synthetic evidence.
-- **Not tested:** hardware offloading and flows offloaded before a policy change. Such connections can continue until their flowtable entries expire; the client IPv6 block is not a persistent kill-switch.
-- **Telegram:** the reported hang with IPv6 in direct-first is **not confirmed fixed**. Exact IPv6 refusal does not prove application fallback; the cause and the IPv4 retry stay unverified until a test on the affected client.
-- **Main routing table only:** connected-network exclusions read only the main table, not mwan3 or other policy tables.
-- **Provider list redirects:** URLs are checked before download only; curl follows redirects (README *Known limits*).
+## Acceptance boundaries / not checked here
 
-## Release run
-Order is in README *Development*: `vX-rc1` as a pre-release first, check the workflow output, then `vX`, wait for the release workflow, then `git push origin main`. Nothing is tagged or pushed without the user's explicit yes.
+- OpenWrt 24.10 VM runtime/package-hook acceptance is ongoing; feed/image inspection and an IPK build alone do not prove feature parity. See the [24.10 pending limits](reference.md#openwrt-2410).
+- No physical-router F3 approval, real NetBird peers, split DNS/reconnect across NAT, hardware offloading or previously offloaded flows are claimed from synthetic VM evidence.
+- Telegram's reported IPv6/direct-first hang is not confirmed fixed: an IPv6 refusal does not prove application IPv4 fallback on the affected client.
+- Russian responsive/theme visual acceptance remains separate from string coverage. The synthetic QEMU harness cannot prove physical-router throughput or memory peaks; a safe sysupgrade backup/restore check is not an actual firmware-flash test.
+- Main-table-only connected-network exclusions, DoH/DoT bypass, redirect trust and the non-persistent client IPv6 block remain [documented limits](reference.md#known-limits).
+
+Tagging, pushing, publishing and physical-router checks require explicit approval. No release status follows from this checklist.

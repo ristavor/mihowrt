@@ -413,6 +413,30 @@ assert_eq "inspect script fails on non-executable etc/init.d/mihowrt" 1 "$mock_b
 rm -rf "$inspect_test_dir"
 
 # Test 15: license and package metadata
+BUG_YML="${ROOT_DIR}/.github/ISSUE_TEMPLATE/bug.yml"
+if [[ -f "$BUG_YML" ]]; then
+	printf 'ok - bug.yml exists\n'
+	passed=$((passed + 1))
+	bug_yml="$(cat "$BUG_YML")"
+	assert_contains "bug.yml asks for OpenWrt version" "OpenWrt version" "$bug_yml"
+	assert_contains "bug.yml asks for device/arch" "device/arch" "$bug_yml"
+	assert_contains "bug.yml asks for MihoWRT version" "MihoWRT version" "$bug_yml"
+	assert_contains "bug.yml asks for diagnostics JSON" "mihowrt diagnostics-json" "$bug_yml"
+	assert_contains "bug.yml renders diagnostics as json" "render: json" "$bug_yml"
+	assert_contains "bug.yml asks for steps to reproduce" "Steps to reproduce" "$bug_yml"
+	assert_contains "bug.yml asks for expected/actual" "Expected / actual" "$bug_yml"
+	if ! grep -P '[\x80-\xFF]' "$BUG_YML" >/dev/null; then
+		printf 'ok - bug.yml is English only (no non-ASCII bytes)\n'
+		passed=$((passed + 1))
+	else
+		printf 'not ok - bug.yml has non-ASCII bytes\n' >&2
+		failed=$((failed + 1))
+	fi
+else
+	printf 'not ok - bug.yml exists\n' >&2
+	failed=$((failed + 1))
+fi
+
 makefile_content="$(cat "${ROOT_DIR}/Makefile")"
 assert_contains "Makefile declares PKG_LICENSE" "PKG_LICENSE:=GPL-3.0-or-later" "$makefile_content"
 assert_contains "Makefile declares PKG_LICENSE_FILES" "PKG_LICENSE_FILES:=LICENSE" "$makefile_content"

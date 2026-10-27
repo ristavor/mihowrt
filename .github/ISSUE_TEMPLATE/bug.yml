@@ -1,0 +1,62 @@
+name: Bug report
+description: Report an issue or unexpected behavior in MihoWRT
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting an issue! Please provide the details below so we can reproduce and fix it.
+  - type: input
+    id: openwrt-version
+    attributes:
+      label: OpenWrt version
+      description: Installed OpenWrt version (e.g. 25.12.6, 24.10.0).
+      placeholder: e.g. 25.12.6
+    validations:
+      required: true
+  - type: input
+    id: device-arch
+    attributes:
+      label: Router device/arch
+      description: Hardware model and architecture (e.g. x86_64, aarch64_cortex-a53).
+      placeholder: e.g. x86_64
+    validations:
+      required: true
+  - type: input
+    id: mihowrt-version
+    attributes:
+      label: MihoWRT version
+      description: Installed MihoWRT package version (e.g. 0.11.0).
+      placeholder: e.g. 0.11.0
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics-json
+    attributes:
+      label: Output of mihowrt diagnostics-json
+      description: Paste the JSON output of running `mihowrt diagnostics-json` on the router.
+      render: json
+    validations:
+      required: true
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Describe the exact steps taken leading up to the issue.
+      placeholder: |
+        1. Go to '...'
+        2. Click on '...'
+        3. See error
+    validations:
+      required: true
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: Expected / actual behavior
+      description: What did you expect to happen, and what happened instead?
+      placeholder: |
+        Expected:
+        Actual:
+    validations:
+      required: true

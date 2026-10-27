@@ -144,6 +144,23 @@ grep -q 'ROUTER_KERNEL:-openwrt-25.12.6' "${ROUTER_DIR}/entrypoint.sh" || fail '
 grep -q 'ROUTER_ROOTFS:-openwrt-25.12.6' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must take the rootfs name from ROUTER_ROOTFS'
 echo 'ok - guest release selection (25.12 default, 24.10)'
 
+# Exercise smoke package selection without running the transport or a VM.
+smoke_selection="$(sed -n '/^VERSION=/,/^echo "\[smoke\] Installing/p' "${ROUTER_DIR}/run-smoke.sh")"
+[ -n "$smoke_selection" ] || fail 'smoke package selection block missing'
+mkdir -p "$tmpdir/smoke/dist"
+printf 'PKG_VERSION:=0.11.0\nPKG_RELEASE:=7\n' >"$tmpdir/smoke/Makefile"
+touch "$tmpdir/smoke/dist/luci-app-mihowrt-0.11.0-r7.apk" "$tmpdir/smoke/dist/luci-i18n-mihowrt-ru-0.11.0-r7.apk"
+if ! PROJECT_ROOT="$tmpdir/smoke" DIST_DIR="$tmpdir/smoke/dist" bash -eu -c "$smoke_selection" >"$tmpdir/smoke-selected" 2>&1; then
+  cat "$tmpdir/smoke-selected" >&2
+  fail 'run-smoke.sh must select the Makefile package revision, not hardcode r1'
+fi
+echo 'ok - smoke selects the current Makefile package revision (no VM)'
+rm "$tmpdir/smoke/dist/luci-i18n-mihowrt-ru-0.11.0-r7.apk"
+if PROJECT_ROOT="$tmpdir/smoke" DIST_DIR="$tmpdir/smoke/dist" bash -eu -c "$smoke_selection" >"$tmpdir/smoke-missing" 2>&1; then
+  fail 'smoke must refuse a missing current-revision translation package'
+fi
+echo 'ok - smoke refuses an incomplete current-revision package pair (no VM)'
+
 # Boots a QEMU OpenWrt VM via Docker; keep it out of the default unit suite.
 if [ "${MIHOWRT_ROUTER_TESTS:-0}" != "1" ]; then
   echo "1..0 # SKIP set MIHOWRT_ROUTER_TESTS=1 to run the OpenWrt VM harness"

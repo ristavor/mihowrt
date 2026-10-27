@@ -53,8 +53,9 @@ VM() { "${SCRIPT_DIR}/ssh.sh" "$@"; }
 fail() { echo " FAILED: $*"; exit 10; }
 
 VERSION="$(sed -n 's/^PKG_VERSION:=//p' "${PROJECT_ROOT}/Makefile")"
-APP_APK="${DIST_DIR}/luci-app-mihowrt-${VERSION}-r1.apk"
-RU_APK="${DIST_DIR}/luci-i18n-mihowrt-ru-${VERSION}-r1.apk"
+RELEASE="$(sed -n 's/^PKG_RELEASE:=//p' "${PROJECT_ROOT}/Makefile")"
+APP_APK="${DIST_DIR}/luci-app-mihowrt-${VERSION}-r${RELEASE}.apk"
+RU_APK="${DIST_DIR}/luci-i18n-mihowrt-ru-${VERSION}-r${RELEASE}.apk"
 [ -f "${APP_APK}" ] && [ -f "${RU_APK}" ] || { echo "Error: ${VERSION} APKs not found in ${DIST_DIR}" >&2; exit 2; }
 
 echo "[smoke] Installing ${VERSION} packages..."

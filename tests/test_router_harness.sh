@@ -24,6 +24,11 @@ grep -q 'network.m22c.proto=static' "$guest" || fail 'netifd must retain the sel
 if grep -Eq '(killall|pkill|conntrack -F|flush ruleset|sysctl -w)' "$guest"; then
   fail 'guest must not use broad process, conntrack or network mutations'
 fi
+for script in "$host" "$guest"; do
+  grep -q "'local names'" "$script" || fail 'network matrix must include local names'
+done
+grep -q 'dhcp.m22host.name=m22host.lan' "$guest" || fail 'local names must use a fixture-owned dnsmasq host record'
+grep -q 'check_local_names' "$guest" || fail 'local names must have a guest check'
 bash -n "$host"
 sh -n "$guest"
 echo 'ok - network fixture static safety contracts (no VM)'
@@ -64,6 +69,7 @@ if grep -vxF '127.0.0.1|1|mihowrt-openwrt-test' "$NETWORK_FAKE_ENV"; then
 fi
 [ ! -e "$NETWORK_FAKE_REMOVED" ] || fail 'failed restoration must preserve guest recovery snapshots'
 grep -q '| nft syntax | NOT TESTED |' "$tmpdir/project/.build/verification-0110/network/REPORT.md" || fail 'failed transport must not claim synthetic PASS'
+grep -q '| local names | NOT TESTED |' "$tmpdir/project/.build/verification-0110/network/REPORT.md" || fail 'failed transport must report local names as untested'
 echo 'ok - network host pins transport, fails closed and retains failed-restore state'
 
 grep -q -- '-e "VM_MEM=${VM_MEM:-512}"' "${ROUTER_DIR}/start.sh" || fail 'start.sh must pass VM_MEM (default 512) to the VM container'

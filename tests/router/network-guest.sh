@@ -129,7 +129,7 @@ fi
 mkdir "$WORK/logs" "$WORK/saved" || fatal 'refuse existing guest fixture state'
 : >"$WORK/results.tsv"
 for name in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
-	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'fake-IP direct devices' lifecycle; do
+	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' lifecycle; do
 	record "$name" 'NOT TESTED' 'not reached'
 done
 trap cleanup EXIT
@@ -245,6 +245,9 @@ uci set 'dhcp.@dnsmasq[0].domain=corp22'
 uci set "dhcp.@dnsmasq[0].leasefile=$WORK/leases"
 uci add_list 'dhcp.@dnsmasq[0].server=/conditional22.test/198.19.22.2'
 uci add_list 'dhcp.@dnsmasq[0].server=/openwrt.org/10.0.2.3'
+uci set dhcp.m22host=domain
+uci set dhcp.m22host.name=m22host.lan
+uci set dhcp.m22host.ip=192.0.2.10
 uci set dhcp.m22static=domain
 uci set dhcp.m22static.name=static22.corp22
 uci set dhcp.m22static.ip=192.0.2.9
@@ -748,6 +751,27 @@ check_routes_dns() {
 	fi
 }
 
+check_local_names() {
+	local pair="" router="" router_hex=""
+	router="$(uci -q get system.@system[0].hostname)"
+	[ -n "$router" ]
+	router_hex="$(printf '%s' "$router" | hexdump -v -e '1/1 "%02x"')"
+	for pair in direct-first:fake-ip proxy-first:fake-ip proxy-first:redir-host; do
+		profile "${pair%:*}" "${pair#*:}" false 1
+		set_lists empty
+		dns_udp 192.0.2.1 m22host.lan A 192.0.2.10
+		absent grep -q '198[.]18[.]' "$WORK/logs/dns-last.log"
+		dns_tcp 192.0.2.1 m22host.lan A c000020a
+		dns_udp 192.0.2.1 "$router.corp22" A 192.0.2.1
+		absent grep -q '198[.]18[.]' "$WORK/logs/dns-last.log"
+		dns_tcp 192.0.2.1 "$router.corp22" A c0000201
+		dns_udp 192.0.2.1 10.2.0.192.in-addr.arpa PTR m22host.lan
+		dns_tcp 192.0.2.1 10.2.0.192.in-addr.arpa PTR 6d3232686f7374036c616e
+		dns_udp 192.0.2.1 1.2.0.192.in-addr.arpa PTR "$router"
+		dns_tcp 192.0.2.1 1.2.0.192.in-addr.arpa PTR "$router_hex"
+	done
+}
+
 check_fakeip_direct() {
 	local address="" direct_pid="" proxy_pid="" i="" found=0
 	profile proxy-first fake-ip true 1
@@ -881,6 +905,7 @@ row 'local and IPv4 retained' 'IPv4, local DNS UDP/TCP, local IPv6, ND/RA/DHCPv6
 row 'core and other ingress retained' 'IPv4 via IPv6 SOCKS5 node, router output and unselected ingress succeed' check_core
 row 'NetBird synthetic' '2 interfaces/bases, 2 proxy settings, packet/ct original/reply paths, start orders/reconnect/fw4' check_netbird
 row 'routes and DNS boundaries' 'occupied slots preserved, live prefix updates and DNS ownership/conditional boundaries' check_routes_dns
+row 'local names' 'fixture host and router names resolve to LAN addresses over UDP/TCP, with local reverse answers in fake-ip/redir-host' check_local_names
 row 'fake-IP direct devices' 'listed MAC fake-IP uses mihowrt-direct/DIRECT; unlisted device uses NODE22; real addresses bypass' check_fakeip_direct
 row lifecycle 'provider/override, no-op, failed transaction, stop/watchdog/restart fresh flows' check_lifecycle
 CURRENT=complete

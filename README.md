@@ -1,464 +1,92 @@
 # MihoWRT
 
-MihoWRT runs [Mihomo](https://github.com/MetaCubeX/mihomo) on an OpenWrt router
-and gives it a simple LuCI interface. Mihomo stays the proxy engine (rules,
-groups, providers, DNS); MihoWRT connects it to the router: transparent proxy
-(TPROXY) for IPv4 and IPv6, DNS redirection, policy lists, subscriptions,
-updates and self-healing.
+[Русский](README.ru.md)
 
-Typical use:
-
-- **Most users** paste a subscription link and press *Connect*. The
-  subscription decides the mode, DNS and router settings (provider-first);
-  every provider setting can be overridden on the router.
-- **Advanced users** edit the Mihomo YAML on the *Subscription* page.
-- Everyone can keep addresses or devices always via proxy or always direct on the *Traffic* page.
+MihoWRT runs [Mihomo](https://github.com/MetaCubeX/mihomo) on OpenWrt with a LuCI interface: transparent IPv4/IPv6 proxying (TPROXY), DNS redirection, subscriptions, device/address lists and self-healing. Mihomo keeps control of proxy groups, rules, providers and DNS. Paste a subscription link to begin; advanced users can edit the YAML.
 
 ## Requirements
 
-- OpenWrt 25.12 or newer (APK package manager), fw4/nftables.
-- About 20 MB download for the Mihomo core (about 55 MB unpacked; compressing
-  overlays such as UBIFS or JFFS2 need less flash) and 128 MiB of RAM or more.
-- Dependencies installed automatically: `luci-base cgi-io jq nftables kmod-nft-tproxy curl`.
+- OpenWrt **25.12 (apk)** or **24.10 (opkg)**, firewall4/nftables. See [24.10 limits](docs/reference.md#openwrt-2410).
+- **128 MiB RAM minimum, 256 MiB recommended.** Large configs (several MiB) need **256 MiB+**; on 128 MiB keep the YAML small. An 8 MiB config ran out of memory on 128 MiB in every tested build, including 0.10; 512 MiB passed, 256 MiB was not measured.
+- **100 MiB+ free flash**: core ≈12 MiB compressed, up to ≈55 MiB unpacked, ×2 during update; geodata and dashboard are extra (dashboard measured 5284 KiB installed). Sizes vary by core/architecture.
+- Core updates worked on 128 MiB in the VM, with only ≈6–8 MiB MemAvailable at the low point; not a hardware guarantee.
+- Dependencies: `luci-base cgi-io jq nftables kmod-nft-tproxy curl` (package manager resolves them). Russian UI also needs `luci-i18n-base-ru` and `luci-i18n-mihowrt-ru`.
 
-## Install, update, remove
+## Install and first start
 
-On the router (`wget` is part of every OpenWrt image; the installer adds
-`curl` itself):
+1. Run on the router as root:
+   ```sh
+   wget -qO- https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+   ```
+   Choose install and language. The installer selects APK/IPK, checks `SHA256SUMS`, installs missing dependencies and runs `core-update` **only if the core is missing**. For Russian, install the base translation too: `apk add luci-i18n-base-ru` or `opkg update && opkg install luci-i18n-base-ru`.
+2. Open **LuCI → Services → MihoWRT**, paste the subscription link and press **Connect**.
+3. Check Overview; use **Traffic** for devices and exclusions, **Diagnostics** if something fails. The optional dashboard is off by default: **Install dashboard** on Overview is available only while the service runs; remove it under **Traffic → Advanced**.
+
+Without a terminal, download `install.sh` first, then run:
 
 ```sh
-wget -qO- https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh
+MIHOWRT_ACTION=install MIHOWRT_LANGUAGE=en sh install.sh
 ```
 
-With `curl` already installed the same works as
-`curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh`.
+## Update
 
-If `raw.githubusercontent.com` is unreachable, use the jsDelivr mirror of the
-release-tagged installer:
+Run the installer again. APK and IPK updates keep language, core and user files, preserve running/stopped state, and restart a previously running service; a disabled service is not enabled again. <!-- verify: 24.10 hooks (sr-opkg-vm) --> Update Mihomo separately on Overview or with `mihowrt core-update`. Subscription updates replace your YAML, including manual edits. Upgrades from 0.9.0+ are supported; from 0.8 or older remove the package first, then install.
+
+## Remove
+
+Use `MIHOWRT_ACTION=remove sh install.sh`, or the commands for your package manager (omit the translation package if not installed):
+
+```sh
+apk del luci-i18n-mihowrt-ru luci-app-mihowrt
+# OpenWrt 24.10:
+opkg remove luci-i18n-mihowrt-ru luci-app-mihowrt
+```
+
+APK and IPK removal stops the service and removes the core, dashboard and geodata. YAML, lists, UCI settings and device ID stay. <!-- verify: 24.10 hooks (sr-opkg-vm) --> **`mihowrt uninstall` only cleans up the runtime/core/geodata; it does not remove the package.**
+
+## If GitHub is unavailable
+
+If only `raw.githubusercontent.com` is blocked, the release-pinned installer mirror may help:
 
 ```sh
 wget -qO- https://cdn.jsdelivr.net/gh/ristavor/mihowrt@v0.11.0/install.sh | sh
 ```
 
-This third-party mirror is an additional trust point: its script runs as root.
-
-The installer downloads `SHA256SUMS` and the APKs from the latest GitHub
-release (`releases/latest/download/`, no GitHub API) and verifies every APK
-against `SHA256SUMS`; a mismatch or a missing entry aborts the install.
-APKs are not signed yet; `SHA256SUMS` protects against damaged downloads, not
-against a compromised release. `mihowrt core-update` (also run by the
-installer) asks the GitHub API for the Mihomo release and checks the download
-against the SHA-256 digest published there; if the API is blocked it takes the
-tag from the `releases/latest` redirect, downloads the core from
-`github.com/.../releases/download/` and only logs a warning, because no digest
-is available on that path.
-
-The installer asks for the action (install/update or remove) and, on a fresh
-install, for the language (English or Russian). Updates keep the language.
-Non-interactive use:
+This third-party mirror is an extra trust point: its script runs as root. It does not mirror the package/core downloads. The installer accepts a trusted release asset base containing packages and `SHA256SUMS`:
 
 ```sh
-MIHOWRT_ACTION=install MIHOWRT_LANGUAGE=ru sh install.sh
-MIHOWRT_ACTION=remove sh install.sh
+MIHOWRT_ACTION=install MIHOWRT_RELEASE_URL=https://mirror.example/mihowrt/v0.11.0 sh install.sh
 ```
 
-After a fresh install open **LuCI → Services → MihoWRT** and connect your
-subscription. Package updates through `apk` keep the service running: the old
-service is stopped, settings are migrated and the new version starts again.
-
-Removing the package (`apk del`, or the installer's remove action) stops the
-service and cleans up DNS, nftables, routes, cron and the state in `/tmp`. It
-removes the Mihomo core, the dashboard and the geodata. It keeps your
-`/opt/clash/config.yaml` (and `.bak`), the lists in `/opt/clash/lst/`,
-`/etc/config/mihowrt` and the device ID `/etc/mihowrt/hwid`, so the provider
-sees the same device after a reinstall.
-
-### Upgrading from 0.8 or older
-
-Upgrades are supported from 0.9.0 and newer. From 0.8 or older: remove MihoWRT
-(installer → Remove, or `apk del luci-app-mihowrt`), then install 0.11. Your
-YAML, lists and settings are kept.
-
-## Pages
-
-| Page | What it does |
-|---|---|
-| Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
-| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MiB) and *Restore the previous YAML* |
-| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, NTP and subscription DNS bypass, NetBird. One *Save & Apply* button applies lists and settings together |
-| Diagnostics | Checklist with fixes (core, config, service state and last error, DNS answers, rules, conflicting dnsmasq servers, conflicting proxy packages, free flash and RAM, open proxy ports), details (including Mihomo memory) and log |
-
-### Background jobs
-
-Long actions (connect, core update, subscription update, list refresh, saving
-the YAML or the lists, start/stop/restart) run in the background, one at a
-time, so a slow router or a closed browser tab does not interrupt them. The page
-polls the result; every page shows a notice while a job is running. A second
-action during that time is refused with *Another operation is running*. If the
-router reboots mid-way, the job is reported as interrupted; every action is safe
-to run again. The status block of the Overview page refreshes by itself.
-
-### Editing the YAML
-
-The editor on the *Subscription* page takes a YAML up to 8 MiB. An empty YAML is
-refused and nothing is changed. *Restore the previous YAML* puts
-`config.yaml.bak` back (the current one becomes the new backup, so restore can
-be undone). A subscription update or an automatic update replaces the YAML
-again. The YAML is loaded when you open the editor; if it cannot be loaded, the
-editor is not shown, so a broken page can never overwrite it.
-
-*Show the YAML passed to Mihomo* shows, read-only, the generated
-`/tmp/mihowrt/config.yaml` (router keys replaced, default DNS and sniffer
-added, `x-mihowrt` removed). When MihoWRT has not started since boot, it shows
-what would be passed at start.
-
-### Devices
-
-*Devices via proxy* / *Devices always direct* take **MAC addresses**
-(`aa:bb:cc:dd:ee:ff`, any case) or **IP addresses**, mixed in one list. The
-lease picker adds a device as *MAC (IPv4 + IPv6)* (default) or *IP address*.
-Devices with a private (randomized) Wi-Fi MAC are marked *private MAC* in the
-picker, and the field description says how to keep it fixed for your network.
-One MAC entry covers IPv4 and IPv6 of the device; an IPv4 entry never
-covers its IPv6 traffic, and IPv6 privacy addresses change daily anyway.
-Address lists (*Addresses ...*) accept no MAC.
-
-Phones and laptops use a private (random) Wi-Fi address per network:
-
-- Keep a fixed address for this network: iPhone, iPad, Mac: *Private Wi-Fi
-  Address* = *Fixed*; Android: *Use randomized MAC* (kept per network); Windows:
-  *Random hardware addresses*, not *Change daily*. Rotating modes (Apple
-  *Rotating*, Android non-persistent) break the entry.
-- The address changes after *Forget this network* or a reset. A new MAC also gets
-  a new DHCP lease, so IPv4 entries and static leases break the same way.
-- A device that changes its address drops out of the list and gets the
-  default of the mode: direct in *Only selected traffic via proxy*, via proxy in
-  *All traffic via proxy*. Nothing breaks. The page shows entries that are not in
-  the current DHCP leases as *Not connected now* (MAC and IPv4 only).
-- MAC entries work only for devices in the router's own L2 network. Behind
-  another router or a mesh node in router mode the router sees the MAC of that
-  router or node, not of the device, so MAC entries do not match; use IP entries
-  there.
-
-### Modes
-
-The mode follows the DNS settings of your YAML; there is no switch:
-
-- **Only selected traffic via proxy**: only when `dns.enhanced-mode` is
-  `fake-ip` and `dns.fake-ip-filter-mode` is `whitelist`. Addresses and
-  devices from the lists, plus domains that Mihomo answers with a fake-IP
-  (usually the blocked sites of your subscription), go to Mihomo. Everything
-  else is direct.
-- **All traffic via proxy except exclusions**: every other case (blacklist or
-  rule filter, `redir-host`, `normal`, no `dns` section). All TCP/UDP goes to
-  Mihomo, except *Addresses always direct* and *Devices always direct*.
-  *Devices always direct* bypasses Mihomo for real destinations. With fake-IP
-  DNS, connections to fake addresses use the `mihowrt-direct` TPROXY listener
-  on port 7895 and its first `IN-NAME,mihowrt-direct,DIRECT` rule: Mihomo resolves the real
-  destination and sends the connection DIRECT. `redir-host` / `normal` retain
-  full nft bypass. QUIC blocking still applies to fake destinations when enabled.
-  The `IN-NAME` rule applies only in Mihomo `mode: rule`; `global` and `direct`
-  modes ignore rules.
-
-Apart from the dedicated fake-IP direct-device inbound, Mihomo's own rules
-decide the outbound (proxy group or DIRECT). Domain filtering remains the
-provider's job; MihoWRT does not add vendor/private domains to `fake-ip-filter`.
-The name `mihowrt-direct` is reserved: a same-named provider listener is replaced
-with a warning when injection succeeds. For proxy-first fake-IP, `listeners` and
-`rules` support block lists (empty `[]` / null are accepted). Unsupported forms
-(non-empty flow lists, aliases/anchors, flow listener items, escaped listener
-names or duplicate top-level lists) leave the runtime YAML unchanged from
-normal generation, with one warning and no direct-listener injection. The
-subscription still applies, but *Devices always direct* is unavailable with
-fake-IP DNS, as before this feature; those devices follow the normal policy.
-
-### Provider settings (`x-mihowrt`)
-
-A provider (or you, in the YAML) can set router options in a top-level
-`x-mihowrt` section. It is removed from the config Mihomo gets:
-
-```yaml
-x-mihowrt:
-  disable-quic: true            # Block QUIC for proxied traffic
-  dns-hijack: true              # Redirect client DNS to Mihomo
-  bypass-ntp: true              # Time sync without Mihomo
-  bypass-subscription-dns: true # Subscription server without Mihomo
-  block-client-ipv6: true       # direct-first: reject client IPv6 that bypasses Mihomo
-  lists-interval: 24            # remote list refresh, hours (0-8760)
-  proxy-ips:                    # "Only selected" mode: always via Mihomo
-    - https://provider.example/telegram.txt
-    - 91.108.4.0/22
-  direct-ips:                   # "All traffic" mode: bypass Mihomo
-    - https://provider.example/ru.txt
-```
-
-Booleans: `true/false/yes/no/on/off/1/0`. Block style only; an invalid or
-unknown key is ignored with a warning in the log and never rejects the
-subscription. Without a key the router setting applies. NetBird, client
-interfaces, device lists and the update period are never provider-controlled.
-
-On the *Traffic* page a provider value is shown read-only with *Set by your
-provider*; *Use my own value* switches that one setting to your value (UCI
-`list provider_override`), even when the provider later drops or re-adds the
-key. A provider list offers *Provider list* (default), *Provider list + mine*
-and *Only mine* (UCI `dst_list_source` / `direct_list_source`). Your list file
-is never deleted; with *Provider list* the page says how many of your entries
-are not applied. Provider values are kept in tmpfs
-(`/tmp/mihowrt/config.yaml.profile`), never in UCI or flash.
-
-### Client IPv6
-
-*Block external IPv6 from clients* (Traffic → Advanced, default off) rejects
-external IPv6 from selected client interfaces only when it bypasses Mihomo,
-and only in **Only selected traffic via proxy** mode. IPv6 selected by address,
-device or port lists still reaches Mihomo. IPv6 DNS hijack remains active;
-Mihomo IPv6 and DNS behaviour belongs to the provider's `ipv6` / `dns.ipv6` keys.
-In **All traffic via proxy except exclusions** mode the flag has no effect.
-
-Set `x-mihowrt.block-client-ipv6: true` in the provider block, or use the existing
-*Use my own value* control. Router-originated and Mihomo traffic, IPv4 and
-NetBird ingress are unchanged. Local destinations use the existing local-network
-exclusions and remain subject to fw4 rules. External TCP gets a reset; other
-IPv6 gets ICMPv6 administratively prohibited. This does not disable kernel IPv6
-or guarantee an application's IPv4 fallback. Existing offloaded connections may
-continue until expiry. Stop, cleanup and watchdog fail-open remove the policy.
-
-### Lists
-
-One entry per line, IPv4 or IPv6:
-
-```text
-1.1.1.1
-8.8.8.0/24
-2001:db8::/32
-9.9.9.9;443          # only these ports
-;53                  # any address, these ports
-https://example.com/list.txt;443   # remote list, cached on flash
-# comment
-```
-
-Remote lists (up to 1 MiB each, 32 URLs) are refreshed every *Update remote lists
-every (hours)* (24 for new installs; existing installs keep their value) or
-with the button. Applying policy never waits for the network: it uses the cache.
-Provider list entries are validated the same way; invalid ones are dropped
-with a warning.
-
-## How it works
-
-### Router-owned Mihomo settings
-
-Your YAML (`/opt/clash/config.yaml`) is never rewritten. At start MihoWRT
-writes `/tmp/mihowrt/config.yaml`: a copy with these keys replaced by a
-managed section at the end:
-
-```yaml
-tproxy-port: 7894
-routing-mark: 2
-allow-lan: true          # needed for the IPv6 TPROXY socket
-bind-address: "*"
-tun:
-  enable: false
-profile:                 # selected servers and fake-ip mappings survive restarts
-  store-selected: true
-  store-fake-ip: true
-external-controller: <LAN IP>:9090
-external-controller-unix: /tmp/clash/mihomo.sock
-secret: "<generated, /etc/mihowrt/api_secret>"
-external-ui: ui          # dashboard (zashboard), owned by the router
-external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
-# and inside dns: enable, listen 0.0.0.0:7874, and fake-ip-range
-# 198.18.0.0/16 when enhanced-mode is fake-ip (fake-ip-range6 is dropped)
-```
-
-`dns.enhanced-mode`, `ipv6`, `dns.ipv6` and other keys (`mixed-port` …) stay
-as you set them. Without a `dns` section MihoWRT adds one: `redir-host`, DoH
-servers 1.1.1.1/9.9.9.9/8.8.8.8 for bootstrap, Yandex DoH for direct domains,
-and Cloudflare/Google DoH queried through the first proxy group
-(`https://dns.google/dns-query#<group>`; plain when the group name has `#`,
-`&`, `"` or `\`). Without a `sniffer` section a default one sniffs HTTP
-(80, 8080-8880) and TLS (443, 8443); a provider sniffer is never touched.
-There is no YAML parser: top-level blocks are replaced line by line, so flow
-style (`dns: {…}`, `x-mihowrt: {…}`) is rejected with an error. Every change is validated with `mihomo -t` before it is used; Mihomo's
-own error message is shown in LuCI. The result is remembered in
-`/var/run/mihowrt/config.ok|config.err` for Diagnostics, so status never runs
-the core.
-
-Geodata (GeoIP, GeoSite, ASN) follows your YAML: `geo-auto-update`,
-`geo-update-interval` and `geox-url` are not changed by MihoWRT. The files stay
-in `/opt/clash`; Mihomo rewrites them only when their content changes.
-
-### DNS
-
-dnsmasq gets a conf-dir file `/tmp/dnsmasq.<section>.d/mihowrt.conf`:
-
-```text
-no-resolv
-server=127.0.0.1#7874
-server=/<ntp host>/<WAN interface DNS>            # "Time sync without Mihomo"
-server=/<subscription host>/<WAN interface DNS>   # "Subscription server without Mihomo"
-```
-
-UCI is not modified, so stopping MihoWRT, a crash or a reboot restores your
-DNS by removing one tmpfs file. WAN interface DNS servers come from `resolv.conf.auto` and
-are refreshed on WAN reconnects (hotplug). Global `server` entries you set
-yourself in *DHCP and DNS* keep working next to Mihomo, so some queries bypass
-it; Diagnostics warns about them. Client DNS on port 53 is redirected to
-Mihomo for IPv4 and IPv6 (*Redirect client DNS to Mihomo*).
-
-While a subscription updates (toggle *Subscription server without Mihomo*),
-the addresses of its host are put into a short-lived nft set so the router
-downloads it directly in either mode; they are removed right after the
-download. Only the router's own traffic is affected, not LAN clients.
-
-### Self-healing
-
-- **Watchdog:** every 15 s MihoWRT asks Mihomo to resolve `openwrt.org`
-  through its API. After 3 failures in a row (about 45–60 s) it removes the
-  DNS file, nft table and routes, so the network works directly, and keeps
-  probing; the first good answer applies the policy again. If the Mihomo API
-  itself does not answer, the service exits and procd restarts it after 5 s.
-  After 5 failed restarts in an hour procd gives up and the router stays
-  direct until the WAN comes up again (hotplug restarts an enabled service)
-  or you press Start.
-- **Stop** is synchronous: it returns after DNS, nft and routes are clean
-  (procd `term_timeout 30`). It is also sticky: WAN hotplug does not start
-  a stopped service again until Start or a reboot (`/var/run/mihowrt/stopped`).
-- **Boot:** a reboot clears runtime state; no separate recovery hook is needed.
-- **Memory:** Mihomo runs with `GOMEMLIMIT` = half of RAM. This is the Go
-  runtime's soft heap target: the garbage collector works harder near it
-  instead of letting the heap double before collecting. It reduces OOM kills on
-  small routers. It is not a hard cap.
-- **Config changes** are hot-reloaded through the API. If Mihomo rejects the
-  new config, the previous one is restored.
-- **Updates keep traffic flowing:** the nft table is replaced in one kernel
-  transaction (packets see the old or the new ruleset, never none) and an
-  identical ruleset is not applied again; a subscription with the same bytes
-  is not written or reloaded (`unchanged`); when only `x-mihowrt` changed,
-  Mihomo is not reloaded; dnsmasq restarts only when its file changes or the
-  DNS mode switches (to drop cached fake-IP answers). The remaining gap is
-  Mihomo's own reload, which pauses new connections until rules and
-  providers are loaded (usually well under a second).
-
-### nftables and routing
-
-Table `inet mihowrt` marks selected packets with `0x08000000`. Other mark bits
-are preserved, so the table coexists with NetBird (`0x1BD00` namespace) and
-zapret (`0x40000000`, `0x20000000`). An `ip rule` and `ip -6 rule` send marked
-packets to a local table, and TPROXY hands them to Mihomo on
-`127.0.0.1:7894` / `[::1]:7894`. Local destinations (`fib daddr type local`),
-private ranges, DNS, Mihomo's own traffic (routing mark 2) and, optionally,
-NTP are never intercepted. Networks connected to the router (routes without
-`via` in the main table: LAN, guest, IoT, delegated IPv6 prefixes) are never
-intercepted either, so they cannot be sent into TPROXY or bypass the firewall
-zones; WAN link subnets keep their normal handling. Incoming NetBird traffic is never touched; outbound
-NetBird transport is captured only with *Route outbound NetBird through Mihomo*.
-
-### Hardware/software flow offloading
-
-MihoWRT needs no offloading settings. Proxied connections end at Mihomo on the
-router, and Mihomo's outbound traffic is router-originated, so neither passes
-the forward flowtable. Offloading speeds up only direct traffic. Connections
-opened before MihoWRT started (or before a list change) may stay offloaded
-direct until they reconnect. With zapret, keep zapret's own offload exclusions.
-
-### Scheduled updates
-
-One cron line at a per-router random minute runs `mihowrt auto-update` hourly.
-With *Update automatically* on (default) the subscription is updated at the
-period the provider sets in the `profile-update-interval` header; without the
-header there are no automatic updates (the provider's choice), only *Update
-now*. Remote lists are refreshed when due.
-
-## Command line
-
-```text
-mihowrt status-json | service-state-json | logs-json [lines] | subscription-json | proxies-json
-mihowrt lists-json | diagnostics-json | profile-json | dashboard-json
-mihowrt update-subscription [url] | set-subscription <url> <0|1>   # a new [url] is saved only if it downloads and passes the check
-mihowrt update-lists | apply-lists <dst|-> <src|-> <direct|-> <direct-src|-> | core-update
-mihowrt read-config | runtime-config | save-config <file> | restore-config
-mihowrt job-start <op> [args] | job-status [id]   # background jobs used by LuCI
-mihowrt recover | reload | net-refresh | uninstall
-/etc/init.d/mihowrt start | stop | restart | reload | enable | disable
-```
-
-## Files
-
-| Path | Purpose |
-|---|---|
-| `/etc/config/mihowrt` | Settings (UCI) |
-| `/etc/mihowrt/api_secret` | Mihomo controller secret (root-only, mode 600) |
-| `/opt/clash/config.yaml` | Your Mihomo YAML (backup: `config.yaml.bak`) |
-| `/opt/clash/lst/*.txt` | Policy lists (`direct_src.txt`: devices always direct) |
-| `/opt/clash/bin/clash` | Mihomo core |
-| `/etc/mihowrt/` | HWID, subscription metadata, remote list cache, saved proxy selection |
-| `/tmp/mihowrt/config.yaml` | Generated runtime config (`.profile`: mode and provider settings) |
-
-## Development
+That override affects MihoWRT packages only, not Mihomo core downloads. For a manual transfer, on a PC download the matching `.apk` (25.12) or `.ipk` (24.10), optional Russian package and `SHA256SUMS` from a [MihoWRT release](https://github.com/ristavor/mihowrt/releases), plus the Linux core `.gz` for the **router's CPU architecture** from [Mihomo releases](https://github.com/MetaCubeX/mihomo/releases). Check package checksums and the core's published digest on the PC. Transfer with `scp` (replace `router` with your router's SSH host):
 
 ```sh
-docker build -t mihowrt-test:local -f Dockerfile.test .
-docker run --rm -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash tests/run.sh
-./tools/build-sdk.sh build     # APKs into dist/ (OpenWrt 25.12.6 SDK in Docker)
+scp ./file.apk ./mihomo.gz root@router:/tmp/
+# Use ./file.ipk instead on 24.10; transfer the Russian package too if wanted.
 ```
 
-On Linux and macOS, SDK builds always run in Docker; there is no native build
-mode. The SDK uses a named volume (`mihowrt-sdk-25.12.6`) for a case-sensitive
-Linux filesystem (macOS APFS is case-insensitive). The package is noarch, so
-only `luci-base/host` (`po2lmo`) is compiled.
-
-Release order (the tag must equal `v` + `PKG_VERSION` from `Makefile`; a
-`vX-rcN` tag publishes a GitHub pre-release, which `releases/latest` and the
-installer skip):
+On the router, install dependencies from OpenWrt feeds first if needed, then:
 
 ```sh
-git tag vX-rc1 && git push origin vX-rc1   # pre-release: check the workflow output
-git tag vX && git push origin vX   # starts the release workflow
-# wait for the release workflow to finish (APKs + SHA256SUMS in the release)
-git push origin main
+cd /tmp
+apk add --allow-untrusted ./file.apk
+# OpenWrt 24.10 instead:
+opkg install ./file.ipk
+mihowrt core-update --file /tmp/mihomo.gz
+/etc/init.d/mihowrt enable
 ```
 
-The release workflow runs the tests, builds both APKs, and publishes the
-versioned and fixed-name APKs with `SHA256SUMS`; the notes come from the
-matching `## X` section of `CHANGELOG.md`. APKs are not signed yet.
+Install the optional translation package the same way, then follow steps 2–3 above. With no feed access, also bring all missing architecture/kernel-matched dependencies from the OpenWrt feeds. Local core installation skips the release digest check (logged), but still tests the core before replacing it. Packages are not signed; `SHA256SUMS` detects corruption, not a compromised release.
 
-Real-router checks run in an OpenWrt 25.12.6 x86/64 QEMU VM:
+## FAQ
 
-```sh
-./tests/router/start.sh
-./tests/router/run-smoke.sh --integration --watchdog   # install, start, DNS, nft, stop, watchdog
-./tests/router/stop.sh
-```
+- **Where is the mode switch?** There is none: the YAML DNS settings select *Only selected traffic via proxy* or *All traffic via proxy except exclusions*. See [modes](docs/user-guide.md#modes).
+- **Do I need the dashboard?** No. MihoWRT works without it; installing it uses flash and restarts the service.
+- **Does Stop restore normal networking?** Yes, it removes MihoWRT DNS/routing policy. The watchdog also fails open after repeated DNS failures; this is not a kill-switch.
+- **Can I keep my YAML?** Yes. MihoWRT generates a separate runtime file; subscription updates replace the saved original. The editor can restore the previous YAML.
 
-## License
+## Documentation
 
-GPL-3.0-or-later, see `LICENSE`.
+[User guide](docs/user-guide.md) · [Technical reference / CLI / limits](docs/reference.md) · [Development](docs/development.md) · [Open issues](docs/open-issues.md) · [Changelog](CHANGELOG.md)
 
-## Known limits
-
-- The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
-  provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
-  Mihomo*, controller secret hidden) and the subscription link to every LuCI
-  user with read access. Give such access only to people you trust with them.
-- Connected-network exclusions read only the main routing table, not mwan3 or
-  other policy tables. Public VPN routes without `via` with prefixes at least
-  /16 (IPv4) or /32 (IPv6) are treated as local and go direct through the tunnel.
-- IPv6 fake-IP is not used. IPv6 destinations are handled by the lists and by
-  the *All traffic* mode.
-- Clients using DoH/DoT (browser DoH, Android Private DNS) bypass Mihomo DNS,
-  so fake-IP based routing does not apply to them.
-- The QEMU VM cannot test hardware offloading or real NetBird peers.
-- The client IPv6 block exists only while MihoWRT policy is active: stop and
-  watchdog fail-open remove it. Connections already offloaded before a policy
-  change can continue until their flowtable entries expire; this is not a
-  persistent kill-switch or a kernel IPv6 disable. Client IPv4 → Mihomo → an IPv6
-  node stays valid and is not affected; do not use `ipv6: false` as the trigger
-  for the block, the `block-client-ipv6` flag is the only switch.
-- Device headers (HWID, model) are sent only over HTTPS, but curl repeats them
-  if the provider redirects to another HTTPS host.
-- Updating the Mihomo core needs free flash for the new compressed binary next
-  to the old one; if the flash fills up, the update stops and the current core
-  is kept.
-- Provider list URLs are checked before download only; curl follows redirects.
-
-Open and deferred issues: [`docs/open-issues.md`](docs/open-issues.md).
+GPL-3.0-or-later; see [LICENSE](LICENSE).

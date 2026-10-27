@@ -4,6 +4,20 @@
 # values from the profile (x-mihowrt) replace UCI values unless the user
 # overrides that setting (list provider_override).
 
+# During settings_load, use its local snapshot; other callers still read live UCI.
+settings_uci_get() {
+	local value=""
+
+	if [ "${SETTINGS_UCI_SNAPSHOT:-0}" != 1 ]; then
+		uci_get "$1" "${2:-}"
+		return
+	fi
+	case "$1" in '' | *[!a-zA-Z0-9_]*) return 1 ;; esac
+	eval 'value="${settings_uci_'"$1"':-}"'
+	[ -n "$value" ] || value="${2:-}"
+	printf '%s' "$value"
+}
+
 # UCI value, or the provider's when it sets the option and it is not overridden.
 settings_value() {
 	case " $PROVIDER_KEYS " in
@@ -17,7 +31,7 @@ settings_value() {
 		esac
 		;;
 	esac
-	uci_get "$1" "$2"
+	settings_uci_get "$1" "${2:-}"
 }
 
 settings_bool() {
@@ -69,7 +83,7 @@ settings_check_netbird_mark() {
 settings_subscription_interval() {
 	local header=""
 
-	[ "$(uci_get subscription_auto_update 1)" = "0" ] && {
+	[ "$(settings_uci_get subscription_auto_update 1)" = "0" ] && {
 		echo 0
 		return 0
 	}
@@ -82,7 +96,7 @@ settings_subscription_interval() {
 }
 
 settings_list_source() {
-	case "$(uci_get "$1" provider)" in
+	case "$(settings_uci_get "$1" provider)" in
 	merge) printf 'merge' ;;
 	own) printf 'own' ;;
 	*) printf 'provider' ;;
@@ -99,7 +113,31 @@ settings_require() {
 }
 
 settings_load() {
-	local iface=""
+	local iface="" SETTINGS_UCI_SNAPSHOT=1
+
+	# UCI show uses shell-quoted scalars and space-separated quoted list items.
+	# Decode once, then quote literal values again before eval (never eval UCI).
+	eval "$(uci -q show "$PKG_CONFIG" 2>/dev/null | awk -v prefix="$PKG_CONFIG.settings." '
+		index($0, prefix) == 1 {
+			pos = index($0, "=")
+			key = substr($0, length(prefix) + 1, pos - length(prefix) - 1)
+			if (key !~ /^[a-zA-Z0-9_]+$/) next
+			raw = substr($0, pos + 1)
+			value = ""; quoted = 0; q = sprintf("%c", 39)
+			for (i = 1; i <= length(raw); i++) {
+				c = substr(raw, i, 1)
+				if (c == q) quoted = !quoted
+				else if (!quoted && c == "\\") value = value substr(raw, ++i, 1)
+				else value = value c
+			}
+			escaped = q
+			for (i = 1; i <= length(value); i++) {
+				c = substr(value, i, 1)
+				escaped = escaped (c == q ? q "\\" q q : c)
+			}
+			print "local settings_uci_" key "=" escaped q
+		}
+	')"
 
 	SETTINGS_LOADED=0
 	# The mode follows the YAML DNS settings; no profile = no YAML yet.
@@ -117,11 +155,11 @@ settings_load() {
 	DIRECT_LISTENER="$(profile_get "direct_listener")"
 	[ "$DIRECT_LISTENER" = "1" ] || DIRECT_LISTENER=0
 	PROVIDER_KEYS="$(profile_entries set | cut -d' ' -f1 | tr '\n' ' ')"
-	PROVIDER_OVERRIDES="$(uci -q get "$PKG_CONFIG.settings.provider_override" 2>/dev/null)" || PROVIDER_OVERRIDES=""
+	PROVIDER_OVERRIDES="$(settings_uci_get provider_override)" || PROVIDER_OVERRIDES=""
 	DST_LIST_SOURCE="$(settings_list_source dst_list_source)"
 	DIRECT_LIST_SOURCE="$(settings_list_source direct_list_source)"
 
-	SOURCE_INTERFACES="$(uci -q get "$PKG_CONFIG.settings.source_network_interfaces" 2>/dev/null)" || SOURCE_INTERFACES=""
+	SOURCE_INTERFACES="$(settings_uci_get source_network_interfaces)" || SOURCE_INTERFACES=""
 	[ -n "$SOURCE_INTERFACES" ] || SOURCE_INTERFACES="$(lan_device_detect)"
 	for iface in $SOURCE_INTERFACES; do
 		is_valid_iface_name "$iface" || settings_invalid source_network_interfaces "$iface" || return 1
@@ -134,16 +172,16 @@ settings_load() {
 	BYPASS_SUBSCRIPTION_DNS="$(settings_bool bypass_subscription_dns 1)"
 	BLOCK_CLIENT_IPV6="$(settings_bool block_client_ipv6 0)"
 
-	NETBIRD_MARK="$(uci_get netbird_mark "$NETBIRD_DEFAULT_MARK")"
+	NETBIRD_MARK="$(settings_uci_get netbird_mark "$NETBIRD_DEFAULT_MARK")"
 	settings_check_netbird_mark "$NETBIRD_MARK" || settings_invalid netbird_mark "$NETBIRD_MARK" || return 1
 	case "$NETBIRD_MARK" in
 	0x* | 0X*) NETBIRD_MARK=$((NETBIRD_MARK)) ;;
 	*) NETBIRD_MARK="$(uint_norm "$NETBIRD_MARK")" ;;
 	esac
-	NETBIRD_INTERFACE="$(uci_get netbird_interface "$NETBIRD_DEFAULT_IFACE")"
+	NETBIRD_INTERFACE="$(settings_uci_get netbird_interface "$NETBIRD_DEFAULT_IFACE")"
 	is_valid_iface_name "$NETBIRD_INTERFACE" || settings_invalid netbird_interface "$NETBIRD_INTERFACE" || return 1
 
-	SUBSCRIPTION_URL="$(uci_get subscription_url)"
+	SUBSCRIPTION_URL="$(settings_uci_get subscription_url)"
 	[ -z "$SUBSCRIPTION_URL" ] || is_http_url "$SUBSCRIPTION_URL" || settings_invalid subscription_url "$SUBSCRIPTION_URL" || return 1
 	SUBSCRIPTION_INTERVAL="$(settings_subscription_interval)"
 	LISTS_INTERVAL="$(settings_hours lists_interval)" || settings_invalid lists_interval "$(settings_value lists_interval)" || return 1
@@ -152,10 +190,10 @@ settings_load() {
 	case "$API_SECRET" in
 	*[!A-Za-z0-9._~-]*) settings_invalid api_secret "(unsupported characters)" || return 1 ;;
 	esac
-	CRON_MINUTE="$(uci_get cron_minute 17)"
+	CRON_MINUTE="$(settings_uci_get cron_minute 17)"
 	is_uint "$CRON_MINUTE" && [ "$CRON_MINUTE" -le 59 ] || CRON_MINUTE=17
 	CRON_MINUTE="$(uint_norm "$CRON_MINUTE")"
-	DASHBOARD_ENABLED="$(uci_get dashboard 0)"
+	DASHBOARD_ENABLED="$(settings_uci_get dashboard 0)"
 	[ "$DASHBOARD_ENABLED" = 1 ] || DASHBOARD_ENABLED=0
 	SETTINGS_LOADED=1
 	return 0

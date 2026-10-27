@@ -1,0 +1,17 @@
+mihowrt.settings.source_network_interfaces=br-lan wg0
+mihowrt.settings.provider_override=disable_quic
+mihowrt.settings.dns_hijack=off
+mihowrt.settings.disable_quic=yes
+mihowrt.settings.netbird_proxy=true
+mihowrt.settings.bypass_ntp=0
+mihowrt.settings.bypass_subscription_dns=0
+mihowrt.settings.block_client_ipv6=enabled
+mihowrt.settings.netbird_mark=0113920
+mihowrt.settings.netbird_interface=nb-test
+mihowrt.settings.subscription_url=https://example.com/a?b=c
+mihowrt.settings.subscription_auto_update=0
+mihowrt.settings.lists_interval=08
+mihowrt.settings.cron_minute=07
+mihowrt.settings.dst_list_source=merge
+mihowrt.settings.direct_list_source=own
+mihowrt.settings.dashboard=1

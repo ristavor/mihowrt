@@ -1,0 +1,4 @@
+mihowrt.settings.source_network_interfaces=br-lan eth1.2 wg0
+mihowrt.settings.provider_override=disable_quic dns_hijack bypass_ntp
+mihowrt.settings.lists_interval=000
+mihowrt.settings.dashboard=0

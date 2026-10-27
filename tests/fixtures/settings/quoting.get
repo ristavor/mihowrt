@@ -1,0 +1,4 @@
+mihowrt.settings.provider_override=odd's value literal"quote $(false) back\slash
+mihowrt.settings.subscription_url=https://example.com/it's?x=$(false)&y=back\slash
+mihowrt.settings.dashboard=invalid
+mihowrt.settings.cron_minute=999

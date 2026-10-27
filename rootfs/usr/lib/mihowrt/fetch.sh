@@ -86,7 +86,7 @@ fetch_header() {
 	' "$1" 2>/dev/null | single_line
 }
 
-# http_fetch <url> <out> <max_bytes> <timeout> <device_headers 0|1> [headers_file]
+# http_fetch <url> <out> <max_bytes> <timeout_seconds|core> <device_headers 0|1> [headers_file]
 # Sets FETCH_ERROR (network|too_large|http_<code>|invalid_url), FETCH_HTTP_STATUS
 # and FETCH_HDR (the explicit headers_file, otherwise empty).
 http_fetch() {
@@ -104,8 +104,12 @@ http_fetch() {
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	: >"$headers"
 	set -- -fsSLg --proto '=https,http' --proto-redir '=https' --max-redirs 5 \
-		--max-filesize "$max" --connect-timeout 15 --max-time "$timeout" \
+		--max-filesize "$max" --connect-timeout 15 \
 		-A "mihowrt/$PKG_VERSION"
+	case "$timeout" in
+	core) set -- "$@" --speed-limit 2048 --speed-time 60 --retry 2 ;;
+	*) set -- "$@" --max-time "$timeout" ;;
+	esac
 	# Device headers identify the router to the provider; only over HTTPS.
 	case "$device:$url" in
 	1:https://*)

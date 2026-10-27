@@ -96,7 +96,7 @@ core_update() {
 		url="$(printf '%s' "$meta" | cut -f1)"
 		digest="$(printf '%s' "$meta" | cut -f2)"
 		size="$(printf '%s' "$meta" | cut -f3)"
-		http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+		http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" core 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
 	else
 		# API blocked or rate-limited: tag from the github.com redirect and
 		# direct download URLs (no published digest on this path).
@@ -108,7 +108,7 @@ core_update() {
 		}
 		url=""
 		for name in $(core_asset_names "$arch" "$tag"); do
-			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" 300 0; then
+			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" core 0; then
 				url="$name"
 				break
 			fi

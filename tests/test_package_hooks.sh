@@ -143,6 +143,7 @@ printf 'user-src\n' >"$live_src_list"
 printf 'user-direct\n' >"$live_direct_list"
 printf 'user-device\n' >"$live_direct_src_list"
 IPKG_INSTROOT="" "$preinst_path"
+rm -f "$skip_start" # apk: the default start already consumed the marker
 assert_file_contains "$backup_path" "user-config" "preinst should back up existing config before fresh package install"
 assert_file_contains "$list_backup_dir/always_proxy_dst.txt" "user-dst" "preinst should back up existing destination policy list"
 assert_file_contains "$list_backup_dir/always_proxy_src.txt" "user-src" "preinst should back up existing source policy list"
@@ -248,6 +249,7 @@ rm -f "$was_running_marker"
 PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
 [[ ! -e "$was_running_marker" ]] || fail "preinst should not mark a stopped service as running"
 PATH="$tmpdir/bin-running:$PATH" IPKG_INSTROOT="" "$preinst_path"
+rm -f "$skip_start" # apk: the default start already consumed the marker
 [[ -e "$was_running_marker" ]] || fail "preinst should record a running supervisor"
 
 : >"$hook_log"
@@ -277,12 +279,37 @@ assert_file_contains "$live_config" "new-config" "postinst should restore change
 [[ ! -e "$backup_path" ]] || fail "postinst should consume changed config backup"
 
 # apk runs default_postinst ("/etc/init.d/mihowrt start") before this hook:
-# preinst makes that start a no-op, postinst decides and clears the marker.
+# preinst makes that start a no-op (start_service consumes the marker), postinst decides.
 rm -f "$skip_start"
 IPKG_INSTROOT="" "$preinst_path"
 [[ -e "$skip_start" ]] || fail "preinst should skip the default postinst start"
+rm -f "$skip_start"
 IPKG_INSTROOT="" "$script_path"
 [[ ! -e "$skip_start" ]] || fail "postinst should clear the skip marker"
+
+# opkg runs the default start after this hook: a marker that is still set means
+# that start is pending. A stopped service keeps it (the start is skipped); a
+# running one is stopped here and the pending start must really run (a skipped
+# start_service would make procd drop a started instance), so no marker and no start of ours.
+cat >"$tmpdir/init-mihowrt" <<EOF_INIT
+#!/bin/sh
+printf 'init:%s\n' "\$*" >>"$hook_log"
+EOF_INIT
+chmod +x "$tmpdir/init-mihowrt"
+: >"$hook_log"
+rm -f "$was_running_marker"
+IPKG_INSTROOT="" "$preinst_path"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$script_path"
+[[ -e "$skip_start" ]] || fail "postinst must keep the pending default start skipped for a stopped service"
+assert_file_not_contains "$hook_log" "init:" "postinst must not touch a stopped service"
+rm -f "$skip_start"
+: >"$hook_log"
+: >"$was_running_marker"
+: >"$skip_start"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$script_path"
+[[ ! -e "$skip_start" ]] || fail "postinst must let the pending default start run for a running service"
+assert_file_not_contains "$hook_log" "init:start" "the pending default start, not postinst, restarts a running service"
+pass "opkg default start after postinst keeps the service state"
 
 extract_prerm >"$prerm_path"
 chmod +x "$prerm_path"

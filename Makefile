@@ -147,6 +147,12 @@ define Package/$(PKG_NAME)/postinst
 		rm -f /opt/clash/lst/$$list.txt-opkg
 	done
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
+	# apk consumed the skip marker in default_postinst's start before this hook;
+	# opkg runs that start after it, so a marker still set means it is pending.
+	# Skipped, that start would make procd drop a running instance: a running
+	# service is left to the pending start, a stopped one keeps it skipped.
+	start_pending=0
+	[ ! -e /tmp/luci-app-mihowrt.skip-start ] || start_pending=1
 	rm -f /tmp/luci-app-mihowrt.skip-start
 	# An upgrade leaves the old service running from memory: stop it so
 	# it removes its own state, migrate, then start the new version.
@@ -159,7 +165,11 @@ define Package/$(PKG_NAME)/postinst
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
 	# apk/opkg never merge the shipped default; migration.sh owns new options.
 	rm -f /etc/config/mihowrt.apk-new /etc/config/mihowrt-opkg /opt/clash/config.yaml-opkg
-	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
+	if [ "$$start_pending" != 1 ]; then
+		[ "$$was_running" != 1 ] || /etc/init.d/mihowrt start >/dev/null 2>&1
+	elif [ "$$was_running" != 1 ]; then
+		: >/tmp/luci-app-mihowrt.skip-start
+	fi
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true
 	rm -rf /tmp/luci-modulecache 2>/dev/null || true

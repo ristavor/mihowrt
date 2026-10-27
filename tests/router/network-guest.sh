@@ -54,6 +54,25 @@ restore_ipv6() {
 	rm "$WORK/ipv6-disabled"
 }
 
+cleanup_precedence() {
+	local family="" rc=0
+	[ -f "$WORK/precedence" ] || return 0
+	nft delete table inet m22_precedence 2>/dev/null || true
+	if nft list table inet m22_precedence >/dev/null 2>&1; then rc=1; fi
+	for family in 4 6; do
+		# Setup can fail partway; verify absence rather than requiring every delete.
+		ip -"$family" rule del priority 105 lookup main suppress_prefixlength 0 2>/dev/null || true
+		ip -"$family" rule del priority 110 not fwmark 0x1bd00 lookup 20223 2>/dev/null || true
+		ip -"$family" rule del priority 2001 fwmark 0x3f00/0x3f00 lookup 20224 2>/dev/null || true
+		ip -"$family" route del blackhole default table 20223 2>/dev/null || true
+		ip -"$family" route del blackhole default table 20224 2>/dev/null || true
+		if ip -"$family" rule show | grep -Eq '^(105|110|2001):'; then rc=1; fi
+		if ip -"$family" route show table all | grep -Eq ' table (20223|20224)( |$)'; then rc=1; fi
+	done
+	[ "$rc" = 0 ] || return 1
+	rm "$WORK/precedence"
+}
+
 cleanup() {
 	local rc=$? pid="" ns="" link="" conf="" restore=0
 	# Restoration must finish even if the controlling SSH session goes away.
@@ -69,6 +88,7 @@ cleanup() {
 	if [ "$SAVED" = 1 ]; then
 		/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&- >>"$WORK/logs/cleanup.log" 2>&1 || restore=1
 		restore_ipv6 >>"$WORK/logs/cleanup.log" 2>&1 || restore=1
+		cleanup_precedence >>"$WORK/logs/cleanup.log" 2>&1 || restore=1
 		# Restore the user's YAML through the same API used to install the fixture.
 		if [ -f "$WORK/saved/config.yaml" ]; then
 			cp "$WORK/saved/config.yaml" "$WORK/restore.upload"
@@ -143,7 +163,7 @@ mkdir "$WORK/logs" "$WORK/saved" || fatal 'refuse existing guest fixture state'
 : >"$WORK/results.tsv"
 for name in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
 	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' lifecycle \
-	'port forward and WAN service replies' 'IPv6 disabled'; do
+	'port forward and WAN service replies' 'IPv6 disabled' 'policy rule precedence'; do
 	record "$name" 'NOT TESTED' 'not reached'
 done
 trap cleanup EXIT
@@ -1060,6 +1080,65 @@ check_ipv6_disabled() {
 	snap a2-restored
 }
 
+check_rule_precedence() {
+	local family="" table="" priority=""
+	profile direct-first fake-ip false 0
+	set_lists wanclient
+	/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&-
+	nft list table inet m22_precedence >/dev/null 2>&1 && fatal 'refuse existing precedence nft fixture'
+	for family in 4 6; do
+		if ip -"$family" rule show | grep -Eq '^(105|110|1000|2001):| lookup (20223|20224|20225)( |$)'; then fatal 'refuse occupied precedence rule fixture'; fi
+		if ip -"$family" route show table all | grep -Eq ' table (20223|20224|20225)( |$)'; then fatal 'refuse occupied precedence route fixture'; fi
+	done
+	: >"$WORK/precedence"
+	printf 'TABLE=20225\nPRIORITY=1000\n' >/var/run/mihowrt/route.state
+	for family in 4 6; do
+		ip -"$family" route add blackhole default table 20223
+		ip -"$family" route add blackhole default table 20224
+		ip -"$family" rule add priority 105 lookup main suppress_prefixlength 0
+		ip -"$family" rule add priority 110 not fwmark 0x1bd00 lookup 20223
+		ip -"$family" rule add priority 2001 fwmark 0x3f00/0x3f00 lookup 20224
+		ip -"$family" route add local default dev lo table 20225
+		ip -"$family" rule add priority 1000 fwmark 0x08000000/0x08000000 lookup 20225
+		ip -"$family" rule show >"$WORK/logs/a3-before.rules$family"
+	done
+	/etc/init.d/mihowrt start 6>&- 7>&- 8>&- 9>&-; ready
+	table="$(sed -n 's/^TABLE=//p' /var/run/mihowrt/route.state)"
+	priority="$(sed -n 's/^PRIORITY=//p' /var/run/mihowrt/route.state)"
+	case "$priority" in [5-9][0-9]) ;; *) fatal "priority outside 50-99: $priority" ;; esac
+	for family in 4 6; do
+		ip -"$family" rule show >"$WORK/logs/a3-after.rules$family"
+		grep "^$priority:.*0x8000000/0x8000000.*lookup $table" "$WORK/logs/a3-after.rules$family"
+		absent grep '^1000:' "$WORK/logs/a3-after.rules$family"
+		ip -"$family" route show table all >"$WORK/logs/a3-after.routes$family"
+		absent grep ' table 20225 ' "$WORK/logs/a3-after.routes$family"
+		grep -E '^(105|110|2001):' "$WORK/logs/a3-before.rules$family" >"$WORK/rules.before"
+		grep -E '^(105|110|2001):' "$WORK/logs/a3-after.rules$family" >"$WORK/rules.after"
+		cmp "$WORK/rules.before" "$WORK/rules.after"
+	done
+	# Both intercept and mwan3 bits must survive, yet the TPROXY rule wins first.
+	nft -f - <<'EOF'
+add table inet m22_precedence
+add chain inet m22_precedence producer { type filter hook prerouting priority -151; policy accept; }
+add rule inet m22_precedence producer iifname "m22c" meta mark set meta mark | 0x3f00
+add chain inet m22_precedence observe { type filter hook prerouting priority -149; policy accept; }
+add rule inet m22_precedence observe ip daddr 198.19.22.2 tcp dport 8080 meta mark & 0x08003f00 == 0x08003f00 counter comment "combined4"
+add rule inet m22_precedence observe ip6 daddr 2001:db8:ffff::2 tcp dport 8080 meta mark & 0x08003f00 == 0x08003f00 counter comment "combined6"
+EOF
+	selected_ipv4 a3-precedence
+	set_lists dst
+	selected_ipv6 a3-precedence
+	nft list table inet m22_precedence >"$WORK/logs/a3-marks.nft"
+	grep 'comment "combined4"' "$WORK/logs/a3-marks.nft" | grep -Eq 'counter packets [1-9]'
+	grep 'comment "combined6"' "$WORK/logs/a3-marks.nft" | grep -Eq 'counter packets [1-9]'
+	ip -4 route get 198.19.22.2 mark 0x08003f00 >"$WORK/logs/a3-lookup4"
+	ip -6 route get 2001:db8:ffff::2 mark 0x08003f00 >"$WORK/logs/a3-lookup6"
+	grep "local .*table $table" "$WORK/logs/a3-lookup4"
+	grep "local .*table $table" "$WORK/logs/a3-lookup6"
+	snap a3-precedence
+	cleanup_precedence
+}
+
 row() {
 	local name="$1" expected="$2" fn="$3" rc=0
 	# Development-only row filter; the host entry never sets it, and a filtered run cannot be exit 0.
@@ -1096,4 +1175,5 @@ row 'fake-IP direct devices' 'listed MAC fake-IP uses mihowrt-direct/DIRECT; unl
 row lifecycle 'provider/override, no-op, failed transaction, stop/watchdog/restart fresh flows' check_lifecycle
 row 'port forward and WAN service replies' 'DNAT forward and router WAN service, TCP+UDP, proxy-first and direct-first: replies unmarked, rule-less control breaks' check_forward_replies
 row 'IPv6 disabled' 'disabled stack starts with IPv4 TPROXY only, no IPv6 policy changes; re-enable restores IPv6 interception' check_ipv6_disabled
+row 'policy rule precedence' 'priority 50-99 precedes NetBird 105/110 and mwan3 2001, preserves marks and foreign rules, cleans stale 1000 state' check_rule_precedence
 CURRENT=complete

@@ -55,9 +55,14 @@ grep -q 'stop_reply_listeners' "$guest" || fail 'reply listeners must have track
 grep -q 'a1-ports-router.before' "$guest" || fail 'reply probes must refuse occupied ports'
 for script in "$host" "$guest"; do
   grep -q "'IPv6 disabled'" "$script" || fail 'network matrix must include IPv6 disabled'
+  grep -q "'policy rule precedence'" "$script" || fail 'network matrix must include policy rule precedence'
 done
 grep -q 'check_ipv6_disabled' "$guest" || fail 'IPv6 disabled row must have a guest check'
 grep -q 'restore_ipv6' "$guest" || fail 'IPv6 sysctl and addresses must be restored even on failure'
+grep -q 'check_rule_precedence' "$guest" || fail 'policy precedence row must have a guest check'
+for contract in 'priority 105' 'priority 110' 'priority 2001' '0x3f00/0x3f00' 'PRIORITY=1000'; do
+  grep -qF "$contract" "$guest" || fail "policy precedence fixture missing: $contract"
+done
 echo 'ok - network fixture static safety contracts (no VM)'
 
 # Exercise host failure handling with a fake transport; no Docker daemon or VM.

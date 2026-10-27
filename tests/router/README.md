@@ -48,7 +48,7 @@ MIHOWRT_ROUTER_TESTS=1 ./tests/test_router_harness.sh
 
 ## Network acceptance (`run-network.sh`)
 
-`./tests/router/run-network.sh` is the repeatable synthetic network acceptance for the direct-first client IPv6 bypass ban and its coexistence with local IPv6, IPv4, the Mihomo core, NetBird marks, routes and DNS. It exits 0 only when all twelve required rows (`nft syntax`, `control reachable`, `client IPv6 rejected`, `local and IPv4 retained`, `core and other ingress retained`, `NetBird synthetic`, `routes and DNS boundaries`, `local names`, `fake-IP direct devices`, `lifecycle`, `port forward and WAN service replies`, `IPv6 disabled`) PASS and guest restoration PASS; a missing prerequisite or transport is exit 1, never PASS.
+`./tests/router/run-network.sh` is the repeatable synthetic network acceptance for the direct-first client IPv6 bypass ban and its coexistence with local IPv6, IPv4, the Mihomo core, NetBird marks, routes and DNS. It exits 0 only when all thirteen required rows (`nft syntax`, `control reachable`, `client IPv6 rejected`, `local and IPv4 retained`, `core and other ingress retained`, `NetBird synthetic`, `routes and DNS boundaries`, `local names`, `fake-IP direct devices`, `lifecycle`, `port forward and WAN service replies`, `IPv6 disabled`, `policy rule precedence`) PASS and guest restoration PASS; a missing prerequisite or transport is exit 1, never PASS.
 
 - **Prerequisites**: the VM from `./tests/router/start.sh` with the development APKs and Mihomo installed (`./tests/router/run-smoke.sh --integration --watchdog`), and guest tools `ip` (netns, veth), `nft`, `tcpdump`, `curl`, `dnsmasq`, `uhttpd`, `odhcp6c`, `odhcpd`, `jq`, `hexdump`, `nc` (BusyBox), `socat` (UDP probes), `netstat`, `kmod-veth`. Nothing is installed implicitly.
 - **Isolation**: the host entry pins `ROUTER_HOST=127.0.0.1`, `ROUTER_SSH_FORCE_DOCKER=1` and the `mihowrt-openwrt-test` container; it refuses anything that is not the QEMU guest (MAC `52:54:00:12:34:01`). Clients, local peer, WAN and NetBird endpoints are veth/namespaces (`m22-*`, `m22*`, `wt0`) inside the VM, with a second Mihomo process as the synthetic SOCKS5 node.
@@ -63,6 +63,7 @@ The stable-review rows add:
 |---|---|
 | `port forward and WAN service replies` | fw4 DNAT to a LAN host and a router WAN listener, TCP/UDP in both policy modes; marked-reply counters stay zero and conntrack tuples show real replies. Removing each reply guard breaks a fresh TCP control. Probe ports must be free; tracked, non-forking listeners receive TERM then KILL if needed. |
 | `IPv6 disabled` | Guest-only `all.disable_ipv6=1`: service starts, IPv4 reaches TPROXY, IPv6 rules/routes are unchanged and no IPv6 path can set the intercept mark or reach TPROXY. Inert inet ip6 sets/guards may remain. The original sysctls, addresses and routes are restored even after failure; restarting proves IPv6 interception returns. |
+| `policy rule precedence` | Synthetic NetBird priorities 105/110 and mwan3 mask `0x3f00/0x3f00` at 2001 exist before start. The allocated priority is 50–99, dual-stack marked flows reach TPROXY with mwan3 bits intact, foreign rules survive, and stored priority-1000 rules/routes disappear. Existing NetBird and route/DNS rows continue covering producer order, reconnect, marks and occupied slots. |
 
 ## Known Limitations
 

@@ -152,8 +152,14 @@ mkdir -p "${live_uci%/*}"
 printf 'user-uci\n' >"$live_uci"
 printf 'new-default\n' >"$live_uci.apk-new"
 printf 'new-default\n' >"$live_uci-opkg"
+# opkg keeps a modified conffile and writes the shipped one beside it as <file>-opkg.
+printf 'new-default\n' >"$live_config-opkg"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	printf 'new-default\n' >"$live_list_dir/$list.txt-opkg"
+done
 IPKG_INSTROOT="$tmpdir/image" "$script_path"
 [[ -f "$live_uci.apk-new" && -f "$live_uci-opkg" ]] || fail "offline postinst must leave host UCI leftovers alone"
+[[ -f "$live_config-opkg" && -f "$live_list_dir/direct_dst.txt-opkg" ]] || fail "offline postinst must leave host -opkg leftovers alone"
 
 printf 'package-config\n' >"$live_config"
 printf 'package-dst\n' >"$live_dst_list"
@@ -164,6 +170,10 @@ printf 'package-device\n' >"$live_direct_src_list"
 IPKG_INSTROOT="" "$script_path"
 [[ ! -e "$live_uci.apk-new" ]] || fail "postinst should remove UCI .apk-new default"
 [[ ! -e "$live_uci-opkg" ]] || fail "postinst should remove UCI -opkg default"
+[[ ! -e "$live_config-opkg" ]] || fail "postinst should remove the config.yaml -opkg default"
+for list in always_proxy_dst always_proxy_src direct_dst direct_src; do
+	[[ ! -e "$live_list_dir/$list.txt-opkg" ]] || fail "postinst should remove the $list -opkg default"
+done
 assert_eq user-uci "$(cat "$live_uci")" "postinst preserves user UCI byte content"
 pass "postinst removes package-manager UCI default leftovers"
 assert_file_contains "$live_config" "user-config" "postinst should restore config preserved across sysupgrade reinstall"

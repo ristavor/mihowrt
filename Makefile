@@ -144,6 +144,7 @@ define Package/$(PKG_NAME)/postinst
 	restore_mihowrt_backup_file $(PKG_CONFIG_BACKUP_FILE) /opt/clash/config.yaml || exit 1
 	for list in $(MIHOWRT_LISTS); do
 		restore_mihowrt_backup_file $(PKG_POLICY_LIST_BACKUP_DIR)/$$list.txt /opt/clash/lst/$$list.txt || exit 1
+		rm -f /opt/clash/lst/$$list.txt-opkg
 	done
 	rmdir $(PKG_POLICY_LIST_BACKUP_DIR) 2>/dev/null || true
 	rm -f /tmp/luci-app-mihowrt.skip-start
@@ -157,7 +158,7 @@ define Package/$(PKG_NAME)/postinst
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
 	# apk/opkg never merge the shipped default; migration.sh owns new options.
-	rm -f /etc/config/mihowrt.apk-new /etc/config/mihowrt-opkg
+	rm -f /etc/config/mihowrt.apk-new /etc/config/mihowrt-opkg /opt/clash/config.yaml-opkg
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true

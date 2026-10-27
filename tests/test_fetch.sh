@@ -154,8 +154,13 @@ fixture_header_test() {
 	printf '%b' "$hdr" >"$f"
 	FETCH_HDR="$f"
 	assert_eq "$expected" "$(subscription_metadata_from_headers)" "$name"
+	# Production shell: BusyBox ash with BusyBox awk.
+	assert_eq "$expected" "$(FETCH_HDR="$f" PATH="$tmpdir/bb:$PATH" L="$ROOT_DIR/rootfs/usr/lib/mihowrt" \
+		ash -c '. "$L/constants.sh"; . "$L/helpers.sh"; . "$L/subscription.sh"; subscription_metadata_from_headers')" "$name (ash, BusyBox awk)"
 	rm -f "$f"
 }
+mkdir -p "$tmpdir/bb"
+ln -sf "$(command -v busybox)" "$tmpdir/bb/awk"
 
 fixture_header_test \
 	'HTTP/1.1 302 Found\r\nLocation: /next\r\nProfile-Title: Old Title\r\nsubscription-userinfo: upload=999\r\n\r\nHTTP/1.1 200 OK\r\nProfile-Title: New Title\r\nsubscription-userinfo: upload=100; download=200\r\n' \

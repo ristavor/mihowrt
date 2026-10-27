@@ -33,16 +33,29 @@ ASH
 export SNAPSHOT_TMP="$tmpdir"
 printf 'fixture-secret\n' >"$tmpdir/secret"
 printf '{"header_interval":12}\n' >"$tmpdir/meta"
+mkdir -p "$tmpdir/bb"
+ln -s "$(command -v busybox)" "$tmpdir/bb/awk"
+for awk_impl in default busybox; do
+path="$PATH"
+[ "$awk_impl" = default ] || path="$tmpdir/bb:$PATH"
 for name in defaults full lists quoting; do
  export UCI_FIXTURE="$ROOT_DIR/tests/fixtures/settings/$name"
  : >"$UCI_CALLS"
- ash "$tmpdir/snapshot.sh" >"$tmpdir/$name.actual"
+ PATH="$path" ash "$tmpdir/snapshot.sh" >"$tmpdir/$name.actual"
  if [ "${CAPTURE_SETTINGS_SNAPSHOTS:-0}" = 1 ]; then
   cp "$tmpdir/$name.actual" "$UCI_FIXTURE.snapshot"
  else
-  assert_true "$name settings identical to pre-X6 snapshot" cmp -s "$UCI_FIXTURE.snapshot" "$tmpdir/$name.actual"
+  assert_true "$awk_impl awk: $name settings identical to pre-X6 snapshot" cmp -s "$UCI_FIXTURE.snapshot" "$tmpdir/$name.actual"
   assert_eq 1 "$(grep -c '^show mihowrt$' "$UCI_CALLS" || true)" "$name one UCI show pass"
   assert_eq 0 "$(grep -c '^get mihowrt' "$UCI_CALLS" || true)" "$name no per-option UCI get"
  fi
 done
-pass 'settings_load defaults, full, lists and quoting snapshots in ash'
+# Values are eval'd: backticks, $() and a multi-line value must stay literal.
+printf '%s\n' "mihowrt.settings='settings'" \
+ "mihowrt.settings.provider_override='\`touch $tmpdir/pwned1\`\$(touch $tmpdir/pwned2)' 'line1" "touch $tmpdir/pwned3'" >"$tmpdir/inject.show"
+: >"$tmpdir/inject.get"
+UCI_FIXTURE="$tmpdir/inject" PATH="$path" ash "$tmpdir/snapshot.sh" >"$tmpdir/inject.actual" || true
+assert_false "$awk_impl awk: injected settings never execute" test -e "$tmpdir/pwned1" -o -e "$tmpdir/pwned2" -o -e "$tmpdir/pwned3"
+assert_true "$awk_impl awk: backtick value stays literal" grep -qF "PROVIDER_OVERRIDES=\`touch $tmpdir/pwned1\`\$(touch $tmpdir/pwned2)" "$tmpdir/inject.actual"
+done
+pass 'settings_load defaults, full, lists and quoting snapshots in ash (default and BusyBox awk)'

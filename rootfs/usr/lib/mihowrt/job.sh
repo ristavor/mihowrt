@@ -8,7 +8,7 @@ job_id_valid() {
 }
 
 job_usage() {
-	err "Usage: job-start <connect <url>|update-subscription [url]|update-lists|apply-lists <path|-> <path|-> <path|-> <path|->|save-config <path>|restore-config|core-update|auto-update|service <start|stop|restart>>"
+	err "Usage: job-start <connect <url>|update-subscription [url]|update-lists|apply-lists <path|-> <path|-> <path|-> <path|->|save-config <path>|restore-config|core-update|auto-update|dashboard-install|dashboard-remove|service <start|stop|restart>>"
 	return 1
 }
 

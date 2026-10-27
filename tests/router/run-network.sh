@@ -26,7 +26,7 @@ report() {
     printf '| Required synthetic row | Result | Expected / actual / exit evidence |\n|---|---|---|\n'
     for row in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
       'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' 'lifecycle' \
-      'port forward and WAN service replies'; do
+      'port forward and WAN service replies' 'IPv6 disabled'; do
       state='NOT TESTED'; actual='Not reached; see host.log / guest.log.'
       if [[ -f "$RUN/results.tsv" ]]; then
         state="$(awk -F '\t' -v row="$row" '$1 == row {print $2}' "$RUN/results.tsv")"
@@ -106,6 +106,6 @@ if [[ "$guest_exit" == 0 ]]; then
 else
   echo "Guest exit status: ${guest_exit:-timeout}" >>"$RUN/host.log"
 fi
-# A successful SSH alone is insufficient: require all eleven rows and clean restoration.
-VM "test \"\$(grep -c 'PASS' '$WORK/results.tsv')\" = 11 && test \"\$(cat '$WORK/cleanup.status')\" = PASS" >>"$RUN/host.log" 2>&1 || result=1
+# A successful SSH alone is insufficient: require all twelve rows and clean restoration.
+VM "test \"\$(grep -c 'PASS' '$WORK/results.tsv')\" = 12 && test \"\$(cat '$WORK/cleanup.status')\" = PASS" >>"$RUN/host.log" 2>&1 || result=1
 exit "$result"

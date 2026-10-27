@@ -42,6 +42,18 @@ ready() {
 	return 1
 }
 
+# Restoring all.disable_ipv6 alone does not restore the addresses Linux removed.
+restore_ipv6() {
+	local path="" value=""
+	[ -f "$WORK/ipv6-disabled" ] || return 0
+	sysctl -w net.ipv6.conf.all.disable_ipv6=0
+	[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = 0 ] || return 1
+	while read -r path value; do printf '%s\n' "$value" >"$path" || return 1; done <"$WORK/saved/ipv6.flags"
+	ip -6 address restore <"$WORK/saved/ipv6.addresses" || return 1
+	ip -6 route restore <"$WORK/saved/ipv6.routes" || return 1
+	rm "$WORK/ipv6-disabled"
+}
+
 cleanup() {
 	local rc=$? pid="" ns="" link="" conf="" restore=0
 	# Restoration must finish even if the controlling SSH session goes away.
@@ -56,6 +68,7 @@ cleanup() {
 	for pid in $PIDS; do wait "$pid" 2>/dev/null; done
 	if [ "$SAVED" = 1 ]; then
 		/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&- >>"$WORK/logs/cleanup.log" 2>&1 || restore=1
+		restore_ipv6 >>"$WORK/logs/cleanup.log" 2>&1 || restore=1
 		# Restore the user's YAML through the same API used to install the fixture.
 		if [ -f "$WORK/saved/config.yaml" ]; then
 			cp "$WORK/saved/config.yaml" "$WORK/restore.upload"
@@ -130,7 +143,7 @@ mkdir "$WORK/logs" "$WORK/saved" || fatal 'refuse existing guest fixture state'
 : >"$WORK/results.tsv"
 for name in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
 	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' lifecycle \
-	'port forward and WAN service replies'; do
+	'port forward and WAN service replies' 'IPv6 disabled'; do
 	record "$name" 'NOT TESTED' 'not reached'
 done
 trap cleanup EXIT
@@ -995,6 +1008,58 @@ check_forward_replies() {
 	trap - EXIT
 }
 
+selected_ipv4() {
+	local label="$1"
+	nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 tcp dport 8080 counter comment selected-ipv4
+	http c 198.19.22.2 | grep mihowrt-network-fixture
+	nft list chain inet mihowrt proxy_redirect >"$WORK/logs/selected-$label.nft"
+	grep 'comment "selected-ipv4"' "$WORK/logs/selected-$label.nft" | grep -Eq 'counter packets [1-9]'
+	/usr/bin/mihowrt logs-json 500 >"$WORK/logs/selected-$label.core.json"
+	grep -q '198.19.22.2.*8080' "$WORK/logs/selected-$label.core.json"
+}
+
+check_ipv6_disabled() {
+	local path="" chain="" table="" priority=""
+	profile direct-first fake-ip true 0
+	set_lists wanclient
+	/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&-
+	[ "$(cat /proc/sys/net/ipv6/conf/all/disable_ipv6)" = 0 ]
+	[ "$(cat /proc/sys/net/ipv6/conf/lo/disable_ipv6)" = 0 ]
+	ip -6 address save >"$WORK/saved/ipv6.addresses"
+	ip -6 route save table all >"$WORK/saved/ipv6.routes"
+	for path in /proc/sys/net/ipv6/conf/*/disable_ipv6; do
+		printf '%s %s\n' "$path" "$(cat "$path")"
+	done >"$WORK/saved/ipv6.flags"
+	: >"$WORK/ipv6-disabled"
+	sysctl -w net.ipv6.conf.all.disable_ipv6=1
+	ip -6 rule show >"$WORK/logs/a2-disabled.before.rules6"
+	ip -6 route show table all >"$WORK/logs/a2-disabled.before.routes6"
+	/etc/init.d/mihowrt start 6>&- 7>&- 8>&- 9>&-; ready
+	snap a2-disabled
+	cmp "$WORK/logs/a2-disabled.before.rules6" "$WORK/logs/a2-disabled.rules6"
+	cmp "$WORK/logs/a2-disabled.before.routes6" "$WORK/logs/a2-disabled.routes6"
+	# Inert ip6 sets/guards remain; IPv6 cannot reach a mark setter or TPROXY.
+	absent grep -E '(ip6|meta nfproto ipv6).*tproxy' "$WORK/logs/a2-disabled.nft"
+	for chain in prerouting_policy mangle_output; do
+		nft list chain inet mihowrt "$chain" >"$WORK/logs/a2-disabled-$chain.nft"
+		awk '/meta nfproto ipv6 return/ {guard=1}
+			/meta mark set.*0x08000000/ {seen=1; if (!guard) bad=1}
+			END {exit bad || !guard || !seen}' "$WORK/logs/a2-disabled-$chain.nft"
+	done
+	selected_ipv4 a2-disabled
+	/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&-
+	restore_ipv6
+	/etc/init.d/mihowrt start 6>&- 7>&- 8>&- 9>&-; ready
+	table="$(sed -n 's/^TABLE=//p' /var/run/mihowrt/route.state)"
+	priority="$(sed -n 's/^PRIORITY=//p' /var/run/mihowrt/route.state)"
+	ip -6 rule show | grep "^$priority:.*0x8000000/0x8000000.*lookup $table"
+	ip -6 route show table "$table" | grep 'local default dev lo'
+	# Select the WAN IPv6 destination too, proving restored interception, not raw reachability.
+	set_lists dst
+	selected_ipv6 a2-restored
+	snap a2-restored
+}
+
 row() {
 	local name="$1" expected="$2" fn="$3" rc=0
 	# Development-only row filter; the host entry never sets it, and a filtered run cannot be exit 0.
@@ -1030,4 +1095,5 @@ row 'local names' 'fixture host and router names resolve to LAN addresses over U
 row 'fake-IP direct devices' 'listed MAC fake-IP uses mihowrt-direct/DIRECT; unlisted device uses NODE22; real addresses bypass' check_fakeip_direct
 row lifecycle 'provider/override, no-op, failed transaction, stop/watchdog/restart fresh flows' check_lifecycle
 row 'port forward and WAN service replies' 'DNAT forward and router WAN service, TCP+UDP, proxy-first and direct-first: replies unmarked, rule-less control breaks' check_forward_replies
+row 'IPv6 disabled' 'disabled stack starts with IPv4 TPROXY only, no IPv6 policy changes; re-enable restores IPv6 interception' check_ipv6_disabled
 CURRENT=complete

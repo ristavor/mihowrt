@@ -30,9 +30,14 @@ for fixture_contract in \
 done
 grep -q 'save-config' "$guest" || fail 'guest must install and restore YAML through the config API'
 grep -q 'network.m22c.proto=static' "$guest" || fail 'netifd must retain the selected client fixture addresses'
-if grep -Eq '(killall|pkill|conntrack -F|flush ruleset|sysctl -w)' "$guest"; then
+# The A2 row alone may toggle this guest-only sysctl, with failure-safe restoration.
+if grep -vE '^[[:space:]]*sysctl -w net\.ipv6\.conf\.all\.disable_ipv6=[01]$' "$guest" |
+  grep -Eq '(killall|pkill|conntrack -F|flush ruleset|sysctl -w)'; then
   fail 'guest must not use broad process, conntrack or network mutations'
 fi
+for contract in 'sysctl -w net.ipv6.conf.all.disable_ipv6=1' 'sysctl -w net.ipv6.conf.all.disable_ipv6=0'; do
+  grep -qF "$contract" "$guest" || fail "IPv6 disabled fixture must toggle and restore only the allowed sysctl: $contract"
+done
 for script in "$host" "$guest"; do
   grep -q "'local names'" "$script" || fail 'network matrix must include local names'
 done
@@ -48,6 +53,11 @@ grep -q 'uci set firewall.m22dnat=redirect' "$guest" || fail 'port forward must 
 grep -q 'comment a1-reply' "$guest" || fail 'port forward row must count marked replies'
 grep -q 'stop_reply_listeners' "$guest" || fail 'reply listeners must have tracked TERM/KILL teardown'
 grep -q 'a1-ports-router.before' "$guest" || fail 'reply probes must refuse occupied ports'
+for script in "$host" "$guest"; do
+  grep -q "'IPv6 disabled'" "$script" || fail 'network matrix must include IPv6 disabled'
+done
+grep -q 'check_ipv6_disabled' "$guest" || fail 'IPv6 disabled row must have a guest check'
+grep -q 'restore_ipv6' "$guest" || fail 'IPv6 sysctl and addresses must be restored even on failure'
 echo 'ok - network fixture static safety contracts (no VM)'
 
 # Exercise host failure handling with a fake transport; no Docker daemon or VM.

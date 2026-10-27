@@ -404,6 +404,14 @@ return baseclass.extend({
 	jobNotice: function() {
 		showPendingNotice();
 		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
+		// A reload would lose what the user typed meanwhile.
+		let edited = false, alert;
+		document.addEventListener?.('input', () => { edited = true; }, { once: true });
+		const keepEdits = message => {
+			alert.textContent = message;
+			this.jobRunning = waitingJobs > 0;
+			unlockJobButtons();
+		};
 		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), backendErrorText(error));
 		this.read('job-status').then(async status => {
 			// A job that failed while no page waited for it: show it once.
@@ -417,7 +425,7 @@ return baseclass.extend({
 				return;
 			this.jobRunning = true;
 			lockJobButtons();
-			const alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(this.jobLabel(status.op))));
+			alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(this.jobLabel(status.op))));
 			notice.appendChild(alert);
 			try {
 				await waitJob(this, status.id);
@@ -430,11 +438,18 @@ return baseclass.extend({
 					return;
 				}
 				markJobSeen(status.id);
-				this.reloadWithNotice(failed(status, e.message || _('The operation failed.')), 'error');
+				const message = failed(status, e.message || _('The operation failed.'));
+				if (edited)
+					keepEdits(message);
+				else
+					this.reloadWithNotice(message, 'error');
 				return;
 			}
 			markJobSeen(status.id);
-			location.reload();
+			if (edited)
+				keepEdits(_('"%s" finished. Reload the page to see the result; your unsaved edits are still here.').format(this.jobLabel(status.op)));
+			else
+				location.reload();
 		}).catch(e => {
 			notice.appendChild(E('div', { class: 'alert-message notice' }, text(errorText(e))));
 		});

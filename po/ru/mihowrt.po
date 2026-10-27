@@ -616,6 +616,9 @@ msgstr "Выполняется «%s»…"
 msgid "\"%s\" failed: %s"
 msgstr "«%s» не удалось: %s"
 
+msgid "\"%s\" finished. Reload the page to see the result; your unsaved edits are still here."
+msgstr "«%s» завершено. Обновите страницу, чтобы увидеть результат; несохранённые правки пока на месте."
+
 msgid "The operation failed."
 msgstr "Операция не выполнена."
 

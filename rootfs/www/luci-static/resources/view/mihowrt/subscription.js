@@ -33,7 +33,7 @@ return view.extend({
 				+ (auto.checked !== savedAuto ? ' ' + _('Not saved yet: press Save or Update now.') : '');
 		};
 		describeAuto();
-		const save = E('button', { class: 'cbi-button cbi-button-save' }, text(_('Save')));
+		const save = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-save' }, text(_('Save')));
 		const update = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action important' }, text(_('Update now')));
 		const apply = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-apply' }, text(_('Check and apply')));
 		// The YAML (up to 8 MiB) loads on the first opening of the editor.
@@ -46,14 +46,7 @@ return view.extend({
 
 		const saveSettings = () => api.write('set-subscription', url.value.trim(), auto.checked ? '1' : '0');
 
-		save.addEventListener('click', () => api.busy(save, async () => {
-			await saveSettings();
-			api.notify(_('Subscription settings saved.'));
-		}));
-		update.addEventListener('click', () => api.busy(update, async () => {
-			const link = url.value.trim();
-			if (!link)
-				throw new Error(_('Enter the subscription link, or press Save to stop using a subscription.'));
+		const updateSubscription = async link => {
 			if (yaml && yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
 				return;
 			const changed = link !== (sub.url || '');
@@ -70,6 +63,20 @@ return view.extend({
 			if (changed)
 				await saveSettings();
 			api.reloadWithNotice(api.actionNotice(res.action));
+		};
+
+		save.addEventListener('click', () => api.busy(save, async () => {
+			const link = url.value.trim();
+			if (link && link !== (sub.url || ''))
+				return updateSubscription(link);
+			await saveSettings();
+			api.notify(_('Subscription settings saved.'));
+		}));
+		update.addEventListener('click', () => api.busy(update, async () => {
+			const link = url.value.trim();
+			if (!link)
+				throw new Error(_('Enter the subscription link, or press Save to stop using a subscription.'));
+			return updateSubscription(link);
 		}));
 		apply.addEventListener('click', () => api.busy(apply, async () => {
 			if (new Blob([yaml.value]).size > 8388608)

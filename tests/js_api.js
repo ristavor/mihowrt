@@ -59,6 +59,36 @@ test('jobNotice locks all job starters until reload', async () => {
  assert.equal(api.jobRunning, true); assert.equal(buttons[0].disabled, true);
  await tick(timers); assert.equal(reloads, 1);
 });
+// C1: a finished background job must not reload over unsaved edits.
+for (const outcome of ['ok', 'error']) test('jobNotice keeps unsaved edits when the job ends: ' + outcome, async () => {
+ const buttons = [{ disabled: false }], listeners = {}; let reloads = 0, count = 0;
+ const { store, sessionStorage } = storage();
+ const { api, timers } = setup({ sessionStorage, location: { reload: () => reloads++ },
+  document: { querySelectorAll: () => buttons, addEventListener: (type, fn) => { listeners[type] = fn; } } });
+ api.read = async () => ++count === 1 ? { id: '9-1', op: 'update-lists', state: 'running' }
+  : outcome === 'ok' ? { state: 'ok' } : { state: 'error', error: 'Interrupted: stopped' };
+ const notice = api.jobNotice(); await flush();
+ assert.equal(buttons[0].disabled, true);
+ listeners.input();
+ await tick(timers);
+ assert.equal(reloads, 0, 'no reload over edits');
+ assert.equal(store['mihowrt-notice'], undefined, 'nothing kept for a reload');
+ assert.equal(notice.children[0].textContent, outcome === 'ok'
+  ? '"Update remote lists" finished. Reload the page to see the result; your unsaved edits are still here.'
+  : '"Update remote lists" failed: The operation was interrupted (for example, by a router reboot). You can run it again.');
+ assert.equal(api.jobRunning, false, 'job no longer running');
+ assert.equal(buttons[0].disabled, false, 'buttons usable to save the edits');
+ assert.equal(store['mihowrt-seen-job'], '9-1', 'result shown once');
+});
+test('jobNotice still reloads without edits', async () => {
+ const listeners = {}; let reloads = 0, count = 0;
+ const { api, timers } = setup({ location: { reload: () => reloads++ },
+  document: { querySelectorAll: () => [], addEventListener: (type, fn) => { listeners[type] = fn; } } });
+ api.read = async () => ++count === 1 ? { id: '9-2', op: 'update-lists', state: 'running' } : { state: 'ok' };
+ api.jobNotice(); await flush(); await tick(timers);
+ assert.equal(reloads, 1);
+ assert.equal(typeof listeners.input, 'function', 'edits are watched');
+});
 test('job ok: three polls spaced 1000 ms, running flag', async () => {
 	let polls = 0;
 	const { api, timers, calls } = setup();

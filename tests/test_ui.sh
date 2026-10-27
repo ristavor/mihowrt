@@ -801,7 +801,7 @@ seq(async () => {
   noticeCalls = 0;
   for (const running of [false, true]) {
    bridge.jobRunning = running; const p = await render();
-   for (const label of ['Update now', 'Check and apply', 'Restore the previous YAML']) {
+   for (const label of ['Save', 'Update now', 'Check and apply', 'Restore the previous YAML']) {
     const b = button(p, label); h.assert(b.attrs['data-mw-job'] != null, label + ' marked');
     h.assert(running ? b.attrs.disabled === true : b.attrs.disabled == null, label + ' running state');
    }
@@ -814,6 +814,28 @@ seq(async () => {
    calls = []; await button(p, 'Update now').listeners.click();
    h.assertEq(JSON.stringify(calls), JSON.stringify(changed ? [['job','update-subscription','https://new.example'],['write','set-subscription','https://new.example','1']] : [['write','set-subscription','https://old.example','1'],['job','update-subscription']]), 'update sequence');
   }
+ });
+ // C9: Save never stores an unchecked new link.
+ await check('save with a changed link downloads it first', async () => {
+  for (const [link, expected] of [
+   ['https://new.example', [['job','update-subscription','https://new.example'],['write','set-subscription','https://new.example','1']]],
+   ['https://old.example', [['write','set-subscription','https://old.example','1']]],
+   ['', [['write','set-subscription','','1']]]
+  ]) {
+   const p = await render(); collect(p).find(n => n.attrs.id === 'mw-url').value = link;
+   calls = []; restoreNotices.length = 0; await button(p, 'Save').listeners.click();
+   h.assertEq(JSON.stringify(calls), JSON.stringify(expected), 'save sequence for ' + (link || 'empty link'));
+   h.assertEq(restoreNotices[0], link === 'https://new.example' ? 'Subscription is up to date.' : 'Subscription settings saved.', 'save notice for ' + (link || 'empty link'));
+  }
+  const job = bridge.job;
+  try {
+   bridge.job = async (...args) => { calls.push(['job', ...args]); throw Object.assign(Error('Subscription download failed: http_404'), { name: 'JobError' }); };
+   const p = await render(); collect(p).find(n => n.attrs.id === 'mw-url').value = 'https://typo.example';
+   calls = []; let error = '';
+   try { await button(p, 'Save').listeners.click(); } catch (e) { error = e.message; }
+   h.assertEq(JSON.stringify(calls), JSON.stringify([['job','update-subscription','https://typo.example']]), 'failed new link never stored');
+   h.assert(error.includes('not found (HTTP 404)') && error.includes('The previous link is kept.'), 'failure explained: ' + error);
+  } finally { bridge.job = job; }
  });
 }).catch(err => { console.error(err); process.exitCode = 1; });
 

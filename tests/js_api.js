@@ -239,6 +239,24 @@ test('readOnly follows the LuCI view permission', () => {
 	for (const [permission, readOnly] of [[false, true], [true, false], [null, false]])
 		assert.equal(setup({ L: { env: {}, hasViewPermission: () => permission } }).api.readOnly(), readOnly, String(permission));
 });
+// E9: one formatter for terminal job errors, applied where the job ends.
+for (const op of ['connect', 'update-subscription']) {
+	test(`${op} terminal errors carry the plain backend text and stay JobError`, async () => {
+		const { store, sessionStorage } = storage();
+		const { api, timers } = setup({ sessionStorage });
+		api.write = async () => ({ id: '10-1' });
+		api.read = async () => ({ state: 'error', error: 'Subscription download failed: http_404' });
+		const pending = assert.rejects(api.job(op, 'https://p.example/sub'), { name: 'JobError', message: 'The subscription link was not found (HTTP 404). Check the link with your provider.' });
+		await tick(timers); await pending;
+		assert.equal(store['mihowrt-seen-job'], '10-1', 'job remembered as seen');
+	});
+}
+test('dead helpers are gone', () => {
+	const { api } = setup();
+	assert.equal(api.readFile, undefined);
+	assert.equal(api.safeLink('https://example.org', 'x', 'cbi-button').attrs.class, undefined, 'safeLink has no class parameter');
+	assert(!/safeLink\(/.test(h.extractBetween(h.readSource(apiPath), 'function linkButton', '\n}\n')), 'linkButton checks the URL itself');
+});
 test('job backend errors reach busy notification unchanged', async () => {
 	for (const message of ['dial tcp: i/o timeout', 'Access denied by provider', 'XHR request timed out', 'Access denied']) {
 		let notified;

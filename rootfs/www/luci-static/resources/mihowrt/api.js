@@ -190,7 +190,7 @@ async function waitJob(api, id) {
 		if (status.state === 'ok')
 			return status.result;
 		if (status.state === 'error')
-			throw Object.assign(new Error(status.error), { name: 'JobError' });
+			throw Object.assign(new Error(backendErrorText(status.error)), { name: 'JobError' });
 	}
 }
 
@@ -202,7 +202,7 @@ function modeLabel(mode) {
 
 // Provider links as theme buttons (some themes leave a.cbi-button unstyled).
 function linkButton(url, label) {
-	if (!safeLink(url, label))
+	if (!/^https?:\/\//i.test(String(url || '')))
 		return null;
 	const button = E('button', { class: 'cbi-button', type: 'button' }, text(label));
 	button.addEventListener('click', () => window.open(String(url), '_blank', 'noopener,noreferrer'));
@@ -260,10 +260,9 @@ function trafficSummary(sub) {
 	return hasUsage ? '%s / %s'.format(formatBytes(used), total) : total;
 }
 
-// cls: an optional theme class (e.g. 'cbi-button' for stand-alone links).
-function safeLink(url, label, cls) {
+function safeLink(url, label) {
 	return /^https?:\/\//i.test(String(url || ''))
-		? E('a', { href: String(url), target: '_blank', rel: 'noopener noreferrer', class: cls || null }, text(label))
+		? E('a', { href: String(url), target: '_blank', rel: 'noopener noreferrer' }, text(label))
 		: null;
 }
 
@@ -497,7 +496,6 @@ return baseclass.extend({
 			throw new Error(_('Unexpected response from the router.'));
 		return reply;
 	},
-	readFile: (path) => fs.read(path).catch(() => ''),
 	modeLabel,
 	linkButton,
 	infoGrid,
@@ -508,7 +506,7 @@ return baseclass.extend({
 	formatDate,
 	trafficSummary,
 	safeLink,
-	// Old name still used by the Overview page.
+	// Kept for the Overview page; api.job() already returns this text.
 	subscriptionError: backendErrorText,
 	toggle,
 	busy,

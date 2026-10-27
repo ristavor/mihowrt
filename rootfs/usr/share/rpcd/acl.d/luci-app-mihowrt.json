@@ -6,7 +6,7 @@
 				"/usr/bin/mihowrt-read": [ "exec" ]
 			},
 			"ubus": {
-				"file": [ "read", "exec" ],
+				"file": [ "exec" ],
 				"luci-rpc": [ "getDHCPLeases" ]
 			},
 			"uci": [ "mihowrt" ]

@@ -409,7 +409,7 @@ seq(async () => {
 
 // Design-review regression cases use the rendered DOM and real event handlers.
 seq(async () => {
- h.assertEq(api.safeLink('https://example.org', 'Support', 'cbi-button').attrs.class, 'cbi-button', 'safeLink theme class');
+ h.assertEq(api.safeLink('https://example.org', 'Support').attrs.class, undefined, 'safeLink leaves styling to the theme');
  const messages = {
   http_404: 'not found (HTTP 404)', http_401: 'refused access (HTTP 401)', http_403: 'refused access (HTTP 403)',
   http_500: 'error (HTTP 500)', network: 'cannot reach', too_large: 'too large', invalid_url: 'starts with https://'
@@ -523,7 +523,7 @@ seq(async () => {
  const subCalls = [], errors = []; let fail = false;
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', { ui, Blob, E: (tag, attrs, children) => {
   const n = E(tag, attrs, children); n.value = n.attrs.value || (tag === 'textarea' ? n.children.join('') : ''); n.checked = n.attrs.checked != null; return n;
- }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, ...readStubs, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); return {}; }, job: async (...args) => { subCalls.push(args); if (fail) throw Error('Subscription download failed: http_404'); return {}; }, notify() {} } }).module;
+ }, view: { extend: v => v }, location: { reload() {} }, api: { ...api, ...readStubs, busy: async (el, fn) => { try { return await fn(); } catch(e) { errors.push(e.message); } }, write: async (...args) => { subCalls.push(args); return {}; }, job: async (...args) => { subCalls.push(args); if (fail) throw Object.assign(Error('The subscription link was not found (HTTP 404). Check the link with your provider.'), { name: 'JobError' }); return {}; }, notify() {} } }).module;
  for (const changed of [false, true]) {
   const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: true }, { content: 'yaml' });
   const ns = collect(p); ns.find(n => n.attrs.id === 'mw-url').value = changed ? 'https://new.example' : 'https://old.example';
@@ -535,7 +535,8 @@ seq(async () => {
    h.assertEq(subCalls[0][1], 'https://new.example', 'new link passed to updater');
    fail = true; subCalls.length = 0; await ns.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
    h.assertEq(subCalls.length, 1, 'failed new link never set'); h.assert(errors.at(-1).includes('The previous link is kept.'), 'previous link explanation');
-   h.assert(errors.at(-1).includes('not found (HTTP 404)'), 'job failure keeps subscriptionError mapping');
+   h.assertEq(errors.at(-1), 'The subscription link was not found (HTTP 404). Check the link with your provider. The previous link is kept.', 'job failure text from api.job, kept-link note added');
+   h.assert(!/subscriptionError/.test(h.readSource('rootfs/www/luci-static/resources/view/mihowrt/subscription.js')), 'Subscription does not format job errors itself');
   }
  }
  let logReads = 0;
@@ -814,7 +815,7 @@ seq(async () => {
   }
   const job = bridge.job;
   try {
-   bridge.job = async (...args) => { calls.push(['job', ...args]); throw Object.assign(Error('Subscription download failed: http_404'), { name: 'JobError' }); };
+   bridge.job = async (...args) => { calls.push(['job', ...args]); throw Object.assign(Error('The subscription link was not found (HTTP 404). Check the link with your provider.'), { name: 'JobError' }); };
    const p = await render(); collect(p).find(n => n.attrs.id === 'mw-url').value = 'https://typo.example';
    calls = []; let error = '';
    try { await button(p, 'Save').listeners.click(); } catch (e) { error = e.message; }

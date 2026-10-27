@@ -55,7 +55,7 @@ return view.extend({
 				res = await api.job('update-subscription', ...(changed ? [ link ] : []));
 			}
 			catch (e) {
-				throw new Error(api.subscriptionError(e.message) + (changed && sub.url ? ' ' + _('The previous link is kept.') : ''));
+				throw new Error(e.message + (changed && sub.url ? ' ' + _('The previous link is kept.') : ''));
 			}
 			if (changed)
 				await saveSettings();

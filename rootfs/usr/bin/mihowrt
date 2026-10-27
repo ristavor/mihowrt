@@ -109,7 +109,11 @@ apply-lists)
 	lists_apply "$1" "$2" "$3" "$4"
 	;;
 update-lists) lists_refresh ;;
-auto-update) job_start auto-update >/dev/null ;;
+auto-update)
+	settings_load || exit 1
+	subscription_due || { [ "$LISTS_INTERVAL" -gt 0 ] && [ -n "$(lists_urls)" ]; } || exit 0
+	job_start auto-update >/dev/null
+	;;
 net-refresh) net_refresh_coalesced ;;
 core-update) core_update_cmd ;;
 core-version-json) core_version_json ;;

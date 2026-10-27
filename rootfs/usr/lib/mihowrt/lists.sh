@@ -309,7 +309,7 @@ lists_remote_due() {
 
 # Fetch due remote lists into the cache. Prints "changed" or "unchanged".
 lists_update_remote() {
-	local force="${1:-0}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0
+	local force="${1:-0}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0 first_error=""
 
 	ensure_dir "$POLICY_CACHE_DIR" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
@@ -317,16 +317,18 @@ lists_update_remote() {
 	# URLs come from providers too: no pathname expansion.
 	set -f
 	for url in $(lists_urls); do
-		count=$((count + 1))
-		[ "$count" -le "$LISTS_REMOTE_MAX_URLS" ] || {
+		[ "$count" -lt "$LISTS_REMOTE_MAX_URLS" ] || {
 			warn "Too many remote lists; only $LISTS_REMOTE_MAX_URLS are used"
 			break
 		}
+		count=$((count + 1))
 		cache="$(lists_cache_file "$url")"
 		[ "$force" = "1" ] || lists_remote_due "$cache" || continue
 		if ! http_fetch "$url" "$tmp" "$LISTS_REMOTE_MAX_BYTES" "$LISTS_REMOTE_TIMEOUT" 0; then
-			warn "Remote list fetch failed: $(url_host "$url") ($FETCH_ERROR)"
-			failed=1
+			line="Remote list fetch failed: $(url_host "$url") ($FETCH_ERROR)"
+			warn "$line"
+			[ -n "$first_error" ] || first_error="$line"
+			failed=$((failed + 1))
 			continue
 		fi
 		lists_clean_lines "$tmp" | lists_classify | cut -d' ' -f2- >"$tmp.clean"
@@ -336,8 +338,10 @@ lists_update_remote() {
 			if atomic_copy "$tmp.clean" "$cache"; then
 				changed=1
 			else
-				warn "Remote list cache write failed: $(url_host "$url")"
-				failed=1
+				line="Remote list cache write failed: $(url_host "$url")"
+				warn "$line"
+				[ -n "$first_error" ] || first_error="$line"
+				failed=$((failed + 1))
 			fi
 		fi
 	done
@@ -349,7 +353,11 @@ lists_update_remote() {
 	else
 		echo unchanged
 	fi
-	[ "$failed" -eq 0 ]
+	if [ "$failed" -gt 0 ]; then
+		err "Failed to update $failed of $count remote lists: $first_error"
+		return 1
+	fi
+	return 0
 }
 
 # Entries that apply (provider and/or own, per the list source).
@@ -454,10 +462,11 @@ lists_apply() {
 }
 
 lists_refresh() {
-	local result=""
+	local result="" rc=0
 
 	settings_load || return 1
-	result="$(lists_update_remote 1)" || warn "Some remote lists could not be fetched"
+	result="$(lists_update_remote 1)" || rc=1
 	[ "$result" = changed ] && service_ready && { with_lock nft_apply || return 1; }
+	[ "$rc" -eq 0 ] || return 1
 	jq -nc --arg r "$result" '{changed: ($r == "changed")}'
 }

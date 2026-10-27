@@ -145,32 +145,38 @@ with_lock() {
 # Add or remove one marked crontab line; restart cron only on change.
 cron_sync() {
 	local marker="$1" enabled="$2" line="$3"
-	local file="${CRON_FILE:-/etc/crontabs/root}" tmp=""
+	local file="${CRON_FILE:-/etc/crontabs/root}" cand=""
 
-	ensure_dir "$(dirname "$file")" || return 1
-	tmp="$file.mihowrt.$$"
+	cand="$(mktemp /tmp/mihowrt-cron.XXXXXX 2>/dev/null)" || return 1
 	# grep -v exits 1 when nothing is left; 2 is a real error (e.g. ENOSPC).
 	if [ -e "$file" ]; then
-		grep -vF "$marker" "$file" >"$tmp" 2>/dev/null
+		grep -vF "$marker" "$file" >"$cand" 2>/dev/null
 		[ "$?" -le 1 ] || {
-			rm -f "$tmp"
+			rm -f "$cand"
 			return 1
 		}
-	else
-		: >"$tmp" || return 1
 	fi
-	if [ "$enabled" = "1" ] && ! printf '%s %s\n' "$line" "$marker" >>"$tmp"; then
-		rm -f "$tmp"
+	if [ "$enabled" = "1" ] && ! printf '%s %s\n' "$line" "$marker" >>"$cand"; then
+		rm -f "$cand"
 		return 1
 	fi
-	if cmp -s "$tmp" "$file" 2>/dev/null; then
-		rm -f "$tmp"
+	if [ -e "$file" ] && cmp -s "$cand" "$file" 2>/dev/null; then
+		rm -f "$cand"
 		return 0
 	fi
-	mv -f "$tmp" "$file" || {
-		rm -f "$tmp"
+	if [ ! -e "$file" ] && [ "$enabled" != "1" ]; then
+		rm -f "$cand"
+		return 0
+	fi
+	ensure_dir "$(dirname "$file")" || {
+		rm -f "$cand"
 		return 1
 	}
+	if ! atomic_copy "$cand" "$file"; then
+		rm -f "$cand"
+		return 1
+	fi
+	rm -f "$cand"
 	[ -x /etc/init.d/cron ] && /etc/init.d/cron restart 9>&- >/dev/null 2>&1
 	return 0
 }

@@ -158,6 +158,38 @@ unset -f grep
 assert_file_contains "$CRON_FILE" "/root/backup.sh" "crontab kept on write error"
 pass "cron sync safe on errors"
 
+# B6: cron_sync compares in /tmp and touches target directory only when changed.
+cron_dir="$tmpdir/crontabs"
+mkdir -p "$cron_dir" /etc/init.d
+CRON_FILE="$cron_dir/root"
+cron_log="$tmpdir/cron.log"
+printf '#!/bin/sh\necho "$*" >>"%s"\n' "$cron_log" >/etc/init.d/cron
+chmod +x /etc/init.d/cron
+printf '0 3 * * * /root/backup.sh\n17 * * * * /usr/bin/mihowrt auto-update # mihowrt\n' >"$CRON_FILE"
+# Set past mtime so any write changes it
+touch -d '2026-01-01 00:00:00' "$cron_dir" "$CRON_FILE"
+dir_mtime_before="$(stat -c %Y "$cron_dir")"
+file_inode_before="$(stat -c %i "$CRON_FILE")"
+file_mtime_before="$(stat -c %Y "$CRON_FILE")"
+
+# Unchanged sync must not touch cron_dir or CRON_FILE, and must not reload cron.
+cron_sync "# mihowrt" 1 "17 * * * * /usr/bin/mihowrt auto-update" || fail "cron_sync unchanged failed"
+assert_eq "$dir_mtime_before" "$(stat -c %Y "$cron_dir")" "crontab dir mtime unchanged"
+assert_eq "$file_inode_before" "$(stat -c %i "$CRON_FILE")" "crontab file inode unchanged"
+assert_eq "$file_mtime_before" "$(stat -c %Y "$CRON_FILE")" "crontab file mtime unchanged"
+assert_eq "root" "$(ls "$cron_dir")" "no staging leftovers in crontab dir on unchanged"
+assert_false "cron not reloaded when unchanged" test -s "$cron_log"
+
+# Changed sync replaces atomically, preserves other lines, and reloads cron.
+cron_sync "# mihowrt" 1 "25 * * * * /usr/bin/mihowrt auto-update" || fail "cron_sync changed failed"
+assert_file_contains "$CRON_FILE" "/root/backup.sh" "other users lines preserved"
+assert_file_contains "$CRON_FILE" "25 * * * * /usr/bin/mihowrt auto-update # mihowrt" "updated line present"
+assert_file_not_contains "$CRON_FILE" "17 * * * *" "old line removed"
+assert_eq "root" "$(ls "$cron_dir")" "no staging leftovers in crontab dir after change"
+assert_true "cron reloaded on change" grep -q "restart" "$cron_log"
+rm -f /etc/init.d/cron "$cron_log"
+pass "cron sync atomic staging and no-op on unchanged"
+
 # Owner metadata is diagnostic only; stale or reused pids cannot block work.
 RUNTIME_LOCK_FILE="$tmpdir/runtime.flock"
 echo "$$" >"$RUNTIME_LOCK_FILE.owner"

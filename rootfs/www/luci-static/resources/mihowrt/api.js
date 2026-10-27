@@ -50,7 +50,7 @@ const JOB_LABELS = {
 	'apply-lists': _('Save & Apply'),
 	'save-config': _('Check and apply'),
 	'restore-config': _('Restore the previous YAML'),
-	'service': _('Start / Stop / Restart')
+	'service': _('Start or stop MihoWRT')
 };
 
 const ACCESS_DENIED = _('Access denied. Log in to LuCI again, or ask for write access.');

@@ -619,8 +619,8 @@ msgstr "Сохранить и применить"
 msgid "Restore the previous YAML"
 msgstr "Восстановить предыдущий YAML"
 
-msgid "Start / Stop / Restart"
-msgstr "Запустить / Остановить / Перезапустить"
+msgid "Start or stop MihoWRT"
+msgstr "Запуск или остановка MihoWRT"
 
 msgid "Lost connection to the router while waiting for the result."
 msgstr "Во время ожидания результата потеряна связь с роутером."

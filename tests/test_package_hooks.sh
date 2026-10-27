@@ -88,6 +88,7 @@ extract_prerm() {
 	render_package_define prerm |
 		rewrite_package_paths |
 		sed \
+			-e "s|/tmp/luci-app-mihowrt.was-running|$was_running_marker|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g"
 }
@@ -291,6 +292,30 @@ chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt"
 : >"$hook_log"
 IPKG_INSTROOT="" "$prerm_path"
 assert_file_contains "$hook_log" "mihowrt:uninstall" "prerm runs uninstall before package files are removed"
+
+# opkg runs the old prerm on every upgrade (apk does not): the core, UI and
+# state must survive, and the running state is recorded here because opkg runs
+# default_prerm's service stop before the new preinst.
+: >"$hook_log"
+rm -f "$was_running_marker"
+find "$tmpdir/opt" -name '*.keep' -delete
+PATH="$tmpdir/bin-stopped:$PATH" PKG_UPGRADE=1 IPKG_INSTROOT="" "$prerm_path"
+assert_file_not_contains "$hook_log" "mihowrt:uninstall" "prerm on a package upgrade must not uninstall the core"
+[[ ! -e "$was_running_marker" ]] || fail "prerm on upgrade must not mark a stopped service as running"
+PATH="$tmpdir/bin-running:$PATH" PKG_UPGRADE=1 IPKG_INSTROOT="" "$prerm_path"
+assert_file_not_contains "$hook_log" "mihowrt:uninstall" "prerm on a running package upgrade must not uninstall the core"
+[[ -e "$was_running_marker" ]] || fail "prerm on upgrade should record a running supervisor"
+[[ -z "$(find "$tmpdir/opt" -name '*.keep')" ]] || fail "prerm on upgrade must not park .keep files"
+rm -f "$was_running_marker"
+
+# The new preinst runs after that prerm: it keeps a fresh marker and drops a stale one.
+: >"$was_running_marker"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
+[[ -e "$was_running_marker" ]] || fail "preinst should keep the marker written by the old prerm"
+touch -d '2024-01-01 00:00:00' "$was_running_marker"
+PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
+[[ ! -e "$was_running_marker" ]] || fail "preinst should drop a stale was-running marker"
+pass "opkg upgrade keeps the core and the running state"
 
 # Removal: apk deletes package-owned files, so prerm parks the user's YAML and
 # lists as .keep copies and postrm moves them back (spec 11.1).

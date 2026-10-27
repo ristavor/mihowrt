@@ -100,7 +100,9 @@ define Package/$(PKG_NAME)/preinst
 [ -n "$$IPKG_INSTROOT" ] || {
 	# default_postinst may stop the service (skipped start below), so
 	# record the running state now; the new constants.sh is not installed yet.
-	rm -f /tmp/luci-app-mihowrt.was-running
+	# opkg already recorded it in the old prerm, before stopping the service.
+	[ -n "$$(find /tmp/luci-app-mihowrt.was-running -mmin -5 2>/dev/null)" ] ||
+		rm -f /tmp/luci-app-mihowrt.was-running
 	if pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
 		: >/tmp/luci-app-mihowrt.was-running
 	fi
@@ -168,6 +170,15 @@ endef
 define Package/$(PKG_NAME)/prerm
 #!/bin/sh
 [ -n "$$IPKG_INSTROOT" ] || {
+	# opkg runs this on upgrade too (apk only on removal): keep the core and
+	# state, and record the running state before default_prerm stops the service.
+	[ "$$PKG_UPGRADE" != 1 ] || {
+		rm -f /tmp/luci-app-mihowrt.was-running
+		if pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
+			: >/tmp/luci-app-mihowrt.was-running
+		fi
+		exit 0
+	}
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt uninstall >/dev/null 2>&1 || true
 	# apk deletes package-owned files on removal; park the user's copies for postrm.
 	# cp, not mv: if the removal aborts, the originals are still in place.

@@ -35,6 +35,7 @@ None.
 
 ### Other
 - **D12. Two validator sets.** Shell and awk validate the same values separately; they are kept in sync by tests, not shared code.
+- **The fd 9 static check is line-based:** a background shell function started under the lock would not be caught (none exists).
 - **D14. APKs are not signed.** The installer checks every download against `SHA256SUMS` from the release.
 
 ## Acceptance status and limits

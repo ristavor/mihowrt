@@ -53,6 +53,10 @@ grep -q 'uci set firewall.m22dnat=redirect' "$guest" || fail 'port forward must 
 grep -q 'comment a1-reply' "$guest" || fail 'port forward row must count marked replies'
 grep -q 'stop_reply_listeners' "$guest" || fail 'reply listeners must have tracked TERM/KILL teardown'
 grep -q 'a1-ports-router.before' "$guest" || fail 'reply probes must refuse occupied ports'
+udp_probe="$(sed -n '/^udp_echo()/,/^)/p' "$guest")"
+for contract in 'cat /proc/net/nf_conntrack' 'a1-$label.conntrack-all' 'absent grep -q UNREPLIED'; do
+  grep -qF "$contract" <<<"$udp_probe" || fail "UDP probe must check its conntrack before listener teardown: $contract"
+done
 for script in "$host" "$guest"; do
   grep -q "'IPv6 disabled'" "$script" || fail 'network matrix must include IPv6 disabled'
   grep -q "'policy rule precedence'" "$script" || fail 'network matrix must include policy rule precedence'

@@ -930,7 +930,7 @@ stop_reply_listeners() {
 }
 
 udp_echo() (
-	local label="$1" address="$2" port="$3" ns="$4" listen_port="$5" pid=""
+	local label="$1" address="$2" port="$3" ns="$4" listen_port="$5" pid="" reply_src=""
 	# One bounded foreground echo per probe: no untracked forked listeners.
 	if [ "$ns" = router ]; then
 		socat -T 4 "UDP4-RECVFROM:$listen_port" PIPE >"$WORK/logs/a1-$label.listener" 2>&1 6>&- 7>&- 8>&- 9>&- &
@@ -945,6 +945,11 @@ udp_echo() (
 	# Keep ash xtrace out of the payload (the echo deliberately has no newline).
 	(BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-w socat -t 2 -T 3 - "UDP4:$address:$port") >"$WORK/logs/a1-$label.udp" 2>"$WORK/logs/a1-$label.stderr" || true
 	cmp "$WORK/udp-probe" "$WORK/logs/a1-$label.udp"
+	# Observe this tuple before teardown/later probes can retire the UDP flow.
+	case "$ns" in router) reply_src='198[.]19[.]22[.]1' ;; *) reply_src='192[.]0[.]2[.]2' ;; esac
+	cat /proc/net/nf_conntrack >"$WORK/logs/a1-$label.conntrack-all"
+	grep -E "udp .*src=198[.]19[.]22[.]2 dst=198[.]19[.]22[.]1 sport=[0-9]+ dport=$port .*src=$reply_src dst=198[.]19[.]22[.]2 sport=$listen_port dport=" "$WORK/logs/a1-$label.conntrack-all" >"$WORK/logs/a1-$label.conntrack"
+	absent grep -q UNREPLIED "$WORK/logs/a1-$label.conntrack"
 )
 
 # Handle of the nth rule of a mihowrt chain.
@@ -982,8 +987,8 @@ check_forward_replies() {
 		profile "$mode" fake-ip false 0
 		set_lists "${pair#*:}"
 		ready
-		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto { tcp, udp } th sport { 8088, 8091 } counter comment a1-reply
-		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto { tcp, udp } th dport 8080 counter comment a1-control
+		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto '{ tcp, udp }' th sport '{ 8088, 8091 }' counter comment a1-reply
+		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto '{ tcp, udp }' th dport 8080 counter comment a1-control
 		# DNAT port forward, then router WAN service; each TCP and UDP.
 		http w 198.19.22.1 18091 | grep mihowrt-network-fixture
 		udp_echo "$mode-forward" 198.19.22.1 18091 m22-c 8091
@@ -996,10 +1001,11 @@ check_forward_replies() {
 		grep 'comment "a1-control"' "$WORK/logs/a1-$mode.nft" | grep -Eq 'counter packets [1-9]'
 		# Conntrack accounting may insert packet/byte fields between the tuples.
 		cat /proc/net/nf_conntrack >"$WORK/logs/a1-$mode.conntrack-all"
-		grep -E 'tcp .*dport=18091 .*src=192\.0\.2\.2 dst=198\.19\.22\.2 sport=8091 ' "$WORK/logs/a1-$mode.conntrack-all" >"$WORK/logs/a1-$mode.conntrack"
-		grep -E 'udp .*dport=18091 .*src=192\.0\.2\.2 dst=198\.19\.22\.2 sport=8091 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
-		grep -E 'tcp .*dport=8088 .*src=198\.19\.22\.1 dst=198\.19\.22\.2 sport=8088 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
-		grep -E 'udp .*dport=8088 .*src=198\.19\.22\.1 dst=198\.19\.22\.2 sport=8088 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
+		{
+			grep -E 'tcp .*dport=18091 .*src=192\.0\.2\.2 dst=198\.19\.22\.2 sport=8091 ' "$WORK/logs/a1-$mode.conntrack-all"
+			grep -E 'tcp .*dport=8088 .*src=198\.19\.22\.1 dst=198\.19\.22\.2 sport=8088 ' "$WORK/logs/a1-$mode.conntrack-all"
+			cat "$WORK/logs/a1-$mode-forward.conntrack" "$WORK/logs/a1-$mode-router.conntrack"
+		} >"$WORK/logs/a1-$mode.conntrack"
 		absent grep -q UNREPLIED "$WORK/logs/a1-$mode.conntrack"
 		# Fixture sensitivity: without the reply rule the same flows break and the counter moves.
 		nft list chain inet mihowrt prerouting_policy >"$WORK/logs/a1-$mode.prerouting.before"

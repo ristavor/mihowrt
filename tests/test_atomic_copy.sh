@@ -45,6 +45,7 @@ for consumer in remote metadata database list; do
  for outcome in success cp-failure mv-failure; do
  (
   setup_runtime_paths "$tmpdir/$consumer-$outcome"
+  fake_uci_reset
   target="$PKG_PERSIST_DIR/output"
   : >"$tmpdir/warnings"
   warn() { echo "$*" >>"$tmpdir/warnings"; }

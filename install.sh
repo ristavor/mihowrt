@@ -26,7 +26,7 @@ cleanup() {
 }
 
 can_prompt() {
-	[ -c /dev/tty ] && : </dev/tty 2>/dev/null
+	[ -c /dev/tty ] && ( : </dev/tty ) 2>/dev/null
 }
 
 # ask <question> <option1> <option2>: prints 1 or 2 (default 1).

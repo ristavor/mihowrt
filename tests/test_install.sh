@@ -7,6 +7,16 @@ source "$(dirname "$0")/testlib.sh"
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 
+# A failed /dev/tty open must not terminate non-interactive BusyBox ash.
+sed '/^main "\$@"$/d' "$ROOT_DIR/install.sh" >"$tmpdir/install-lib.sh"
+cat >>"$tmpdir/install-lib.sh" <<'S'
+can_prompt || echo no-terminal
+echo after-prompt
+S
+out="$(setsid ash "$tmpdir/install-lib.sh" </dev/null 2>&1)" || fail "can_prompt aborted ash: $out"
+assert_eq $'no-terminal\nafter-prompt' "$out" "ash survives absent controlling tty"
+pass "can_prompt without tty"
+
 set +u
 source_install_lib
 set -u

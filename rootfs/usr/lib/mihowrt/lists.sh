@@ -159,9 +159,11 @@ lists_ensure_files() {
 
 # One awk pass validates and classifies entries (a fork per entry is far too
 # slow on router CPUs). Prints "<family> <entry>", family 4, 6, mac or any; with
-# -v bad=1 prints only the invalid lines.
+# bad=1 prints only invalid lines. Optional output paths instead receive each
+# family and diagnostics (total count, then at most 20 invalid-line samples).
 lists_classify() {
-	awk -v bad="${1:-0}" -v kind="${2:-}" '
+	awk -v bad="${1:-0}" -v kind="${2:-}" \
+		-v o4="${3:-}" -v o6="${4:-}" -v omac="${5:-}" -v diag="${6:-}" '
 		function port_ok(p) { return p ~ /^[0-9]+$/ && p + 0 >= 1 && p + 0 <= 65535 }
 		function ports_ok(s,   n, i, a, r) {
 			if (s == "" || s ~ /^,|,$|,,/) return 0
@@ -204,8 +206,22 @@ lists_classify() {
 			else if (v4(addr)) fam = "4"
 			else if (v6(addr)) fam = "6"
 			else if (!index($0, ";") && mac(addr) && kind != "dst" && kind != "direct") { fam = "mac"; $0 = tolower($0) }
-			if (bad) { if (fam == "") print; next }
-			if (fam != "") print fam " " $0
+			if (fam == "") {
+				if (diag != "") { invalid++; if (invalid <= 20) samples[invalid] = $0 }
+				if (bad) print
+				next
+			}
+			if (bad) next
+			if (o4 == "") { print fam " " $0; next }
+			if (fam == "4" || fam == "any") print >o4
+			if (fam == "6" || fam == "any") print >o6
+			if (fam == "mac" && omac != "") print >omac
+		}
+		END {
+			if (diag != "") {
+				print invalid + 0 >diag
+				for (i = 1; i <= invalid && i <= 20; i++) print samples[i] >diag
+			}
 		}
 	'
 }
@@ -259,7 +275,7 @@ lists_json() {
 
 # Optional fourth argument receives device MACs, separately from IP families.
 lists_resolve() {
-	local kind="$1" out4="$2" out6="$3" outmac="${4:-}" src="" line="" url="" ports="" cache="" bad=""
+	local kind="$1" out4="$2" out6="$3" outmac="${4:-}" src="" line="" url="" ports="" cache="" bad="" bad_count=0
 
 	src="$PKG_TMP_DIR/list.$kind.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
@@ -268,9 +284,6 @@ lists_resolve() {
 		rm -f "$src"
 		return 1
 	fi
-	# User files are validated on save; provider entries only here.
-	bad="$({ grep -v '^https\?://' "$src" || true; } | lists_classify 1 "$kind" | tr '\n' ' ')"
-	[ -z "$bad" ] || warn "Ignoring invalid $kind entries: $bad"
 	{
 		grep -v '^https\?://' "$src" || true
 		# Remote entries inherit the URL's ports unless they carry their own.
@@ -282,13 +295,19 @@ lists_resolve() {
 			[ -r "$cache" ] || continue
 			awk -v p="$ports" 'p != "" && !index($0, ";") { $0 = $0 ";" p } { print }' "$cache"
 		done
-	} | lists_classify 0 "$kind" | awk -v o4="$out4" -v o6="$out6" -v omac="$outmac" '
-		$1 == "4" { print $2 >o4 }
-		$1 == "6" { print $2 >o6 }
-		$1 == "mac" && omac != "" { print $2 >omac }
-		$1 == "any" { print $2 >o4; print $2 >o6 }
-	'
-	rm -f "$src"
+	} | lists_classify 0 "$kind" "$out4" "$out6" "$outmac" "$src.bad" || {
+		rm -f "$src" "$src.bad"
+		return 1
+	}
+	{
+		IFS= read -r bad_count
+		while IFS= read -r line; do bad="$bad$line "; done
+	} <"$src.bad"
+	if [ "$bad_count" -gt 0 ]; then
+		[ "$bad_count" -le 20 ] || bad="$bad($bad_count total; first 20 shown)"
+		warn "Ignoring invalid $kind entries: $bad"
+	fi
+	rm -f "$src" "$src.bad"
 	# BusyBox sort on OpenWrt has no -o.
 	sort -u "$out4" >"$out4.sorted" && mv -f "$out4.sorted" "$out4" &&
 		sort -u "$out6" >"$out6.sorted" && mv -f "$out6.sorted" "$out6" || return 1

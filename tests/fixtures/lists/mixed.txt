@@ -1,0 +1,11 @@
+# Mixed own/provider entries, duplicates, remote inheritance and a missing cache.
+1.1.1.1
+2001:db8::/32;443
+;53
+999.1.1.1
+1.1.1.1
+AA:BB:CC:DD:EE:FF
+aa:bb:cc:dd:ee:ff;443
+https://lists.example.com/a.txt;80
+https://lists.example.com/a.txt;443,8000-8080
+https://missing.example/list

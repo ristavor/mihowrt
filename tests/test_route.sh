@@ -65,6 +65,10 @@ route_cleanup
 assert_file_contains "$calls" "ip -4 rule del fwmark 0x08000000/0x08000000 lookup 202 priority 51" "current mark rule removed"
 assert_file_not_contains "$calls" "0x00001000" "runtime cleanup must not remove legacy mark rules"
 assert_file_contains "$calls" "ip -6 route flush table 202" "v6 table flushed"
+# BusyBox ip (OpenWrt 24.10) accepts "route flush" for IPv6 but removes nothing:
+# the route is deleted by value so its table is not counted as used forever.
+assert_file_contains "$calls" "ip -6 route del local default dev lo table 202" "v6 local route deleted"
+assert_file_contains "$calls" "ip -4 route del local default dev lo table 202" "v4 local route deleted"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "state removed"
 pass "route cleanup"
 

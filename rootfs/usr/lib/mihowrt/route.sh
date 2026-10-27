@@ -101,6 +101,8 @@ route_cleanup() {
 	route_state_read || return 0
 	for fam in 4 6; do
 		while ip -"$fam" rule del fwmark "$NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null; do :; done
+		# BusyBox ip (24.10) flushes IPv6 tables without removing anything.
+		ip -"$fam" route del local default dev lo table "$ROUTE_TABLE" 2>/dev/null
 		ip -"$fam" route flush table "$ROUTE_TABLE" 2>/dev/null
 	done
 	rm -f "$ROUTE_STATE_FILE"

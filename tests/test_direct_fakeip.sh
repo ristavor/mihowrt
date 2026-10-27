@@ -42,7 +42,8 @@ EOF
   cp "$src" "$tmpdir/source-copy"
   : >"$tmpdir/warnings"
   mihomo_config_generate "$src" "$out"
-  assert_file_contains "$out.profile" "set direct_listener 1" "$dialect/$style listener profile"
+  assert_file_contains "$out.profile" "direct_listener 1" "$dialect/$style listener profile"
+  assert_file_not_contains "$out.profile" "set direct_listener" "$dialect/$style listener not a provider key"
   assert_true "$dialect/$style source untouched" cmp -s "$src" "$tmpdir/source-copy"
   assert_eq 1 "$(grep -c '^listeners:' "$out")" "$dialect/$style one listener block"
   assert_eq 1 "$(grep -c '^rules:' "$out")" "$dialect/$style one rule block"
@@ -79,7 +80,7 @@ EOF
   assert_true "$dialect fallback preserves pre-injection runtime" cmp -s "$out" "$tmpdir/expected"
   assert_file_not_contains "$out" 'IN-NAME,mihowrt-direct,DIRECT' "$dialect no injected rule"
   assert_file_not_contains "$out" "port: $MIHOMO_DIRECT_TPROXY_PORT" "$dialect no injected listener"
-  assert_file_not_contains "$out.profile" 'set direct_listener 1' "$dialect no listener profile"
+  assert_file_not_contains "$out.profile" 'direct_listener 1' "$dialect no listener profile"
   assert_eq 1 "$(wc -l <"$tmpdir/warnings" | tr -d ' ')" "$dialect one fallback warning"
   assert_file_contains "$tmpdir/warnings" 'Devices always direct with fake-IP DNS is unavailable' "$dialect fallback warning"
  done
@@ -91,7 +92,7 @@ EOF
   fi
   printf 'listeners: [{name: custom, type: mixed, port: 17890}]\nrules: [MATCH,DIRECT]\n' >>"$src"
   mihomo_config_generate "$src" "$out"
-  assert_file_not_contains "$out.profile" "set direct_listener 1" "$dialect/$mode no listener profile"
+  assert_file_not_contains "$out.profile" "direct_listener 1" "$dialect/$mode no listener profile"
   assert_file_not_contains "$out" mihowrt-direct "$dialect/$mode no injection"
   assert_file_contains "$out" 'listeners: [{name: custom, type: mixed, port: 17890}]' "$dialect/$mode untouched flow block"
  done
@@ -132,7 +133,7 @@ assert_file_not_contains "$out" "127.0.0.1:$MIHOMO_DIRECT_TPROXY_PORT" 'no dedic
 assert_file_not_contains "$out" 'prerouting_policy ether saddr @direct_src' 'fake-IP direct devices skipped without listener'
 assert_file_not_contains "$out" 'add element inet mihowrt direct_src' 'no direct source sets populated without listener'
 assert_file_contains "$out" "prerouting_policy meta l4proto { tcp, udp } meta mark set" 'fallback keeps generic fake-IP interception'
-printf 'mode proxy-first\ndns fake-ip\nset direct_listener 1\n' >"$PROFILE_FILE"
+printf 'mode proxy-first\ndns fake-ip\ndirect_listener 1\n' >"$PROFILE_FILE"
 settings_load
 assert_eq 1 "$DIRECT_LISTENER" 'settings loads injected listener flag'
 printf 'mode proxy-first\ndns fake-ip\n' >"$PROFILE_FILE"

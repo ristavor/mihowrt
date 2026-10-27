@@ -113,7 +113,7 @@ settings_load() {
 	fake-ip | redir-host | normal) ;;
 	*) DNS_MODE="redir-host" ;;
 	esac
-	DIRECT_LISTENER="$(profile_get "set direct_listener")"
+	DIRECT_LISTENER="$(profile_get "direct_listener")"
 	[ "$DIRECT_LISTENER" = "1" ] || DIRECT_LISTENER=0
 	PROVIDER_KEYS="$(profile_entries set | cut -d' ' -f1 | tr '\n' ' ')"
 	PROVIDER_OVERRIDES="$(uci -q get "$PKG_CONFIG.settings.provider_override" 2>/dev/null)" || PROVIDER_OVERRIDES=""

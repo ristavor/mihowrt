@@ -84,7 +84,7 @@ function print_runtime(   i, j, kind, found_listeners, found_rules) {
 			if (!found_listeners) direct_section("listeners", 0, 0)
 			if (!found_rules) direct_section("rules", 0, 0)
 			for (i = 1; i <= candidate_count; i++) print candidate[i]
-			print "set direct_listener 1" >profile
+			print "direct_listener 1" >profile
 			if (listener_collision)
 				print "Provider listener mihowrt-direct replaced by the MihoWRT direct listener" >warnfile
 			return

@@ -95,7 +95,14 @@ check_space() {
 
 # download_file <name> <out>: fixed-name release asset.
 download_file() {
-	curl -fsSL --retry 3 --connect-timeout 15 --max-time 300 -o "$2" "$RELEASE_URL/$1"
+	local name="$1" out="$2"
+
+	# Keep explicit non-HTTPS mirrors usable (for example local file:// assets).
+	set --
+	case "$RELEASE_URL" in
+	https://*) set -- --proto =https --proto-redir =https ;;
+	esac
+	curl -fsSL "$@" --retry 3 --connect-timeout 15 --max-time 300 -o "$out" "$RELEASE_URL/$name"
 }
 
 # verify_asset <name> <file>: sha256 of <file> must match the SHA256SUMS line

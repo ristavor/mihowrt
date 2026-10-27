@@ -137,6 +137,21 @@ pass "urls"
 )
 pass "missing dependencies only"
 
+# HTTPS assets cannot redirect to an insecure protocol; file mirrors still work.
+(
+ curl() { printf '%s\n' "$@" >"$tmpdir/curl.args"; }
+ download_file SHA256SUMS "$tmpdir/sums"
+ assert_file_contains "$tmpdir/curl.args" '--proto' "HTTPS protocol restricted"
+ assert_file_contains "$tmpdir/curl.args" '--proto-redir' "HTTPS redirects restricted"
+ assert_eq 2 "$(grep -c '^=https$' "$tmpdir/curl.args")" "HTTPS only for request and redirects"
+ RELEASE_URL=file:///mirror
+ download_file SHA256SUMS "$tmpdir/sums"
+ assert_file_not_contains "$tmpdir/curl.args" '--proto' "file mirror allowed"
+)
+assert_file_contains "$ROOT_DIR/README.md" 'mihowrt@v0.11.0/install.sh' "mirror pinned to release tag"
+assert_file_contains "$ROOT_DIR/README.md" 'third-party' "mirror trust risk documented"
+pass "release transport restrictions"
+
 # The release base override covers checksums and both APKs.
 fake_release ok
 out="$(MIHOWRT_RELEASE_URL=file:///mirror source_install_lib; install_packages ru 2>&1)" || fail "mirror install failed: $out"

@@ -34,11 +34,13 @@ With `curl` already installed the same works as
 `curl -fsSL https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | sh`.
 
 If `raw.githubusercontent.com` is unreachable, use the jsDelivr mirror of the
-same file:
+release-tagged installer:
 
 ```sh
-wget -qO- https://cdn.jsdelivr.net/gh/ristavor/mihowrt@main/install.sh | sh
+wget -qO- https://cdn.jsdelivr.net/gh/ristavor/mihowrt@v0.11.0/install.sh | sh
 ```
+
+This third-party mirror is an additional trust point: its script runs as root.
 
 The installer downloads `SHA256SUMS` and the APKs from the latest GitHub
 release (`releases/latest/download/`, no GitHub API) and verifies every APK

@@ -792,3 +792,9 @@ msgstr "Любой узел на пути может подменить вашу
 
 msgid "Automatic update"
 msgstr "Автоматическое обновление"
+
+msgid "Mihomo temporary files (rulesets, providers, cache)"
+msgstr "Временные файлы Mihomo (наборы правил, провайдеры, кеш)"
+
+msgid "Free temporary storage"
+msgstr "Свободно во временном хранилище"

@@ -1538,6 +1538,17 @@ seq(async () => {
   }
   h.assert(texts(render(healthy, { ...resources, flash_free_kb: 0 })).includes('Little free flash: 0 MiB'), 'zero flash is low');
  });
+ await check('temporary storage', () => {
+  const values = texts(render(healthy, { ...resources, tmp_clash_kb: 2560, tmp_free_kb: 6399 }));
+  const size = 'Mihomo temporary files (rulesets, providers, cache)';
+  const free = 'Free temporary storage';
+  h.assertEq(values[values.indexOf(size) + 1], '3 MiB', 'temporary files nearest MiB');
+  h.assertEq(values[values.indexOf(free) + 1], '6 MiB', 'free tmpfs floors MiB');
+  h.assert(!texts(render(healthy, { ...resources, tmp_clash_kb: null, tmp_free_kb: null })).includes(size), 'unknown sizes absent');
+  const zero = texts(render(healthy, { ...resources, tmp_clash_kb: 0, tmp_free_kb: 0 }));
+  h.assertEq(zero[zero.indexOf(size) + 1], '0 MiB', 'empty directory is zero');
+  h.assertEq(zero[zero.indexOf(free) + 1], '0 MiB', 'full tmpfs is zero');
+ });
  await check('open ports', () => {
   const row = item(render(healthy, { ...resources, open_proxy_ports: [7890] }), 'Mihomo proxy ports 7890 accept any device in your network without a password');
   h.assert(texts(row).includes('Problem:'), 'open proxy is a failure');

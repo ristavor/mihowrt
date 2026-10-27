@@ -101,6 +101,10 @@ function details(st, profile, diagnostics) {
 	// RSS is shown as the nearest MiB; free flash/RAM floor so a warning never overstates what is left.
 	if (typeof diagnostics?.mihomo_rss_kb === 'number')
 		rows.push([ _('Mihomo memory'), _('%d MiB').format(Math.round(diagnostics.mihomo_rss_kb / 1024)) ]);
+	if (typeof diagnostics?.tmp_clash_kb === 'number')
+		rows.push([ _('Mihomo temporary files (rulesets, providers, cache)'), _('%d MiB').format(Math.round(diagnostics.tmp_clash_kb / 1024)) ]);
+	if (typeof diagnostics?.tmp_free_kb === 'number')
+		rows.push([ _('Free temporary storage'), _('%d MiB').format(Math.floor(diagnostics.tmp_free_kb / 1024)) ]);
 	return api.infoGrid(rows);
 }
 

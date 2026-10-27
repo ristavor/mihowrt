@@ -173,3 +173,20 @@ pass 'cheap status uses health files and cached core version'
 assert_eq service-state-json "$(MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" service-state-json)" 'read wrapper exposes cheap status'
 assert_false 'cheap read command rejects arguments' env MIHOWRT_BACKEND=/bin/echo ash "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" service-state-json extra
 pass 'cheap enabled flag and read wrapper'
+
+# PID state is sampled once, even if the process changes between checks.
+(
+ service_running() { echo checked >>"$tmpdir/pid-checks"; true; }
+ printf 'first line\nsecond \\ line\n' >"$LAST_ERROR_FILE"
+ json="$(service_state_json)"
+ assert_eq 1 "$(wc -l <"$tmpdir/pid-checks" | tr -d ' ')" 'cheap status checks PID once'
+ assert_eq 'first line
+second \ line' "$(jq -r .last_error <<<"$json")" 'multiline error preserved literally'
+)
+pass 'service-state-json single PID snapshot and literal errors'
+
+printf 'ok\nunexpected\n' >"$HEALTH_FILE"
+assert_eq null "$(health_json)" 'malformed health snapshot stays unknown'
+printf 'ok\n\n' >"$HEALTH_FILE"
+assert_eq true "$(health_json)" 'health trailing newlines retain previous meaning'
+pass 'health file exact snapshot semantics'

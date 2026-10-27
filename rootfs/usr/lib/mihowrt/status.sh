@@ -16,7 +16,10 @@ json_bool() {
 }
 
 service_state() {
-	if service_running; then
+	local running="${1:-}"
+
+	[ -n "$running" ] || running="$(json_bool service_running)"
+	if [ "$running" = true ]; then
 		if [ -f "$DEGRADED_FILE" ]; then echo degraded
 		elif [ -f "$RUNNING_MARKER" ]; then echo running
 		else echo starting
@@ -27,8 +30,19 @@ service_state() {
 	fi
 }
 
+# Read small snapshots without an external cat; callers strip trailing newlines.
+status_file_read() {
+	local line=""
+
+	{
+		while IFS= read -r line || [ -n "$line" ]; do
+			printf '%s\n' "$line"
+		done <"$1"
+	} 2>/dev/null || :
+}
+
 health_json() {
-	case "$(cat "$HEALTH_FILE" 2>/dev/null)" in
+	case "$(status_file_read "$HEALTH_FILE")" in
 	ok) echo true ;;
 	fail) echo false ;;
 	*) echo null ;;
@@ -36,11 +50,14 @@ health_json() {
 }
 
 service_state_json() {
-	jq -nc --argjson running "$(json_bool service_running)" \
+	local running=false
+
+	service_running && running=true
+	jq -nc --argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
-		--arg state "$(service_state)" \
+		--arg state "$(service_state "$running")" \
 		--argjson dns_ok "$(health_json)" \
-		--arg last_error "$(cat "$LAST_ERROR_FILE" 2>/dev/null)" \
+		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")" \
 		'{running: $running, enabled: $enabled, state: $state, dns_ok: $dns_ok, last_error: $last_error}'
 }
 
@@ -77,15 +94,15 @@ status_json() {
 		nft_active && route_active && policy=true
 	fi
 	config_valid="$(config_valid_json)"
-	[ "$config_valid" = false ] && config_error="$(cat "$CONFIG_ERR_FILE" 2>/dev/null)"
+	[ "$config_valid" = false ] && config_error="$(status_file_read "$CONFIG_ERR_FILE")"
 	route_state_read 2>/dev/null
 
 	jq -nc \
 		--argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
 		--argjson dns_ok "$(health_json)" \
-		--arg state "$(service_state)" \
-		--arg last_error "$(cat "$LAST_ERROR_FILE" 2>/dev/null)" \
+		--arg state "$(service_state "$running")" \
+		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \
 		--argjson config_backup "$(json_bool test -f "$CLASH_CONFIG_BACKUP")" \
@@ -139,16 +156,21 @@ profile_json() {
 }
 
 diagnostics_json() {
-	local package="" installed="" conflicts="" flash="" ram="" rss="" pid="" ports=""
+	local package="" installed="" conflicts="" flash="" ram="" rss="" pid="" ports="" tmp_clash="" tmp_free=""
 
-	# One apk call: installed package names, one per line.
-	installed="$(apk info 2>/dev/null)"
+	installed="$(pkg_installed_names)"
 	for package in $CONFLICT_PACKAGES; do
-		if printf '%s\n' "$installed" | grep -qxF "$package"; then
-			conflicts="${conflicts}${package}
-"
-		fi
+		case "
+$installed
+" in
+		*"
+$package
+"*) conflicts="${conflicts}${package}
+" ;;
+		esac
 	done
+	tmp_clash="$(du -sk /tmp/clash 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $1; exit }')"
+	tmp_free="$(df -kP /tmp 2>/dev/null | awk 'END { if (NR > 1 && $4 ~ /^[0-9]+$/) print $4 }')"
 	flash="$(df -kP /opt/clash 2>/dev/null | awk 'END { if (NR > 1 && $4 ~ /^[0-9]+$/) print $4 }')"
 	ram="$(awk '$1 == "MemAvailable:" && $2 ~ /^[0-9]+$/ { print $2; exit }' /proc/meminfo 2>/dev/null)"
 	if pid="$(service_pid)"; then
@@ -216,9 +238,10 @@ diagnostics_json() {
 AWK
 )"
 	jq -nc --arg conflicts "$conflicts" --arg flash "$flash" --arg ram "$ram" \
-		--arg rss "$rss" --arg ports "$ports" '
+		--arg rss "$rss" --arg ports "$ports" --arg tmp_clash "$tmp_clash" --arg tmp_free "$tmp_free" '
 		def lines: split("\n") | map(select(length > 0));
 		{conflicts: ($conflicts | lines), flash_free_kb: ($flash | tonumber? // null),
+		 tmp_clash_kb: ($tmp_clash | tonumber? // null), tmp_free_kb: ($tmp_free | tonumber? // null),
 		 ram_available_kb: ($ram | tonumber? // null), mihomo_rss_kb: ($rss | tonumber? // null),
 		 open_proxy_ports: ($ports | lines | map(tonumber))}'
 }

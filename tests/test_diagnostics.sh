@@ -17,8 +17,11 @@ esac
 APK
 cat >"$tmpdir/bin/df" <<'DF'
 #!/bin/ash
-[ "$1 $2" = '-kP /opt/clash' ] || exit 99
-cat "$DIAG_FIXTURE/df"
+case "$1 $2" in
+'-kP /opt/clash') cat "$DIAG_FIXTURE/df" ;;
+'-kP /tmp') printf 'Filesystem 1K-blocks Used Available Use%% Mounted on\ntmpfs 64000 4000 60000 7%% /tmp\n' ;;
+*) exit 99 ;;
+esac
 DF
 chmod +x "$tmpdir/bin/"*
 export PATH="$tmpdir/bin:$PATH"
@@ -28,16 +31,21 @@ printf 'MemTotal: 100000 kB\nMemAvailable: 30000 kB\n' >"$tmpdir/proc/meminfo"
 printf 'Name: mihomo\nVmRSS: 45000 kB\n' >"$tmpdir/proc/123/status"
 echo 123 >"$tmpdir/pid"
 printf 'mixed-port: 7890\nsocks-port: 0\nport: 7891\n' >"$tmpdir/runtime.yaml"
-# Relocate kernel files only; run the real implementation under BusyBox ash/awk.
-sed "s|/proc/|$tmpdir/proc/|g" "$MIHOWRT_LIB_DIR/status.sh" >"$tmpdir/status.sh"
+# Relocate kernel files and the temporary storage directory; run the real implementation under BusyBox ash/awk.
+sed "s|/proc/|$tmpdir/proc/|g; s|/tmp/clash|$tmpdir/clash|g" "$MIHOWRT_LIB_DIR/status.sh" >"$tmpdir/status.sh"
+sed "s|/lib/apk/db/installed|$tmpdir/apk-installed|g; s|/usr/lib/opkg/status|$tmpdir/opkg-status|g" "$MIHOWRT_LIB_DIR/pkg.sh" >"$tmpdir/pkg.sh"
 cat >"$tmpdir/diagnostics" <<'RUN'
 #!/bin/ash
 . "$MIHOWRT_LIB_DIR/constants.sh"
 . "$MIHOWRT_LIB_DIR/helpers.sh"
 . "$DIAG_FIXTURE/status.sh"
+. "$DIAG_FIXTURE/pkg.sh"
 RUNTIME_CONFIG="$DIAG_FIXTURE/runtime.yaml"
 service_pid() { cat "$DIAG_FIXTURE/pid" 2>/dev/null; }
-awk() { busybox awk "$@"; }
+awk() {
+ case "$*" in *"$DIAG_FIXTURE/apk-installed"*|*"$DIAG_FIXTURE/opkg-status"*) echo read >>"$DIAG_FIXTURE/db.reads" ;; esac
+ busybox awk "$@"
+}
 diagnostics_json
 RUN
 chmod +x "$tmpdir/diagnostics"
@@ -45,15 +53,20 @@ diag() { ash "$tmpdir/diagnostics"; }
 
 case "${1:-all}" in
 all|conflicts)
- printf 'podkop\nfoo\nhttps-dns-proxy\n' >"$tmpdir/installed"
+ printf 'P:podkop\nV:1\n\nP:foo\n\nP:https-dns-proxy\n' >"$tmpdir/apk-installed"
  assert_eq '["podkop","https-dns-proxy"]' "$(diag | jq -c .conflicts)" 'installed conflicts in authoritative order'
- assert_eq 1 "$(wc -l <"$tmpdir/apk.calls" | tr -d ' ')" 'diagnostics makes one apk call'
- assert_eq info "$(cat "$tmpdir/apk.calls")" 'diagnostics apk info without per-package arguments'
- : >"$tmpdir/installed"
+ assert_eq 1 "$(wc -l <"$tmpdir/db.reads" | tr -d ' ')" 'one awk reads package database'
+ assert_false 'diagnostics does not invoke package manager' test -e "$tmpdir/apk.calls"
+ printf 'Package: adguardhome\nStatus: install ok installed\n\nPackage: foo\n' >"$tmpdir/opkg-status"
+ assert_eq '["podkop","https-dns-proxy"]' "$(diag | jq -c .conflicts)" 'apk database takes precedence'
+ rm "$tmpdir/apk-installed"
+ assert_eq '["adguardhome"]' "$(diag | jq -c .conflicts)" 'opkg installed names'
+ rm "$tmpdir/opkg-status"
  assert_eq '[]' "$(diag | jq -c .conflicts)" 'no installed conflicts'
  pass 'diagnostics conflicts'
  ;;&
 all|resources)
+ assert_eq '{"conflicts":[],"flash_free_kb":51200,"ram_available_kb":30000,"mihomo_rss_kb":45000,"open_proxy_ports":[7890,7891]}' "$(diag | jq -c 'del(.tmp_clash_kb, .tmp_free_kb)')" 'baseline diagnostics JSON unchanged except temporary storage fields'
  assert_eq '[51200,30000,45000]' "$(diag | jq -c '[.flash_free_kb,.ram_available_kb,.mihomo_rss_kb]')" 'resource snapshot'
  rm "$tmpdir/pid"
  assert_eq null "$(diag | jq .mihomo_rss_kb)" 'stopped Mihomo has no RSS'
@@ -61,6 +74,12 @@ all|resources)
  rm "$tmpdir/proc/123/status" "$tmpdir/proc/meminfo"
  : >"$tmpdir/df"
  assert_eq '[null,null,null]' "$(diag | jq -c '[.flash_free_kb,.ram_available_kb,.mihomo_rss_kb]')" 'missing resources are null'
+ mkdir -p "$tmpdir/clash/ruleset" "$tmpdir/clash/proxy_providers"
+ printf cache >"$tmpdir/clash/cache.db"
+ expected="$(du -sk "$tmpdir/clash" | awk '{print $1}')"
+ assert_eq "$expected:60000" "$(diag | jq -r '"\(.tmp_clash_kb):\(.tmp_free_kb)"' 2>/dev/null)" 'temporary storage snapshot'
+ rm -rf "$tmpdir/clash"
+ assert_eq null "$(diag | jq .tmp_clash_kb)" 'absent temporary files unknown'
  pass 'diagnostics resources'
  ;;&
 all|ports)

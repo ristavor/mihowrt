@@ -184,14 +184,10 @@ service_prepare_cmd() {
 	return "$rc"
 }
 
-port_hex() {
-	printf ':%04X' "$1"
-}
-
 port_listening() {
 	local proto="$1" port="" file=""
 
-	port="$(port_hex "$2")"
+	port="$(printf ':%04X' "$2")"
 	for file in "/proc/net/$proto" "/proc/net/${proto}6"; do
 		[ -r "$file" ] || continue
 		awk -v p="$port" -v tcp="$([ "$proto" = tcp ] && echo 1)" \

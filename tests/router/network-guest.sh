@@ -466,10 +466,12 @@ check_nft() {
 		for flag in false true; do
 			for hijack in 0 1; do
 				profile "$mode" "$dns" "$flag" "$hijack"
-				[ -s /tmp/mihowrt/nft.applied ]
-				nft -c -f /tmp/mihowrt/nft.applied
+				# nft.applied keeps only the ruleset hash: re-check the live table text.
+				nft list table inet mihowrt >"$WORK/logs/syntax-$mode-$dns-$flag-$hijack.applied"
+				[ -s "$WORK/logs/syntax-$mode-$dns-$flag-$hijack.applied" ]
+				{ echo 'delete table inet mihowrt'; cat "$WORK/logs/syntax-$mode-$dns-$flag-$hijack.applied"; } >"$WORK/syntax.nft"
+				nft -c -f "$WORK/syntax.nft"
 				snap "syntax-$mode-$dns-$flag-$hijack"
-				cp /tmp/mihowrt/nft.applied "$WORK/logs/syntax-$mode-$dns-$flag-$hijack.applied"
 			done
 		done
 	done

@@ -28,6 +28,9 @@ for fixture_contract in \
   'ip -4 rule show | grep '\''^50:.*0x220000/0xff0000.*lookup 201'; do
   grep -qF "$fixture_contract" "$guest" || fail "priority collision fixture must use slot 50: $fixture_contract"
 done
+# /tmp/mihowrt/nft.applied holds only the SHA-256 of the applied ruleset: the syntax row must check the live table.
+if grep -q 'nft -c -f /tmp/mihowrt/nft.applied' "$guest"; then fail 'nft syntax row must not parse the nft.applied hash as a ruleset'; fi
+grep -qF 'nft list table inet mihowrt' "$guest" || fail 'nft syntax row must re-check the live inet mihowrt table'
 grep -q 'save-config' "$guest" || fail 'guest must install and restore YAML through the config API'
 grep -q 'network.m22c.proto=static' "$guest" || fail 'netifd must retain the selected client fixture addresses'
 # The A2 row alone may toggle this guest-only sysctl, with failure-safe restoration.

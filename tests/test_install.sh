@@ -20,6 +20,7 @@ pass "can_prompt without tty"
 set +u
 source_install_lib
 set -u
+package_installed_orig="$(declare -f package_installed)"
 can_prompt() { return 1; }
 
 installed=""
@@ -113,6 +114,28 @@ $BASE/luci-app-mihowrt.apk
 $BASE/luci-i18n-mihowrt-ru.apk" "$(cat "$tmpdir/downloads")" "only fixed release URLs"
 if grep -q 'api.github.com\|-r1.apk' "$tmpdir/downloads"; then fail "no API or -r1 URLs"; fi
 pass "urls"
+
+# Dependency probes use apk; update/add only when a dependency is absent.
+(
+ eval "$package_installed_orig"
+ apk() {
+  echo "apk $*" >>"$apk_log"
+  if [ "$1" = info ]; then [[ " $present_deps " == *" $3 "* ]]; fi
+ }
+ present_deps="$DEPS"
+ fake_release ok
+ install_packages en >/dev/null
+ if grep -qE '^apk (update|add [^-])' "$apk_log"; then fail "present dependencies must not be updated or added"; fi
+ for dep in $DEPS; do
+  assert_file_contains "$apk_log" "apk info -e $dep" "dependency checked: $dep"
+ done
+ present_deps="luci-base nftables kmod-nft-tproxy"
+ fake_release ok
+ install_packages en >/dev/null
+ assert_eq 1 "$(grep -c '^apk update$' "$apk_log")" "update once for missing deps"
+ assert_file_contains "$apk_log" "apk add jq curl" "only missing deps installed"
+)
+pass "missing dependencies only"
 
 # The release base override covers checksums and both APKs.
 fake_release ok

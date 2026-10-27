@@ -122,12 +122,17 @@ release_version() {
 }
 
 install_packages() {
-	local lang="$1" version="" with_ru=0
+	local lang="$1" version="" with_ru=0 dep="" missing=""
 
-	log "Installing dependencies..."
-	apk update >/dev/null || die "apk update failed"
-	# shellcheck disable=SC2086
-	apk add $DEPS >/dev/null || die "cannot install dependencies: $DEPS"
+	for dep in $DEPS; do
+		package_installed "$dep" || missing="${missing:+$missing }$dep"
+	done
+	if [ -n "$missing" ]; then
+		log "Installing dependencies..."
+		apk update >/dev/null || die "apk update failed"
+		# shellcheck disable=SC2086
+		apk add $missing >/dev/null || die "cannot install dependencies: $missing"
+	fi
 	check_space
 
 	log "Downloading the latest MihoWRT release..."

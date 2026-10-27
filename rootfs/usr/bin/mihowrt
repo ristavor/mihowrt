@@ -40,6 +40,39 @@ dashboard_json() {
 		  enabled: $enabled, installed: $installed, size: $size}'
 }
 
+dashboard_install() {
+	local wait_seconds="${DASHBOARD_WAIT_SECONDS:-90}" elapsed=0
+
+	[ "$(uci_get dashboard 0)" != 1 ] || [ ! -f "$CLASH_DIR/ui/index.html" ] || {
+		printf '{}\n'
+		return 0
+	}
+	is_uint "$wait_seconds" || wait_seconds=90
+	wait_seconds="$(uint_norm "$wait_seconds")"
+	if uci_set dashboard 1 && uci_commit && with_lock service_reload >/dev/null 2>&1; then
+		while [ "$elapsed" -lt "$wait_seconds" ]; do
+			[ ! -f "$CLASH_DIR/ui/index.html" ] || { printf '{}\n'; return 0; }
+			sleep 1
+			elapsed=$((elapsed + 1))
+		done
+		[ ! -f "$CLASH_DIR/ui/index.html" ] || { printf '{}\n'; return 0; }
+	fi
+	uci_set dashboard 0
+	uci_commit
+	with_lock service_reload >/dev/null 2>&1 || true
+	rm -rf "$CLASH_DIR/ui"
+	err 'Could not download the dashboard. Check that GitHub is reachable from the router.'
+	return 1
+}
+
+dashboard_remove() {
+	if [ "$(uci_get dashboard 0)" != 0 ] || [ -d "$CLASH_DIR/ui" ]; then
+		uci_set dashboard 0 && uci_commit && with_lock service_reload >/dev/null || return 1
+		rm -rf "$CLASH_DIR/ui" || return 1
+	fi
+	printf '{}\n'
+}
+
 core_update_cmd() {
 	local result="" rc=0 restarted=false restart_error="" out=""
 

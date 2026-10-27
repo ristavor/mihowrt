@@ -26,7 +26,7 @@ job_validate() {
 		[ $# -le 1 ] || { job_usage; return 1; }
 		[ -z "${1:-}" ] || is_http_url "$1" || { err "Subscription URL must start with http:// or https://"; return 1; }
 		;;
-	update-lists | restore-config | core-update | auto-update)
+	update-lists | restore-config | core-update | auto-update | dashboard-install | dashboard-remove)
 		[ $# -eq 0 ] || { job_usage; return 1; }
 		;;
 	apply-lists)
@@ -179,6 +179,8 @@ job_execute() {
 	save-config) config_locked config_save "$1" ;;
 	restore-config) config_locked config_restore ;;
 	core-update) core_update_cmd ;;
+	dashboard-install) dashboard_install ;;
+	dashboard-remove) dashboard_remove ;;
 	auto-update) auto_update ;;
 	service) /etc/init.d/mihowrt "$1" 9>&- >/dev/null && printf '{}\n' ;;
 	esac

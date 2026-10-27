@@ -98,4 +98,18 @@ fi
 ASH
  then pass "nft reload input fingerprint: $scenario"; else failed=1; fi
 done
+
+# Every variable the renderer reads must be hashed, or a change would be skipped.
+nft_sh="$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
+hashed="$(sed -n '/^nft_input_hash() {/,/^}/p' "$nft_sh" | grep -oE '[A-Z][A-Z0-9_]+' | sort -u)"
+# Derived or bookkeeping names: NFT_MARK_SET comes from NFT_INTERCEPT_MARK; the rest are paths/state.
+not_inputs='NFT_MARK_SET NFT_FILE NET_FP_FILE NFT_APPLIED_FILE PKG_TMP_DIR'
+missing=""
+for var in $(sed '/^nft_input_hash() {/,/^}/d; /^nft_apply() {/,/^}/d; /^nft_cleanup() {/,/^}/d' "$nft_sh" |
+	grep -oE '\$\{?[A-Z][A-Z0-9_]+' | tr -d '${' | sort -u); do
+	case " $not_inputs " in *" $var "*) continue ;; esac
+	printf '%s\n' "$hashed" | grep -qx "$var" || missing="$missing $var"
+done
+if [ -z "$missing" ]; then pass 'nft input hash covers every renderer variable'; else
+	echo "FAIL: nft_input_hash misses:$missing" >&2; failed=1; fi
 exit "$failed"

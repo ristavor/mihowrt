@@ -30,7 +30,7 @@ define Package/$(PKG_NAME)
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI interface and nft policy layer for MihoWRT on OpenWrt 25.12 APK systems.
+	LuCI interface and nft policy layer for MihoWRT on OpenWrt 25.12 (apk) and 24.10 (opkg).
 endef
 
 define Build/Prepare

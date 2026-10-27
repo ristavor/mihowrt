@@ -161,6 +161,80 @@ done
 rm -rf "$sdk_fixture"
 trap - EXIT
 
+# Test 9b: MIHOWRT_SDK selects the SDK; 25.12 stays the default, 24.10 builds .ipk.
+sdk_fixture="$(mktemp -d)"
+trap 'rm -rf "$sdk_fixture"' EXIT
+mkdir -p "$sdk_fixture/tools" "$sdk_fixture/bin" "$sdk_fixture/.sdk" "$sdk_fixture/dist"
+cp "$SCRIPT" "$sdk_fixture/tools/build-sdk.sh"
+: >"$sdk_fixture/.sdk/openwrt-sdk-25.12.6-x86-64.tar.zst"
+: >"$sdk_fixture/.sdk/openwrt-sdk-24.10.8-x86-64.tar.zst"
+: >"$sdk_fixture/dist/luci-app-mihowrt-0.11.0-r1.apk"
+: >"$sdk_fixture/dist/luci-i18n-mihowrt-ru-0.11.0-r1.apk"
+: >"$sdk_fixture/dist/luci-app-mihowrt_0.11.0-r1_all.ipk"
+: >"$sdk_fixture/dist/luci-i18n-mihowrt-ru_0.11.0-r1_all.ipk"
+cat >"$sdk_fixture/bin/sha256sum" <<'SHA'
+#!/bin/sh
+case "$1" in
+*24.10*) h=ac4a0405d2eea821b06f93c14ba13ffa90ad0457648903df7dde02570027ab21 ;;
+*) h=1864152619092e781fa36a401960c8e9ae42d6a364c44ee5f0b197ca5f3c0fcc ;;
+esac
+printf '%s  %s\n' "$h" "$1"
+SHA
+cat >"$sdk_fixture/bin/docker" <<'DOCKER'
+#!/bin/sh
+printf '%s\n' "$*" >>"$DOCKER_CALLS"
+DOCKER
+chmod +x "$sdk_fixture/bin/sha256sum" "$sdk_fixture/bin/docker"
+run_sdk_fixture() { # run_sdk_fixture <MIHOWRT_SDK or empty> <command>
+ : >"$sdk_fixture/docker.calls"
+ sdk_rc=0
+ (cd "$sdk_fixture" && env ${1:+MIHOWRT_SDK="$1"} PATH="$sdk_fixture/bin:$PATH" DOCKER_CALLS="$sdk_fixture/docker.calls" \
+  bash "$sdk_fixture/tools/build-sdk.sh" "$2" >"$sdk_fixture/output" 2>&1) || sdk_rc=$?
+}
+run_sdk_fixture "" build
+assert_eq "default SDK build succeeds" 0 "$sdk_rc"
+default_calls="$(cat "$sdk_fixture/docker.calls")"
+assert_contains "default SDK uses the 25.12.6 volume" "-v mihowrt-sdk-25.12.6:/sdk" "$default_calls"
+assert_contains "default SDK uses the 25.12.6 image" "mihowrt-sdk:25.12.6" "$default_calls"
+assert_contains "default SDK extracts the 25.12.6 directory" "SDK_DIR_NAME=openwrt-sdk-25.12.6-x86-64_gcc-14.3.0_musl.Linux-x86_64" "$default_calls"
+assert_contains "default SDK builds apk packages" "PKG_EXT=apk" "$default_calls"
+run_sdk_fixture 25.12 build
+assert_eq "explicit 25.12 matches the default" "$default_calls" "$(cat "$sdk_fixture/docker.calls")"
+run_sdk_fixture 24.10 build
+assert_eq "24.10 SDK build succeeds" 0 "$sdk_rc"
+ipk_calls="$(cat "$sdk_fixture/docker.calls")"
+assert_contains "24.10 SDK uses its own volume" "-v mihowrt-sdk-24.10.8:/sdk" "$ipk_calls"
+assert_contains "24.10 SDK uses its own image" "mihowrt-sdk:24.10.8" "$ipk_calls"
+assert_contains "24.10 SDK extracts the 24.10.8 directory" "SDK_DIR_NAME=openwrt-sdk-24.10.8-x86-64_gcc-13.3.0_musl.Linux-x86_64" "$ipk_calls"
+assert_contains "24.10 SDK builds ipk packages" "PKG_EXT=ipk" "$ipk_calls"
+assert_contains "24.10 build lists both ipk files" "luci-i18n-mihowrt-ru_0.11.0-r1_all.ipk" "$(cat "$sdk_fixture/output")"
+sdk_rc=0
+(cd "$sdk_fixture" && MIHOWRT_SDK=23.05 PATH="$sdk_fixture/bin:$PATH" DOCKER_CALLS="$sdk_fixture/docker.calls" bash tools/build-sdk.sh build >"$sdk_fixture/output" 2>&1) || sdk_rc=$?
+assert_eq "unsupported MIHOWRT_SDK is refused" 1 "$sdk_rc"
+assert_contains "refusal names the supported values" "25.12" "$(cat "$sdk_fixture/output")"
+run_sdk_fixture 24.10 clean
+assert_eq "24.10 clean succeeds" 0 "$sdk_rc"
+assert_eq "clean removes ipk files" 0 "$(find "$sdk_fixture/dist" -name "*.ipk" | wc -l | tr -d ' ')"
+assert_contains "build-sdk.sh asserts luci-app-mihowrt ipk" "luci-app-mihowrt_*_all.ipk" "$script_content"
+assert_contains "build-sdk.sh asserts luci-i18n-mihowrt-ru ipk" "luci-i18n-mihowrt-ru_*_all.ipk" "$script_content"
+assert_contains "help documents MIHOWRT_SDK" "MIHOWRT_SDK" "$help_out"
+assert_contains "help names the 24.10 volume" "mihowrt-sdk-24.10.8" "$help_out"
+rm -rf "$sdk_fixture"
+trap - EXIT
+
+# Makefile: apk-only protected paths, conffiles for both package formats.
+protected_block="$(awk '/^ifdef CONFIG_USE_APK/{f=1} f{print} /^endif/{if(f)exit}' "${ROOT_DIR}/Makefile")"
+assert_contains "protected_paths.d is installed only on apk builds" "protected_paths.d" "$protected_block"
+assert_eq "protected_paths.d appears nowhere else in the Makefile" "$(grep -c 'protected_paths' <<<"$protected_block")" "$(grep -c 'protected_paths' "${ROOT_DIR}/Makefile")"
+assert_contains "Makefile lists conffiles for apk and opkg" "define Package/\$(PKG_NAME)/conffiles" "$(cat "${ROOT_DIR}/Makefile")"
+if grep -q 'OpenWrt 25.12 APK systems' "${ROOT_DIR}/Makefile"; then
+	printf 'not ok - Makefile description must not be apk-only\n' >&2
+	failed=$((failed + 1))
+else
+	printf 'ok - Makefile description is not apk-only\n'
+	passed=$((passed + 1))
+fi
+
 # Test 10: Feeds installs only luci-base host prerequisite
 assert_contains "tools/build-sdk.sh installs luci-base feed" "./scripts/feeds install luci-base" "$script_content"
 assert_contains "tools/build-sdk.sh uninstalls cyclic runtime feeds" "./scripts/feeds uninstall curl jq nftables" "$script_content"

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 #
-# tools/build-sdk.sh - Build official OpenWrt 25.12.6 x86/64 SDK packages and run Linux test suite.
+# tools/build-sdk.sh - Build official OpenWrt x86/64 SDK packages and run Linux test suite.
+#
+# MIHOWRT_SDK=25.12 (default) builds .apk packages with the 25.12.6 SDK;
+# MIHOWRT_SDK=24.10 builds .ipk packages with the 24.10.8 SDK (opkg).
 #
 # Environment / Platform:
 #   Darwin (macOS arm64): Uses Docker container with linux/amd64 emulation and a named Docker volume.
@@ -13,7 +16,7 @@
 #   ./tools/build-sdk.sh [command] [options]
 #
 # Commands:
-#   build          Build luci-app-mihowrt and optional luci-i18n-mihowrt-ru APKs (default).
+#   build          Build luci-app-mihowrt and luci-i18n-mihowrt-ru packages (default).
 #   test           Run Linux test suite (bash tests/run.sh) in native test container.
 #   prepare        Ensure SDK archive, Docker image/volume, feeds (base, packages, luci) and deps.
 #   clean          Clean build artifacts from dist/ and SDK package build directory.
@@ -29,23 +32,42 @@
 set -euo pipefail
 
 # SDK metadata
-SDK_VERSION="25.12.6"
 # shellcheck disable=SC2034
 SDK_TARGET="x86"
 # shellcheck disable=SC2034
 SDK_SUBTARGET="64"
 # shellcheck disable=SC2034
 SDK_ARCH="x86-64"
-SDK_DIR_NAME="openwrt-sdk-25.12.6-x86-64_gcc-14.3.0_musl.Linux-x86_64"
-SDK_ARCHIVE_NAME="openwrt-sdk-25.12.6-x86-64.tar.zst"
-# shellcheck disable=SC2034
-SDK_ARCHIVE_SIZE=285832189
-SDK_SHA256="1864152619092e781fa36a401960c8e9ae42d6a364c44ee5f0b197ca5f3c0fcc"
-SDK_DOWNLOAD_URL="https://downloads.openwrt.org/releases/25.12.6/targets/x86/64/openwrt-sdk-25.12.6-x86-64_gcc-14.3.0_musl.Linux-x86_64.tar.zst"
+MIHOWRT_SDK="${MIHOWRT_SDK:-25.12}"
+case "$MIHOWRT_SDK" in
+	25.12)
+		SDK_VERSION="25.12.6"
+		SDK_GCC="14.3.0"
+		# shellcheck disable=SC2034
+		SDK_ARCHIVE_SIZE=285832189
+		SDK_SHA256="1864152619092e781fa36a401960c8e9ae42d6a364c44ee5f0b197ca5f3c0fcc"
+		PKG_EXT="apk"
+		;;
+	24.10)
+		SDK_VERSION="24.10.8"
+		SDK_GCC="13.3.0"
+		# shellcheck disable=SC2034
+		SDK_ARCHIVE_SIZE=258916431
+		SDK_SHA256="ac4a0405d2eea821b06f93c14ba13ffa90ad0457648903df7dde02570027ab21"
+		PKG_EXT="ipk"
+		;;
+	*)
+		printf '==> [build-sdk:ERROR] unsupported MIHOWRT_SDK=%s (use 25.12 or 24.10)\n' "$MIHOWRT_SDK" >&2
+		exit 1
+		;;
+esac
+SDK_DIR_NAME="openwrt-sdk-${SDK_VERSION}-x86-64_gcc-${SDK_GCC}_musl.Linux-x86_64"
+SDK_ARCHIVE_NAME="openwrt-sdk-${SDK_VERSION}-x86-64.tar.zst"
+SDK_DOWNLOAD_URL="https://downloads.openwrt.org/releases/${SDK_VERSION}/targets/x86/64/${SDK_DIR_NAME}.tar.zst"
 
 # Docker settings
-DOCKER_IMAGE="${MIHOWRT_SDK_IMAGE:-mihowrt-sdk:25.12.6}"
-DOCKER_VOLUME="${MIHOWRT_SDK_VOLUME:-mihowrt-sdk-25.12.6}"
+DOCKER_IMAGE="${MIHOWRT_SDK_IMAGE:-mihowrt-sdk:${SDK_VERSION}}"
+DOCKER_VOLUME="${MIHOWRT_SDK_VOLUME:-mihowrt-sdk-${SDK_VERSION}}"
 TEST_IMAGE="${MIHOWRT_TEST_IMAGE:-mihowrt-test:local}"
 CONTAINER_SDK_ROOT="/sdk"
 CONTAINER_SDK_DIR="${CONTAINER_SDK_ROOT}/${SDK_DIR_NAME}"
@@ -190,6 +212,7 @@ run_in_docker_container() {
 		-e "VERBOSE=${VERBOSE}" \
 		-e "SDK_DIR_NAME=${SDK_DIR_NAME}" \
 		-e "SDK_ARCHIVE_NAME=${SDK_ARCHIVE_NAME}" \
+		-e "PKG_EXT=${PKG_EXT}" \
 		-e "CONTAINER_SDK_DIR=${CONTAINER_SDK_DIR}" \
 		"${DOCKER_IMAGE}" \
 		bash -c "$cmd" "$@"
@@ -230,7 +253,7 @@ prepare_sdk_environment_docker() {
 run_build_docker() {
 	prepare_sdk_environment_docker
 
-	log_info "Compiling MihoWRT packages with OpenWrt 25.12.6 SDK..."
+	log_info "Compiling MihoWRT packages with OpenWrt ${SDK_VERSION} SDK..."
 	# shellcheck disable=SC2016
 	run_in_docker_container '
 		set -euo pipefail
@@ -289,28 +312,37 @@ EOF
 			make -C package/luci-app-mihowrt compile TOPDIR="$PWD" -j"$JOBS"
 		fi
 
-		echo "==> Copying and asserting both MihoWRT APKs..."
+		echo "==> Copying and asserting both MihoWRT ${PKG_EXT} packages..."
 		mkdir -p /workspace/dist
-		app_apk="$(find bin/packages/ -type f -name "luci-app-mihowrt-*.apk" | head -n 1)"
-		i18n_apk="$(find bin/packages/ -type f -name "luci-i18n-mihowrt-ru-*.apk" | head -n 1)"
-
-		if [ -z "$app_apk" ] || [ ! -f "$app_apk" ]; then
-			echo "Error: luci-app-mihowrt APK not found in bin/packages/" >&2
-			exit 1
-		fi
-		if [ -z "$i18n_apk" ] || [ ! -f "$i18n_apk" ]; then
-			echo "Error: luci-i18n-mihowrt-ru APK not found in bin/packages/" >&2
-			exit 1
+		if [ "$PKG_EXT" = ipk ]; then
+			app_pkg="$(find bin/packages/ -type f -name "luci-app-mihowrt_*_all.ipk" | head -n 1)"
+			i18n_pkg="$(find bin/packages/ -type f -name "luci-i18n-mihowrt-ru_*_all.ipk" | head -n 1)"
+		else
+			app_pkg="$(find bin/packages/ -type f -name "luci-app-mihowrt-*.apk" | head -n 1)"
+			i18n_pkg="$(find bin/packages/ -type f -name "luci-i18n-mihowrt-ru-*.apk" | head -n 1)"
 		fi
 
-		cp -f "$app_apk" /workspace/dist/
-		cp -f "$i18n_apk" /workspace/dist/
-		echo "Copied: $(basename "$app_apk") -> dist/"
-		echo "Copied: $(basename "$i18n_apk") -> dist/"
+		if [ -z "$app_pkg" ] || [ ! -f "$app_pkg" ]; then
+			echo "Error: luci-app-mihowrt ${PKG_EXT} package not found in bin/packages/" >&2
+			exit 1
+		fi
+		if [ -z "$i18n_pkg" ] || [ ! -f "$i18n_pkg" ]; then
+			echo "Error: luci-i18n-mihowrt-ru ${PKG_EXT} package not found in bin/packages/" >&2
+			exit 1
+		fi
+
+		cp -f "$app_pkg" /workspace/dist/
+		cp -f "$i18n_pkg" /workspace/dist/
+		echo "Copied: $(basename "$app_pkg") -> dist/"
+		echo "Copied: $(basename "$i18n_pkg") -> dist/"
 	'
 
-	log_info "Build successful! Verified APK packages in dist/:"
-	ls -l "${DIST_DIR}"/luci-app-mihowrt-*.apk "${DIST_DIR}"/luci-i18n-mihowrt-ru-*.apk
+	log_info "Build successful! Verified ${PKG_EXT} packages in dist/:"
+	if [[ "$PKG_EXT" == ipk ]]; then
+		ls -l "${DIST_DIR}"/luci-app-mihowrt_*_all.ipk "${DIST_DIR}"/luci-i18n-mihowrt-ru_*_all.ipk
+	else
+		ls -l "${DIST_DIR}"/luci-app-mihowrt-*.apk "${DIST_DIR}"/luci-i18n-mihowrt-ru-*.apk
+	fi
 }
 
 run_test() {
@@ -325,7 +357,7 @@ run_test() {
 
 run_clean() {
 	log_info "Cleaning dist/ directory..."
-	rm -rf "${DIST_DIR}"/*.apk
+	rm -rf "${DIST_DIR}"/*.apk "${DIST_DIR}"/*.ipk
 	if docker volume inspect "${DOCKER_VOLUME}" >/dev/null 2>&1; then
 		log_info "Cleaning package build inside Docker volume '${DOCKER_VOLUME}'..."
 		# shellcheck disable=SC2016
@@ -343,16 +375,16 @@ run_clean() {
 show_help() {
 	cat << EOF
 MihoWRT SDK Build Tool
-Official OpenWrt 25.12.6 x86/64 SDK package builder and Linux test runner.
+Official OpenWrt x86/64 SDK package builder (25.12.6 apk, 24.10.8 opkg) and Linux test runner.
 
 Usage:
   ./tools/build-sdk.sh [command] [options]
 
 Commands:
-  build          Build luci-app-mihowrt and optional luci-i18n-mihowrt-ru APKs (default)
+  build          Build luci-app-mihowrt and luci-i18n-mihowrt-ru packages (default)
   test           Run full Linux test suite (bash tests/run.sh) in native test container
   prepare        Ensure archive, Docker image, Docker volume, and feeds cache
-  clean          Remove built APKs from dist/ and clean package build directory
+  clean          Remove built packages from dist/ and clean package build directory
   shell          Open an interactive bash shell in the Linux SDK container
   help, -h       Show this help message
 
@@ -362,12 +394,13 @@ Options:
   -v, --verbose  Verbose build output (make V=s)
 
 Environment Variables:
-  MIHOWRT_SDK_IMAGE    Docker image name (default: mihowrt-sdk:25.12.6)
-  MIHOWRT_SDK_VOLUME   Docker volume name (default: mihowrt-sdk-25.12.6)
+  MIHOWRT_SDK          25.12 (default: SDK 25.12.6, .apk) or 24.10 (SDK 24.10.8, .ipk)
+  MIHOWRT_SDK_IMAGE    Docker image name (default: mihowrt-sdk:25.12.6, mihowrt-sdk:24.10.8)
+  MIHOWRT_SDK_VOLUME   Docker volume name (default: mihowrt-sdk-25.12.6, mihowrt-sdk-24.10.8)
   MIHOWRT_TEST_IMAGE   Test runner Docker image name (default: mihowrt-test:local)
 
 Architecture & Volume Notes:
-  - Architecture caveat: Official OpenWrt 25.12.6 SDK only distributes Linux ELF binaries;
+  - Architecture caveat: Official OpenWrt SDKs only distribute Linux ELF binaries;
     native macOS is unsupported upstream. Furthermore, macOS APFS is case-insensitive, which
     causes OpenWrt buildroot failures on host bind mounts.
   - This script extracts and builds the SDK inside a persistent named Docker volume

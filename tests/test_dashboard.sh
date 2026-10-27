@@ -86,23 +86,28 @@ assert_file_contains "$tmpdir/error" 'Could not download the dashboard. Check th
 RESTART_FAIL=0
 pass 'dashboard install timeout and restart failure roll back'
 
-# Stopped install applies no service action; failure still uses rollback reload.
+# Stopped: only the running core downloads the panel, so refuse at once.
 service_running() { return 1; }
 before_restarts="$(wc -l <"$tmpdir/init-calls")"
 before_reloads="$reloads"
-if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'stopped install without a download must fail'; fi
+DASHBOARD_WAIT_SECONDS=30
+mkdir -p "$CLASH_DIR/ui"; echo partial >"$CLASH_DIR/ui/partial"
+started="$(date +%s)"
+if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'stopped install must fail'; fi
+assert_true 'stopped install fails without waiting' test "$(( $(date +%s) - started ))" -lt 5
+assert_eq 'Error: Start MihoWRT before installing the dashboard.' "$(cat "$tmpdir/error")" 'stopped install exact error'
+assert_eq 0 "$(uci_get dashboard)" 'stopped install keeps flag off'
+assert_true 'stopped install leaves files alone' test -f "$CLASH_DIR/ui/partial"
 assert_eq "$before_restarts" "$(wc -l <"$tmpdir/init-calls")" 'stopped install never restarts'
-assert_eq "$((before_reloads + 2))" "$reloads" 'stopped install and rollback use reload'
-pass 'dashboard install while stopped keeps reload path'
+assert_eq "$before_reloads" "$reloads" 'stopped install never reloads'
+rm -rf "$CLASH_DIR/ui"
+DASHBOARD_WAIT_SECONDS=1
+pass 'dashboard install while stopped is refused at once'
 
 # Use the actual stopped-service reload, then generate the next-start config.
 load_modules service.sh
 service_ready() { return 1; }
 cron_update() { return 0; }
-if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'actual stopped reload cannot download'; fi
-assert_eq "$before_restarts" "$(wc -l <"$tmpdir/init-calls")" 'actual stopped install starts no service'
-assert_eq 0 "$(uci_get dashboard)" 'actual stopped install rolls back flag'
-assert_false 'actual stopped install clears partial files' test -d "$CLASH_DIR/ui"
 
 fake_uci_set mihowrt.settings.dashboard 1
 mkdir -p "$CLASH_DIR/ui"; echo panel >"$CLASH_DIR/ui/index.html"

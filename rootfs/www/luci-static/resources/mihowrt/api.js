@@ -82,6 +82,8 @@ function backendErrorText(message) {
 		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
 	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
 		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
+	if (raw === 'Start MihoWRT before installing the dashboard.')
+		return _('Start MihoWRT before installing the dashboard.');
 	if (/^Interrupted:/.test(raw))
 		return _('The operation was interrupted (for example, by a router reboot). You can run it again.');
 	if (/not a Clash\/Mihomo config/.test(raw))

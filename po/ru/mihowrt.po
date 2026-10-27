@@ -834,3 +834,6 @@ msgstr "Удаление панели Mihomo"
 
 msgid "Could not download the dashboard. Check that GitHub is reachable from the router."
 msgstr "Не удалось скачать панель. Проверьте, что GitHub доступен с роутера."
+
+msgid "Start MihoWRT before installing the dashboard."
+msgstr "Запустите MihoWRT перед установкой панели."

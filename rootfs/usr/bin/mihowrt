@@ -47,16 +47,15 @@ dashboard_install() {
 		printf '{}\n'
 		return 0
 	}
+	# Only the running core downloads the panel.
+	service_running || {
+		err 'Start MihoWRT before installing the dashboard.'
+		return 1
+	}
 	is_uint "$wait_seconds" || wait_seconds=90
 	wait_seconds="$(uint_norm "$wait_seconds")"
-	if uci_set dashboard 1 && uci_commit && {
-		if service_running; then
-			# Hot reload does not mount /ui/; restart serves it, and init takes the runtime lock itself.
-			/etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1
-		else
-			with_lock service_reload >/dev/null 2>&1
-		fi
-	}; then
+	# Hot reload does not mount /ui/; restart serves it, and init takes the runtime lock itself.
+	if uci_set dashboard 1 && uci_commit && /etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1; then
 		while [ "$elapsed" -lt "$wait_seconds" ]; do
 			[ ! -f "$CLASH_DIR/ui/index.html" ] || { printf '{}\n'; return 0; }
 			sleep 1

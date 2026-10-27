@@ -84,7 +84,7 @@ function statusSection(status) {
 			E('span', { class: 'mw-muted' }, text(api.modeLabel(status.mode))),
 			boot
 		]),
-		E('div', { class: 'mw-row' }, [ toggle, restart ])
+		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : null
 	]);
 	const update = fresh => {
 		status = Object.assign({}, status, fresh);
@@ -395,7 +395,7 @@ function toolsSection(status, dashboardState) {
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : null, core,
+		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : null, !api.readOnly() ? core : null,
 			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
 	]);
 }

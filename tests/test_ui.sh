@@ -1544,6 +1544,22 @@ seq(async () => {
  console.log('ok - subscription read-only hides actions');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// C16: Overview uses the same read-only check as the other views.
+seq(async () => {
+ for (const readOnly of [false, true]) {
+  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+   E, poll: { add() {} }, view: { extend: v => v }, api: { ...api, readOnly: () => readOnly }
+  }).module;
+  for (const running of [false, true]) {
+   const p = ov.render([{ ...base, subscription_configured: true, running }, {}, []]);
+   for (const label of [running ? 'Stop' : 'Start', 'Restart', 'Update Mihomo core'])
+    h.assertEq(!!findButton(p, label), !readOnly, 'overview ' + label + ' shown=' + !readOnly);
+   h.assert(texts(p).some(t => t.includes('MihoWRT ')), 'version stays visible');
+  }
+ }
+ console.log('ok - overview read-only hides service and core actions');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 20: diagnostics keeps its checklist while exposing runtime risks.
 seq(async () => {
  const check = async (name, fn) => {

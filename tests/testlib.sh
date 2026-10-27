@@ -218,6 +218,11 @@ setup_runtime_paths() {
 	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"
+	ROUTE_PROC_ROOT="$dir/proc"
+	mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/"{all,lo}
+	: >"$ROUTE_PROC_ROOT/net/if_inet6"
+	printf '0\n' >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+	printf '0\n' >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/lo/disable_ipv6"
 	mkdir -p "$PKG_STATE_DIR" "$PKG_TMP_DIR" "$PKG_PERSIST_DIR"
 }
 

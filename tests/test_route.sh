@@ -14,7 +14,7 @@ setup_runtime_paths "$tmpdir"
 
 # A compiled IPv6 stack is not necessarily enabled on the loopback route.
 (
- ROUTE_PROC_ROOT="$tmpdir/proc"
+ ROUTE_PROC_ROOT="$tmpdir/proc-families"
  mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/"{all,lo}
  assert_eq 4 "$(route_families)" 'missing IPv6 stack'
  : >"$ROUTE_PROC_ROOT/net/if_inet6"

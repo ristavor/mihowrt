@@ -11,6 +11,13 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh
 setup_runtime_paths "$tmpdir"
 
+assert_eq "$tmpdir/proc" "${ROUTE_PROC_ROOT:-}" 'runtime paths isolate route proc checks'
+assert_true 'fixture IPv6 is enabled' route_ipv6_enabled
+for scope in all lo; do
+ assert_file_contains "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/$scope/disable_ipv6" 0 "fixture enables $scope IPv6"
+done
+pass 'runtime paths provide host-independent IPv6 state'
+
 # Plain entries predicate must not treat scoped addresses as set members.
 (
  file="$tmpdir/plain.txt"

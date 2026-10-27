@@ -25,6 +25,7 @@ None.
 - **D7. AP mode is treated as WAN.** If the default route is via the LAN bridge (dumb AP), the bridge counts as WAN and its non-RFC1918 subnets are not excluded. This is inherent to the specified algorithm.
 - **D15. Cron auto-update can run next to a LuCI job.** Kept as is for 0.11.0 (C1 decision: keep deferred).
 - **Diagnostics does not show whether the IPv6 flag is in effect in the current mode.** The flag is stored, but it has no effect outside direct-first; the page does not say so.
+- **Large-list resolve speed.** `lists_resolve` (classify awk x2 + sort) takes about 6 s of about 9 s for 10 000 entries in the emulated VM (QEMU TCG, no KVM); re-measure on the router (F3) before optimising.
 - **Core update memory on 128 MiB routers.** With the bounded test run the lowest free memory seen in the VM during `core-update` is about 6.0 MiB (it was about 4.3 MiB before); no out-of-memory kill in either case. Measured only in the QEMU VM.
 - **Unconfirmed router memory-leak report:** not investigated in 0.11.0 (postponed by the user).
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.11.0
+
+Added
+- Provider-controlled blocking of non-local client IPv6, with local IPv6 and router/Mihomo traffic preserved. It is off by default, works only in *Only selected traffic via proxy* mode, and can be set by the provider (`x-mihowrt.block-client-ipv6`) or switched on the *Traffic* page (*Use my own value*).
+- *Devices always direct* now also works in *All traffic via proxy* with fake-IP DNS: connections of those devices to fake addresses go through a dedicated Mihomo listener (`mihowrt-direct`, port 7895) and are sent DIRECT. If the provider YAML cannot be extended safely (for example non-empty flow-style `listeners` or `rules`), the subscription still applies, a warning is logged and the devices follow the normal policy, as in 0.10.
+- Diagnostics warn about a plain-http subscription link and report proxy listeners that are open without a password, including the ones defined under `listeners:`.
+
+Fixes
+- Router-owned DNS (queries sent to any address of the router, including a global IPv6 address) always reaches dnsmasq, so local names such as `<host>.lan` keep resolving to local addresses.
+- The controller secret is no longer stored in UCI or passed on command lines: it lives in `/etc/mihowrt/api_secret` (root-only) and is hidden in the read-only YAML view. An upgrade moves the old value there.
+- *Last update* of the subscription survives a reboot.
+- *Update now* with an empty subscription link is refused instead of downloading with the old link.
+- Lists with port-scoped entries (`;443`) produce one nftables rule per port spec instead of one per entry, and only the lists of the active mode are resolved.
+- Bursts of interface events (hotplug) are merged into one network refresh.
+- Reloading an unchanged configuration skips the core test; the proxy group list is built in linear time.
+- Provider list URLs that point to local or reserved ranges (including `198.18.0.0/15`, `192.0.0.0/24`, multicast and `fec0::/10`) are rejected; `192.88.99.0/24` is treated as local.
+- Cached lists are kept when the provider profile cannot be read.
+- The test run of a downloaded Mihomo core is memory-limited, which gives more free RAM during a core update on 128 MiB routers (the lowest free memory seen in the VM rose from about 4.3–4.8 MiB to about 6.0 MiB; no out-of-memory kill in either case).
+
+Project
+- The boot-time `mihowrt-recover` script is removed (a reboot already clears its state); an upgrade removes its leftover link.
+- Internal cleanups: one helper for locked configuration changes, one `yaml_has_top_key`, one curl call in `http_fetch`, no dead helpers.
+- `tools/build-sdk.sh` builds only in Docker; GitHub Actions are pinned to commit SHAs.
+- New tests: more coverage of deferred gaps and a repeatable VM network acceptance (`tests/router/run-network.sh`) that covers client IPv6, local names, fake-IP direct devices, NetBird-style marks, routes and DNS.
+
 ## 0.10.2
 
 Changes

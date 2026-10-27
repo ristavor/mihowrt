@@ -74,7 +74,7 @@ sees the same device after a reinstall.
 ### Upgrading from 0.8 or older
 
 Upgrades are supported from 0.9.0 and newer. From 0.8 or older: remove MihoWRT
-(installer → Remove, or `apk del luci-app-mihowrt`), then install 0.10. Your
+(installer → Remove, or `apk del luci-app-mihowrt`), then install 0.11. Your
 YAML, lists and settings are kept.
 
 ## Pages
@@ -181,6 +181,7 @@ x-mihowrt:
   dns-hijack: true              # Redirect client DNS to Mihomo
   bypass-ntp: true              # Time sync without Mihomo
   bypass-subscription-dns: true # Subscription server without Mihomo
+  block-client-ipv6: true       # direct-first: reject client IPv6 that bypasses Mihomo
   lists-interval: 24            # remote list refresh, hours (0-8760)
   proxy-ips:                    # "Only selected" mode: always via Mihomo
     - https://provider.example/telegram.txt
@@ -445,6 +446,12 @@ GPL-3.0-or-later, see `LICENSE`.
 - Clients using DoH/DoT (browser DoH, Android Private DNS) bypass Mihomo DNS,
   so fake-IP based routing does not apply to them.
 - The QEMU VM cannot test hardware offloading or real NetBird peers.
+- The client IPv6 block exists only while MihoWRT policy is active: stop and
+  watchdog fail-open remove it. Connections already offloaded before a policy
+  change can continue until their flowtable entries expire; this is not a
+  persistent kill-switch or a kernel IPv6 disable. Client IPv4 → Mihomo → an IPv6
+  node stays valid and is not affected; do not use `ipv6: false` as the trigger
+  for the block, the `block-client-ipv6` flag is the only switch.
 - Device headers (HWID, model) are sent only over HTTPS, but curl repeats them
   if the provider redirects to another HTTPS host.
 - Updating the Mihomo core needs free flash for the new compressed binary next

@@ -39,6 +39,20 @@ failures=0
  pass 'resolver warnings are bounded and include total bad count'
 ) || failures=$((failures + 1))
 
+(
+ # Like the pre-L7 resolver, only local lines are diagnosed; remote caches are not.
+ url=https://lists.example/x.txt
+ mkdir -p "$POLICY_CACHE_DIR"
+ printf '9.9.9.9\nremote-bad\n' >"$(lists_cache_file "$url")"
+ printf 'local-bad\n%s\n' "$url" >"$DST_LIST_FILE"
+ warn() { printf '%s\n' "$*" >>"$tmpdir/remote-warnings"; }
+ lists_resolve dst "$tmpdir/rv4" "$tmpdir/rv6"
+ assert_file_contains "$tmpdir/remote-warnings" local-bad 'local invalid line warned'
+ assert_file_not_contains "$tmpdir/remote-warnings" remote-bad 'remote cache line not diagnosed'
+ assert_eq 9.9.9.9 "$(cat "$tmpdir/rv4")" 'remote entries still resolved after the local part'
+ pass 'resolver diagnoses only local lines'
+) || failures=$((failures + 1))
+
 # The classifying pass itself writes only 20 samples plus the count, in both awks.
 for dialect in gawk busybox; do
  (

@@ -197,6 +197,7 @@ lists_classify() {
 			for (i = 1; i <= n; i++) if (a[i] != "") { if (length(a[i]) > 4) return 0; g++ }
 			return dbl ? g <= 7 : g == 8
 		}
+		$0 == "https://" { remote = 1; next }
 		{
 			addr = $0; ports = ""
 			if (index($0, ";")) { addr = substr($0, 1, index($0, ";") - 1); ports = substr($0, index($0, ";") + 1) }
@@ -207,7 +208,7 @@ lists_classify() {
 			else if (v6(addr)) fam = "6"
 			else if (!index($0, ";") && mac(addr) && kind != "dst" && kind != "direct") { fam = "mac"; $0 = tolower($0) }
 			if (fam == "") {
-				if (diag != "") { invalid++; if (invalid <= 20) samples[invalid] = $0 }
+				if (diag != "" && !remote) { invalid++; if (invalid <= 20) samples[invalid] = $0 }
 				if (bad) print
 				next
 			}
@@ -286,6 +287,8 @@ lists_resolve() {
 	fi
 	{
 		grep -v '^https\?://' "$src" || true
+		# Bare "https://" cannot be a local line here: it ends the diagnosed part.
+		printf '%s\n' 'https://'
 		# Remote entries inherit the URL's ports unless they carry their own.
 		sed -n '/^https\?:\/\//p' "$src" | while IFS= read -r line; do
 			url="${line%%;*}"

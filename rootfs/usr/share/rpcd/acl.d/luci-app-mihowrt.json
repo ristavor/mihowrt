@@ -19,7 +19,7 @@
 				"/tmp/mihowrt-policy-list.*": [ "write" ]
 			},
 			"ubus": {
-				"file": [ "write", "exec" ]
+				"file": [ "exec" ]
 			},
 			"uci": [ "mihowrt" ]
 		}

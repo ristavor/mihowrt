@@ -311,6 +311,7 @@ assert_eq "null" "$(jq -c '."luci-app-mihowrt".read.file["/usr/bin/mihowrt"] // 
 assert_eq "null" "$(jq -c '."luci-app-mihowrt".read.file["/etc/init.d/mihowrt"] // null' "$acl_file")" "ACL read scope should not execute init service script"
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".read.file["/usr/bin/mihowrt-read"]' "$acl_file")" "ACL read scope should execute only read-only backend wrapper"
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".read.ubus.file' "$acl_file")" "ACL read scope has no ubus file.read (no LuCI caller)"
+assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".write.ubus.file' "$acl_file")" "ACL write scope has no ubus file.write (cgi-io stages uploads)"
 assert_eq '["exec"]' "$(jq -c '."luci-app-mihowrt".write.file["/usr/bin/mihowrt"]' "$acl_file")" "ACL should keep validated backend execution"
 assert_eq '["write"]' "$(jq -c '."luci-app-mihowrt".write.file["/tmp/mihowrt-config.*"]' "$acl_file")" "ACL should allow only MihoWRT temp config staging from LuCI"
 assert_eq null "$(jq -c '."luci-app-mihowrt".read.file["/opt/clash/lst/always_proxy_dst.txt"]' "$acl_file")" "ACL should not directly read destination policy list"

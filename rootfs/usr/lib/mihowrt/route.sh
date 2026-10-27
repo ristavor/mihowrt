@@ -99,7 +99,7 @@ route_cleanup() {
 	local fam=""
 
 	route_state_read || return 0
-	for fam in $(route_families); do
+	for fam in 4 6; do
 		while ip -"$fam" rule del fwmark "$NFT_INTERCEPT_MARK/$NFT_INTERCEPT_MARK" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null; do :; done
 		ip -"$fam" route flush table "$ROUTE_TABLE" 2>/dev/null
 	done

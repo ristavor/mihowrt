@@ -68,6 +68,27 @@ assert_file_contains "$calls" "ip -6 route flush table 202" "v6 table flushed"
 [[ ! -e "$ROUTE_STATE_FILE" ]] || fail "state removed"
 pass "route cleanup"
 
+# Stop must remove routes installed before IPv6 was disabled or disappeared.
+for disabled in all lo missing; do
+ route_setup
+ if [ "$disabled" = missing ]; then
+  rm -f "$ROUTE_PROC_ROOT/net/if_inet6"
+ else
+  echo 1 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/$disabled/disable_ipv6"
+ fi
+ : >"$calls"
+ route_cleanup
+ for family in 4 6; do
+  assert_file_contains "$calls" "ip -$family rule del fwmark 0x08000000/0x08000000 lookup 202 priority 51" "IPv$family rule removed after IPv6 disabled on $disabled"
+  assert_file_contains "$calls" "ip -$family route flush table 202" "IPv$family table flushed after IPv6 disabled on $disabled"
+ done
+ [[ ! -e "$ROUTE_STATE_FILE" ]] || fail 'disabled IPv6 cleanup removes state'
+ : >"$ROUTE_PROC_ROOT/net/if_inet6"
+ echo 0 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+ echo 0 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/lo/disable_ipv6"
+done
+pass 'route cleanup removes both families even after IPv6 is disabled'
+
 # Cleanup must use the old priority, not the replacement allocation.
 printf 'TABLE=202\nPRIORITY=1000\n' >"$ROUTE_STATE_FILE"
 : >"$calls"

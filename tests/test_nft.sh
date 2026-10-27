@@ -18,6 +18,13 @@ for scope in all lo; do
 done
 pass 'runtime paths provide host-independent IPv6 state'
 
+(
+ nft() { printf '%s\n' "$*" >"$tmpdir/active.calls"; }
+ nft_active
+ assert_eq '-t list table inet mihowrt' "$(cat "$tmpdir/active.calls")" 'nft_active skips set elements'
+)
+pass 'nft active check omits set elements'
+
 # Plain entries predicate must not treat scoped addresses as set members.
 (
  file="$tmpdir/plain.txt"

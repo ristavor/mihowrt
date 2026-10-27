@@ -37,6 +37,15 @@ assert_eq 2 "$(jq .lists.dst <<<"$json")" "list count ignores comments"
 assert_eq "v1.19.32" "$(jq -r .core <<<"$json")" "core version"
 pass "status checklist"
 
+(
+ load_modules nft.sh
+ nft() { printf '%s\n' "$*" >"$tmpdir/status-nft.calls"; }
+ json="$(status_json)"
+ assert_eq true "$(jq .policy_active <<<"$json")" 'status uses real nft active check'
+ assert_eq '-t list table inet mihowrt' "$(cat "$tmpdir/status-nft.calls")" 'status nft check skips set elements'
+)
+pass 'status uses terse nft active check'
+
 subscription_failed=false
 for entry in 'http://p/x|true|http flagged' 'HTTP://p/x|true|case insensitive' 'https://p/x|false|https not flagged' '|false|empty url false'; do
  IFS='|' read -r url expected name <<<"$entry"

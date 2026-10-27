@@ -369,7 +369,7 @@ nft_cleanup() {
 }
 
 nft_active() {
-	nft list table inet "$NFT_TABLE_NAME" >/dev/null 2>&1
+	nft -t list table inet "$NFT_TABLE_NAME" >/dev/null 2>&1
 }
 
 # bypass_set <add|delete> <addresses...>: let the router reach these addresses

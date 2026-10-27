@@ -227,6 +227,24 @@ api_dns_probe() {
 }
 
 api_alive() { return 1; }
+(
+ eval "$(declare -f atomic_write | sed '1s/atomic_write/health_atomic_write/')"
+ atomic_write() {
+  [ "$1" != "$HEALTH_FILE" ] || printf '%s\n' "$2" >>"$tmpdir/health.writes"
+  health_atomic_write "$@"
+ }
+ api_dns_probe() {
+  probe_count=$((probe_count + 1))
+  if [ "$probe_count" = 3 ]; then
+   assert_eq ok "$(cat "$tmpdir/health.writes")" 'two ok probes publish health once'
+  fi
+  [ "$probe_count" -le 2 ]
+ }
+ run_service 2>"$tmpdir/health.err" || :
+ assert_eq $'ok\nfail' "$(cat "$tmpdir/health.writes")" 'health writes only on ok to fail transition'
+) || { cat "$tmpdir/health.err" >&2; exit 1; }
+pass 'watchdog publishes health only when changed'
+
 reset_events
 probe_script="000"
 rc=0

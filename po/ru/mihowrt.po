@@ -732,3 +732,6 @@ msgstr "Ссылка на подписку использует обычный h
 
 msgid "Anyone on the way can change your configuration. Ask your provider for an https link."
 msgstr "Любой посредник может изменить вашу конфигурацию. Попросите у провайдера ссылку https."
+
+msgid "Automatic update"
+msgstr "Автоматическое обновление"

@@ -62,3 +62,28 @@ done
  assert_eq yes "$marker_at_unlock" 'startup marker published before releasing policy lock'
 )
 pass 'startup marker and policy share runtime lock'
+
+(
+ source_init_mihowrt_lib
+ setup_runtime_paths "$tmpdir/init"
+ SKIP_START_FILE="$tmpdir/init/skip-start"
+ MIHOWRT="$tmpdir/init/cli"
+ export INIT_TEST_STATE="$PKG_STATE_DIR"
+ cat >"$MIHOWRT" <<'CLI'
+#!/bin/sh
+for file in health degraded last_error; do
+ [ ! -e "$INIT_TEST_STATE/$file" ] || echo "$file" >>"$INIT_TEST_STATE/stale"
+done
+CLI
+ chmod +x "$MIHOWRT"
+ touch "$HEALTH_FILE" "$DEGRADED_FILE" "$LAST_ERROR_FILE"
+ procd_open_instance() { :; }
+ procd_set_param() { :; }
+ procd_close_instance() { :; }
+ start_service
+ assert_false 'start clears stale health/degraded/error before prepare' test -e "$PKG_STATE_DIR/stale"
+ assert_false 'start clears health before supervisor launch' test -e "$HEALTH_FILE"
+ assert_false 'start clears degraded before supervisor launch' test -e "$DEGRADED_FILE"
+ assert_false 'start clears last error before supervisor launch' test -e "$LAST_ERROR_FILE"
+)
+pass 'start removes stale health, degraded and last error'

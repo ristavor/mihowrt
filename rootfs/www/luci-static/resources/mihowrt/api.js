@@ -86,6 +86,7 @@ function randomSuffix() {
 const JOB_LABELS = {
 	'connect': _('Connect'),
 	'core-update': _('Update Mihomo core'),
+	'auto-update': _('Automatic update'),
 	'update-subscription': _('Update subscription'),
 	'update-lists': _('Update remote lists'),
 	'apply-lists': _('Save & Apply'),

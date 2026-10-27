@@ -8,7 +8,7 @@ job_id_valid() {
 }
 
 job_usage() {
-	err "Usage: job-start <connect <url>|update-subscription [url]|update-lists|apply-lists <path|-> <path|-> <path|-> <path|->|save-config <path>|restore-config|core-update|service <start|stop|restart>>"
+	err "Usage: job-start <connect <url>|update-subscription [url]|update-lists|apply-lists <path|-> <path|-> <path|-> <path|->|save-config <path>|restore-config|core-update|auto-update|service <start|stop|restart>>"
 	return 1
 }
 
@@ -26,7 +26,7 @@ job_validate() {
 		[ $# -le 1 ] || { job_usage; return 1; }
 		[ -z "${1:-}" ] || is_http_url "$1" || { err "Subscription URL must start with http:// or https://"; return 1; }
 		;;
-	update-lists | restore-config | core-update)
+	update-lists | restore-config | core-update | auto-update)
 		[ $# -eq 0 ] || { job_usage; return 1; }
 		;;
 	apply-lists)
@@ -150,6 +150,10 @@ job_start_locked() {
 		if [ "$(readlink "$JOBS_DIR/active" 2>/dev/null)" = "$active" ]; then
 			busy_op="$(jq -r .op "$JOBS_DIR/$active.json")"
 			rm -f "$JOBS_DIR/$id.json" "$JOBS_DIR/$id.pid"
+			if [ "$op" = auto-update ]; then
+				log "skipped: another operation is running"
+				return 0
+			fi
 			err "Another operation is running: $busy_op"
 			return 1
 		fi
@@ -175,6 +179,7 @@ job_execute() {
 	save-config) config_locked config_save "$1" ;;
 	restore-config) config_locked config_restore ;;
 	core-update) core_update_cmd ;;
+	auto-update) auto_update ;;
 	service) /etc/init.d/mihowrt "$1" 9>&- >/dev/null && printf '{}\n' ;;
 	esac
 }

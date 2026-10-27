@@ -48,6 +48,7 @@ test('job buttons lock together through busy preparation and job completion', as
 test('jobLabel reuses known labels and falls back to operation', () => {
  const { api } = setup();
  assert.equal(api.jobLabel('apply-lists'), 'Save & Apply');
+ assert.equal(api.jobLabel('auto-update'), 'Automatic update');
  assert.equal(api.jobLabel('custom-op'), 'custom-op');
 });
 test('jobNotice locks all job starters until reload', async () => {

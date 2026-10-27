@@ -1319,6 +1319,26 @@ seq(async () => {
  });
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// C16: a read-only LuCI user sees no action buttons.
+seq(async () => {
+ function DOM(tag, attrs, children) {
+  const n = E(tag, attrs, children); n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null;
+  return n;
+ }
+ const actions = ['Save', 'Update now', 'Check and apply', 'Restore the previous YAML'];
+ for (const readOnly of [false, true]) {
+  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E: DOM, ui, Blob, view: { extend: v => v }, api: { ...api, ...readStubs, readOnly: () => readOnly }
+  }).module;
+  const p = await mountSubscription(sv, { url: 'https://p.example/sub' }, { content: 'yaml' }, { config_backup: true });
+  await openToggle(p, 'Show the YAML editor');
+  for (const label of actions) h.assertEq(!!findButton(p, label), !readOnly, label + ' shown=' + !readOnly);
+  h.assert(collect(p).some(n => n.tag === 'textarea'), 'YAML still visible read-only=' + readOnly);
+  h.assert(findButton(p, 'Show the YAML passed to Mihomo'), 'viewing stays available');
+ }
+ console.log('ok - subscription read-only hides actions');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 20: diagnostics keeps its checklist while exposing runtime risks.
 seq(async () => {
  const check = async (name, fn) => {
@@ -1359,7 +1379,7 @@ seq(async () => {
   const p = dv.render([healthy, {}, resources]);
   collect(p).find(n => n.tag === 'button' && texts(n).includes('Show the log')).listeners.click();
   await new Promise(r => setTimeout(r, 0));
-  h.assert(texts(p).includes('Cannot read the log: Access denied. Log in to LuCI again.'), 'log error uses errorText');
+  h.assert(texts(p).includes('Cannot read the log: Access denied. Log in to LuCI again, or ask for write access.'), 'log error uses errorText');
  });
  await check('degraded state', () => {
   const row = item(render({ ...healthy, state: 'degraded' }), 'Mihomo DNS does not answer: traffic goes direct until it recovers');
@@ -1404,7 +1424,7 @@ seq(async () => {
   const data = await dv.load(); const p = dv.render(data);
   h.assert(calls.some(c => c.length === 1 && c[0] === 'diagnostics-json'), 'diagnostics-json without args');
   h.assert(texts(p).includes('Service is running') && texts(p).includes('Details'), 'rest remains usable');
-  h.assert(texts(p).some(t => t.includes('Cannot load diagnostics: Access denied. Log in to LuCI again.')), 'partial failure cause uses errorText');
+  h.assert(texts(p).some(t => t.includes('Cannot load diagnostics: Access denied. Log in to LuCI again, or ask for write access.')), 'partial failure cause uses errorText');
   h.assert(texts(p).includes('Reload the page to try again.'), 'partial failure retry hint');
  });
  await check('large log and job notice', async () => {

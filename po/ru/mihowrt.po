@@ -562,8 +562,41 @@ msgstr "Отвечают: %d из %d"
 msgid "The router did not answer in time. The operation may still be running; check again in a minute."
 msgstr "Роутер не ответил вовремя. Операция может ещё выполняться; проверьте снова через минуту."
 
-msgid "Access denied. Log in to LuCI again."
-msgstr "Доступ запрещён. Войдите в LuCI снова."
+msgid "Access denied. Log in to LuCI again, or ask for write access."
+msgstr "Доступ запрещён. Войдите в LuCI снова или попросите права на изменение."
+
+msgid "The new subscription settings could not be applied: %s. Returning to the previous configuration also failed: %s. The previous configuration is saved in %s."
+msgstr "Не удалось применить новые настройки подписки: %s. Вернуть прежнюю конфигурацию тоже не удалось: %s. Прежняя конфигурация сохранена в %s."
+
+msgid "The new subscription settings could not be applied: %s. The previous configuration is back in use."
+msgstr "Не удалось применить новые настройки подписки: %s. Снова используется прежняя конфигурация."
+
+msgid "Mihomo started, but the routing rules could not be applied: %s"
+msgstr "Mihomo запущен, но правила маршрутизации применить не удалось: %s"
+
+msgid "Could not update %d of %d remote list: %s"
+msgid_plural "Could not update %d of %d remote lists: %s"
+msgstr[0] "Не удалось обновить %d из %d удалённого списка: %s"
+msgstr[1] "Не удалось обновить %d из %d удалённых списков: %s"
+msgstr[2] "Не удалось обновить %d из %d удалённых списков: %s"
+
+msgid "Another operation is running: \"%s\". Wait until it finishes."
+msgstr "Уже выполняется другая операция: «%s». Дождитесь её завершения."
+
+msgid "The \"%s\" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value."
+msgstr "Раздел «%s» в YAML должен быть блочным словарём (по одному ключу на строку), а не {…}, […] или одним значением."
+
+msgid "The operation was interrupted (for example, by a router reboot). You can run it again."
+msgstr "Операция прервана (например, перезагрузкой роутера). Её можно запустить снова."
+
+msgid "The link does not give a Clash/Mihomo config (it looks like V2Ray links, base64, sing-box JSON or a web page). Take the Clash/Mihomo link from your provider's account."
+msgstr "По ссылке пришла не конфигурация Clash/Mihomo (похоже на ссылки V2Ray, base64, JSON sing-box или веб-страницу). Возьмите в личном кабинете VPN-сервиса ссылку для Clash/Mihomo."
+
+msgid "The subscription returned an empty configuration."
+msgstr "Подписка вернула пустую конфигурацию."
+
+msgid "The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists."
+msgstr "Удалённые списки вместе больше 8 МБ. Уберите часть ссылок на списки или выберите списки поменьше."
 
 msgid "Save & Apply"
 msgstr "Сохранить и применить"

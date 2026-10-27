@@ -15,6 +15,7 @@ return view.extend({
 	]),
 
 	render: function([ sub, status = {} ]) {
+		const readOnly = api.readOnly();
 		// type=text: some themes (openwrt-2020) style only text inputs.
 		const url = E('input', { id: 'mw-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
 			class: 'cbi-input-text', style: 'width: 100%',
@@ -122,8 +123,8 @@ return view.extend({
 				editorBody.replaceChildren(
 					E('label', { class: 'cbi-value-title', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
 					widget,
-					E('div', { class: 'mw-row' }, status.config_backup ? [ apply, restore ] : [ apply ]),
-					...(status.config_backup ? [ restoreNote ] : []));
+					...(readOnly ? [] : [ E('div', { class: 'mw-row' }, status.config_backup ? [ apply, restore ] : [ apply ]) ]),
+					...(status.config_backup && !readOnly ? [ restoreNote ] : []));
 			}).catch(e => {
 				editorBody.replaceChildren(loadError(e, openEditor));
 			}).finally(() => {
@@ -174,8 +175,8 @@ return view.extend({
 					E('label', { class: 'cbi-value-title', for: 'mw-auto' }, text(_('Update automatically'))),
 					E('div', { class: 'cbi-value-field' }, [ auto, autoHint ])
 				]),
-				E('div', { class: 'cbi-value' }, [ E('label', { class: 'cbi-value-title' }, []),
-					E('div', { class: 'cbi-value-field' }, [ E('div', { class: 'mw-row' }, [ save, update ]) ]) ])
+				...(readOnly ? [] : [ E('div', { class: 'cbi-value' }, [ E('label', { class: 'cbi-value-title' }, []),
+					E('div', { class: 'cbi-value-field' }, [ E('div', { class: 'mw-row' }, [ save, update ]) ]) ]) ])
 			]),
 			E('div', { class: 'cbi-section' }, [
 				E('h3', text(_('Advanced: edit the Mihomo YAML'))),

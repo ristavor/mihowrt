@@ -41,18 +41,84 @@ const CSS = `
 @media (max-width: 600px) { .mw-grid { grid-template-columns: minmax(0, 1fr); gap: 4px 0; } .mw-grid > label, .mw-grid > .mw-muted { margin-top: 8px; } .mw-actions { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 10em), 1fr)); align-items: stretch; } .mw-actions > .cbi-button { margin: 0; } .mw-groups .mw-ping { flex-basis: 100%; } .mw-groups .mw-ping:empty { display: none; } }
 `;
 
+const JOB_LABELS = {
+	'connect': _('Connect'),
+	'core-update': _('Update Mihomo core'),
+	'auto-update': _('Automatic update'),
+	'update-subscription': _('Update subscription'),
+	'update-lists': _('Update remote lists'),
+	'apply-lists': _('Save & Apply'),
+	'save-config': _('Check and apply'),
+	'restore-config': _('Restore the previous YAML'),
+	'service': _('Start / Stop / Restart')
+};
+
+const ACCESS_DENIED = _('Access denied. Log in to LuCI again, or ask for write access.');
+
+function jobLabel(op) {
+	return JOB_LABELS[op] || op;
+}
+
+// Plain words for backend errors the user can act on; other text is kept.
+// Mapped text never matches again, so mapping twice is harmless.
+function backendErrorText(message) {
+	const raw = String(message ?? '');
+	const inner = value => backendErrorText(value).replace(/\.$/, '');
+	let m;
+
+	if ((m = /^Failed to apply the new subscription settings: ([\s\S]*?); restoring the previous config failed: ([\s\S]*); the previous config is saved in (\S+)$/.exec(raw)))
+		return _('The new subscription settings could not be applied: %s. Returning to the previous configuration also failed: %s. The previous configuration is saved in %s.').format(inner(m[1]), inner(m[2]), m[3]);
+	if ((m = /^Failed to apply the new subscription settings: ([\s\S]*); the previous config is restored$/.exec(raw)))
+		return _('The new subscription settings could not be applied: %s. The previous configuration is back in use.').format(inner(m[1]));
+	if ((m = /^Failed to apply routing rules: ([\s\S]*)$/.exec(raw)))
+		return _('Mihomo started, but the routing rules could not be applied: %s').format(backendErrorText(m[1]));
+	if ((m = /^Failed to update (\d+) of (\d+) remote lists: ([\s\S]*)$/.exec(raw)))
+		return N_(Number(m[2]), 'Could not update %d of %d remote list: %s', 'Could not update %d of %d remote lists: %s').format(m[1], m[2], backendErrorText(m[3]));
+	if ((m = /^Another operation is running: ([\w-]+)$/.exec(raw)))
+		return _('Another operation is running: "%s". Wait until it finishes.').format(jobLabel(m[1]));
+	if ((m = /^Unsupported (\S+) form: use a block mapping$/.exec(raw)))
+		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
+	if (/^Interrupted:/.test(raw))
+		return _('The operation was interrupted (for example, by a router reboot). You can run it again.');
+	if (/not a Clash\/Mihomo config/.test(raw))
+		return _('The link does not give a Clash/Mihomo config (it looks like V2Ray links, base64, sing-box JSON or a web page). Take the Clash/Mihomo link from your provider\'s account.');
+	if (/^Subscription returned an empty config/.test(raw))
+		return _('The subscription returned an empty configuration.');
+	if (/must start with http/.test(raw))
+		return _('Enter the subscription link that starts with https://');
+	if (/Remote lists exceed 8 MiB in total/.test(raw))
+		return _('The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.');
+
+	// Subscription download errors ("... failed: http_404").
+	if (!(m = /Subscription download failed: (\S+)/.exec(raw)))
+		return raw;
+	const code = m[1];
+	const http = /^http_(\d+)$/.exec(code);
+	if (http && http[1] === '404')
+		return _('The subscription link was not found (HTTP 404). Check the link with your provider.');
+	if (http && (http[1] === '401' || http[1] === '403'))
+		return _('The provider refused access (HTTP %s). The subscription may have expired or the link is wrong.').format(http[1]);
+	if (http)
+		return _('The provider server answered with an error (HTTP %s). Try again later.').format(http[1] || '?');
+	if (code === 'too_large')
+		return _('The subscription is too large.');
+	if (code === 'invalid_url')
+		return _('Enter the subscription link that starts with https://');
+	return _('The router cannot reach the subscription server. Check the internet connection and the link.');
+}
+
 function errorText(res) {
 	const output = res?.stderr || res?.stdout;
 	const message = String(output || res?.message || (typeof res === 'string' ? res : '')).replace(/^Error: /gm, '').trim();
 	// Backend output is not a LuCI transport error, even if it mentions one.
 	if (output || res?.name === 'CommandError' || res?.name === 'JobError')
-		return message || _('Unknown error');
+		return backendErrorText(message) || _('Unknown error');
 	if (res?.name === 'TimeoutError' || (res?.name === 'Error' && message === 'XHR request timed out'))
 		return _('The router did not answer in time. The operation may still be running; check again in a minute.');
 	// An expired session reaches us as SessionError, or as rpc error -32002.
 	if (res?.name === 'PermissionError' || res?.name === 'SessionError' || (res?.name === 'Error' && message === 'Access denied')
 		|| (res?.name === 'RPCError' && /failed with (?:ubus code 6:|HTTP error 403:|error -32002:)/.test(message)))
-		return _('Access denied. Log in to LuCI again.');
+		return ACCESS_DENIED;
 	return message || _('Unknown error');
 }
 
@@ -83,19 +149,6 @@ function randomSuffix() {
 	return Array.from(crypto.getRandomValues(new Uint8Array(16)), byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
-const JOB_LABELS = {
-	'connect': _('Connect'),
-	'core-update': _('Update Mihomo core'),
-	'auto-update': _('Automatic update'),
-	'update-subscription': _('Update subscription'),
-	'update-lists': _('Update remote lists'),
-	'apply-lists': _('Save & Apply'),
-	'save-config': _('Check and apply'),
-	'restore-config': _('Restore the previous YAML'),
-	'service': _('Start / Stop / Restart')
-};
-
-const ACCESS_DENIED = _('Access denied. Log in to LuCI again.');
 let waitingJobs = 0;
 let jobButtonLocks = 0;
 const jobButtons = new Map();
@@ -213,26 +266,6 @@ function safeLink(url, label, cls) {
 		: null;
 }
 
-// Plain messages for subscription download errors ("... failed: http_404").
-function subscriptionError(message) {
-	const m = /Subscription download failed: (\S+)/.exec(String(message || ''));
-	if (!m)
-		return message;
-	const code = m[1];
-	const http = /^http_(\d+)$/.exec(code);
-	if (http && http[1] === '404')
-		return _('The subscription link was not found (HTTP 404). Check the link with your provider.');
-	if (http && (http[1] === '401' || http[1] === '403'))
-		return _('The provider refused access (HTTP %s). The subscription may have expired or the link is wrong.').format(http[1]);
-	if (http)
-		return _('The provider server answered with an error (HTTP %s). Try again later.').format(http[1] || '?');
-	if (code === 'too_large')
-		return _('The subscription is too large.');
-	if (code === 'invalid_url')
-		return _('Enter the subscription link that starts with https://');
-	return _('The router cannot reach the subscription server. Check the internet connection and the link.');
-}
-
 // Show/hide a block with a theme button (no <details>: some themes hide
 // its marker). onOpen runs on every opening.
 let toggleCount = 0;
@@ -332,7 +365,9 @@ return baseclass.extend({
 	write: (cmd, ...args) => json(WRITE, [ cmd, ...args ]),
 	service: (action) => run(INIT, [ action ]),
 	jobRunning: false,
-	jobLabel: (op) => JOB_LABELS[op] || op,
+	jobLabel,
+	// C16: the LuCI ACL gives this user read access only.
+	readOnly: () => L.hasViewPermission?.() === false,
 	job: async function(op, ...args) {
 		waitingJobs++;
 		this.jobRunning = true;
@@ -369,8 +404,7 @@ return baseclass.extend({
 	jobNotice: function() {
 		showPendingNotice();
 		const notice = E('div', { class: 'mw-job', 'aria-live': 'polite' });
-		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op),
-			[ 'connect', 'update-subscription' ].includes(status.op) ? subscriptionError(error) : error);
+		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), backendErrorText(error));
 		this.read('job-status').then(async status => {
 			// A job that failed while no page waited for it: show it once.
 			if (status.state === 'error' && status.id && !jobSeen(status.id)
@@ -458,7 +492,8 @@ return baseclass.extend({
 	formatDate,
 	trafficSummary,
 	safeLink,
-	subscriptionError,
+	// Old name still used by the Overview page.
+	subscriptionError: backendErrorText,
 	toggle,
 	busy,
 	notify,

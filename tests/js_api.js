@@ -82,7 +82,7 @@ test('poll access denied limit and recovery', async () => {
 		const { api, timers } = setup(); let count = 0;
 		api.read = async () => { if (++count <= failures) throw Error('Access denied'); return { state: 'ok', result: { action: 'saved' } }; };
 		const pending = api.job('core-update');
-		const checked = failures === 10 ? assert.rejects(pending, { message: 'Access denied. Log in to LuCI again.' }) : pending;
+		const checked = failures === 10 ? assert.rejects(pending, { message: 'Access denied. Log in to LuCI again, or ask for write access.' }) : pending;
 		for (let i = 0; i < 10; i++) await tick(timers);
 		await checked; assert.equal(api.jobRunning, false);
 	}
@@ -96,7 +96,7 @@ test('poll expired session shapes map to access denied', async () => {
 		const { api, timers } = setup();
 		api.read = async () => { throw make(); };
 		const pending = api.job('core-update');
-		const checked = assert.rejects(pending, { message: 'Access denied. Log in to LuCI again.' });
+		const checked = assert.rejects(pending, { message: 'Access denied. Log in to LuCI again, or ask for write access.' });
 		for (let i = 0; i < 10; i++) await tick(timers);
 		await checked; assert.equal(api.jobRunning, false);
 	}
@@ -141,14 +141,14 @@ test('readLarge uses cgi-exec JSON and rejects non-objects', async () => {
 test('errorText maps transport errors and preserves useful causes', () => {
 	const { api } = setup();
 	assert.equal(api.errorText(Object.assign(Error('request timed out'), { name: 'TimeoutError' })), 'The router did not answer in time. The operation may still be running; check again in a minute.');
-	assert.equal(api.errorText(Object.assign(Error('permission denied'), { name: 'PermissionError' })), 'Access denied. Log in to LuCI again.');
+	assert.equal(api.errorText(Object.assign(Error('permission denied'), { name: 'PermissionError' })), 'Access denied. Log in to LuCI again, or ask for write access.');
 	assert.equal(api.errorText({ stderr: 'Error: bad yaml\n' }), 'bad yaml');
 	assert.equal(api.errorText(Error('bad yaml')), 'bad yaml');
 });
 test('transport mapping never rewrites backend output or generic error text', async () => {
 	const { api } = setup();
 	const timeout = 'The router did not answer in time. The operation may still be running; check again in a minute.';
-	const denied = 'Access denied. Log in to LuCI again.';
+	const denied = 'Access denied. Log in to LuCI again, or ask for write access.';
 	assert.equal(api.errorText(Error('XHR request timed out')), timeout);
 	assert.equal(api.errorText(Object.assign(Error('RPC call to file/exec failed with ubus code 6: Permission denied'), { name: 'RPCError' })), denied);
 	assert.equal(api.errorText(Object.assign(Error('RPC call to file/exec failed with HTTP error 403: Forbidden'), { name: 'RPCError' })), denied);
@@ -162,6 +162,52 @@ test('transport mapping never rewrites backend output or generic error text', as
 		}
 	}
 	for (const message of ['dial tcp: i/o timeout', 'Access denied by provider']) assert.equal(api.errorText(Error(message)), message);
+});
+// C2: backend errors the user can act on, in plain words (EN source; RU in the PO).
+const BACKEND_ERRORS = [
+	["The provider returned something that is not a Clash/Mihomo config (V2Ray links, base64, sing-box JSON or a web page). Use the Clash/Mihomo link from your provider's account.",
+		"The link does not give a Clash/Mihomo config (it looks like V2Ray links, base64, sing-box JSON or a web page). Take the Clash/Mihomo link from your provider's account."],
+	['Another operation is running: update-lists', 'Another operation is running: "Update remote lists". Wait until it finishes.'],
+	['Another operation is running: custom-op', 'Another operation is running: "custom-op". Wait until it finishes.'],
+	['Interrupted: the operation was stopped before it finished.', 'The operation was interrupted (for example, by a router reboot). You can run it again.'],
+	['Subscription returned an empty config', 'The subscription returned an empty configuration.'],
+	['Subscription URL must start with http:// or https://', 'Enter the subscription link that starts with https://'],
+	['Subscription download failed: http_404', 'The subscription link was not found (HTTP 404). Check the link with your provider.'],
+	['Failed to apply routing rules: nft: syntax error', 'Mihomo started, but the routing rules could not be applied: nft: syntax error'],
+	['Failed to apply the new subscription settings: Unsupported dns form: use a block mapping; the previous config is restored',
+		'The new subscription settings could not be applied: The "dns" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value. The previous configuration is back in use.'],
+	['Failed to apply the new subscription settings: bad policy; restoring the previous config failed: reload failed; the previous config is saved in /tmp/mihowrt-old.1',
+		'The new subscription settings could not be applied: bad policy. Returning to the previous configuration also failed: reload failed. The previous configuration is saved in /tmp/mihowrt-old.1.'],
+	['Unsupported x-mihowrt form: use a block mapping', 'The "x-mihowrt" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.'],
+	['Failed to update 1 of 3 remote lists: Remote lists exceed 8 MiB in total',
+		'Could not update 1 of 3 remote lists: The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.'],
+	['Failed to update 1 of 1 remote lists: Remote list download failed: example.org', 'Could not update 1 of 1 remote list: Remote list download failed: example.org'],
+	['Remote lists exceed 8 MiB in total', 'The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.']
+];
+test('errorText maps backend errors to plain words and is idempotent', () => {
+	const { api } = setup();
+	for (const [raw, plain] of BACKEND_ERRORS) {
+		assert.equal(api.errorText({ stderr: 'Error: ' + raw + '\n' }), plain, raw);
+		assert.equal(api.errorText(Object.assign(Error(raw), { name: 'JobError' })), plain, 'job error: ' + raw);
+		assert.equal(api.errorText({ stderr: plain }), plain, 'mapped text stays: ' + plain);
+	}
+});
+test('command errors carry the plain backend text', async () => {
+	const { api } = setup({ fs: { exec: async () => ({ code: 1, stderr: 'Error: Another operation is running: core-update\n' }) } });
+	await assert.rejects(api.job('update-lists'), { name: 'CommandError', message: 'Another operation is running: "Update Mihomo core". Wait until it finishes.' });
+	assert.equal(api.jobRunning, false);
+});
+test('background job errors of any operation use the plain backend text', async () => {
+	const { sessionStorage } = storage(), { shown, ui } = notifications();
+	const { api } = setup({ sessionStorage, ui });
+	api.read = async () => ({ state: 'error', id: '6-1', op: 'update-lists', finished: 1000, now: 1001, error: 'Interrupted: the operation was stopped before it finished.' });
+	api.jobNotice(); await flush();
+	assert.deepEqual(shown, [[ '"Update remote lists" failed: The operation was interrupted (for example, by a router reboot). You can run it again.', 'error' ]]);
+});
+test('readOnly follows the LuCI view permission', () => {
+	assert.equal(setup().api.readOnly(), false, 'no permission info: actions stay');
+	for (const [permission, readOnly] of [[false, true], [true, false], [null, false]])
+		assert.equal(setup({ L: { env: {}, hasViewPermission: () => permission } }).api.readOnly(), readOnly, String(permission));
 });
 test('job backend errors reach busy notification unchanged', async () => {
 	for (const message of ['dial tcp: i/o timeout', 'Access denied by provider', 'XHR request timed out', 'Access denied']) {
@@ -188,7 +234,7 @@ test('upload checks HTTP status before parsing and hides non-JSON errors', async
 	for (const status of [200, 403, 500]) for (const body of ['', '<html>403 Forbidden</html>', '<html>500 Internal Server Error</html>']) {
 		let parsed = false;
 		const { api } = setup({ request: { post: async () => ({ ok: status === 200, status, json: () => { parsed = true; return JSON.parse(body); } }) } });
-		await assert.rejects(api.upload('mihowrt-config', 'yaml'), { message: status === 403 ? 'Access denied. Log in to LuCI again.' : 'Unexpected response from the router.' });
+		await assert.rejects(api.upload('mihowrt-config', 'yaml'), { message: status === 403 ? 'Access denied. Log in to LuCI again, or ask for write access.' : 'Unexpected response from the router.' });
 		assert.equal(parsed, status === 200);
 	}
 });
@@ -229,7 +275,7 @@ test('jobNotice idle and initial read failure', async () => {
 		const { api, timers } = setup(); api.read = read;
 		const notice = api.jobNotice(); assert.equal(notice.attrs.hidden, undefined); assert.equal(notice.children.length, 0);
 		await flush(); assert.equal(timers.length, 0); assert.equal(notice.hidden, undefined);
-		if (notice.children.length) assert.equal(notice.children[0].children[0], 'Access denied. Log in to LuCI again.');
+		if (notice.children.length) assert.equal(notice.children[0].children[0], 'Access denied. Log in to LuCI again, or ask for write access.');
 	}
 });
 // Task 11: a failed background job always shows its error.

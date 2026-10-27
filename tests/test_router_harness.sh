@@ -40,6 +40,14 @@ grep -q 'dhcp.m22host.name=m22host.lan' "$guest" || fail 'local names must use a
 grep -q 'check_local_names' "$guest" || fail 'local names must have a guest check'
 bash -n "$host"
 sh -n "$guest"
+for script in "$host" "$guest"; do
+  grep -q "'port forward and WAN service replies'" "$script" || fail 'network matrix must include port forward and WAN service replies'
+done
+grep -q 'check_forward_replies' "$guest" || fail 'port forward row must have a guest check'
+grep -q 'uci set firewall.m22dnat=redirect' "$guest" || fail 'port forward must use a fixture-owned fw4 redirect'
+grep -q 'comment a1-reply' "$guest" || fail 'port forward row must count marked replies'
+grep -q 'stop_reply_listeners' "$guest" || fail 'reply listeners must have tracked TERM/KILL teardown'
+grep -q 'a1-ports-router.before' "$guest" || fail 'reply probes must refuse occupied ports'
 echo 'ok - network fixture static safety contracts (no VM)'
 
 # Exercise host failure handling with a fake transport; no Docker daemon or VM.

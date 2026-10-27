@@ -129,7 +129,8 @@ fi
 mkdir "$WORK/logs" "$WORK/saved" || fatal 'refuse existing guest fixture state'
 : >"$WORK/results.tsv"
 for name in 'nft syntax' 'control reachable' 'client IPv6 rejected' 'local and IPv4 retained' \
-	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' lifecycle; do
+	'core and other ingress retained' 'NetBird synthetic' 'routes and DNS boundaries' 'local names' 'fake-IP direct devices' lifecycle \
+	'port forward and WAN service replies'; do
 	record "$name" 'NOT TESTED' 'not reached'
 done
 trap cleanup EXIT
@@ -137,7 +138,7 @@ trap 'exit 1' INT TERM HUP PIPE
 echo $$ >"$WORK/guest.pid"
 
 # Do not install prerequisites implicitly, and never turn missing tools into PASS.
-for tool in ip nft tcpdump curl dnsmasq uhttpd odhcp6c odhcpd jq hexdump nc socat; do
+for tool in ip nft tcpdump curl dnsmasq uhttpd odhcp6c odhcpd jq hexdump nc socat netstat; do
 	command -v "$tool" >/dev/null || fatal "prerequisite unavailable: $tool"
 done
 [ -x /opt/clash/bin/clash ] || fatal 'prerequisite unavailable: Mihomo core'
@@ -354,6 +355,10 @@ set_lists() {
 	mac) printf '02:00:00:22:00:02\n' > /tmp/mihowrt-policy-list.network-src ;;
 	port) printf ';8080\n;53\n' > /tmp/mihowrt-policy-list.network-dst ;;
 	core) printf ';8081\n' > /tmp/mihowrt-policy-list.network-dst ;;
+	# Synthetic WAN client as proxied destination, forwarded LAN host as proxied source.
+	wanclient)
+		printf '198.19.22.2\n' > /tmp/mihowrt-policy-list.network-dst
+		printf '192.0.2.2\n' > /tmp/mihowrt-policy-list.network-src ;;
 	empty) ;;
 	*) fatal "unknown list selector: $selector" ;;
 	esac
@@ -874,6 +879,122 @@ check_lifecycle() {
 	(reject_fresh watchdog-restart)
 }
 
+# A1: replies of inbound connections are never marked. A WAN client reaches a
+# policy-selected LAN host through an fw4 DNAT redirect and a router WAN service;
+# any marked reply would be TPROXY'd by proxy_redirect, where the counters sit.
+stop_reply_listeners() {
+	local pid=""
+	for pid in "$@"; do kill "$pid" 2>/dev/null || true; done
+	sleep 1
+	for pid in "$@"; do
+		# Do not signal a recycled PID; only these owned fixture commands qualify.
+		if grep -qF "$WORK/www" "/proc/$pid/cmdline" 2>/dev/null ||
+			grep -Eq 'UDP4-RECVFROM:(8088|8091)' "/proc/$pid/cmdline" 2>/dev/null; then
+			kill -KILL "$pid" 2>/dev/null || true
+		fi
+		wait "$pid" 2>/dev/null || true
+	done
+}
+
+udp_echo() (
+	local label="$1" address="$2" port="$3" ns="$4" listen_port="$5" pid=""
+	# One bounded foreground echo per probe: no untracked forked listeners.
+	if [ "$ns" = router ]; then
+		socat -T 4 "UDP4-RECVFROM:$listen_port" PIPE >"$WORK/logs/a1-$label.listener" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	else
+		ip netns exec "$ns" socat -T 4 "UDP4-RECVFROM:$listen_port" PIPE >"$WORK/logs/a1-$label.listener" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	fi
+	pid=$!
+	trap 'stop_reply_listeners "$pid"' EXIT
+	sleep 1
+	kill -0 "$pid"
+	printf 'a1-%s' "$label" >"$WORK/udp-probe"
+	# Keep ash xtrace out of the payload (the echo deliberately has no newline).
+	(BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-w socat -t 2 -T 3 - "UDP4:$address:$port") >"$WORK/logs/a1-$label.udp" 2>"$WORK/logs/a1-$label.stderr" || true
+	cmp "$WORK/udp-probe" "$WORK/logs/a1-$label.udp"
+)
+
+# Handle of the nth rule of a mihowrt chain.
+chain_handle() {
+	nft -a list chain inet mihowrt "$1" | awk -v n="$2" '/^\t\t.*# handle / {if (++seen == n) {print $NF; exit}}'
+}
+
+check_forward_replies() {
+	local pair="" mode="" pids="" pid="" mark="" reply=""
+	trap 'stop_reply_listeners $pids' EXIT
+	netstat -lnu >"$WORK/logs/a1-ports-router.before"
+	ip netns exec m22-c netstat -lntu >"$WORK/logs/a1-ports-lan.before"
+	absent grep -Eq ':8088[[:space:]]' "$WORK/logs/a1-ports-router.before"
+	absent grep -Eq ':8091[[:space:]]' "$WORK/logs/a1-ports-lan.before"
+	uci set firewall.m22dnat=redirect
+	uci set firewall.m22dnat.name=m22dnat
+	uci set firewall.m22dnat.src=m22w
+	uci set firewall.m22dnat.src_dip=198.19.22.1
+	uci set firewall.m22dnat.src_dport=18091
+	uci set firewall.m22dnat.dest=m22c
+	uci set firewall.m22dnat.dest_ip=192.0.2.2
+	uci set firewall.m22dnat.dest_port=8091
+	uci set firewall.m22dnat.proto='tcp udp'
+	uci set firewall.m22dnat.target=DNAT
+	uci commit firewall
+	/etc/init.d/firewall reload
+	nft list chain inet fw4 dstnat_m22w | grep 'dnat ip to 192.0.2.2:8091'
+	# LAN host TCP listener; the router TCP listener already belongs to PIDS.
+	ip netns exec m22-c uhttpd -f -p 0.0.0.0:8091 -h "$WORK/www" >"$WORK/logs/a1-http-lan.log" 2>&1 6>&- 7>&- 8>&- 9>&- &
+	pids="$!"
+	sleep 2
+	for pid in $pids; do kill -0 "$pid" || fatal "listener exited: $pid"; done
+	for pair in proxy-first:empty direct-first:wanclient; do
+		mode="${pair%:*}"
+		profile "$mode" fake-ip false 0
+		set_lists "${pair#*:}"
+		ready
+		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto { tcp, udp } th sport { 8088, 8091 } counter comment a1-reply
+		nft insert rule inet mihowrt proxy_redirect meta mark \& 0x08000000 == 0x08000000 ip daddr 198.19.22.2 meta l4proto { tcp, udp } th dport 8080 counter comment a1-control
+		# DNAT port forward, then router WAN service; each TCP and UDP.
+		http w 198.19.22.1 18091 | grep mihowrt-network-fixture
+		udp_echo "$mode-forward" 198.19.22.1 18091 m22-c 8091
+		http w 198.19.22.1 8088 | grep mihowrt-network-fixture
+		udp_echo "$mode-router" 198.19.22.1 8088 router 8088
+		# Control: a client-originated flow to the same WAN address is marked and counted.
+		http c 198.19.22.2 8080 | grep mihowrt-network-fixture
+		nft list chain inet mihowrt proxy_redirect >"$WORK/logs/a1-$mode.nft"
+		grep 'comment "a1-reply"' "$WORK/logs/a1-$mode.nft" | grep -q 'counter packets 0 '
+		grep 'comment "a1-control"' "$WORK/logs/a1-$mode.nft" | grep -Eq 'counter packets [1-9]'
+		# Conntrack accounting may insert packet/byte fields between the tuples.
+		cat /proc/net/nf_conntrack >"$WORK/logs/a1-$mode.conntrack-all"
+		grep -E 'tcp .*dport=18091 .*src=192\.0\.2\.2 dst=198\.19\.22\.2 sport=8091 ' "$WORK/logs/a1-$mode.conntrack-all" >"$WORK/logs/a1-$mode.conntrack"
+		grep -E 'udp .*dport=18091 .*src=192\.0\.2\.2 dst=198\.19\.22\.2 sport=8091 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
+		grep -E 'tcp .*dport=8088 .*src=198\.19\.22\.1 dst=198\.19\.22\.2 sport=8088 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
+		grep -E 'udp .*dport=8088 .*src=198\.19\.22\.1 dst=198\.19\.22\.2 sport=8088 ' "$WORK/logs/a1-$mode.conntrack-all" >>"$WORK/logs/a1-$mode.conntrack"
+		absent grep -q UNREPLIED "$WORK/logs/a1-$mode.conntrack"
+		# Fixture sensitivity: without the reply rule the same flows break and the counter moves.
+		nft list chain inet mihowrt prerouting_policy >"$WORK/logs/a1-$mode.prerouting.before"
+		nft list chain inet mihowrt mangle_output >"$WORK/logs/a1-$mode.output.before"
+		reply="$(chain_handle prerouting_policy 1)"
+		nft -a list chain inet mihowrt prerouting_policy | grep "ct direction reply return # handle $reply"
+		nft delete rule inet mihowrt prerouting_policy handle "$reply"
+		if http w 198.19.22.1 18091; then fatal "DNAT reply passed without the reply rule ($mode)"; fi
+		nft insert rule inet mihowrt prerouting_policy ct direction reply return
+		mark="$(chain_handle mangle_output 1)"; reply="$(chain_handle mangle_output 2)"
+		nft -a list chain inet mihowrt mangle_output | grep "ct direction reply return # handle $reply"
+		nft delete rule inet mihowrt mangle_output handle "$reply"
+		if http w 198.19.22.1 8088; then fatal "router reply passed without the reply rule ($mode)"; fi
+		nft add rule inet mihowrt mangle_output position "$mark" ct direction reply return
+		nft list chain inet mihowrt prerouting_policy | cmp - "$WORK/logs/a1-$mode.prerouting.before"
+		nft list chain inet mihowrt mangle_output | cmp - "$WORK/logs/a1-$mode.output.before"
+		nft list chain inet mihowrt proxy_redirect | grep 'comment "a1-reply"' | grep -Eq 'counter packets [1-9]'
+		# Restored rules serve fresh flows again.
+		http w 198.19.22.1 18091 | grep mihowrt-network-fixture
+		http w 198.19.22.1 8088 | grep mihowrt-network-fixture
+	done
+	uci delete firewall.m22dnat
+	uci commit firewall
+	/etc/init.d/firewall reload
+	stop_reply_listeners $pids
+	trap - EXIT
+}
+
 row() {
 	local name="$1" expected="$2" fn="$3" rc=0
 	# Development-only row filter; the host entry never sets it, and a filtered run cannot be exit 0.
@@ -908,4 +1029,5 @@ row 'routes and DNS boundaries' 'occupied slots preserved, live prefix updates a
 row 'local names' 'fixture host and router names resolve to LAN addresses over UDP/TCP, with local reverse answers in fake-ip/redir-host' check_local_names
 row 'fake-IP direct devices' 'listed MAC fake-IP uses mihowrt-direct/DIRECT; unlisted device uses NODE22; real addresses bypass' check_fakeip_direct
 row lifecycle 'provider/override, no-op, failed transaction, stop/watchdog/restart fresh flows' check_lifecycle
+row 'port forward and WAN service replies' 'DNAT forward and router WAN service, TCP+UDP, proxy-first and direct-first: replies unmarked, rule-less control breaks' check_forward_replies
 CURRENT=complete

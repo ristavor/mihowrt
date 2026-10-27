@@ -137,6 +137,24 @@ render() {
 	nft_render "$out" "$tmpdir/work"
 }
 
+# Replies must leave every policy path before marks or IPv6 rejection.
+(
+ BLOCK_CLIENT_IPV6=1
+ for POLICY_MODE in direct-first proxy-first; do
+  render
+  for chain in prerouting_policy mangle_output client_ipv6_egress; do
+   [ "$chain:$POLICY_MODE" != client_ipv6_egress:proxy-first ] || continue
+   assert_file_contains "$out" "$chain ct direction reply return" "$POLICY_MODE/$chain reply guard"
+   assert_true "$POLICY_MODE/$chain reply guard before action" awk -v chain="$chain" '
+    $5 != chain { next }
+    /ct direction reply return$/ { guarded = 1 }
+    /meta mark set| reject/ && !guarded { exit 1 }
+   ' "$out"
+  done
+ done
+ pass 'reply guards precede marking and client IPv6 rejection in both modes'
+)
+
 # Router-owned DNS must stay at dnsmasq even outside the discovered local sets.
 # 2a00:1::1 is the router's WAN GUA in this fixture; its eth1 prefix is
 # deliberately excluded by connected-prefix discovery (unlike RFC1918 LAN IPs).

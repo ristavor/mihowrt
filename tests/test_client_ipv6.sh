@@ -187,7 +187,8 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 me
    continue
   fi
   assert_file_contains "$rules" 'add chain inet mihowrt client_ipv6_egress { type filter hook forward priority -1; policy accept; }' "$profile forward rejection"
-  expected='add rule inet mihowrt client_ipv6_egress iifname "wt9" return
+  expected='add rule inet mihowrt client_ipv6_egress ct direction reply return
+add rule inet mihowrt client_ipv6_egress iifname "wt9" return
 add rule inet mihowrt client_ipv6_egress meta nfproto != ipv6 return
 add rule inet mihowrt client_ipv6_egress iifname != @source_ifaces return
 add rule inet mihowrt client_ipv6_egress fib daddr type local return

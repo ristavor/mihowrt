@@ -174,6 +174,7 @@ nft_render_client_ipv6() {
 	[ "${BLOCK_CLIENT_IPV6:-0}" = "1" ] && [ "$POLICY_MODE" = "direct-first" ] || return 0
 
 	nft_line "add chain inet $NFT_TABLE_NAME client_ipv6_egress { type filter hook forward priority -1; policy accept; }"
+	nft_rule client_ipv6_egress "ct direction reply return"
 	nft_rule client_ipv6_egress "iifname \"$NETBIRD_INTERFACE\" return"
 	nft_rule client_ipv6_egress "meta nfproto != ipv6 return"
 	nft_rule client_ipv6_egress "iifname != @source_ifaces return"
@@ -315,6 +316,7 @@ nft_render() {
 	# Client traffic.
 	nft_rule mangle_prerouting "iifname \"$NETBIRD_INTERFACE\" return"
 	nft_rule mangle_prerouting "iifname @source_ifaces jump prerouting_policy"
+	nft_rule prerouting_policy "ct direction reply return"
 	nft_render_guards prerouting_policy
 	[ "$DNS_HIJACK" = "1" ] && nft_rule prerouting_policy "meta l4proto { tcp, udp } th dport 53 return"
 	if [ "$POLICY_MODE" = "proxy-first" ]; then
@@ -343,6 +345,7 @@ nft_render() {
 
 	# Router-originated traffic. Mihomo's own sockets carry the routing mark.
 	nft_rule mangle_output "meta mark $MIHOMO_ROUTING_MARK return"
+	nft_rule mangle_output "ct direction reply return"
 	nft_rule mangle_output "meta l4proto { tcp, udp } th dport $MIHOMO_TPROXY_PORT return"
 	nft_render_guards mangle_output
 	nft_rule mangle_output "meta l4proto { tcp, udp } th dport 53 return"

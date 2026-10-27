@@ -40,6 +40,7 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip daddr != @localv4 met
 add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874
 add rule inet mihowrt mangle_prerouting iifname "wt0" return
 add rule inet mihowrt mangle_prerouting iifname @source_ifaces jump prerouting_policy
+add rule inet mihowrt prerouting_policy ct direction reply return
 add rule inet mihowrt prerouting_policy fib daddr type local return
 add rule inet mihowrt prerouting_policy ip daddr @localv4 return
 add rule inet mihowrt prerouting_policy ip6 daddr @localv6 return
@@ -57,6 +58,7 @@ add rule inet mihowrt proxy_redirect iifname "wt0" return
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:7894
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894
 add rule inet mihowrt mangle_output meta mark 2 return
+add rule inet mihowrt mangle_output ct direction reply return
 add rule inet mihowrt mangle_output meta l4proto { tcp, udp } th dport 7894 return
 add rule inet mihowrt mangle_output fib daddr type local return
 add rule inet mihowrt mangle_output ip daddr @localv4 return

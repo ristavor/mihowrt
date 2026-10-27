@@ -82,6 +82,7 @@ pass "net refresh requires running service"
 echo "$$" >"$RUNNING_MARKER"
 service_running() { return 0; }
 settings_load() { :; }
+nft_connected_prefixes() { :; }
 dns_apply() { return 1; }
 nft_calls=0
 nft_apply() { nft_calls=$((nft_calls + 1)); return 0; }

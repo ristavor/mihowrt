@@ -219,6 +219,7 @@ setup_runtime_paths() {
 	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"
+	NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 	ROUTE_PROC_ROOT="$dir/proc"
 	mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/"{all,lo}
 	: >"$ROUTE_PROC_ROOT/net/if_inet6"

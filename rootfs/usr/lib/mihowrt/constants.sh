@@ -22,6 +22,7 @@ CONFIG_TESTED_FILE="$PKG_STATE_DIR/config.tested"
 CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 NFT_APPLIED_FILE="$PKG_TMP_DIR/nft.applied"
+NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 
 MIHOMO_REPO="MetaCubeX/mihomo"
 MIHOMO_RELEASES_API="https://api.github.com/repos/$MIHOMO_REPO/releases/latest"

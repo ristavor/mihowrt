@@ -336,6 +336,7 @@ nft_render() {
 }
 
 nft_apply() {
+	rm -f "$NET_FP_FILE"
 	settings_require || return 1
 
 	local dir="$PKG_TMP_DIR/nft" rc=0
@@ -362,7 +363,7 @@ nft_apply_if_ready() {
 }
 
 nft_cleanup() {
-	rm -f "$NFT_APPLIED_FILE"
+	rm -f "$NET_FP_FILE" "$NFT_APPLIED_FILE"
 	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null
 	return 0
 }

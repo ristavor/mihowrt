@@ -72,6 +72,7 @@ dns_restart_dnsmasq() {
 }
 
 dns_apply() {
+	rm -f "$NET_FP_FILE"
 	settings_require || return 1
 
 	local dir="" tmp="" changed=0
@@ -101,6 +102,7 @@ dns_apply() {
 }
 
 dns_cleanup() {
+	rm -f "$NET_FP_FILE"
 	local file="" removed=0
 
 	for file in $(dns_confdirs | sed "s|\$|/$DNS_CONF_NAME|") /tmp/dnsmasq*.d/"$DNS_CONF_NAME"; do
@@ -118,10 +120,23 @@ net_refresh() {
 	# The marker exists only while policy is applied to a live Mihomo.
 	[ -f "$RUNNING_MARKER" ] && service_running || return 0
 	settings_load || return 1
-	local rc=0
+	local rc=0 fingerprint="" previous="" line=""
+	fingerprint="$(
+		{ nft_connected_prefixes 4; nft_connected_prefixes 6; } | sort -u
+		printf '%s\n' '--dns--'
+		dns_wan_servers | sort -u
+	)"
+	{
+		while IFS= read -r line || [ -n "$line" ]; do
+			previous="${previous}${previous:+
+}$line"
+		done <"$NET_FP_FILE"
+	} 2>/dev/null || :
+	[ "$fingerprint" != "$previous" ] || return 0
 	dns_apply || rc=1
 	# New prefixes must reach nft even when dnsmasq could not be updated.
 	nft_apply || rc=1
+	[ "$rc" -ne 0 ] || printf '%s' "$fingerprint" >"$NET_FP_FILE"
 	return "$rc"
 }
 

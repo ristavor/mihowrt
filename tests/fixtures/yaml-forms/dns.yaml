@@ -1,0 +1,5 @@
+dns:
+  enhanced-mode: fake-ip
+  fake-ip-filter-mode: whitelist
+  nameserver:
+    - 1.1.1.1

@@ -12,8 +12,15 @@ MIHOMO_DASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/dow
 
 yaml_has_top_key() {
 	awk -v key="$1" '
-		NR == 1 { sub(/^\357\273\277/, "") }
-		$0 ~ ("^[\"\047]?(" key ")[\"\047]?[[:space:]]*:") { found = 1; exit }
+		{
+			sub(/\r$/, "")
+			if (NR == 1) sub(/^\357\273\277/, "")
+			if ($0 !~ /^["\047]?[A-Za-z0-9_-]+["\047]?[[:space:]]*:/) next
+			text = $0
+			sub(/[[:space:]]*:.*/, "", text)
+			gsub(/["\047]/, "", text)
+			if (text ~ ("^(" key ")$")) { found = 1; exit }
+		}
 		END { exit !found }
 	' "$2"
 }
@@ -38,15 +45,6 @@ mihomo_config_generate() {
 		err "Mihomo config not found: $src"
 		return 1
 	}
-	if grep -qE '^["'"'"']?dns["'"'"']?:[[:space:]]*\{' "$src"; then
-		err "Flow-style 'dns: {...}' is not supported; use block style"
-		return 1
-	fi
-	if grep -qE '^["'"'"']?x-mihowrt["'"'"']?:[[:space:]]*\{' "$src"; then
-		err "Flow-style 'x-mihowrt: {...}' is not supported; use block style"
-		return 1
-	fi
-
 	ensure_dir "$(dirname "$dst")" || return 1
 	tmp="$dst.tmp.$$"
 	awk -f "$(mihowrt_lib_dir)/mihomo-config.awk" \
@@ -64,11 +62,15 @@ mihomo_config_generate() {
 		-v profile="$tmp.profile" \
 		-v warnfile="$tmp.warn" \
 		"$src" >"$tmp" || {
+		if [ -s "$tmp.warn" ]; then
+			while IFS= read -r line; do err "$line"; done <"$tmp.warn"
+		else
+			err "Failed to generate runtime config"
+		fi
 		rm -f "$tmp" "$tmp.profile" "$tmp.warn"
-		err "Failed to generate runtime config"
 		return 1
 	}
-	# A bad x-mihowrt never rejects the config: the key is ignored, logged.
+	# Invalid x-mihowrt children are ignored and logged.
 	sed -n 's/^ignored //p' "$tmp.profile" 2>/dev/null | while IFS= read -r line; do
 		warn "x-mihowrt: ignored invalid or unknown setting '$line'"
 	done

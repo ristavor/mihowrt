@@ -238,6 +238,14 @@ function x_line(line,   ind, rest, key, item) {
 			seen_sniffer = 1
 		if (key == "proxy-groups" && value_of(line) == "")
 			in_groups = 1
+		if (key == "dns" || key == "x-mihowrt") {
+			val = value_of(line)
+			if (val != "" && val !~ /^(~|null)$/) {
+				print "Unsupported " key " form: use a block mapping" >warnfile
+				failed = 1
+				exit 1
+			}
+		}
 		if (key == "x-mihowrt" && value_of(line) == "") {
 			in_x = 1
 			xchild = -1
@@ -288,6 +296,8 @@ function x_line(line,   ind, rest, key, item) {
 	emit(line)
 }
 END {
+	if (failed)
+		exit 1
 	if (in_dns)
 		flush_dns()
 	if (!seen_dns)

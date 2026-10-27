@@ -61,6 +61,69 @@ pass 'whitespace inside a provider URL is filtered'
 )
 pass "profile_ensure scratch build is quiet"
 
+# Normalised keys must select the same form check and preserve block settings.
+for dialect in gawk busybox; do
+ (
+ awk() { if [ "$dialect" = busybox ]; then busybox awk "$@"; else gawk "$@"; fi; }
+ for section in dns x-mihowrt; do
+  for style in plain spaced double single bom crlf; do
+   key="$section"
+   prefix=""; ending=$'\n'
+   case "$style" in
+    spaced) key="$section " ;;
+    double) key="\"$section\"" ;;
+    single) key="'$section'" ;;
+    bom) prefix=$'\357\273\277' ;;
+    crlf) ending=$'\r\n' ;;
+   esac
+   for value in block '~' null '{enable: true}' '[1.1.1.1]' foo; do
+    if [ "$value" = block ]; then
+     { printf '%s%s:%s' "$prefix" "$key" "$ending"
+       tail -n +2 "$ROOT_DIR/tests/fixtures/yaml-forms/$section.yaml" | while IFS= read -r line; do
+        printf '%s%s' "$line" "$ending"
+       done
+     } >"$src"
+    else
+     printf '%s%s: %s # form%s' "$prefix" "$key" "$value" "$ending" >"$src"
+    fi
+    cp "$src" "$tmpdir/form-source.before"
+    assert_true "$dialect/$section/$style/$value top key detected" yaml_has_top_key "$section" "$src"
+    assert_false "$dialect/$section/$style no partial key match" yaml_has_top_key "${section%-*}" <(printf '%s-extra: {}\n' "$section")
+    label="$dialect/$section/$style/$value"
+    case "$value" in
+     block|'~'|null)
+      mihomo_config_generate "$src" "$out" || fail "$label must generate"
+      if [ "$value" = block ]; then
+       if [ "$section" = dns ]; then
+        assert_file_contains "$out.profile" 'dns fake-ip' "$label DNS mode preserved"
+        assert_file_contains "$out.profile" 'mode direct-first' "$label filter preserved"
+        assert_file_contains "$out" '    - 1.1.1.1' "$label nameserver preserved"
+       else
+        assert_file_contains "$out.profile" 'set disable_quic 0' "$label extension preserved"
+        assert_file_contains "$out.profile" 'proxy-ip 1.2.3.4' "$label list preserved"
+        assert_file_not_contains "$out" x-mihowrt "$label extension removed"
+       fi
+      else
+       assert_file_contains "$out.profile" 'dns redir-host' "$label managed DNS"
+       assert_file_not_contains "$out.profile" 'set disable_quic' "$label null extension"
+      fi ;;
+     *)
+      printf 'previous runtime\n' >"$out"
+      printf 'previous profile\n' >"$out.profile"
+      assert_false "$label rejected" mihomo_config_generate "$src" "$out" 2>"$tmpdir/form.error"
+      assert_file_contains "$tmpdir/form.error" "Unsupported $section form: use a block mapping" "$label precise error"
+      assert_eq 'previous runtime' "$(cat "$out")" "$label runtime not published"
+      assert_eq 'previous profile' "$(cat "$out.profile")" "$label profile not published"
+      assert_false "$label staging removed" test -e "$out.tmp.$$" ;;
+    esac
+    assert_true "$label source unchanged" cmp -s "$src" "$tmpdir/form-source.before"
+   done
+  done
+ done
+ pass "$dialect normalised DNS and extension forms"
+ )
+done
+
 # Lock baseline bytes, plus the E10 listener/rule in proxy-first fake-IP.
 eval "$(declare -f mihomo_config_generate | sed '1s/mihomo_config_generate/generator_under_test/')"
 printf '0\n' >"$tmpdir/generator-count"

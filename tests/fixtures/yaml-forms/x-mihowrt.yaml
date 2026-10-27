@@ -1,0 +1,4 @@
+x-mihowrt:
+  disable-quic: false
+  proxy-ips:
+    - 1.2.3.4

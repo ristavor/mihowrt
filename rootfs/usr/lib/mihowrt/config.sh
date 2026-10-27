@@ -104,6 +104,7 @@ config_install_restore_file() {
 config_install_restore() {
 	local old_config="$1" old_runtime="$2" old_profile="$3" live="$4" same_runtime="$5"
 
+	runtime_config_key_store ""
 	[ ! -f "$PROFILE_FILE" ] || mv -f "$PROFILE_FILE" "$old_profile.failed" || return 1
 	config_install_restore_file "$old_config" "$CLASH_CONFIG" || return 1
 	config_install_restore_file "$old_runtime" "$RUNTIME_CONFIG" || return 1
@@ -118,7 +119,7 @@ config_install() {
 	local candidate="$1" runtime_candidate="$PKG_TMP_DIR/runtime.candidate.yaml"
 	local old_profile="$PKG_TMP_DIR/profile.old" old_runtime="$PKG_TMP_DIR/runtime.old"
 	local old_config="$CLASH_CONFIG.previous.$$" same_runtime=0 live=0 action=saved
-	local error="" restore_error=""
+	local error="" restore_error="" inputs=""
 
 	# Same bytes: spare the flash and the reload.
 	if [ -f "$CLASH_CONFIG" ] && cmp -s "$candidate" "$CLASH_CONFIG"; then
@@ -127,6 +128,7 @@ config_install() {
 	fi
 	settings_load || return 1
 	ensure_dir "$PKG_TMP_DIR" || return 1
+	inputs="$(mihomo_config_key "$candidate" 2>/dev/null)" || inputs=""
 	if ! { mihomo_config_generate "$candidate" "$runtime_candidate" && mihomo_config_test "$runtime_candidate"; }; then
 		rm -f "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
@@ -151,6 +153,7 @@ config_install() {
 	config_check_record ok
 	# Only x-mihowrt changed: Mihomo keeps running without a reload pause.
 	cmp -s "$runtime_candidate" "$RUNTIME_CONFIG" && same_runtime=1
+	runtime_config_key_store ""
 	if ! { mv -f "$runtime_candidate" "$RUNTIME_CONFIG" && mv -f "$runtime_candidate.profile" "$PROFILE_FILE" && touch "$PROFILE_FILE"; }; then
 		error="Cannot publish the runtime config"
 	fi
@@ -184,6 +187,7 @@ config_install() {
 		rm -f "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
 	fi
+	runtime_config_key_store "$inputs"
 	if [ -f "$old_config" ]; then
 		mv -f "$old_config" "$CLASH_CONFIG_BACKUP" || {
 			rm -f "$old_profile" "$old_runtime"

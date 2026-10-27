@@ -38,17 +38,20 @@ lan_ip_detect() {
 	fi
 }
 
+# mihomo_config_generate <src> <dst> [key]
+# With "key", print a fingerprint of every generator input instead: the awk
+# -v list below (hashed as is, so no input can be missed), the source bytes
+# and the awk programs. The output paths are per build and not inputs.
 mihomo_config_generate() {
-	local src="$1" dst="$2" tmp="" line="" ui_url=""
+	local src="$1" dst="$2" mode="${3:-}" tmp="" line="" ui_url="" lib="" files="" source_hash="" key=""
 
 	[ -r "$src" ] || {
 		err "Mihomo config not found: $src"
 		return 1
 	}
-	ensure_dir "$(dirname "$dst")" || return 1
-	tmp="$dst.tmp.$$"
 	[ "${DASHBOARD_ENABLED:-0}" != 1 ] || ui_url="$MIHOMO_DASHBOARD_URL"
-	awk -f "$(mihowrt_lib_dir)/yaml-lex.awk" -f "$(mihowrt_lib_dir)/mihomo-config.awk" \
+	lib="$(mihowrt_lib_dir)"
+	set -- \
 		-v drop=" $MIHOMO_OWNED_KEYS " \
 		-v dnsdrop=" $MIHOMO_OWNED_DNS_KEYS " \
 		-v dns_port="$MIHOMO_DNS_PORT" \
@@ -59,7 +62,18 @@ mihomo_config_generate() {
 		-v api="$(lan_ip_detect):$MIHOMO_API_PORT" \
 		-v sock="$MIHOMO_SOCKET_TMPFS" \
 		-v secret="$API_SECRET" \
-		-v ui_url="$ui_url" \
+		-v ui_url="$ui_url"
+	if [ "$mode" = key ]; then
+		files="$(sha256sum "$lib/yaml-lex.awk" "$lib/mihomo-config.awk")" &&
+			source_hash="$(sha256sum <"$src")" || return 1
+		# The list goes through a pipe only: the secret never reaches argv.
+		key="$({ printf '%s\n' "$files" "$source_hash" "$@"; } | sha256sum)" || return 1
+		printf '%s\n' "${key%% *}"
+		return 0
+	fi
+	ensure_dir "$(dirname "$dst")" || return 1
+	tmp="$dst.tmp.$$"
+	awk -f "$lib/yaml-lex.awk" -f "$lib/mihomo-config.awk" "$@" \
 		-v profile="$tmp.profile" \
 		-v warnfile="$tmp.warn" \
 		"$src" >"$tmp" || {
@@ -83,6 +97,23 @@ mihomo_config_generate() {
 		return 1
 	}
 	chmod 600 "$tmp" && mv -f "$tmp.profile" "$dst.profile" && mv -f "$tmp" "$dst"
+}
+
+mihomo_config_key() {
+	mihomo_config_generate "$1" "" key
+}
+
+# Remember the inputs $RUNTIME_CONFIG was generated from, or forget them with
+# no key. Callers drop the key before replacing the config and store it only
+# once the new config is live, so it never claims a file it does not describe.
+runtime_config_key_store() {
+	local file="$RUNTIME_CONFIG.inputs"
+
+	rm -f "$file"
+	[ -n "$1" ] || return 0
+	{ printf '%s\n' "$1" >"$file.tmp.$$" && chmod 600 "$file.tmp.$$" && mv -f "$file.tmp.$$" "$file"; } ||
+		rm -f "$file" "$file.tmp.$$"
+	return 0
 }
 
 # Provider profile of the installed YAML. Rebuilt when missing or older

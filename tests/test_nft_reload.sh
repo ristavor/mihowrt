@@ -40,6 +40,7 @@ lists_update_remote() { :; }
 route_setup() { echo route >>"$test_root/events"; }
 dns_apply() { echo dns >>"$test_root/events"; }
 mihomo_config_generate() { cp "$RUNTIME_CONFIG" "$2"; cp "$PROFILE_FILE" "$2.profile"; }
+mihomo_config_key() { return 1; }
 ip() { :; }
 route_ipv6_enabled() { return 0; }
 nft_active() { [ ! -e "$test_root/missing" ]; }

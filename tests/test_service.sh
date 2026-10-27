@@ -333,6 +333,7 @@ pass 'failed nft transaction preserves live policy'
   cp "$RUNTIME_CONFIG" "$2"
   printf 'mode direct-first\ndns fake-ip\n' >"$2.profile"
  }
+ mihomo_config_key() { return 1; }
  mihomo_config_test() { fail 'policy-only flag must not test the core'; }
  api_reload() { fail 'policy-only flag must not reload the core'; }
  route_setup() { echo route >>"$events"; }
@@ -683,6 +684,7 @@ for candidate_kind in same changed rejected; do
    printf '%s runtime\n' "$candidate_kind" >"$2"
    printf 'candidate profile\n' >"$2.profile"
   }
+  mihomo_config_key() { return 1; }
   mihomo_config_test() {
    echo test >>"$events"
    CONFIG_TEST_OUTPUT='candidate rejected'
@@ -737,6 +739,7 @@ done
   printf 'new runtime\n' >"$2"
   printf 'new profile\n' >"$2.profile"
  }
+ mihomo_config_key() { return 1; }
  mihomo_config_test() { return 0; }
  printf 'previous runtime\n' >"$RUNTIME_CONFIG"
  printf 'previous profile\n' >"$PROFILE_FILE"

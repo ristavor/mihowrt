@@ -19,6 +19,7 @@ chmod +x "$CLASH_BIN"
 printf 'Mihomo v1.2.3\n' >"$tmpdir/version"
 printf 'mode: rule\n' >"$CLASH_CONFIG"
 mihomo_config_generate() { cp "$1" "$2"; printf 'profile\n' >"$2.profile"; }
+mihomo_config_key() { return 1; }
 mihomo_memory_limit() { echo 128MiB; }
 settings_load() { :; }
 cron_update() { :; }

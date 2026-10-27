@@ -132,12 +132,15 @@ uninstall_cleanup() {
 
 # Build and check a runtime config from $CLASH_CONFIG; remember the result.
 runtime_config_build() {
-	local key=""
+	local key="" inputs=""
 
+	inputs="$(mihomo_config_key "$CLASH_CONFIG" 2>/dev/null)" || inputs=""
+	runtime_config_key_store ""
 	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1
 	if { key="$(mihomo_config_test_key "$1")" && [ "$key" = "$(cat "$CONFIG_TESTED_FILE" 2>/dev/null)" ]; } ||
 		mihomo_config_test "$1" "$CLASH_BIN" "$key"; then
 		config_check_record ok
+		runtime_config_key_store "$inputs"
 		return 0
 	fi
 	config_check_record err
@@ -360,11 +363,18 @@ service_wait_stopped() {
 
 # Apply changed UCI settings to a running service.
 service_reload() {
-	local candidate="$PKG_TMP_DIR/config.candidate.yaml" file=""
+	local candidate="$PKG_TMP_DIR/config.candidate.yaml" file="" inputs="" stored=""
 
 	settings_load || return 1
 	cron_update || warn "Failed to update cron schedule"
 	service_ready || return 0
+	# Generation is the slow part and its output is a function of this key.
+	inputs="$(mihomo_config_key "$CLASH_CONFIG" 2>/dev/null)" || inputs=""
+	{ IFS= read -r stored <"$RUNTIME_CONFIG.inputs"; } 2>/dev/null || :
+	if [ -n "$inputs" ] && [ "$inputs" = "$stored" ] && [ -f "$RUNTIME_CONFIG" ] && [ -f "$PROFILE_FILE" ]; then
+		policy_apply
+		return $?
+	fi
 	mihomo_config_generate "$CLASH_CONFIG" "$candidate" || {
 		rm -f "$candidate" "$candidate.profile"
 		return 1
@@ -375,6 +385,7 @@ service_reload() {
 			return 1
 		}
 		rm -f "$candidate"
+		runtime_config_key_store "$inputs"
 		policy_apply
 		return $?
 	fi
@@ -392,6 +403,7 @@ service_reload() {
 			return 1
 		fi
 	done
+	runtime_config_key_store ""
 	if ! { mv -f "$candidate.profile" "$PROFILE_FILE" &&
 		mv -f "$candidate" "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"; }; then
 		for file in "$RUNTIME_CONFIG" "$PROFILE_FILE"; do
@@ -406,6 +418,7 @@ service_reload() {
 		return 1
 	fi
 	rm -f "$candidate" "$RUNTIME_CONFIG.prev" "$PROFILE_FILE.prev"
+	runtime_config_key_store "$inputs"
 	policy_apply
 }
 

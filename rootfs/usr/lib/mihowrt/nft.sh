@@ -345,7 +345,7 @@ nft_render() {
 	route_ipv6_enabled && nft_rule proxy_redirect "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:$MIHOMO_TPROXY_PORT"
 
 	# Router-originated traffic. Mihomo's own sockets carry the routing mark.
-	nft_rule mangle_output "meta mark $MIHOMO_ROUTING_MARK return"
+	nft_rule mangle_output "meta mark & 0x000000ff == $MIHOMO_ROUTING_MARK return"
 	nft_rule mangle_output "ct direction reply return"
 	nft_rule mangle_output "meta l4proto { tcp, udp } th dport $MIHOMO_TPROXY_PORT return"
 	nft_render_guards mangle_output

@@ -176,6 +176,12 @@ render() {
  pass 'reply guards precede marking and client IPv6 rejection in both modes'
 )
 
+(
+ render
+ assert_file_contains "$out" "mangle_output meta mark & 0x000000ff == $MIHOMO_ROUTING_MARK return" 'Mihomo self-bypass ignores foreign mark bits'
+ pass 'masked Mihomo self-bypass'
+)
+
 # Router-owned DNS must stay at dnsmasq even outside the discovered local sets.
 # 2a00:1::1 is the router's WAN GUA in this fixture; its eth1 prefix is
 # deliberately excluded by connected-prefix discovery (unlike RFC1918 LAN IPs).

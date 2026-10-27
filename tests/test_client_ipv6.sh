@@ -224,7 +224,7 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 me
   for pattern in '^add rule inet mihowrt mangle_output ' ' (ip |meta nfproto ipv4)'; do
    assert_eq "$(grep -E "$pattern" "$tmpdir/boundary-off.nft")" "$(grep -E "$pattern" "$rules")" "$profile router output and IPv4 expressions unchanged"
   done
-  assert_file_contains "$rules" 'mangle_output meta mark 2 return' "$profile Mihomo routing-mark exemption unchanged"
+  assert_file_contains "$rules" 'mangle_output meta mark & 0x000000ff == 2 return' "$profile Mihomo routing-mark exemption unchanged"
   BLOCK_CLIENT_IPV6=0
   nft_render "$rules" "$work"
   assert_true "$profile disable removes all boundary rules" cmp -s "$rules" "$tmpdir/boundary-off.nft"
@@ -241,7 +241,7 @@ add rule inet mihowrt dns_hijack iifname @source_ifaces ip6 daddr != @localv6 me
  done
  # The flag never suppresses the existing IPv6 policy route.
  route_families() { printf '4\n6\n'; }
- route_state_read() { ROUTE_TABLE=100; ROUTE_PRIORITY=100; }
+ route_state_read() { ROUTE_TABLE=100; ROUTE_PRIORITY=50; }
  route_rule_present() { return 1; }
  ROUTE_STATE_FILE="$tmpdir/boundary-route.state"
  ip() { printf '%s\n' "$*" >>"$tmpdir/route-$BLOCK_CLIENT_IPV6"; }

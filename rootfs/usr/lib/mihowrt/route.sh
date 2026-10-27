@@ -71,7 +71,14 @@ route_setup() {
 
 	local fam="" mark="$NFT_INTERCEPT_MARK"
 
-	route_state_read || route_allocate || return 1
+	if route_state_read; then
+		if [ "$ROUTE_PRIORITY" -lt "$ROUTE_RULE_PRIORITY_AUTO_MIN" ] || [ "$ROUTE_PRIORITY" -gt "$ROUTE_RULE_PRIORITY_AUTO_MAX" ]; then
+			route_cleanup
+			route_allocate || return 1
+		fi
+	else
+		route_allocate || return 1
+	fi
 	ensure_dir "$(dirname "$ROUTE_STATE_FILE")" || return 1
 	printf 'TABLE=%s\nPRIORITY=%s\n' "$ROUTE_TABLE" "$ROUTE_PRIORITY" >"$ROUTE_STATE_FILE" || return 1
 	for fam in $(route_families); do

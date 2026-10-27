@@ -154,6 +154,8 @@ define Package/$(PKG_NAME)/postinst
 	rm -f /tmp/luci-app-mihowrt.was-running
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt stop >/dev/null 2>&1
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt migrate >/dev/null 2>&1 || rc=1
+	# apk/opkg never merge the shipped default; migration.sh owns new options.
+	rm -f /etc/config/mihowrt.apk-new /etc/config/mihowrt-opkg
 	[ "$$was_running" = 1 ] && /etc/init.d/mihowrt start >/dev/null 2>&1
 	/etc/init.d/rpcd reload
 	rm -f /tmp/luci-indexcache /tmp/luci-indexcache.* 2>/dev/null || true

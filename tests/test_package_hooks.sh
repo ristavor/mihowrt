@@ -10,6 +10,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 backup_path="$tmpdir/luci-app-mihowrt.config.yaml.bak"
 list_backup_dir="$tmpdir/luci-app-mihowrt.policy-lists.bak"
 live_config="$tmpdir/opt/clash/config.yaml"
+live_uci="$tmpdir/etc/config/mihowrt"
 live_list_dir="$tmpdir/opt/clash/lst"
 live_dst_list="$live_list_dir/always_proxy_dst.txt"
 live_src_list="$live_list_dir/always_proxy_src.txt"
@@ -59,6 +60,7 @@ rewrite_package_paths() {
 		-e "s|/tmp/luci-app-mihowrt.config.yaml.bak|$backup_path|g" \
 		-e "s|/tmp/luci-app-mihowrt.policy-lists.bak|$list_backup_dir|g" \
 		-e "s|/opt/clash/config.yaml|$live_config|g" \
+		-e "s|/etc/config/mihowrt|$live_uci|g" \
 		-e "s|/opt/clash/lst|$live_list_dir|g"
 }
 
@@ -145,6 +147,13 @@ assert_file_contains "$list_backup_dir/always_proxy_dst.txt" "user-dst" "preinst
 assert_file_contains "$list_backup_dir/always_proxy_src.txt" "user-src" "preinst should back up existing source policy list"
 assert_file_contains "$list_backup_dir/direct_dst.txt" "user-direct" "preinst should back up existing direct destination policy list"
 
+mkdir -p "${live_uci%/*}"
+printf 'user-uci\n' >"$live_uci"
+printf 'new-default\n' >"$live_uci.apk-new"
+printf 'new-default\n' >"$live_uci-opkg"
+IPKG_INSTROOT="$tmpdir/image" "$script_path"
+[[ -f "$live_uci.apk-new" && -f "$live_uci-opkg" ]] || fail "offline postinst must leave host UCI leftovers alone"
+
 printf 'package-config\n' >"$live_config"
 printf 'package-dst\n' >"$live_dst_list"
 printf 'package-src\n' >"$live_src_list"
@@ -152,6 +161,10 @@ printf 'package-direct\n' >"$live_direct_list"
 printf 'package-device\n' >"$live_direct_src_list"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
+[[ ! -e "$live_uci.apk-new" ]] || fail "postinst should remove UCI .apk-new default"
+[[ ! -e "$live_uci-opkg" ]] || fail "postinst should remove UCI -opkg default"
+assert_eq user-uci "$(cat "$live_uci")" "postinst preserves user UCI byte content"
+pass "postinst removes package-manager UCI default leftovers"
 assert_file_contains "$live_config" "user-config" "postinst should restore config preserved across sysupgrade reinstall"
 assert_file_contains "$live_dst_list" "user-dst" "postinst should restore destination policy list preserved across sysupgrade reinstall"
 assert_file_contains "$live_src_list" "user-src" "postinst should restore source policy list preserved across sysupgrade reinstall"
@@ -174,10 +187,14 @@ file_mtime() {
 	stat -c %Y "$1" 2>/dev/null || stat -f %m "$1"
 }
 
+printf 'new-default\n' >"$live_uci.apk-new"
+printf 'new-default\n' >"$live_uci-opkg"
 before_same_mtime="$(file_mtime "$live_config")"
 before_same_list_mtime="$(file_mtime "$live_dst_list")"
 : >"$hook_log"
 IPKG_INSTROOT="" "$script_path"
+[[ ! -e "$live_uci.apk-new" && ! -e "$live_uci-opkg" ]] || fail "reinstall should remove new UCI defaults again"
+assert_eq user-uci "$(cat "$live_uci")" "reinstall preserves user UCI"
 after_same_mtime="$(file_mtime "$live_config")"
 after_same_list_mtime="$(file_mtime "$live_dst_list")"
 assert_eq "$before_same_mtime" "$after_same_mtime" "postinst should skip rewriting identical config backup"

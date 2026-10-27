@@ -37,27 +37,12 @@ nft_set_count() {
 	grep -vc ';' "$1" || true
 }
 
-# True when a port spec (443, 400-500, 80,443) contains 443.
-nft_ports_include_443() {
-	local item="" old_ifs="$IFS" found=1
-
-	IFS=','
-	for item in $1; do
-		case "$item" in
-		*-*) [ "${item%-*}" -le 443 ] && [ "${item#*-}" -ge 443 ] && found=0 ;;
-		443) found=0 ;;
-		esac
-	done
-	IFS="$old_ifs"
-	return "$found"
-}
-
 # Group exact port specs in first-appearance order, at most 512 addresses per
 # rule. Port-only entries emit one family-wide rule per spec.
 # $1 chain, $2 file, $3 family keyword (ip|ip6), $4 field (daddr|saddr),
-# $5 action, $6 "quic" to emit UDP/443 rejects instead of the action.
+# $5 action.
 nft_port_rules() {
-	local chain="$1" file="$2" fam="$3" field="$4" action="$5" quic="${6:-}"
+	local chain="$1" file="$2" fam="$3" field="$4" action="$5"
 	local ports="" match=""
 
 	[ -s "$file" ] || return 0
@@ -80,13 +65,7 @@ nft_port_rules() {
 			}
 		}
 	' | while IFS=';' read -r ports match; do
-		if [ "$quic" = "quic" ]; then
-			if nft_ports_include_443 "$ports"; then
-				nft_rule "$chain" "$match udp dport 443 reject"
-			fi
-		else
-			nft_rule "$chain" "$match meta l4proto { tcp, udp } th dport { $ports } $action"
-		fi
+		nft_rule "$chain" "$match meta l4proto { tcp, udp } th dport { $ports } $action"
 	done
 }
 
@@ -223,12 +202,7 @@ nft_render_netbird_output() {
 nft_render_list_marks() {
 	local chain="$1" f4="$2" f6="$3" field="$4" set="$5"
 
-	if [ "$DISABLE_QUIC" = "1" ]; then
-		[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip $field @$set udp dport 443 reject"
-		[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 $field @${set}6 udp dport 443 reject"
-		nft_port_rules "$chain" "$f4" ip "$field" "" quic
-		nft_port_rules "$chain" "$f6" ip6 "$field" "" quic
-	fi
+
 	[ "$(nft_set_count "$f4")" -gt 0 ] && nft_rule "$chain" "ip $field @$set meta l4proto { tcp, udp } $NFT_MARK_SET"
 	[ "$(nft_set_count "$f6")" -gt 0 ] && nft_rule "$chain" "ip6 $field @${set}6 meta l4proto { tcp, udp } $NFT_MARK_SET"
 	nft_port_rules "$chain" "$f4" ip "$field" "$NFT_MARK_SET"
@@ -268,14 +242,12 @@ nft_render_direct_devices() {
 nft_render_fakeip() {
 	local chain="$1"
 
-	[ "$DISABLE_QUIC" = "1" ] && nft_rule "$chain" "ip daddr $FAKEIP_RANGE udp dport 443 reject"
 	nft_rule "$chain" "ip daddr $FAKEIP_RANGE meta l4proto { tcp, udp } $NFT_MARK_SET"
 }
 
 nft_render_catch_all() {
 	local chain="$1"
 
-	[ "$DISABLE_QUIC" = "1" ] && nft_rule "$chain" "udp dport 443 reject"
 	nft_rule "$chain" "meta l4proto { tcp, udp } $NFT_MARK_SET"
 }
 
@@ -330,11 +302,12 @@ nft_render() {
 		# Ethernet source headers are available on received L2 frames here,
 		# never on the router-originated output path.
 		if [ -s "$dir/src.mac" ]; then
-			[ "$DISABLE_QUIC" = "1" ] && nft_rule prerouting_policy "ether saddr @proxy_src_mac udp dport 443 reject"
 			nft_rule prerouting_policy "ether saddr @proxy_src_mac meta l4proto { tcp, udp } $NFT_MARK_SET"
 		fi
 		nft_render_fakeip prerouting_policy
 	fi
+
+	[ "$DISABLE_QUIC" = "1" ] && nft_rule prerouting_policy "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
 
 	# TPROXY marked packets (client traffic and rerouted router traffic).
 	nft_rule proxy_redirect "iifname \"$NETBIRD_INTERFACE\" return"
@@ -362,6 +335,8 @@ nft_render() {
 		nft_render_list_marks mangle_output "$dir/dst.4" "$dir/dst.6" daddr proxy_dst
 		nft_render_fakeip mangle_output
 	fi
+	[ "$DISABLE_QUIC" = "1" ] && nft_rule mangle_output "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
+	return 0
 }
 
 nft_apply() {

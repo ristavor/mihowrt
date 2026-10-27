@@ -34,13 +34,6 @@ add rule inet mihowrt prerouting_policy meta nfproto ipv4 meta l4proto { tcp, ud
  assert_eq "$expected" "$(cat "$NFT_FILE")" 'grouped semantics and first-spec order'
  pass 'grouped semantics'
 
- : >"$NFT_FILE"
- nft_port_rules prerouting_policy "$ports_file" ip daddr accept quic
- expected='add rule inet mihowrt prerouting_policy ip daddr { 1.1.1.1, 3.3.3.3 } udp dport 443 reject
-add rule inet mihowrt prerouting_policy ip daddr { 2.2.2.2 } udp dport 443 reject'
- assert_eq "$expected" "$(cat "$NFT_FILE")" 'grouped quic only for specs including 443'
- pass 'grouped quic'
-
  printf '2001:db8::1;400-500\n;53\n2001:db8::2;400-500\n;53\nplain-address\n;400-500\n;400-500\n' >"$ports_file"
  : >"$NFT_FILE"
  nft_port_rules mangle_output "$ports_file" ip6 saddr return
@@ -48,11 +41,6 @@ add rule inet mihowrt prerouting_policy ip daddr { 2.2.2.2 } udp dport 443 rejec
 add rule inet mihowrt mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 400-500 } return
 add rule inet mihowrt mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 } return'
  assert_eq "$expected" "$(cat "$NFT_FILE")" 'IPv6 source groups and one wildcard per spec'
- : >"$NFT_FILE"
- nft_port_rules mangle_output "$ports_file" ip6 saddr return quic
- expected='add rule inet mihowrt mangle_output ip6 saddr { 2001:db8::1, 2001:db8::2 } udp dport 443 reject
-add rule inet mihowrt mangle_output meta nfproto ipv6 udp dport 443 reject'
- assert_eq "$expected" "$(cat "$NFT_FILE")" 'QUIC ranges and IPv6 wildcard scope'
  : >"$ports_file"
  : >"$NFT_FILE"
  nft_port_rules prerouting_policy "$ports_file" ip daddr accept
@@ -182,6 +170,34 @@ render() {
  pass 'masked Mihomo self-bypass'
 )
 
+# Only newly intercepted traffic reaches the terminal QUIC reject. Earlier
+# returns/goto and NetBird's accept keep their existing bypass semantics.
+(
+ DISABLE_QUIC=1
+ NETBIRD_PROXY=1
+ DIRECT_LISTENER=1
+ printf '192.168.1.50\n' >"$DIRECT_SRC_LIST_FILE"
+ for POLICY_MODE in direct-first proxy-first; do
+  for DNS_MODE in redir-host fake-ip; do
+   render
+   for chain in prerouting_policy mangle_output; do
+    expected="add rule inet mihowrt $chain meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
+    assert_eq "$expected" "$(grep "^add rule inet mihowrt $chain " "$out" | tail -n1)" "$POLICY_MODE/$DNS_MODE/$chain terminal QUIC reject"
+    assert_eq 1 "$(grep -c "^add rule inet mihowrt $chain .*udp dport 443 reject$" "$out")" 'one QUIC reject per intercept chain'
+   done
+   assert_file_contains "$out" 'ct direction original meta mark 0x1bd00 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000 accept' 'NetBird control-plane accept still bypasses QUIC rejection'
+   if [ "$POLICY_MODE:$DNS_MODE" = proxy-first:fake-ip ]; then
+    assert_file_contains "$out" 'direct_device_policy ip daddr 198.18.0.0/16 udp dport 443 reject' 'direct-device QUIC reject retained before accept'
+    assert_file_contains "$out" 'prerouting_policy ip saddr @direct_src goto direct_device_policy' 'goto bypasses terminal policy reject'
+   fi
+  done
+ done
+ DISABLE_QUIC=0
+ render
+ assert_file_not_contains "$out" 'udp dport 443 reject' 'QUIC toggle removes all QUIC rejects'
+ pass 'terminal QUIC rejects preserve bypass and direct-device paths'
+)
+
 # Router-owned DNS must stay at dnsmasq even outside the discovered local sets.
 # 2a00:1::1 is the router's WAN GUA in this fixture; its eth1 prefix is
 # deliberately excluded by connected-prefix discovery (unlike RFC1918 LAN IPs).
@@ -269,7 +285,7 @@ assert_file_contains "$out" "add element inet mihowrt proxy_src6 { fd00::10 }" "
 assert_file_contains "$out" "ip daddr { 9.9.9.9 } meta l4proto { tcp, udp } th dport { 443 } meta mark set" "v4 port rule"
 assert_file_contains "$out" "ip6 daddr { 2606:4700::1 } meta l4proto { tcp, udp } th dport { 80-90 } meta mark set" "v6 port rule"
 assert_file_contains "$out" "meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 }" "port-only v6 rule"
-assert_file_contains "$out" "ip daddr { 9.9.9.9 } udp dport 443 reject" "QUIC reject for port entry with 443"
+assert_file_contains "$out" "prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject" "QUIC reject after port entry marking"
 assert_file_contains "$out" "tproxy ip6 to [::1]:7894" "IPv6 TPROXY"
 assert_file_contains "$out" "fib daddr type local return" "local addresses excluded"
 assert_file_contains "$out" "ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874" "IPv6 DNS hijack"
@@ -351,9 +367,9 @@ render
 assert_file_contains "$out" 'add set inet mihowrt proxy_src_mac { type ether_addr; }' 'proxy MAC set'
 assert_file_contains "$out" 'add set inet mihowrt direct_src_mac { type ether_addr; }' 'direct MAC set'
 assert_file_contains "$out" 'add element inet mihowrt proxy_src_mac { aa:bb:cc:dd:ee:ff }' 'MAC element'
-a=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac udp dport 443 reject' "$out" | cut -d: -f1)
-b=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000' "$out" | cut -d: -f1)
-assert_true 'MAC QUIC reject precedes mark' test "$a" -lt "$b"
+a=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac meta l4proto' "$out" | cut -d: -f1)
+b=$(grep -n 'prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject' "$out" | cut -d: -f1)
+assert_true 'MAC mark precedes terminal QUIC reject' test "$a" -lt "$b"
 assert_file_not_contains "$out" 'mangle_output ether saddr' 'no Ethernet source matching for router output'
 DISABLE_QUIC=0
 render

@@ -48,21 +48,16 @@ add rule inet mihowrt prerouting_policy meta mark & 0x08000000 == 0x08000000 ret
 add rule inet mihowrt prerouting_policy meta nfproto ipv6 udp dport 123 return
 add rule inet mihowrt prerouting_policy ip daddr != 198.18.0.0/16 udp dport 123 return
 add rule inet mihowrt prerouting_policy meta l4proto { tcp, udp } th dport 53 return
-add rule inet mihowrt prerouting_policy ip daddr @proxy_dst udp dport 443 reject
-add rule inet mihowrt prerouting_policy ip6 daddr @proxy_dst6 udp dport 443 reject
-add rule inet mihowrt prerouting_policy ip daddr { 9.9.9.9 } udp dport 443 reject
 add rule inet mihowrt prerouting_policy ip daddr @proxy_dst meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy ip6 daddr @proxy_dst6 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy ip daddr { 9.9.9.9 } meta l4proto { tcp, udp } th dport { 443 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy meta nfproto ipv4 meta l4proto { tcp, udp } th dport { 53 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy ip6 daddr { 2606:4700::1 } meta l4proto { tcp, udp } th dport { 80-90 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 } meta mark set meta mark | 0x08000000
-add rule inet mihowrt prerouting_policy ip saddr @proxy_src udp dport 443 reject
-add rule inet mihowrt prerouting_policy ip6 saddr @proxy_src6 udp dport 443 reject
 add rule inet mihowrt prerouting_policy ip saddr @proxy_src meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
 add rule inet mihowrt prerouting_policy ip6 saddr @proxy_src6 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
-add rule inet mihowrt prerouting_policy ip daddr 198.18.0.0/16 udp dport 443 reject
 add rule inet mihowrt prerouting_policy ip daddr 198.18.0.0/16 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
+add rule inet mihowrt prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject
 add rule inet mihowrt proxy_redirect iifname "wt0" return
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:7894
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894
@@ -81,14 +76,11 @@ add rule inet mihowrt mangle_output ip6 daddr @bypass_dst6 return
 add rule inet mihowrt mangle_output meta mark & 0x40000000 == 0x40000000 return
 add rule inet mihowrt mangle_output meta mark & 0x20000000 == 0x20000000 return
 add rule inet mihowrt mangle_output meta mark { 0x1bd00, 0x1bd10, 0x1bd11, 0x1bd20, 0x1bd21, 0x1bd22 } return
-add rule inet mihowrt mangle_output ip daddr @proxy_dst udp dport 443 reject
-add rule inet mihowrt mangle_output ip6 daddr @proxy_dst6 udp dport 443 reject
-add rule inet mihowrt mangle_output ip daddr { 9.9.9.9 } udp dport 443 reject
 add rule inet mihowrt mangle_output ip daddr @proxy_dst meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
 add rule inet mihowrt mangle_output ip6 daddr @proxy_dst6 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
 add rule inet mihowrt mangle_output ip daddr { 9.9.9.9 } meta l4proto { tcp, udp } th dport { 443 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt mangle_output meta nfproto ipv4 meta l4proto { tcp, udp } th dport { 53 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt mangle_output ip6 daddr { 2606:4700::1 } meta l4proto { tcp, udp } th dport { 80-90 } meta mark set meta mark | 0x08000000
 add rule inet mihowrt mangle_output meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 } meta mark set meta mark | 0x08000000
-add rule inet mihowrt mangle_output ip daddr 198.18.0.0/16 udp dport 443 reject
 add rule inet mihowrt mangle_output ip daddr 198.18.0.0/16 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
+add rule inet mihowrt mangle_output meta mark & 0x08000000 == 0x08000000 udp dport 443 reject

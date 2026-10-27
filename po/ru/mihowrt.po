@@ -178,6 +178,9 @@ msgstr "Обновить подписку"
 msgid "Traffic"
 msgstr "Трафик"
 
+msgid "Data used"
+msgstr "Использовано трафика"
+
 msgid "Expires"
 msgstr "Действует до"
 
@@ -646,8 +649,8 @@ msgstr "Остановлен после ошибки: %s"
 msgid "Cannot load the proxy groups: %s"
 msgstr "Не удалось загрузить группы прокси: %s"
 
-msgid "Mihomo is starting. Reload the page in a moment to see the proxy groups."
-msgstr "Mihomo запускается. Через некоторое время обновите страницу, чтобы увидеть группы прокси."
+msgid "Mihomo is starting. The proxy groups appear here by themselves."
+msgstr "Mihomo запускается. Группы прокси появятся здесь сами."
 
 msgid "Cannot load the YAML: %s"
 msgstr "Не удалось загрузить YAML: %s"

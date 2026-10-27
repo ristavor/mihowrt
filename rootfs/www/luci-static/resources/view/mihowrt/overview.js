@@ -112,9 +112,11 @@ function statusSection(status) {
 
 function liveStatus(status) {
 	const section = statusSection(status);
+	// The groups could not load while Mihomo was starting: reload once when it is up.
+	let waitingForStart = status.state === 'starting';
 	let pollFailed = false;
 	poll.add(async () => {
-		if (api.jobRunning)
+		if (api.jobRunning || document.hidden)
 			return;
 		try {
 			const fresh = await api.read('service-state-json');
@@ -122,13 +124,17 @@ function liveStatus(status) {
 			if (api.jobRunning)
 				return;
 			section.update(fresh);
+			if (waitingForStart && fresh.state === 'running') {
+				waitingForStart = false;
+				api.reloadWithNotice('');
+			}
 		}
 		catch (e) {
 			if (!pollFailed)
 				api.notify(api.errorText(e), 'error');
 			pollFailed = true;
 		}
-	}, 5);
+	}, 10);
 	return section.block;
 }
 
@@ -159,7 +165,7 @@ function subscriptionWarning(sub) {
 function subscriptionSection(sub) {
 	const update = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
 	const rows = [
-		[ _('Traffic'), api.trafficSummary(sub) ],
+		[ _('Data used'), api.trafficSummary(sub) ],
 		[ _('Expires'), sub.expire ? api.formatDate(sub.expire) : _('Never') ],
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
 		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval)
@@ -246,6 +252,7 @@ function groupsSection(groups) {
 			// empty ping only keeps the Test buttons in one column.
 			const status = E('span', { id: id + '-ping', class: fixedOnly ? null : 'mw-muted mw-ping' }, text(pingText(group)));
 			const ping = fixedOnly ? E('span', { class: 'mw-muted mw-ping' }) : status;
+			let debounce = null, writing = false;
 			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null, 'aria-describedby': id + '-ping' });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
@@ -259,17 +266,29 @@ function groupsSection(groups) {
 				status.textContent = pingText(group);
 			};
 
-			select.addEventListener('change', async () => {
+			// Arrow keys on a closed select fire "change" at every step: write the settled choice.
+			// aria-busy, not disabled: a disabled select would drop the keyboard focus.
+			const commit = async () => {
+				debounce = null;
 				const value = select.value;
-				// Themes with custom dropdowns (footstrap) may repeat "change".
+				if (writing) {
+					debounce = setTimeout(commit, 600);
+					return;
+				}
 				if (value === previous)
 					return;
-				const ok = await api.busy(select, async () => {
+				writing = true;
+				select.setAttribute('aria-busy', 'true');
+				const ok = await api.busy(null, async () => {
 					await api.write('select-proxy', group.name, value);
 					return true;
 				});
+				writing = false;
+				select.removeAttribute('aria-busy');
+				// A newer choice made during the write is still waiting; show() must not undo it.
+				const newer = debounce !== null ? select.value : null;
 				if (!ok) {
-					select.value = previous;
+					select.value = newer ?? previous;
 					return;
 				}
 				if (value === '') {
@@ -282,6 +301,13 @@ function groupsSection(groups) {
 					group.fixed = value;
 				}
 				show();
+				if (newer !== null)
+					select.value = newer;
+			};
+			select.addEventListener('change', () => {
+				// Themes with custom dropdowns (footstrap) may repeat "change".
+				clearTimeout(debounce);
+				debounce = select.value === previous ? null : setTimeout(commit, 600);
 			});
 			test.addEventListener('click', async () => {
 				const before = status.textContent;
@@ -316,15 +342,31 @@ function toolsSection(status) {
 	const dashboard = E('button', { class: 'cbi-button' }, text(_('Open dashboard')));
 	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
 
-	dashboard.addEventListener('click', () => api.busy(dashboard, async () => {
-		const d = await api.write('dashboard-json');
-		if (!d.running)
-			throw new Error(_('Start MihoWRT to use the dashboard.'));
-		// The setup route applies these values even when the browser keeps an
-		// older backend (e.g. without a secret) for the same host and port.
-		const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
-		window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
-	}));
+	dashboard.addEventListener('click', () => {
+		// Opened inside the click: browsers block windows opened after the RPC.
+		const win = window.open('about:blank', '_blank');
+		if (win)
+			win.opener = null;
+		return api.busy(dashboard, async () => {
+			try {
+				const d = await api.write('dashboard-json');
+				if (!d.running)
+					throw new Error(_('Start MihoWRT to use the dashboard.'));
+				// The setup route applies these values even when the browser keeps an
+				// older backend (e.g. without a secret) for the same host and port.
+				const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
+				const url = 'http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs);
+				if (win)
+					win.location = url;
+				else
+					window.open(url, '_blank', 'noopener');
+			}
+			catch (e) {
+				win?.close();
+				throw e;
+			}
+		});
+	});
 	core.addEventListener('click', () => api.busy(core, async () => {
 		const res = await api.job('core-update');
 		api.notify(res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version));
@@ -360,7 +402,7 @@ return view.extend({
 			body.push(subscriptionSection(sub));
 		if (status.running)
 			body.push(groups.error && status.state === 'starting'
-				? E('div', { class: 'cbi-section cbi-section-descr' }, text(_('Mihomo is starting. Reload the page in a moment to see the proxy groups.')))
+				? E('div', { class: 'cbi-section cbi-section-descr' }, text(_('Mihomo is starting. The proxy groups appear here by themselves.')))
 				: groups.error ? E('div', { class: 'cbi-section alert-message error' },
 				text(_('Cannot load the proxy groups: %s').format(groups.error)))
 				: groupsSection(Array.isArray(groups) ? groups : []));

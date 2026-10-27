@@ -71,6 +71,16 @@ function texts(node) {
 }
 function findButton(node, label) { return collect(node).find((n) => n.tag === 'button' && texts(n).includes(label)); }
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
+// Debounce timers run only when the test says so.
+function fakeTimers() {
+	const timers = [];
+	return {
+		timers,
+		globals: { setTimeout: (fn, ms) => timers.push({ fn, ms, live: true }) - 1, clearTimeout: (id) => { if (timers[id]) timers[id].live = false; } },
+		pending: () => timers.filter((t) => t.live),
+		flush: async () => { for (const t of timers.filter((x) => x.live)) { t.live = false; await t.fn(); } }
+	};
+}
 // The Subscription view's load()/render() data shape is not part of the contract:
 // views are mounted through load() with stubbed api.read/api.readLarge.
 const reads = { calls: [], sub: {}, responses: {} };
@@ -179,17 +189,33 @@ seq(async () => {
 
 // Dashboard link: the setup route makes zashboard use the given secret even
 // when the browser stores an older backend for the same host and port.
-let opened = '';
-const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
-	E: EL, view: { extend: (v) => v }, location: {}, window: { open: (url) => { opened = url; } },
-	api: Object.assign({}, api, { busy: (b, fn) => fn(), write: async () => ({ host: '192.168.1.1', port: 9090, secret: 'a b', running: true }) })
-}).module;
-const dash = collect(ov.render([ Object.assign({}, base, { subscription_configured: true, running: true }), {}, [] ]))
-	.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
-Promise.resolve(dash.listeners.click()).then(() => {
-	h.assertEq(opened, 'http://192.168.1.1:9090/ui/#/setup?hostname=192.168.1.1&port=9090&secret=a%20b', 'dashboard opens the setup route');
-	console.log('ok - dashboard link');
-});
+// The window opens inside the click (popup blockers), the RPC fills it in.
+{
+	const dashboardReply = { host: '192.168.1.1', port: 9090, secret: 'a b', running: true };
+	const dashboardUrl = 'http://192.168.1.1:9090/ui/#/setup?hostname=192.168.1.1&port=9090&secret=a%20b';
+	const dashboardButton = (reply, order, popup) => {
+		const view = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
+			E: EL, view: { extend: (v) => v }, location: {},
+			window: { open: (...args) => { order.push('open:' + args.join('|')); return popup; } },
+			api: Object.assign({}, api, { busy: async (b, fn) => { try { return await fn(); } catch (e) { order.push('error:' + e.message); return null; } },
+				write: async () => { order.push('rpc'); return reply; } })
+		}).module;
+		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true }), {}, [] ]))
+			.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
+	};
+	let order = [], popup = { location: '', opener: 'page', close() { order.push('close'); } };
+	seq(async () => {
+		await dashboardButton(dashboardReply, order, popup).listeners.click();
+		h.assertEq(order.join(','), 'open:about:blank|_blank,rpc', 'dashboard window opens before the RPC');
+		h.assertEq(popup.location, dashboardUrl, 'dashboard opens the setup route');
+		h.assertEq(popup.opener, null, 'dashboard window loses its opener');
+		order = []; popup = { location: '', opener: 'page', close() { order.push('close'); } };
+		await dashboardButton({ running: false }, order, popup).listeners.click();
+		h.assertEq(order.join(','), 'open:about:blank|_blank,rpc,close,error:Start MihoWRT to use the dashboard.', 'stopped service closes the blank window');
+		h.assertEq(popup.location, '', 'blank window never navigates when stopped');
+		console.log('ok - dashboard link');
+	}).catch((err) => { console.error(err); process.exitCode = 1; });
+}
 
 // Provider-first form and event contracts (Tasks 11-14).
 seq(async () => {
@@ -363,8 +389,9 @@ seq(async () => {
 
  const calls = [];
  let reject = false;
+ const groupClock = fakeTimers();
  const groupsView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
-  E, view: { extend: v => v }, location: {}, window: {},
+  E, view: { extend: v => v }, location: {}, window: {}, ...groupClock.globals,
   api: Object.assign({}, api, {
    busy: async (el, fn) => { try { return await fn(); } catch (_) { return undefined; } },
    write: async (...args) => { calls.push(args); if (reject) throw new Error('failed'); return { A: 12, B: 20 }; },
@@ -378,7 +405,7 @@ seq(async () => {
   h.assertEq(texts(s.children[0]).join(''), 'Auto — B', 'Auto option now label');
   h.assertEq(s.value, '', 'Auto selected');
   h.assert(s.attrs.disabled == null, 'automatic group selectable');
-  reject = true; s.value = 'A'; await s.listeners.change();
+  reject = true; s.value = 'A'; s.listeners.change(); await groupClock.flush();
   h.assertEq(s.value, '', 'failed switch restores prior value');
   reject = false;
   await nodes.find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
@@ -454,12 +481,17 @@ seq(async () => {
  h.assert(texts(dp).includes('dns_hijack, disable_quic'), 'provider names');
  h.assert(translated.includes('%s (priority %s)'), 'priority translated');
  const calls = [], notices = [];
- const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
+ const clock = fakeTimers();
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, ...clock.globals, api: { ...api,
   busy: (el, fn) => fn(), write: async (...args) => { calls.push(args); return { A: 10, B: 2 }; }, readLarge: async () => [], notify: s => notices.push(s)
  } }).module;
  const gp = ov.render([active, {}, [{ name: 'G', type: 'Selector', now: 'A', all: ['A','B'] }]]);
  const gs = collect(gp).find(n => n.tag === 'select');
- gs.value = 'B'; await gs.listeners.change(); await gs.listeners.change();
+ gs.value = 'B'; gs.listeners.change(); gs.listeners.change();
+ h.assertEq(calls.length, 0, 'select-proxy waits for the debounce');
+ h.assertEq(clock.pending().map(t => t.ms).join(','), '600', 'one 600 ms debounce timer survives repeated changes');
+ await clock.flush(); await clock.flush();
+ gs.listeners.change(); h.assertEq(clock.pending().length, 0, 'unchanged value starts no timer');
  h.assertEq(calls.length, 1, 'footstrap repeated change ignored'); h.assertEq(notices.length, 0, 'server switch adds no page notification');
  await collect(gp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
  h.assertEq(notices.length, 0, 'latency test adds no page notification');
@@ -494,29 +526,29 @@ seq(async () => {
  await collect(hp).filter(n => n.tag === 'button' && texts(n).includes('Test'))[2].listeners.click();
  h.assertEq(shown(pingOf(hp, 2)), 'no response', 'current server missing from test result');
  // Manual switch: ping from the last results, no new request.
- hs[1].value = 'A'; await hs[1].listeners.change();
+ hs[1].value = 'A'; hs[1].listeners.change(); await clock.flush();
  h.assertEq(shown(pingOf(hp, 1)), '7 ms', 'ping follows manual switch');
  h.assertEq(calls.filter(c => c[0] === 'group-delay').length, 1, 'switch does not re-test');
  // Back to Auto: re-read the group so "Auto — X" and the ping are current.
  const ov2calls = [];
- const ov2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
+ const ov2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, ...clock.globals, api: { ...api,
   busy: (el, fn) => fn(), write: async (...args) => { ov2calls.push(args); return {}; },
   readLarge: async (...args) => { ov2calls.push(args); return [{ name: 'U', type: 'URLTest', now: 'B', fixed: '', all: ['A', 'B'], delays: { B: 30 } }]; }, notify: s => notices.push(s)
  } }).module;
  const up = ov2.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'], delays: { A: 12 } }]]);
  const us = collect(up).find(n => n.tag === 'select');
  h.assertEq(us.value, 'A', 'pinned server selected');
- us.value = ''; await us.listeners.change();
+ us.value = ''; us.listeners.change(); await clock.flush();
  h.assert(ov2calls.some(c => c[0] === 'proxies-json'), 'unpin re-reads groups');
  h.assertEq(texts(us.children[0]).join(''), 'Auto — B', 'Auto shows the server Mihomo chose now');
  h.assertEq(shown(pingOf(up)), '30 ms', 'ping of the new automatic choice');
  h.assertEq(notices.length, 0, 'no notifications at all');
- const ov3 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, api: { ...api,
+ const ov3 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} }, E, view: { extend: v => v }, ...clock.globals, api: { ...api,
   busy: (el, fn) => fn(), write: async () => ({ A: 12 }), readLarge: async () => { throw new Error('down'); }, notify: s => notices.push(s)
  } }).module;
  const fp = ov3.render([active, {}, [{ name: 'U', type: 'URLTest', now: 'A', fixed: 'A', all: ['A', 'B'] }]]);
  const fs3 = collect(fp).find(n => n.tag === 'select');
- fs3.value = ''; await fs3.listeners.change();
+ fs3.value = ''; fs3.listeners.change(); await clock.flush();
  h.assertEq(fs3.value, '', 'unpinned group stays on Auto when the re-read fails');
  await collect(fp).find(n => n.tag === 'button' && texts(n).includes('Test')).listeners.click();
  h.assertEq(fs3.disabled, false, 'select usable again after the test');
@@ -565,7 +597,7 @@ seq(async () => {
 
 for (const [name, check] of [
  ['empty failure headline', () => h.assert(texts(overview.render([{ ...base, state: 'failed', last_error: '' }, {}, []])).includes('Stopped'), 'failed without detail is Stopped')],
- ['starting groups notice', () => h.assert(texts(overview.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }])).includes('Mihomo is starting. Reload the page in a moment to see the proxy groups.'), 'starting groups failure is informational')],
+ ['starting groups notice', () => h.assert(texts(overview.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }])).includes('Mihomo is starting. The proxy groups appear here by themselves.'), 'starting groups failure is informational')],
  ['headline-only live region', () => { const p = overview.render([base, {}, []]); const headline = collect(p).find(n => n.tag === 'strong'); h.assertEq(headline.attrs['aria-live'], 'polite', 'headline itself is live'); }]
 ]) { try { check(); console.log('ok - overview ' + name); } catch (e) { console.error(e); process.exitCode = 1; } }
 seq(async () => {
@@ -575,6 +607,55 @@ seq(async () => {
  await polls[0](); h.assert(buttons.every(b => collect(p).includes(b)), 'status buttons stay mounted to preserve keyboard focus');
  console.log('ok - overview stable status controls');
 }).catch(e => { console.error(e); process.exitCode = 1; });
+
+// C3/C5: the first starting -> running reloads once; a hidden tab does not poll.
+seq(async () => {
+ const polls = [], reads = []; let reloads = 0, hidden = false, next = { state: 'running', running: true };
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, view: { extend: v => v }, poll: { add: fn => polls.push(fn) },
+  document: { get hidden() { return hidden; } }, api: { ...api, read: async cmd => { reads.push(cmd); return next; },
+   reloadWithNotice: message => { h.assertEq(message, '', 'automatic reload carries no notice'); reloads++; } }
+ }).module;
+ ov.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }]);
+ hidden = true; await polls[0]();
+ h.assertEq(reads.length, 0, 'hidden tab does not read the service state'); h.assertEq(reloads, 0, 'hidden tab does not reload');
+ hidden = false; next = { state: 'starting', running: true }; await polls[0]();
+ h.assertEq(reloads, 0, 'still starting: no reload');
+ next = { state: 'running', running: true }; await polls[0](); await polls[0]();
+ h.assertEq(reloads, 1, 'starting -> running reloads exactly once');
+ reloads = 0; polls.length = 0;
+ ov.render([{ ...base, running: true, state: 'running' }, {}, []]);
+ await polls[0](); h.assertEq(reloads, 0, 'a page that began running never reloads');
+ polls.length = 0;
+ ov.render([{ ...base, state: 'stopped' }, {}, []]);
+ next = { state: 'running', running: true }; await polls[0]();
+ h.assertEq(reloads, 0, 'stopped -> running (user start) is handled by its own reload');
+ console.log('ok - overview starting reload and hidden tab');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+// C14: select-proxy is debounced, marks the select busy (not disabled) and never overlaps.
+seq(async () => {
+ const clock = fakeTimers(), writes = []; let release, state = [];
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, view: { extend: v => v }, poll: { add() {} }, ...clock.globals, api: { ...api,
+   busy: async (el, fn) => { try { return await fn(); } catch (e) { return null; } },
+   write: (...args) => { writes.push(args); state.push(select.attrs['aria-busy'] + '/' + String(select.disabled)); return new Promise(resolve => { release = () => resolve({}); }); }
+  } }).module;
+ const p = ov.render([{ ...base, subscription_configured: true, running: true }, {}, [{ name: 'G', type: 'Selector', now: 'A', all: ['A', 'B', 'C'] }]]);
+ var select = collect(p).find(n => n.tag === 'select');
+ select.value = 'B'; select.listeners.change(); clock.flush(); await settle();
+ h.assertEq(writes.length, 1, 'first choice written'); h.assertEq(state[0], 'true/undefined', 'aria-busy during the write, never disabled');
+ select.value = 'C'; select.listeners.change(); clock.flush(); await settle();
+ h.assertEq(writes.length, 1, 'no second write while one is running');
+ h.assertEq(clock.pending().length, 1, 'the newer choice waits for the running write');
+ release(); await settle();
+ h.assertEq(select.attrs['aria-busy'], undefined, 'aria-busy cleared after the write');
+ h.assertEq(select.value, 'C', 'the newer choice survives the first write');
+ clock.flush(); await settle();
+ h.assertEq(writes.map(w => w[2]).join(','), 'B,C', 'newer choice written after the first finished');
+ release(); await settle();
+ console.log('ok - overview select debounce and guard');
+}).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 17: long actions, service state polling and partial group failures.
 seq(async () => {
@@ -638,7 +719,7 @@ seq(async () => {
  console.log('ok - overview headline per state');
  polls.length = 0;
  const p = ov.render([{ ...base, state: 'stopped', config_valid: false }, {}, []]);
- h.assertEq(polls.length, 1, 'one status poll'); h.assertEq(polls[0].seconds, 5, 'poll every 5 seconds');
+ h.assertEq(polls.length, 1, 'one status poll'); h.assertEq(polls[0].seconds, 10, 'poll every 10 seconds');
  const before = collect(p).find(n => n.tag === 'strong');
  calls.length = 0; bridge.jobRunning = true; await polls[0].fn();
  h.assertEq(calls.length, 0, 'poll paused during job');
@@ -661,7 +742,7 @@ seq(async () => {
  h.assert(texts(ov.render(loaded)).includes('Cannot load the proxy groups: x'), 'groups error visible');
  console.log('ok - overview groups error');
  const starting = ov.render([{ ...base, running: true, state: 'starting' }, {}, { error: 'x' }]);
- h.assert(texts(starting).includes('Mihomo is starting. Reload the page in a moment to see the proxy groups.'), 'starting groups failure is a notice');
+ h.assert(texts(starting).includes('Mihomo is starting. The proxy groups appear here by themselves.'), 'starting groups failure is a notice');
  h.assert(!collect(starting).some(n => /alert-message error/.test(n.attrs.class || '')), 'starting has no red groups error');
  const noticeApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', {
   E, ui, fs: {}, setTimeout() {}, location: { reload() {} }

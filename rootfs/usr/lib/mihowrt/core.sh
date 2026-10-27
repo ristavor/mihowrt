@@ -66,64 +66,70 @@ core_fail() {
 	return 1
 }
 
-# Install the latest release. Sets CORE_UPDATED (0|1), CORE_VERSION, CORE_ERROR.
+# Install the latest release or a local .gz/binary ($1). Sets CORE_UPDATED (0|1), CORE_VERSION, CORE_ERROR.
 core_update() {
 	local arch="" json="" tag="" current="" name="" meta="" url="" digest="" size="" gz="" gz_bytes="" free=""
-	local config="$PKG_TMP_DIR/core-test.yaml"
+	local config="$PKG_TMP_DIR/core-test.yaml" file="${1:-}" version=""
 
 	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
 	CORE_UPDATED=0
 	CORE_ERROR=""
 	CORE_VERSION="$(core_version)"
 	settings_load 2>/dev/null || true
-	arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
 	ensure_dir "$CORE_TMP_DIR" || return 1
 	json="$CORE_TMP_DIR/release.json"
 	gz="$CORE_TMP_DIR/mihomo.gz"
 	current="$CORE_VERSION"
-	if http_fetch "$MIHOMO_RELEASES_API" "$json" "$CORE_RELEASE_JSON_MAX_BYTES" 30 0; then
-		tag="$(jq -r '.tag_name // empty' "$json")"
-		[ -n "$tag" ] || core_fail "release has no tag" || return 1
-		[ "$current" != "$tag" ] || {
-			rm -rf "$CORE_TMP_DIR"
-			return 0
-		}
-		for name in $(core_asset_names "$arch" "$tag"); do
-			meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
-			[ -n "$meta" ] && break
-		done
-		[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
-		url="$(printf '%s' "$meta" | cut -f1)"
-		digest="$(printf '%s' "$meta" | cut -f2)"
-		size="$(printf '%s' "$meta" | cut -f3)"
-		http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" core 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+	if [ -n "$file" ]; then
+		[ -f "$file" ] && [ -r "$file" ] || core_fail "cannot read local core file" || return 1
+		gz="$file"
+		warn "Core update: local file; skipping release digest check"
 	else
-		# API blocked or rate-limited: tag from the github.com redirect and
-		# direct download URLs (no published digest on this path).
-		warn "Core update: GitHub API unavailable ($FETCH_ERROR); using github.com"
-		tag="$(github_latest_tag "$MIHOMO_REPO")" || core_fail "cannot reach GitHub" || return 1
-		[ "$current" != "$tag" ] || {
-			rm -rf "$CORE_TMP_DIR"
-			return 0
-		}
-		url=""
-		for name in $(core_asset_names "$arch" "$tag"); do
-			if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" core 0; then
-				url="$name"
-				break
-			fi
-		done
-		[ -n "$url" ] || core_fail "no downloadable asset for $arch in $tag" || return 1
+		arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
+		if http_fetch "$MIHOMO_RELEASES_API" "$json" "$CORE_RELEASE_JSON_MAX_BYTES" 30 0; then
+			tag="$(jq -r '.tag_name // empty' "$json")"
+			[ -n "$tag" ] || core_fail "release has no tag" || return 1
+			[ "$current" != "$tag" ] || {
+				rm -rf "$CORE_TMP_DIR"
+				return 0
+			}
+			for name in $(core_asset_names "$arch" "$tag"); do
+				meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
+				[ -n "$meta" ] && break
+			done
+			[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
+			url="$(printf '%s' "$meta" | cut -f1)"
+			digest="$(printf '%s' "$meta" | cut -f2)"
+			size="$(printf '%s' "$meta" | cut -f3)"
+			http_fetch "$url" "$gz" "$CORE_ASSET_MAX_BYTES" core 0 || core_fail "download failed ($FETCH_ERROR)" || return 1
+		else
+			# API blocked or rate-limited: tag from the github.com redirect and
+			# direct download URLs (no published digest on this path).
+			warn "Core update: GitHub API unavailable ($FETCH_ERROR); using github.com"
+			tag="$(github_latest_tag "$MIHOMO_REPO")" || core_fail "cannot reach GitHub" || return 1
+			[ "$current" != "$tag" ] || {
+				rm -rf "$CORE_TMP_DIR"
+				return 0
+			}
+			url=""
+			for name in $(core_asset_names "$arch" "$tag"); do
+				if http_fetch "https://github.com/$MIHOMO_REPO/releases/download/$tag/$name" "$gz" "$CORE_ASSET_MAX_BYTES" core 0; then
+					url="$name"
+					break
+				fi
+			done
+			[ -n "$url" ] || core_fail "no downloadable asset for $arch in $tag" || return 1
+		fi
+		if is_uint "$size" && [ "$(wc -c <"$gz" | tr -d ' ')" != "$size" ]; then
+			core_fail "downloaded size does not match release" || return 1
+		fi
+		case "$digest" in
+		sha256:*)
+			[ "$(sha256sum "$gz" | cut -d' ' -f1)" = "${digest#sha256:}" ] || core_fail "sha256 mismatch" || return 1
+			;;
+		*) warn "Core update: release has no sha256 digest; size check only" ;;
+		esac
 	fi
-	if is_uint "$size" && [ "$(wc -c <"$gz" | tr -d ' ')" != "$size" ]; then
-		core_fail "downloaded size does not match release" || return 1
-	fi
-	case "$digest" in
-	sha256:*)
-		[ "$(sha256sum "$gz" | cut -d' ' -f1)" = "${digest#sha256:}" ] || core_fail "sha256 mismatch" || return 1
-		;;
-	*) warn "Core update: release has no sha256 digest; size check only" ;;
-	esac
 
 	# Compressing overlays (UBIFS, JFFS2) store the core at about its .gz size;
 	# an uncompressed overlay that fills up is caught by the ENOSPC check below.
@@ -136,7 +142,9 @@ core_update() {
 		core_fail "not enough flash: need $(((gz_bytes + 4194304 + 1048575) / 1048576)) MiB, free $((free / 1024)) MiB" || return 1
 
 	ensure_dir "$(dirname "$CLASH_BIN")" || return 1
-	if ! gzip -dc "$gz" >"$CLASH_BIN.new" 2>"$CORE_TMP_DIR/gzip.err"; then
+	if [ -n "$file" ] && [ "${file%.gz}" = "$file" ]; then
+		cp "$file" "$CLASH_BIN.new" || core_fail "cannot copy local core file" || return 1
+	elif ! gzip -dc "$gz" >"$CLASH_BIN.new" 2>"$CORE_TMP_DIR/gzip.err"; then
 		if grep -q 'No space left' "$CORE_TMP_DIR/gzip.err" 2>/dev/null; then
 			core_fail "not enough flash: free $((free / 1024)) MiB before unpacking"
 		else
@@ -144,9 +152,11 @@ core_update() {
 		fi
 		return 1
 	fi
-	rm -f "$gz" "$json"
+	rm -f "$CORE_TMP_DIR/mihomo.gz" "$json"
 	chmod 755 "$CLASH_BIN.new" || core_fail "unpack failed" || return 1
-	[ -n "$(core_version "$CLASH_BIN.new")" ] || core_fail "new binary does not run on this router" || return 1
+	version="$(core_version "$CLASH_BIN.new")"
+	[ -n "$version" ] || core_fail "new binary does not run on this router" || return 1
+	[ -z "$file" ] || tag="$version"
 	if [ -r "$CLASH_CONFIG" ] && mihomo_config_generate "$CLASH_CONFIG" "$config" 2>/dev/null; then
 		mihomo_config_test "$config" "$CLASH_BIN.new" || core_fail "new core rejects the current config" || return 1
 		config_check_record ok
@@ -162,7 +172,7 @@ core_update() {
 core_update_json() {
 	local rc=0
 
-	core_update || rc=$?
+	core_update "$@" || rc=$?
 	jq -nc --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED" \
 		'{updated: ($u == "1"), version: $v, error: (if $e == "" then null else $e end)}'
 	return "$rc"

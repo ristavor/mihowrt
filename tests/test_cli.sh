@@ -217,3 +217,14 @@ for op in save-config restore-config; do
  assert_eq 7 "$rc" "$op returns locked operation status"
 done
 pass 'config CLI wait count and return status'
+
+# Offline core CLI passes one exact path through the real lock/result wrapper.
+sed '/^case "$cmd" in/i core_update_json() { echo "$*" >"$CORE_STATE_DIR/file-args"; echo '\''{"updated":false,"version":"v1.2.3","error":null}'\''; }' "$tmpdir/core-cli.sh" >"$tmpdir/offline-cli.sh"
+EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file "$tmpdir/local core.gz" >/dev/null
+assert_eq "$tmpdir/local core.gz" "$(cat "$CORE_STATE_DIR/file-args")" 'offline path forwarded without splitting'
+for args in '--file' '--unknown path' '--file path extra' 'path'; do
+ # shellcheck disable=SC2086
+ assert_false "invalid core arguments rejected: $args" sh "$tmpdir/offline-cli.sh" core-update $args >/dev/null 2>&1
+done
+assert_false 'empty local core path rejected' sh "$tmpdir/offline-cli.sh" core-update --file '' >/dev/null 2>&1
+pass 'offline core CLI boundary'

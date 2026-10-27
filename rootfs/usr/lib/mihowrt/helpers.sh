@@ -200,14 +200,18 @@ mihowrt_lib_dir() {
 	printf '%s' "${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
 }
 
-# Modules are small; loading all of them keeps command dispatch trivial.
+# Mutating and heavyweight commands retain the full module set.
 MIHOWRT_MODULES="validate.sh settings.sh mihomo-config.sh mihomo-api.sh fetch.sh subscription.sh lists.sh dns.sh nft.sh route.sh config.sh core.sh service.sh pkg.sh status.sh migration.sh job.sh"
 
 mihowrt_load_modules() {
-	local module="" dir=""
+	local module="" dir="" modules="$MIHOWRT_MODULES"
 
+	case "${1:-}" in
+	service-state-json) modules="validate.sh service.sh status.sh" ;;
+	job-status) modules="validate.sh job.sh" ;;
+	esac
 	dir="$(mihowrt_lib_dir)"
-	for module in $MIHOWRT_MODULES; do
+	for module in $modules; do
 		[ -r "$dir/$module" ] || {
 			err "Required MihoWRT module missing: $dir/$module"
 			return 1

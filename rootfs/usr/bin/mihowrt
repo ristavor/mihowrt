@@ -1,7 +1,7 @@
 #!/bin/ash
 
 LIB="${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
-. "$LIB/constants.sh" && . "$LIB/helpers.sh" && mihowrt_load_modules || exit 1
+. "$LIB/constants.sh" && . "$LIB/helpers.sh" && mihowrt_load_modules "${1:-}" || exit 1
 
 usage() {
 	cat >&2 <<'EOF'

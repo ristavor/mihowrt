@@ -23,10 +23,21 @@ need_args() {
 }
 
 dashboard_json() {
+	local installed=false size=null blocks=""
+
 	settings_load || return 1
+	if [ -f "$CLASH_DIR/ui/index.html" ]; then
+		installed=true
+		blocks="$(du -sk "$CLASH_DIR/ui" 2>/dev/null)"
+		blocks="${blocks%%[[:space:]]*}"
+		is_uint "$blocks" && size=$(( $(uint_norm "$blocks") * 1024 ))
+	fi
 	jq -nc --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --arg secret "$API_SECRET" \
 		--argjson running "$(json_bool service_running)" \
-		'{host: $host, port: ($port | tonumber), secret: $secret, running: $running}'
+		--argjson enabled "$(json_bool test "$DASHBOARD_ENABLED" = 1)" \
+		--argjson installed "$installed" --argjson size "$size" \
+		'{host: $host, port: ($port | tonumber), secret: $secret, running: $running,
+		  enabled: $enabled, installed: $installed, size: $size}'
 }
 
 core_update_cmd() {

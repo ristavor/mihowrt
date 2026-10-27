@@ -19,6 +19,15 @@ grep -q 'GUEST_TIMEOUT / 5' "$host" || fail 'host guest poll loop must be bounde
 grep -q 'WORK=/tmp/mihowrt-network-test' "$guest" || fail 'guest must own its temporary directory'
 grep -q 'trap .*EXIT' "$guest" || fail 'guest must clean up on exit'
 grep -q 'refuse existing' "$guest" || fail 'guest must refuse existing fixture objects'
+for fixture_contract in \
+  'ip -4 rule add priority 50 fwmark 0x220000/0xff0000 lookup 201' \
+  'ip -4 rule del priority 50 fwmark 0x220000/0xff0000 lookup 201' \
+  'ip -4 rule show | grep -Eq '\''(^50:| lookup (200|201)( |$))' \
+  'ip -6 rule show | grep -Eq '\''(^50:| lookup (200|201)( |$))' \
+  '[ "$priority" != 50 ]' \
+  'ip -4 rule show | grep '\''^50:.*0x220000/0xff0000.*lookup 201'; do
+  grep -qF "$fixture_contract" "$guest" || fail "priority collision fixture must use slot 50: $fixture_contract"
+done
 grep -q 'save-config' "$guest" || fail 'guest must install and restore YAML through the config API'
 grep -q 'network.m22c.proto=static' "$guest" || fail 'netifd must retain the selected client fixture addresses'
 if grep -Eq '(killall|pkill|conntrack -F|flush ruleset|sysctl -w)' "$guest"; then

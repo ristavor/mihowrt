@@ -82,7 +82,7 @@ cleanup() {
 		ip -6 route del default via 2001:db8:ffff::2 dev m22w metric 42422 || restore=1
 	fi
 	if [ -f "$WORK/occupied" ]; then
-		ip -4 rule del priority 10000 fwmark 0x220000/0xff0000 lookup 201 || restore=1
+		ip -4 rule del priority 50 fwmark 0x220000/0xff0000 lookup 201 || restore=1
 		ip -4 route del blackhole 198.19.222.0/24 table 200 || restore=1
 	fi
 	nft delete table inet m22_netbird 2>/dev/null
@@ -692,18 +692,18 @@ check_routes_dns() {
 	/etc/init.d/mihowrt stop 6>&- 7>&- 8>&- 9>&-
 	# Refuse occupied fixture slots instead of replacing anything already present.
 	if ip -4 route show table all | grep -Eq ' table (200|201)( |$)'; then fatal 'refuse occupied route fixture slot'; fi
-	if ip -4 rule show | grep -Eq '(^10000:| lookup (200|201)( |$))'; then fatal 'refuse occupied rule fixture slot'; fi
-	if ip -6 rule show | grep -Eq '(^10000:| lookup (200|201)( |$))'; then fatal 'refuse occupied IPv6 rule fixture slot'; fi
+	if ip -4 rule show | grep -Eq '(^50:| lookup (200|201)( |$))'; then fatal 'refuse occupied rule fixture slot'; fi
+	if ip -6 rule show | grep -Eq '(^50:| lookup (200|201)( |$))'; then fatal 'refuse occupied IPv6 rule fixture slot'; fi
 	ip -4 route add blackhole 198.19.222.0/24 table 200
-	ip -4 rule add priority 10000 fwmark 0x220000/0xff0000 lookup 201
+	ip -4 rule add priority 50 fwmark 0x220000/0xff0000 lookup 201
 	: >"$WORK/occupied"
 	profile direct-first fake-ip true 1
 	/etc/init.d/mihowrt start 6>&- 7>&- 8>&- 9>&-; ready
 	table="$(sed -n 's/^TABLE=//p' /var/run/mihowrt/route.state)"
 	priority="$(sed -n 's/^PRIORITY=//p' /var/run/mihowrt/route.state)"
-	[ "$table" != 200 ] && [ "$table" != 201 ] && [ "$priority" != 10000 ]
+	[ "$table" != 200 ] && [ "$table" != 201 ] && [ "$priority" != 50 ]
 	ip -4 route show table 200 | grep 'blackhole 198.19.222.0/24'
-	ip -4 rule show | grep '^10000:.*0x220000/0xff0000.*lookup 201'
+	ip -4 rule show | grep '^50:.*0x220000/0xff0000.*lookup 201'
 	has_local6 2001:db8:10::2
 	has_local6 2001:db8:20::2
 	has_local6 2001:db8:30::2

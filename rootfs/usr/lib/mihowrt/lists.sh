@@ -239,7 +239,7 @@ lists_cache_gc() {
 	keys="$(lists_urls | while IFS= read -r url; do lists_url_key "$url"; echo; done)"
 	for cache in "$POLICY_CACHE_DIR"/*.txt; do
 		[ -f "$cache" ] || continue
-		printf '%s\n' "$keys" | grep -Fxq "$(basename "$cache" .txt)" || rm -f "$cache"
+		printf '%s\n' "$keys" | grep -Fxq "$(basename "$cache" .txt)" || rm -f "$cache" "$(lists_stamp_file "$cache")"
 	done
 }
 
@@ -298,20 +298,31 @@ lists_resolve() {
 	return 0
 }
 
-# True when the cache for a URL is missing or older than LISTS_INTERVAL hours.
+# Check times are kept in tmpfs so an unchanged list never writes to flash.
+# The stamp is named like its cache; after a reboot the cache mtime decides.
+lists_stamp_file() {
+	local key="${1##*/}"
+
+	printf '%s/lists-stamp/%s' "$PKG_STATE_DIR" "${key%.txt}"
+}
+
+# True when the cache for a URL is missing or its last check is older than
+# LISTS_INTERVAL hours.
 lists_remote_due() {
-	local cache="$1"
+	local cache="$1" checked=""
 
 	[ -f "$cache" ] || return 0
 	[ "${LISTS_INTERVAL:-0}" -gt 0 ] || return 1
-	[ -n "$(find "$cache" -mmin +$((LISTS_INTERVAL * 60 - 5)) 2>/dev/null)" ]
+	checked="$(lists_stamp_file "$cache")"
+	[ -f "$checked" ] || checked="$cache"
+	[ -n "$(find "$checked" -mmin +$((LISTS_INTERVAL * 60 - 5)) 2>/dev/null)" ]
 }
 
 # Fetch due remote lists into the cache. Prints "changed" or "unchanged".
 lists_update_remote() {
 	local force="${1:-0}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0 first_error=""
 
-	ensure_dir "$POLICY_CACHE_DIR" || return 1
+	ensure_dir "$POLICY_CACHE_DIR" && ensure_dir "$PKG_STATE_DIR/lists-stamp" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	# URLs come from providers too: no pathname expansion.
@@ -333,10 +344,11 @@ lists_update_remote() {
 		fi
 		lists_clean_lines "$tmp" | lists_classify | cut -d' ' -f2- >"$tmp.clean"
 		if cmp -s "$tmp.clean" "$cache"; then
-			touch "$cache"
+			: >"$(lists_stamp_file "$cache")"
 		else
 			if atomic_copy "$tmp.clean" "$cache"; then
 				changed=1
+				: >"$(lists_stamp_file "$cache")"
 			else
 				line="Remote list cache write failed: $(url_host "$url")"
 				warn "$line"

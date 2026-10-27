@@ -85,27 +85,30 @@ config_profile_apply() {
 	return 0
 }
 
+# Keep each saved inode until the entire rollback, including policy, succeeds.
+config_install_restore_file() {
+	local saved="$1" target="$2" staging="$2.restore.$$"
+
+	if [ ! -f "$saved" ]; then
+		rm -f "$target"
+		return
+	fi
+	if { ln -f "$saved" "$staging" 2>/dev/null || cp -p "$saved" "$staging"; } && mv -f "$staging" "$target"; then
+		return 0
+	fi
+	rm -f "$staging"
+	return 1
+}
+
 # Restore the exact files saved before installation, not the older .bak.
 config_install_restore() {
-	local old_config="$1" old_runtime="$2" old_profile="$3" live="$4"
+	local old_config="$1" old_runtime="$2" old_profile="$3" live="$4" same_runtime="$5"
 
 	[ ! -f "$PROFILE_FILE" ] || mv -f "$PROFILE_FILE" "$old_profile.failed" || return 1
-	if [ -f "$old_config" ]; then
-		mv -f "$old_config" "$CLASH_CONFIG" || return 1
-	else
-		rm -f "$CLASH_CONFIG" || return 1
-	fi
-	if [ -f "$old_runtime" ]; then
-		mv -f "$old_runtime" "$RUNTIME_CONFIG" || return 1
-	else
-		rm -f "$RUNTIME_CONFIG" || return 1
-	fi
-	if [ -f "$old_profile" ]; then
-		mv -f "$old_profile" "$PROFILE_FILE" || return 1
-	else
-		rm -f "$PROFILE_FILE" || return 1
-	fi
-	[ "$live" -eq 0 ] || api_reload "$RUNTIME_CONFIG" || return 1
+	config_install_restore_file "$old_config" "$CLASH_CONFIG" || return 1
+	config_install_restore_file "$old_runtime" "$RUNTIME_CONFIG" || return 1
+	config_install_restore_file "$old_profile" "$PROFILE_FILE" || return 1
+	[ "$live" -eq 0 ] || [ "$same_runtime" -eq 1 ] || api_reload "$RUNTIME_CONFIG" || return 1
 	config_profile_apply "$old_profile.failed"
 }
 
@@ -129,11 +132,11 @@ config_install() {
 		return 1
 	fi
 	# Save the live profile before replacing YAML: status can rebuild it.
-	# A hard link preserves YAML without another flash content write.
+	# Hard links preserve YAML/runtime without another flash or tmpfs copy.
 	rm -f "$old_profile" "$old_runtime" "$old_config"
 	if ! {
 		{ [ ! -f "$PROFILE_FILE" ] || cp "$PROFILE_FILE" "$old_profile"; } &&
-			{ [ ! -f "$RUNTIME_CONFIG" ] || cp "$RUNTIME_CONFIG" "$old_runtime"; } &&
+			{ [ ! -f "$RUNTIME_CONFIG" ] || ln -f "$RUNTIME_CONFIG" "$old_runtime" 2>/dev/null || cp -p "$RUNTIME_CONFIG" "$old_runtime"; } &&
 			{ [ ! -f "$CLASH_CONFIG" ] || ln -f "$CLASH_CONFIG" "$old_config" 2>/dev/null || cp -p "$CLASH_CONFIG" "$old_config"; }
 	}; then
 		rm -f "$old_profile" "$old_runtime" "$old_config" "$runtime_candidate" "$runtime_candidate.profile"
@@ -171,13 +174,14 @@ config_install() {
 	fi
 	if [ -n "$error" ]; then
 		error="$(printf '%s\n' "$error" | sed 's/^Error: //')"
-		if restore_error="$(config_install_restore "$old_config" "$old_runtime" "$old_profile" "$live" 2>&1)"; then
+		if restore_error="$(config_install_restore "$old_config" "$old_runtime" "$old_profile" "$live" "$same_runtime" 2>&1)"; then
 			err "Failed to apply the new subscription settings: $error; the previous config is restored"
+			rm -f "$old_profile" "$old_profile.failed" "$old_runtime" "$old_config"
 		else
 			restore_error="$(printf '%s\n' "$restore_error" | sed 's/^Error: //')"
-			err "Failed to apply the new subscription settings: $error; restoring the previous config failed: ${restore_error:-Failed to restore config or policy}"
+			err "Failed to apply the new subscription settings: $error; restoring the previous config failed: ${restore_error:-Failed to restore config or policy}; the previous config is saved in $old_config"
 		fi
-		rm -f "$old_profile" "$old_profile.failed" "$old_runtime" "$old_config" "$runtime_candidate" "$runtime_candidate.profile"
+		rm -f "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
 	fi
 	if [ -f "$old_config" ]; then

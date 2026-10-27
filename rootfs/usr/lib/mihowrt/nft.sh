@@ -357,6 +357,10 @@ nft_apply() {
 	return 0
 }
 
+nft_apply_if_ready() {
+	service_ready && nft_apply
+}
+
 nft_cleanup() {
 	rm -f "$NFT_APPLIED_FILE"
 	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null

@@ -15,7 +15,7 @@ name="$1"
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
 setup_fake_uci "$tmpdir"
-load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh subscription.sh lists.sh service.sh config.sh
+load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh fetch.sh subscription.sh lists.sh nft.sh service.sh config.sh
 setup_runtime_paths "$tmpdir"
 src="$tmpdir/source.yaml"
 out="$tmpdir/runtime.yaml"
@@ -82,7 +82,13 @@ auto_update_ready|lists_refresh_ready)
 	with_lock() { "$@"; }
 	nft_apply() { echo nft >>"$events"; }
 	command_name="${name%_ready}"
-	"$command_name" >/dev/null
+	rc=0
+	"$command_name" >/dev/null || rc=$?
+	if [ "$name" = lists_refresh_ready ]; then
+		assert_eq 1 "$rc" "$name: locked readiness gate rejects stopped service"
+	else
+		assert_eq 0 "$rc" "$name: automatic update tolerates stopped service"
+	fi
 	assert_eq '' "$(cat "$events")" "$name: no nft while core runs without marker"
 	touch "$RUNNING_MARKER"
 	"$command_name" >/dev/null

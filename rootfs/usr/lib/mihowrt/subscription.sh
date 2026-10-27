@@ -194,8 +194,8 @@ subscription_update() {
 	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
 	# Reload: the period header and provider lists may be new.
 	settings_load || return 1
-	if [ -n "$(lists_urls)" ] && [ "$(lists_update_remote 0)" = changed ] && service_ready; then
-		with_lock nft_apply || warn "Failed to apply new remote lists"
+	if [ -n "$(lists_urls)" ] && [ "$(lists_update_remote 0)" = changed ]; then
+		with_lock nft_apply_if_ready || warn "Failed to apply new remote lists"
 	fi
 	cron_update || warn "Failed to update cron schedule"
 	printf '%s\n' "$result"

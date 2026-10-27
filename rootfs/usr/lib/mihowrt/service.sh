@@ -419,8 +419,8 @@ service_reload() {
 auto_update() {
 	settings_load || return 1
 	subscription_due && subscription_update
-	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ] && service_ready; then
-		with_lock nft_apply
+	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ]; then
+		with_lock nft_apply_if_ready
 	fi
 	return 0
 }

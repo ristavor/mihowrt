@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
-load_modules constants.sh helpers.sh validate.sh mihomo-config.sh lists.sh job.sh
+load_modules constants.sh helpers.sh validate.sh mihomo-config.sh lists.sh nft.sh job.sh
 
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT

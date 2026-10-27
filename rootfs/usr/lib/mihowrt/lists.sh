@@ -456,7 +456,7 @@ lists_apply() {
 	if service_ready; then
 		settings_load || return 1
 		lists_update_remote 0 >/dev/null || warn "Some remote lists could not be fetched"
-		with_lock nft_apply || return 1
+		with_lock nft_apply_if_ready || return 1
 	fi
 	jq -nc --arg c "$changed" '{changed: ($c == "1")}'
 }
@@ -466,7 +466,7 @@ lists_refresh() {
 
 	settings_load || return 1
 	result="$(lists_update_remote 1)" || rc=1
-	[ "$result" = changed ] && service_ready && { with_lock nft_apply || return 1; }
+	[ "$result" = changed ] && { with_lock nft_apply_if_ready || return 1; }
 	[ "$rc" -eq 0 ] || return 1
 	jq -nc --arg r "$result" '{changed: ($r == "changed")}'
 }

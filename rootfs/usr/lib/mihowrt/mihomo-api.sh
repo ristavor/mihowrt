@@ -9,14 +9,9 @@ API_DELAY_URL="${API_DELAY_URL:-https://www.gstatic.com/generate_204}"
 api_request() {
 	local method="$1" path="$2" body="${3:-}" timeout="${4:-5}"
 
-	if [ -n "$body" ]; then
-		curl -fsS -m "$timeout" --unix-socket "$MIHOMO_SOCKET_TMPFS" \
-			-H 'Content-Type: application/json' \
-			-X "$method" -d "$body" "http://localhost$path"
-	else
-		curl -fsS -m "$timeout" --unix-socket "$MIHOMO_SOCKET_TMPFS" \
-			-X "$method" "http://localhost$path"
-	fi
+	set -- -fsS -m "$timeout" --unix-socket "$MIHOMO_SOCKET_TMPFS" -X "$method"
+	[ -z "$body" ] || set -- "$@" -H 'Content-Type: application/json' -d "$body"
+	curl "$@" "http://localhost$path"
 }
 
 uri_encode() {

@@ -45,6 +45,48 @@ done
 [[ "$secret_in_argv" = 0 ]] || fail 'unix-socket curl argv must not contain authorization or controller secret'
 pass 'unix-socket requests omit authorization and controller secret from curl argv'
 
+# E3: single curl invocation in api_request, common args via set --, conditional header/body
+assert_eq 1 "$(sed -n '/api_request() {/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/mihomo-api.sh" | grep -c 'curl ')" "single curl in api_request"
+
+: >"$CURL_ARGV_LOG"
+CURL_BODY='{}' api_request GET /version >/dev/null
+expected_no_body=(
+	-fsS
+	-m
+	5
+	--unix-socket
+	"$MIHOMO_SOCKET_TMPFS"
+	-X
+	GET
+	http://localhost/version
+)
+readarray -t actual_no_body <"$CURL_ARGV_LOG"
+assert_eq "${expected_no_body[*]}" "${actual_no_body[*]}" "exact argv without body"
+
+: >"$CURL_ARGV_LOG"
+CURL_BODY='{}' api_request PUT /configs '{"path":"/tmp/config.yaml"}' 60 >/dev/null
+expected_with_body=(
+	-fsS
+	-m
+	60
+	--unix-socket
+	"$MIHOMO_SOCKET_TMPFS"
+	-X
+	PUT
+	-H
+	Content-Type: application/json
+	-d
+	'{"path":"/tmp/config.yaml"}'
+	http://localhost/configs
+)
+readarray -t actual_with_body <"$CURL_ARGV_LOG"
+assert_eq "${expected_with_body[*]}" "${actual_with_body[*]}" "exact argv with body"
+
+: >"$CURL_ARGV_LOG"
+CURL_BODY='{}' api_request GET /version "" 5 >/dev/null
+assert_false "-d flag absent on empty body" grep -q -- '-d' "$CURL_ARGV_LOG"
+pass 'api_request exact argv and single curl'
+
 CURL_BODY='{"Status":0,"Answer":[]}' api_dns_probe || fail "NOERROR must pass"
 CURL_BODY='{"Status":3}' api_dns_probe || fail "NXDOMAIN must pass"
 if CURL_EXIT=7 CURL_BODY='' api_dns_probe; then fail "socket failure must fail"; fi

@@ -73,15 +73,14 @@ function findButton(node, label) { return collect(node).find((n) => n.tag === 'b
 const settle = async () => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 // The Subscription view's load()/render() data shape is not part of the contract:
 // views are mounted through load() with stubbed api.read/api.readLarge.
-const reads = { calls: [], sub: {}, status: {}, responses: {} };
-function resetReads(sub = {}, config = { content: 'proxies: []\n' }, status = {}) {
-	Object.assign(reads, { calls: [], sub, status, responses: { 'read-config': config, 'runtime-config': { content: '', generated: false } } });
+const reads = { calls: [], sub: {}, responses: {} };
+function resetReads(sub = {}, config = { content: 'proxies: []\n' }) {
+	Object.assign(reads, { calls: [], sub, responses: { 'read-config': config, 'runtime-config': { content: '', generated: false } } });
 }
 const readStubs = {
 	read: async (cmd) => {
 		reads.calls.push(cmd);
 		if (cmd === 'subscription-json') return reads.sub;
-		if (cmd === 'status-json') return reads.status;
 		throw Error('unexpected read ' + cmd);
 	},
 	readLarge: async (cmd) => {
@@ -92,8 +91,8 @@ const readStubs = {
 		return reply;
 	}
 };
-async function mountSubscription(view, sub, config, status) {
-	resetReads(sub, config, status);
+async function mountSubscription(view, sub, config) {
+	resetReads(sub, config);
 	return view.render(await view.load());
 }
 async function openToggle(page, label) { await findButton(page, label).listeners.click(); await settle(); }
@@ -157,17 +156,6 @@ function EL(tag, attrs, children) {
 	n.appendChild = (c) => { n.children.push(c); };
 	return n;
 }
-const traffic = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
-	E: EL, api, view: { extend: (v) => v }, form: {}, widgets: {}, rpc: { declare: () => () => Promise.resolve({}) }, Event
-}).module;
-const hours = { attrs: {}, setAttribute(k, v) { this.attrs[k] = v; }, style: {} };
-const hoursWidget = { querySelector: (q) => q === 'input' ? hours : null };
-const refreshBtn = { tag: 'button' };
-const intervalRow = traffic.intervalField(hoursWidget, refreshBtn);
-h.assertEq(JSON.stringify(hours.attrs), '{"inputmode":"numeric"}', 'list interval is a number field like the subscription one');
-h.assert(intervalRow.children[0] === hoursWidget && intervalRow.children[1] === refreshBtn, 'refresh button sits next to the interval');
-console.log('ok - traffic interval field');
-
 // Saving: a rejected list keeps the form (no map.save) and shows the error.
 seq(async () => {
 	const calls = [];
@@ -712,22 +700,19 @@ seq(async () => {
   location: { reload: () => { reloads++; applyEvents.push('reload'); } }
  }).module;
  const render = async (backup = true, auto = true) => {
-  const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: auto }, { content: 'yaml' }, { config_backup: backup });
+  const p = await mountSubscription(sv, { url: 'https://old.example', auto_update: auto, config_backup: backup }, { content: 'yaml' });
   await openToggle(p, 'Show the YAML editor');
   return p;
  };
  const button = (p, label) => collect(p).find(n => n.tag === 'button' && texts(n).includes(label));
- await check('status failure keeps editor usable', async () => {
-  const read = bridge.read;
-  try {
-   resetReads({ url: 'https://old.example' }, { content: 'yaml' });
-   bridge.read = async cmd => { if (cmd === 'status-json') throw Error('status unavailable'); return { url: 'https://old.example' }; };
-   const p = sv.render(await sv.load());
-   await openToggle(p, 'Show the YAML editor');
-   h.assert(collect(p).some(n => n.tag === 'textarea'), 'editor remains available');
-   h.assert(button(p, 'Check and apply') && button(p, 'Update now'), 'actions remain available');
-   h.assert(!button(p, 'Restore the previous YAML'), 'unknown backup hides restore');
-  } finally { bridge.read = read; }
+ // C7: one light read; the backup flag comes with the subscription JSON.
+ await check('unknown backup keeps editor usable without status-json', async () => {
+  const p = await mountSubscription(sv, { url: 'https://old.example' }, { content: 'yaml' });
+  await openToggle(p, 'Show the YAML editor');
+  h.assertEq(reads.calls.join(','), 'subscription-json,read-config', 'no status-json read');
+  h.assert(collect(p).some(n => n.tag === 'textarea'), 'editor remains available');
+  h.assert(button(p, 'Check and apply') && button(p, 'Update now'), 'actions remain available');
+  h.assert(!button(p, 'Restore the previous YAML'), 'unknown backup hides restore');
  });
  await check('malformed YAML response', async () => {
   {
@@ -1328,6 +1313,25 @@ seq(async () => {
   const p = picker(setup(), {}, 'aa:bb:cc:dd:ee:ff # phone');
   h.assert(texts(p.p).includes('Not connected now: aa:bb:cc:dd:ee:ff'), 'absence even without leases');
  });
+ // C4: the refresh button does not depend on who sets the interval.
+ await check('refresh remote lists row always visible', async () => {
+  for (const profile of [{}, { provider: { lists_interval: '6' } }]) {
+   const t = setup(); await t.render({ ...lists }, profile);
+   const names = Object.keys(t.tv.map.options), o = t.tv.map.options._refresh_lists;
+   h.assert(o, 'refresh row present with provider=' + !!profile.provider);
+   h.assertEq(o.tab, 'basic', 'refresh row on the basic tab');
+   h.assertEq(o.title, 'Remote lists', 'refresh row title');
+   h.assertEq(o.dependencies.length, 0, 'refresh row has no depends');
+   if (!profile.provider) h.assertEq(names.indexOf('_refresh_lists'), names.indexOf('lists_interval') + 1, 'refresh row follows the interval');
+   const b = o.renderWidget();
+   h.assertEq(b.tag, 'button', 'refresh row renders the button'); h.assertEq(texts(b).join(''), 'Update remote lists', 'button label');
+   const input = t.tv.map.options.lists_interval.renderWidget();
+   h.assertEq(input.tag, 'input', 'interval widget not wrapped'); h.assertEq(input.attrs.inputmode, 'numeric', 'numeric keyboard');
+  }
+  const t = setup({ readOnly: () => true }); await t.render();
+  h.assert(!t.tv.map.options._refresh_lists, 'read-only user gets no refresh button');
+  h.assert(!('intervalField' in t.tv), 'no interval wrapper');
+ });
  await check('update lists job', async () => {
   const t = setup(); const b = t.tv.refreshButton();
   h.assert(b.attrs['data-mw-job'] != null, 'update is a shared job starter');
@@ -1352,7 +1356,7 @@ seq(async () => {
   const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
    E: DOM, ui, Blob, view: { extend: v => v }, api: { ...api, ...readStubs, readOnly: () => readOnly }
   }).module;
-  const p = await mountSubscription(sv, { url: 'https://p.example/sub' }, { content: 'yaml' }, { config_backup: true });
+  const p = await mountSubscription(sv, { url: 'https://p.example/sub', config_backup: true }, { content: 'yaml' });
   await openToggle(p, 'Show the YAML editor');
   for (const label of actions) h.assertEq(!!findButton(p, label), !readOnly, label + ' shown=' + !readOnly);
   h.assert(collect(p).some(n => n.tag === 'textarea'), 'YAML still visible read-only=' + readOnly);

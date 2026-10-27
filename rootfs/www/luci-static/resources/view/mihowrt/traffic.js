@@ -166,9 +166,18 @@ return view.extend({
 			const v = s.taboption('basic', form.Value, 'lists_interval', _('Update remote lists every (hours)'), _('0: only when you press "Update remote lists".'));
 			v.datatype = 'range(0,8760)';
 			v.placeholder = '0';
-			this.extendWidget(v, (node) => this.intervalField(node, this.refreshButton()));
+			// No type=number: some themes (openwrt-2020) style only text inputs.
+			this.extendWidget(v, (node) => {
+				node.querySelector('input')?.setAttribute('inputmode', 'numeric');
+				return node;
+			});
 			return v;
 		});
+		// Own row: the interval above may be the provider's read-only value.
+		if (!api.readOnly()) {
+			o = s.taboption('basic', form.DummyValue, '_refresh_lists', _('Remote lists'));
+			o.renderWidget = () => this.refreshButton();
+		}
 
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));
 		o.multiple = true;
@@ -233,18 +242,6 @@ return view.extend({
 			api.notify(res.changed ? _('Remote lists updated.') : _('Remote lists are up to date.'));
 		}));
 		return refresh;
-	},
-
-	// Numeric field with the
-	// "Update remote lists" button next to it.
-	intervalField: function(node, refresh) {
-		const input = node.querySelector('input');
-		if (input) {
-			// No type=number: some themes (openwrt-2020) style only text inputs.
-			input.setAttribute('inputmode', 'numeric');
-			input.style.width = '8em';
-		}
-		return E('div', { class: 'mw-row' }, [ node, refresh ]);
 	},
 
 	// A MAC covers both address families. DHCPv6 leases may have no MAC.

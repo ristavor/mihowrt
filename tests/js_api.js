@@ -25,7 +25,7 @@ async function flush() { for (let i = 0; i < 20; i++) await Promise.resolve(); }
 async function tick(timers) {
 	await flush();
 	assert(timers.length, 'a poll must be scheduled');
-	const timer = timers.shift(); assert.equal(timer.ms, 1000); timer.fn(); await flush();
+	const timer = timers.shift(); assert.equal(timer.ms, 2000); timer.fn(); await flush();
 }
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
@@ -89,7 +89,7 @@ test('jobNotice still reloads without edits', async () => {
  assert.equal(reloads, 1);
  assert.equal(typeof listeners.input, 'function', 'edits are watched');
 });
-test('job ok: three polls spaced 1000 ms, running flag', async () => {
+test('job ok: three polls spaced 2000 ms, running flag', async () => {
 	let polls = 0;
 	const { api, timers, calls } = setup();
 	api.read = async (...args) => { assert.deepEqual(args, ['job-status', '1-2']); return ++polls < 3 ? { state: 'running' } : { state: 'ok', result: { action: 'saved' } }; };
@@ -108,12 +108,12 @@ test('job error preserves backend message and clears flag', async () => {
 	await tick(timers); await rejected; assert.equal(api.jobRunning, false);
 });
 test('poll access denied limit and recovery', async () => {
-	for (const failures of [10, 9]) {
+	for (const failures of [5, 4]) {
 		const { api, timers } = setup(); let count = 0;
 		api.read = async () => { if (++count <= failures) throw Error('Access denied'); return { state: 'ok', result: { action: 'saved' } }; };
 		const pending = api.job('core-update');
-		const checked = failures === 10 ? assert.rejects(pending, { message: 'Access denied. Log in to LuCI again, or ask for write access.' }) : pending;
-		for (let i = 0; i < 10; i++) await tick(timers);
+		const checked = failures === 5 ? assert.rejects(pending, { message: 'Access denied. Log in to LuCI again, or ask for write access.' }) : pending;
+		for (let i = 0; i < 5; i++) await tick(timers);
 		await checked; assert.equal(api.jobRunning, false);
 	}
 });
@@ -127,16 +127,16 @@ test('poll expired session shapes map to access denied', async () => {
 		api.read = async () => { throw make(); };
 		const pending = api.job('core-update');
 		const checked = assert.rejects(pending, { message: 'Access denied. Log in to LuCI again, or ask for write access.' });
-		for (let i = 0; i < 10; i++) await tick(timers);
+		for (let i = 0; i < 5; i++) await tick(timers);
 		await checked; assert.equal(api.jobRunning, false);
 	}
 });
 test('poll failures reset after successful poll; lost connection message', async () => {
 	const { api, timers } = setup(); let count = 0;
-	api.read = async () => { count++; if (count === 10) return { state: 'running' }; throw Error('network down'); };
+	api.read = async () => { count++; if (count === 5) return { state: 'running' }; throw Error('network down'); };
 	const rejected = assert.rejects(api.job('core-update'), { message: 'Lost connection to the router while waiting for the result.' });
-	for (let i = 0; i < 20; i++) await tick(timers);
-	await rejected; assert.equal(count, 20);
+	for (let i = 0; i < 10; i++) await tick(timers);
+	await rejected; assert.equal(count, 10);
 });
 test('upload byte size, session, URL, ACL errors and allowed prefixes', async () => {
 	let reply, seen;

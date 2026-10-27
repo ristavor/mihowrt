@@ -337,6 +337,9 @@ msgstr "Пускать исходящий NetBird через Mihomo"
 msgid "NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched."
 msgstr "Управляющий, relay- и peer-трафик NetBird идёт по правилам Mihomo. Входящий трафик NetBird не затрагивается."
 
+msgid "Remote lists"
+msgstr "Удалённые списки"
+
 msgid "Update remote lists"
 msgstr "Обновить удалённые списки"
 

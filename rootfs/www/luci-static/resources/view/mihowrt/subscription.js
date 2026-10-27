@@ -9,12 +9,9 @@ const configNotice = action => action === 'unchanged' ? _('Configuration is unch
 	: action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.');
 
 return view.extend({
-	load: () => Promise.all([
-		api.read('subscription-json').catch(() => ({})),
-		api.read('status-json').catch(() => ({}))
-	]),
+	load: () => api.read('subscription-json').catch(() => ({})),
 
-	render: function([ sub, status = {} ]) {
+	render: function(sub) {
 		const readOnly = api.readOnly();
 		// type=text: some themes (openwrt-2020) style only text inputs.
 		const url = E('input', { id: 'mw-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
@@ -130,8 +127,8 @@ return view.extend({
 				editorBody.replaceChildren(
 					E('label', { class: 'cbi-value-title', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
 					widget,
-					...(readOnly ? [] : [ E('div', { class: 'mw-row' }, status.config_backup ? [ apply, restore ] : [ apply ]) ]),
-					...(status.config_backup && !readOnly ? [ restoreNote ] : []));
+					...(readOnly ? [] : [ E('div', { class: 'mw-row' }, sub.config_backup ? [ apply, restore ] : [ apply ]) ]),
+					...(sub.config_backup && !readOnly ? [ restoreNote ] : []));
 			}).catch(e => {
 				editorBody.replaceChildren(loadError(e, openEditor));
 			}).finally(() => {

@@ -63,6 +63,18 @@ subscription_update >/dev/null
 assert_file_contains "$CRON_FILE" '/usr/bin/mihowrt auto-update' "first provider header enables cron"
 assert_eq 12 "$(settings_subscription_interval)" "first header effective"
 subscription_json | jq -e '.auto_update and .effective_interval == 12 and (has("interval") | not)' >/dev/null || fail "new subscription JSON fields"
+# C7: the Subscription page reads the backup flag here, not from status-json.
+had_backup=0
+[ ! -f "$CLASH_CONFIG_BACKUP" ] || { had_backup=1; mv "$CLASH_CONFIG_BACKUP" "$tmpdir/backup.c7"; }
+assert_eq false "$(subscription_json | jq -c '.config_backup')" "no backup in subscription JSON"
+printf 'proxies: []\n' >"$CLASH_CONFIG_BACKUP"
+assert_eq true "$(subscription_json | jq -c '.config_backup')" "backup in subscription JSON"
+printf '{"config_backup":true}' >"$SUBSCRIPTION_META_FILE.c7"
+rm -f "$CLASH_CONFIG_BACKUP"
+( SUBSCRIPTION_META_FILE="$SUBSCRIPTION_META_FILE.c7"; assert_eq false "$(subscription_json | jq -c '.config_backup')" "provider metadata cannot claim a backup" )
+rm -f "$SUBSCRIPTION_META_FILE.c7"
+[ "$had_backup" = 0 ] || mv "$tmpdir/backup.c7" "$CLASH_CONFIG_BACKUP"
+pass 'subscription JSON config_backup'
 : >"$tmpdir/events"
 sed -i 's/whitelist/blacklist/' "$tmpdir/download"
 touch -d '25 hours ago' "$PKG_STATE_DIR/subscription.stamp"

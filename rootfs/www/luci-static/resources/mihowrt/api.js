@@ -171,17 +171,18 @@ function unlockJobButtons() {
 	jobButtons.clear();
 }
 
+// Every poll forks the backend on the router: poll gently.
 async function waitJob(api, id) {
 	let failures = 0;
 	for (;;) {
-		await new Promise(resolve => setTimeout(resolve, 1000));
+		await new Promise(resolve => setTimeout(resolve, 2000));
 		let status;
 		try {
 			status = await api.read('job-status', id);
 			failures = 0;
 		}
 		catch (e) {
-			if (++failures < 10)
+			if (++failures < 5)
 				continue;
 			throw new Error(errorText(e) === ACCESS_DENIED ? ACCESS_DENIED
 				: _('Lost connection to the router while waiting for the result.'));

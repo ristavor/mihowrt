@@ -69,16 +69,18 @@ subscription_stamp_file() {
 }
 
 subscription_json() {
-	local meta="{}" stamp=""
+	local meta="{}" stamp="" backup=false
 
 	stamp="$(subscription_stamp_file)" || stamp=""
+	[ ! -f "$CLASH_CONFIG_BACKUP" ] || backup=true
 
 	# A damaged file must not break the page: fall back to no metadata.
 	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(jq -c 'objects' "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
 	[ -n "$meta" ] || meta="{}"
 	jq -nc --arg url "$(uci_get subscription_url)" --arg auto "$(uci_get subscription_auto_update 1)" \
-		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$stamp" +%s 2>/dev/null)" --argjson meta "$meta" '
-		$meta + {url: $url, auto_update: ($auto != "0"), effective_interval: ($effective | tonumber),
+		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$stamp" +%s 2>/dev/null)" --argjson meta "$meta" \
+		--argjson backup "$backup" '
+		$meta + {url: $url, auto_update: ($auto != "0"), effective_interval: ($effective | tonumber), config_backup: $backup,
 		         last_update: (if $updated == "" then null else ($updated | tonumber) end)}'
 }
 

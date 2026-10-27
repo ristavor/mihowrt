@@ -37,8 +37,21 @@ check_refresh() (
  case "$scenario" in
  same)
   : >"$events"
+  settings_load() { echo settings >>"$events"; }
   net_refresh
-  assert_eq '' "$(cat "$events")" 'same fingerprint skips both renderers'
+  assert_eq '' "$(cat "$events")" 'same fingerprint skips settings and both renderers'
+  ;;
+ ipv6_toggle)
+  mkdir -p "$tmpdir/proc/net" "$tmpdir/proc/sys/net/ipv6/conf/all" "$tmpdir/proc/sys/net/ipv6/conf/lo"
+  : >"$tmpdir/proc/net/if_inet6"
+  echo 0 >"$tmpdir/proc/sys/net/ipv6/conf/all/disable_ipv6"
+  echo 0 >"$tmpdir/proc/sys/net/ipv6/conf/lo/disable_ipv6"
+  ROUTE_PROC_ROOT="$tmpdir/proc"
+  net_refresh
+  : >"$events"
+  echo 1 >"$tmpdir/proc/sys/net/ipv6/conf/all/disable_ipv6"
+  net_refresh
+  assert_eq $'dns\nnft' "$(cat "$events")" 'disable_ipv6 toggle refreshes despite same prefixes'
   ;;
  table_missing)
   : >"$events"
@@ -102,7 +115,7 @@ check_invalidation() (
 )
 
 failed=0
-for scenario in same table_missing prefix4 prefix6 dns failure snapshot; do
+for scenario in same ipv6_toggle table_missing prefix4 prefix6 dns failure snapshot; do
  if check_refresh "$scenario"; then pass "net refresh fingerprint: $scenario"; else failed=1; fi
 done
 for scenario in start stop settings lists dns nft_failure dns_failure; do

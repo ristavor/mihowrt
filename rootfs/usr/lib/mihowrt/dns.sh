@@ -119,9 +119,10 @@ dns_cleanup() {
 net_refresh() {
 	# The marker exists only while policy is applied to a live Mihomo.
 	[ -f "$RUNNING_MARKER" ] && service_running || return 0
-	settings_load || return 1
 	local rc=0 fingerprint="" previous="" line=""
 	fingerprint="$(
+		# Toggling disable_ipv6 changes the rendered ruleset without a prefix change.
+		route_ipv6_enabled && printf '%s\n' '--ipv6--'
 		{ nft_connected_prefixes 4; nft_connected_prefixes 6; } | sort -u
 		printf '%s\n' '--dns--'
 		dns_wan_servers | sort -u
@@ -134,6 +135,7 @@ net_refresh() {
 	} 2>/dev/null || :
 	# A flushed policy table must still be restored by the next interface event.
 	[ "$fingerprint" != "$previous" ] || ! nft_active || return 0
+	settings_load || return 1
 	dns_apply || rc=1
 	# New prefixes must reach nft even when dnsmasq could not be updated.
 	nft_apply || rc=1

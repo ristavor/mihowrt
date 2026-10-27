@@ -27,6 +27,7 @@ pass 'nft active check omits set elements'
 
 (
  content='first transaction'
+ nft_input_hash() { printf '%s\n' "$content" | busybox sha256sum; }
  nft_render() { printf '%s\n' "$content" >"$1"; }
  nft_active() { return 0; }
  nft() { printf '%s\n' "$*" >>"$tmpdir/hash.calls"; }

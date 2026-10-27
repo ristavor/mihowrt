@@ -335,31 +335,67 @@ nft_render() {
 	return 0
 }
 
+# Hash renderer inputs before resolving lists. The rendered hash alone only
+# avoids the kernel transaction, not the expensive Save & Apply second pass.
+nft_input_hash() {
+	local file="" files=""
+
+	set --
+	for file in "$PROFILE_FILE" "$DST_LIST_FILE" "$SRC_LIST_FILE" \
+		"$DIRECT_DST_LIST_FILE" "$DIRECT_SRC_LIST_FILE" "$POLICY_CACHE_DIR"/*.txt; do
+		[ ! -f "$file" ] || set -- "$@" "$file"
+	done
+	[ $# -eq 0 ] || files="$(sha256sum "$@")" || return 1
+	{
+		printf '%s\n' "$files" \
+			"${POLICY_MODE:-}" "${DNS_MODE:-}" "${DIRECT_LISTENER:-0}" \
+			"${DST_LIST_SOURCE:-provider}" "${DIRECT_LIST_SOURCE:-provider}" \
+			"${SOURCE_INTERFACES:-}" "${DNS_HIJACK:-}" "${DISABLE_QUIC:-}" \
+			"${BYPASS_NTP:-}" "${BLOCK_CLIENT_IPV6:-0}" \
+			"${NETBIRD_INTERFACE:-}" "${NETBIRD_MARK:-}" "${NETBIRD_PROXY:-}" \
+			"$NFT_TABLE_NAME" "$NFT_INTERCEPT_MARK" "$NFT_DIRECT_MARK" \
+			"$MIHOMO_ROUTING_MARK" "$MIHOMO_DNS_PORT" "$MIHOMO_TPROXY_PORT" \
+			"$MIHOMO_DIRECT_TPROXY_PORT" "$FAKEIP_RANGE" \
+			"$ZAPRET_DESYNC_MARK" "$ZAPRET_DESYNC_MARK_POSTNAT"
+		route_ipv6_enabled && printf '%s\n' '--ipv6--'
+		{ nft_connected_prefixes 4; nft_connected_prefixes 6; } | sort -u
+	} | sha256sum
+}
+
 nft_apply() {
 	rm -f "$NET_FP_FILE"
 	settings_require || return 1
 
-	local dir="$PKG_TMP_DIR/nft" rc=0 hash="" previous=""
+	local dir="$PKG_TMP_DIR/nft" rc=0 hash="" previous="" inputs="" previous_inputs=""
 
+	inputs="$(nft_input_hash)" || inputs=""
+	inputs="${inputs%% *}"
+	{ IFS= read -r previous <"$NFT_APPLIED_FILE"; } 2>/dev/null || :
+	{ IFS= read -r previous_inputs <"$NFT_APPLIED_FILE.inputs"; } 2>/dev/null || :
+	if [ -n "$inputs" ] && [ -n "$previous" ] &&
+		[ "$inputs $previous" = "$previous_inputs" ] && nft_active; then
+		return 0
+	fi
 	ensure_dir "$dir" || return 1
 	nft_render "$dir/ruleset.nft" "$dir" || rc=1
 	if [ "$rc" -eq 0 ]; then
 		hash="$(sha256sum "$dir/ruleset.nft")" || rc=1
 		hash="${hash%% *}"
 	fi
-	{ IFS= read -r previous <"$NFT_APPLIED_FILE"; } 2>/dev/null || :
 	if [ "$rc" -eq 0 ] && [ "$hash" = "$previous" ] && nft_active; then
+		[ -z "$inputs" ] || atomic_write "$NFT_APPLIED_FILE.inputs" "$inputs $hash" || rm -f "$NFT_APPLIED_FILE.inputs"
 		rm -rf "$dir"
 		return 0
 	fi
 	[ "$rc" -eq 0 ] && nft -f "$dir/ruleset.nft" || rc=1
 	if [ "$rc" -ne 0 ]; then
-		rm -f "$NFT_APPLIED_FILE"
+		rm -f "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
 		err "Failed to apply nftables policy (see $dir/ruleset.nft)"
 		return 1
 	fi
 	{ printf '%s\n' "$hash" >"$dir/ruleset.sha256" &&
 		mv -f "$dir/ruleset.sha256" "$NFT_APPLIED_FILE"; } || rm -f "$NFT_APPLIED_FILE"
+	[ -z "$inputs" ] || atomic_write "$NFT_APPLIED_FILE.inputs" "$inputs $hash" || rm -f "$NFT_APPLIED_FILE.inputs"
 	rm -rf "$dir"
 	return 0
 }
@@ -369,7 +405,7 @@ nft_apply_if_ready() {
 }
 
 nft_cleanup() {
-	rm -f "$NET_FP_FILE" "$NFT_APPLIED_FILE"
+	rm -f "$NET_FP_FILE" "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
 	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null
 	return 0
 }

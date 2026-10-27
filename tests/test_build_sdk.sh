@@ -619,7 +619,7 @@ assert_contains "LICENSE is GPL" "GNU GENERAL PUBLIC LICENSE" "$license_head"
 assert_contains "LICENSE is version 3" "Version 3, 29 June 2007" "$license_head"
 changelog_content="$(cat "${ROOT_DIR}/CHANGELOG.md" 2>/dev/null || true)"
 assert_contains "CHANGELOG.md has a 0.11.0 section" "## 0.11.0" "$changelog_content"
-readme_content="$(cat "${ROOT_DIR}/README.md")"
+readme_content="$(cat "${ROOT_DIR}/docs/development.md")"
 assert_contains "README documents the release order" "git tag vX && git push origin vX" "$readme_content"
 
 printf '\nSummary: %d passed, %d failed\n' "$passed" "$failed"

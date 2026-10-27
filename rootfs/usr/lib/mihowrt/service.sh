@@ -411,10 +411,15 @@ service_reload() {
 
 # Hourly cron entry: downloads run unlocked, applying takes the runtime lock.
 auto_update() {
+	local urls=""
+
 	settings_load || return 1
 	subscription_due && subscription_update
-	if [ "$LISTS_INTERVAL" -gt 0 ] && [ "$(lists_update_remote 0)" = changed ]; then
-		with_lock nft_apply_if_ready
+	if [ "$LISTS_INTERVAL" -gt 0 ]; then
+		urls="$(lists_urls)"
+		if [ -n "$urls" ] && [ "$(lists_update_remote 0 "$urls")" = changed ]; then
+			with_lock nft_apply_if_ready
+		fi
 	fi
 	return 0
 }

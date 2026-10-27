@@ -236,7 +236,7 @@ lists_cache_gc() {
 	local keys="" cache="" url=""
 
 	[ -r "$CLASH_CONFIG" ] && ! profile_ensure && return 0
-	keys="$(lists_urls | while IFS= read -r url; do lists_url_key "$url"; echo; done)"
+	keys="$(printf '%s\n' "${1-$(lists_urls)}" | while IFS= read -r url; do lists_url_key "$url"; echo; done)"
 	for cache in "$POLICY_CACHE_DIR"/*.txt; do
 		[ -f "$cache" ] || continue
 		printf '%s\n' "$keys" | grep -Fxq "$(basename "$cache" .txt)" || rm -f "$cache" "$(lists_stamp_file "$cache")"
@@ -320,14 +320,14 @@ lists_remote_due() {
 
 # Fetch due remote lists into the cache. Prints "changed" or "unchanged".
 lists_update_remote() {
-	local force="${1:-0}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0 first_error=""
+	local force="${1:-0}" urls="${2-$(lists_urls)}" url="" cache="" tmp="" line="" count=0 changed=0 failed=0 first_error=""
 
 	ensure_dir "$POLICY_CACHE_DIR" && ensure_dir "$PKG_STATE_DIR/lists-stamp" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	# URLs come from providers too: no pathname expansion.
 	set -f
-	for url in $(lists_urls); do
+	for url in $urls; do
 		[ "$count" -lt "$LISTS_REMOTE_MAX_URLS" ] || {
 			warn "Too many remote lists; only $LISTS_REMOTE_MAX_URLS are used"
 			break
@@ -359,7 +359,7 @@ lists_update_remote() {
 	done
 	set +f
 	rm -f "$tmp" "$tmp.clean"
-	lists_cache_gc || return 1
+	lists_cache_gc "$urls" || return 1
 	if [ "$changed" -eq 1 ]; then
 		echo changed
 	else

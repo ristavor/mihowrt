@@ -3,6 +3,7 @@ name: release
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
 
 permissions: {}
 
@@ -19,6 +20,7 @@ jobs:
           persist-credentials: false
 
       - name: Check tag against PKG_VERSION
+        if: startsWith(github.ref, 'refs/tags/')
         id: version
         run: |
           set -eu
@@ -53,6 +55,117 @@ jobs:
       - name: Build APKs
         run: ./tools/build-sdk.sh build
 
+      - name: Inspect built APKs
+        run: |
+          docker run --rm -i -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash -euo pipefail << 'EOF'
+          set -euo pipefail
+          apk_list=(dist/*.apk)
+          [ "${#apk_list[@]}" -gt 0 ] || { echo "No APKs found in dist/" >&2; exit 1; }
+
+          for apk in "${apk_list[@]}"; do
+            [ -f "$apk" ] || continue
+            echo "=========================================="
+            echo "Inspecting APK: $(basename "$apk")"
+            echo "=========================================="
+            dump="$(apk adbdump "$apk")"
+
+            # 1. Architecture check (must be noarch)
+            arch="$(printf "%s\n" "$dump" | awk '/^  arch:/ { print $2 }')"
+            echo "Architecture: $arch"
+            if [ "$arch" != "noarch" ]; then
+              echo "ERROR: $(basename "$apk") arch is not noarch: $arch" >&2
+              exit 1
+            fi
+
+            # 2. Dependencies check (must be non-empty)
+            echo "Dependencies:"
+            deps="$(printf "%s\n" "$dump" | awk '
+              /^  depends:/ { f=1; next }
+              f && /^    - / { sub(/^    - /, ""); print; next }
+              f { f=0 }
+            ')"
+            if [ -z "$deps" ]; then
+              echo "ERROR: $(basename "$apk") has no dependencies" >&2
+              exit 1
+            fi
+            printf "%s\n" "$deps"
+
+            # 3. Scripts check (must be present)
+            echo "Scripts:"
+            scripts="$(printf "%s\n" "$dump" | awk '
+              /^scripts:/ { f=1; next }
+              f && /^  [a-z-]+:/ { sub(/:.*/, ""); sub(/^ +/, ""); print; next }
+              f && /^[^ ]/ { f=0 }
+            ')"
+            if [ -z "$scripts" ]; then
+              echo "ERROR: $(basename "$apk") has no scripts" >&2
+              exit 1
+            fi
+            printf "%s\n" "$scripts"
+
+            # 4. File list and modes
+            echo "Files and modes:"
+            file_modes="$(printf "%s\n" "$dump" | awk '
+              /^paths:/ { in_paths=1; next }
+              in_paths && /^  - name: / { cur_dir=$3; in_files=0; next }
+              in_paths && /^    files:/ { in_files=1; next }
+              in_paths && in_files && /^      - name: / { cur_file=$3; next }
+              in_paths && in_files && /^          mode: / {
+                mode=$2
+                if (cur_dir != "") {
+                  print cur_dir "/" cur_file, mode
+                } else {
+                  print cur_file, mode
+                }
+                next
+              }
+              in_paths && /^[^ ]/ { in_paths=0 }
+            ')"
+            if [ -z "$file_modes" ]; then
+              echo "ERROR: $(basename "$apk") has no files" >&2
+              exit 1
+            fi
+            printf "%s\n" "$file_modes"
+
+            # 5. Check modes of etc/init.d/mihowrt and usr/bin/* (must be executable)
+            found_init=0
+            found_usr_bin=0
+            while read -r file mode; do
+              [ -n "$file" ] || continue
+              case "$file" in
+                etc/init.d/mihowrt)
+                  found_init=1
+                  case "$mode" in
+                    07[57][57]|0555) echo "OK: $file executable mode $mode" ;;
+                    *) echo "ERROR: $file has non-executable mode $mode" >&2; exit 1 ;;
+                  esac
+                  ;;
+                usr/bin/*)
+                  found_usr_bin=1
+                  case "$mode" in
+                    07[57][57]|0555) echo "OK: $file executable mode $mode" ;;
+                    *) echo "ERROR: $file has non-executable mode $mode" >&2; exit 1 ;;
+                  esac
+                  ;;
+              esac
+            done <<< "$file_modes"
+
+            case "$(basename "$apk")" in
+              luci-app-mihowrt*)
+                if [ "$found_init" -ne 1 ]; then
+                  echo "ERROR: $(basename "$apk") missing etc/init.d/mihowrt" >&2
+                  exit 1
+                fi
+                if [ "$found_usr_bin" -ne 1 ]; then
+                  echo "ERROR: $(basename "$apk") missing usr/bin/*" >&2
+                  exit 1
+                fi
+                ;;
+            esac
+          done
+          echo "All APK checks passed."
+          EOF
+
       - name: Stage release assets and checksums
         run: |
           set -eu
@@ -75,6 +188,7 @@ jobs:
           cat SHA256SUMS
 
       - name: Extract release notes
+        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -eu
           awk -v v="$VERSION" '
@@ -88,6 +202,7 @@ jobs:
           fi
 
       - name: Upload release files
+        if: startsWith(github.ref, 'refs/tags/')
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release
@@ -100,6 +215,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download release files
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4

@@ -216,6 +216,11 @@ assert_contains "release.yml lists the fixed-name app APK" "luci-app-mihowrt.apk
 assert_contains "release.yml lists the fixed-name i18n APK" "luci-i18n-mihowrt-ru.apk" "$release_yml"
 assert_contains "release.yml creates the release" "gh release create" "$release_yml"
 assert_contains "release.yml uses the workflow token" "secrets.GITHUB_TOKEN" "$release_yml"
+assert_contains "release.yml triggers on workflow_dispatch" "workflow_dispatch:" "$release_yml"
+assert_contains "release.yml inspects built APKs with apk adbdump" "apk adbdump" "$release_yml"
+assert_contains "release.yml asserts noarch arch" "noarch" "$release_yml"
+assert_contains "release.yml asserts executable modes" "etc/init.d/mihowrt" "$release_yml"
+assert_contains "release.yml guards publish on tag refs" "startsWith(github.ref, 'refs/tags/')" "$release_yml"
 for wf in "$TEST_YML" "$RELEASE_YML"; do
 	if [[ -f "$wf" ]] && ! grep -P '\t' "$wf" >/dev/null && ! grep -q '@master\|@main' "$wf"; then
 		printf 'ok - %s has no tabs and no floating action refs\n' "${wf##*/}"
@@ -309,6 +314,97 @@ for prerelease_flag in 0 1; do
 done
 rm -rf "$workflow_dir"
 trap - EXIT
+
+# Test 14d: extract and test inspect-apks block from release.yml
+inspect_body="$(awk '/- name: Inspect built APKs/{f=1;next} f&&/<< .EOF./{r=1;next} r&&/^[[:space:]]*EOF/{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+assert_contains "inspect script extracted from release.yml" "apk adbdump" "$inspect_body"
+inspect_test_dir="$(mktemp -d)"
+mkdir -p "$inspect_test_dir/bin" "$inspect_test_dir/dist"
+touch "$inspect_test_dir/dist/luci-app-mihowrt-0.11.0.apk"
+cat > "$inspect_test_dir/bin/apk" << 'MOCK_APK'
+#!/bin/sh
+cat << 'MOCK_DUMP'
+info:
+  arch: noarch
+  depends:
+    - libc
+scripts:
+  post-install: |
+    exit 0
+paths:
+  - name: etc/init.d
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0755
+  - name: usr/bin
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0755
+MOCK_DUMP
+MOCK_APK
+chmod +x "$inspect_test_dir/bin/apk"
+mock_rc=0
+(cd "$inspect_test_dir" && PATH="$inspect_test_dir/bin:$PATH" bash -c "$inspect_body" >/dev/null 2>&1) || mock_rc=$?
+assert_eq "inspect script succeeds on valid APK" 0 "$mock_rc"
+
+cat > "$inspect_test_dir/bin/apk" << 'MOCK_APK'
+#!/bin/sh
+cat << 'MOCK_DUMP'
+info:
+  arch: x86_64
+  depends:
+    - libc
+scripts:
+  post-install: |
+    exit 0
+paths:
+  - name: etc/init.d
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0755
+  - name: usr/bin
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0755
+MOCK_DUMP
+MOCK_APK
+chmod +x "$inspect_test_dir/bin/apk"
+mock_bad_arch_rc=0
+(cd "$inspect_test_dir" && PATH="$inspect_test_dir/bin:$PATH" bash -c "$inspect_body" >/dev/null 2>&1) || mock_bad_arch_rc=$?
+assert_eq "inspect script fails on non-noarch" 1 "$mock_bad_arch_rc"
+
+cat > "$inspect_test_dir/bin/apk" << 'MOCK_APK'
+#!/bin/sh
+cat << 'MOCK_DUMP'
+info:
+  arch: noarch
+  depends:
+    - libc
+scripts:
+  post-install: |
+    exit 0
+paths:
+  - name: etc/init.d
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0644
+  - name: usr/bin
+    files:
+      - name: mihowrt
+        acl:
+          mode: 0755
+MOCK_DUMP
+MOCK_APK
+chmod +x "$inspect_test_dir/bin/apk"
+mock_bad_mode_rc=0
+(cd "$inspect_test_dir" && PATH="$inspect_test_dir/bin:$PATH" bash -c "$inspect_body" >/dev/null 2>&1) || mock_bad_mode_rc=$?
+assert_eq "inspect script fails on non-executable etc/init.d/mihowrt" 1 "$mock_bad_mode_rc"
+rm -rf "$inspect_test_dir"
 
 # Test 15: license and package metadata
 makefile_content="$(cat "${ROOT_DIR}/Makefile")"

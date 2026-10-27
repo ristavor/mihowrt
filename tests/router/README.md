@@ -16,6 +16,10 @@ Isolated OpenWrt 25.12.6 x86/64 test harness running under native arm64 QEMU TCG
   - SSH mapping: `127.0.0.1:2222` (or `ROUTER_PORT=2223` when port 2222 is held by Colima's SSH mux).
 - **Persistence**: All downloads, disposable disks, SSH keys, and logs live in git-ignored `.build/router/`.
 
+## OpenWrt 24.10 guest (opkg)
+
+`ROUTER_OPENWRT=24.10 ./tests/router/start.sh` boots the official OpenWrt 24.10.8 x86/64 kernel and ext4 rootfs (kernel 6.6, opkg, fw4) with the same harness and image `mihowrt-openwrt-test:24.10`; the default stays 25.12.6 (`ROUTER_OPENWRT=25.12`). Artifact names and SHA256 values live in `tests/router/release.sh`; the VM container name is shared, so only one guest runs at a time.
+
 ## Commands
 
 ```bash

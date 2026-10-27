@@ -2,9 +2,9 @@
 set -euo pipefail
 
 ROUTER_DIR="/router"
-ROOTFS_GZ="${ROUTER_DIR}/openwrt-25.12.6-x86-64-generic-ext4-rootfs.img.gz"
+ROOTFS_GZ="${ROUTER_DIR}/${ROUTER_ROOTFS:-openwrt-25.12.6-x86-64-generic-ext4-rootfs.img.gz}"
 ROOTFS_IMG="${ROUTER_DIR}/rootfs.img"
-KERNEL_BIN="${ROUTER_DIR}/openwrt-25.12.6-x86-64-generic-kernel.bin"
+KERNEL_BIN="${ROUTER_DIR}/${ROUTER_KERNEL:-openwrt-25.12.6-x86-64-generic-kernel.bin}"
 PUBKEY_FILE="${ROUTER_DIR}/id_ed25519.pub"
 CONSOLE_LOG="${ROUTER_DIR}/console.log"
 

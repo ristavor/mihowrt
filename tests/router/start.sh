@@ -5,15 +5,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/.build/router"
 
-CONTAINER_NAME="${ROUTER_CONTAINER:-mihowrt-openwrt-test}"
-IMAGE_NAME="${ROUTER_IMAGE:-mihowrt-openwrt-test:latest}"
-TIMEOUT="${ROUTER_BOOT_TIMEOUT:-120}"
+# shellcheck source=tests/router/release.sh
+. "${SCRIPT_DIR}/release.sh"
+router_select_release
 
-KERNEL_NAME="openwrt-25.12.6-x86-64-generic-kernel.bin"
-KERNEL_SHA256="8f70595f3a6eec3112e007450a1a600153904deffa52ab368712342583cb387c"
-ROOTFS_NAME="openwrt-25.12.6-x86-64-generic-ext4-rootfs.img.gz"
-ROOTFS_SHA256="8c243392d09b960a9f0edbfd996153bec213435b0034e6b2db9437115c5178ec"
-BASE_URL="https://downloads.openwrt.org/releases/25.12.6/targets/x86/64"
+CONTAINER_NAME="${ROUTER_CONTAINER:-mihowrt-openwrt-test}"
+IMAGE_NAME="${ROUTER_IMAGE:-${DEFAULT_IMAGE_NAME}}"
+TIMEOUT="${ROUTER_BOOT_TIMEOUT:-120}"
 
 mkdir -p "${BUILD_DIR}"
 
@@ -27,7 +25,7 @@ if [ ! -f "${KEY_FILE}" ] || [ ! -f "${PUB_FILE}" ]; then
   chmod 600 "${KEY_FILE}"
 fi
 
-# 2. Download and verify official OpenWrt 25.12.6 artifacts
+# 2. Download and verify the official OpenWrt guest artifacts
 check_sha256() {
   local file="$1"
   local expected="$2"
@@ -106,6 +104,8 @@ docker run -d \
   -v "${BUILD_DIR}:/router" \
   -v "${SCRIPT_DIR}/entrypoint.sh:/usr/local/bin/entrypoint.sh:ro" \
   -e "VM_MEM=${VM_MEM:-512}" \
+  -e "ROUTER_KERNEL=${KERNEL_NAME}" \
+  -e "ROUTER_ROOTFS=${ROOTFS_NAME}" \
   -p "127.0.0.1:${PORT}:2222" \
   "${IMAGE_NAME}"
 
@@ -152,7 +152,7 @@ if [ "${READY}" -ne 1 ]; then
   exit 1
 fi
 
-echo "[start] OpenWrt 25.12.6 VM is READY!"
+echo "[start] OpenWrt ${OPENWRT_VERSION} VM is READY!"
 echo "SSH access: ${SCRIPT_DIR}/ssh.sh"
 echo "Direct SSH: ssh -i ${KEY_FILE} -p ${PORT} root@127.0.0.1"
 echo "Serial log: ${BUILD_DIR}/console.log"

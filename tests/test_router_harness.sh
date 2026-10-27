@@ -112,6 +112,35 @@ grep -q -- '-e "VM_MEM=${VM_MEM:-512}"' "${ROUTER_DIR}/start.sh" || fail 'start.
 grep -q -- '-m "${VM_MEM:-512}M"' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must size guest RAM from VM_MEM (default 512)'
 echo 'ok - VM memory override defaults to 512 MiB'
 
+# ROUTER_OPENWRT picks the guest release; 25.12 stays the default.
+release_lib="${ROUTER_DIR}/release.sh"
+[ -f "$release_lib" ] || fail 'tests/router/release.sh missing'
+# shellcheck disable=SC2030,SC2031
+release_values() { # release_values <ROUTER_OPENWRT value or empty>
+  ( ROUTER_OPENWRT="$1"; [ -n "$1" ] || unset ROUTER_OPENWRT
+    # shellcheck source=router/release.sh
+    . "$release_lib" && router_select_release
+    printf '%s|%s|%s|%s|%s\n' "$OPENWRT_VERSION" "$KERNEL_NAME" "$ROOTFS_NAME" "$DEFAULT_IMAGE_NAME" "$BASE_URL" )
+}
+[ "$(release_values '')" = '25.12.6|openwrt-25.12.6-x86-64-generic-kernel.bin|openwrt-25.12.6-x86-64-generic-ext4-rootfs.img.gz|mihowrt-openwrt-test:latest|https://downloads.openwrt.org/releases/25.12.6/targets/x86/64' ] ||
+  fail "default guest must stay 25.12.6: $(release_values '')"
+[ "$(release_values 25.12)" = "$(release_values '')" ] || fail '25.12 must equal the default'
+[ "$(release_values 24.10)" = '24.10.8|openwrt-24.10.8-x86-64-generic-kernel.bin|openwrt-24.10.8-x86-64-generic-ext4-rootfs.img.gz|mihowrt-openwrt-test:24.10|https://downloads.openwrt.org/releases/24.10.8/targets/x86/64' ] ||
+  fail "24.10 guest values: $(release_values 24.10)"
+if release_values 23.05 >/dev/null 2>&1; then fail 'unknown ROUTER_OPENWRT must be refused'; fi
+# shellcheck disable=SC2031
+( export ROUTER_OPENWRT=24.10
+  # shellcheck source=router/release.sh
+  . "$release_lib"; router_select_release
+  [ "$KERNEL_SHA256" = 75e5ec1a12c6e253173cf51a2ae5ab13380931849ab4588407e72c51cac562f3 ] &&
+  [ "$ROOTFS_SHA256" = cf39cd1043fbff86ad2936c951fd6afe607437acf3531082cf11b20febc95b03 ] ) || fail '24.10 artifact hashes'
+grep -q 'router_select_release' "${ROUTER_DIR}/start.sh" || fail 'start.sh must select the release through release.sh'
+grep -q -- '-e "ROUTER_KERNEL=${KERNEL_NAME}"' "${ROUTER_DIR}/start.sh" || fail 'start.sh must pass the kernel name to the VM container'
+grep -q -- '-e "ROUTER_ROOTFS=${ROOTFS_NAME}"' "${ROUTER_DIR}/start.sh" || fail 'start.sh must pass the rootfs name to the VM container'
+grep -q 'ROUTER_KERNEL:-openwrt-25.12.6' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must take the kernel name from ROUTER_KERNEL'
+grep -q 'ROUTER_ROOTFS:-openwrt-25.12.6' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must take the rootfs name from ROUTER_ROOTFS'
+echo 'ok - guest release selection (25.12 default, 24.10)'
+
 # Boots a QEMU OpenWrt VM via Docker; keep it out of the default unit suite.
 if [ "${MIHOWRT_ROUTER_TESTS:-0}" != "1" ]; then
   echo "1..0 # SKIP set MIHOWRT_ROUTER_TESTS=1 to run the OpenWrt VM harness"

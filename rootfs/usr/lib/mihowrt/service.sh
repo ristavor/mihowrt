@@ -128,8 +128,11 @@ uninstall_cleanup() {
 
 # Build and check a runtime config from $CLASH_CONFIG; remember the result.
 runtime_config_build() {
+	local key=""
+
 	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1
-	if mihomo_config_test "$1"; then
+	if { key="$(mihomo_config_test_key "$1")" && [ "$key" = "$(cat "$CONFIG_TESTED_FILE" 2>/dev/null)" ]; } ||
+		mihomo_config_test "$1"; then
 		config_check_record ok
 		return 0
 	fi

@@ -42,29 +42,36 @@ assert_eq 'previous version' "$(cat <&8)" 'core cache publication replaces inode
 exec 8<&-
 pass 'core version cache'
 
-# Only candidate config validation gets half the running core's memory budget.
+# Every config validation gets half the running core's memory budget.
 (
  mihomo_memory_limit() { echo "$memory_limit"; }
  env_core="$tmpdir/env-core"
  cat >"$env_core" <<'N'
 #!/bin/sh
+[ "$1" != -v ] || { echo "Mihomo v1.2.3"; exit 0; }
 printf '%s\n' "${GOMEMLIMIT-unset}" >"$CORE_TEST_ENV"
 N
  chmod +x "$env_core"
  export CORE_TEST_ENV="$tmpdir/core-test.env" GOMEMLIMIT=123MiB
- for memory_limit in 128MiB 0097MiB; do
-  case "$memory_limit" in 128MiB) expected=64MiB ;; *) expected=48MiB ;; esac
-  mihomo_config_test "$CLASH_CONFIG" "$env_core"
-  assert_eq "$expected" "$(cat "$CORE_TEST_ENV")" 'candidate test gets half the memory limit'
-  assert_eq 123MiB "$GOMEMLIMIT" 'candidate limit does not leak into caller'
+ for memory_limit in 128MiB 0097MiB 0MiB ''; do
+  case "$memory_limit" in 128MiB) expected=64MiB ;; 0097MiB) expected=48MiB ;; *) expected=123MiB ;; esac
+  for binary_arg in candidate installed; do
+   if [ "$binary_arg" = candidate ]; then
+    mihomo_config_test "$CLASH_CONFIG" "$env_core"
+   else
+    CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
+   fi
+   assert_eq "$expected" "$(cat "$CORE_TEST_ENV")" "$binary_arg test uses bounded memory when available"
+   assert_eq 123MiB "$GOMEMLIMIT" 'test limit does not leak into caller'
+  done
  done
- CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
- assert_eq 123MiB "$(cat "$CORE_TEST_ENV")" 'installed core test keeps inherited memory limit'
  unset GOMEMLIMIT
- CLASH_BIN="$env_core" mihomo_config_test "$CLASH_CONFIG"
- assert_eq unset "$(cat "$CORE_TEST_ENV")" 'installed core test does not add a memory limit'
+ for memory_limit in 0MiB ''; do
+  mihomo_config_test "$CLASH_CONFIG" "$env_core"
+  assert_eq unset "$(cat "$CORE_TEST_ENV")" 'unset/zero memory budget adds no limit'
+ done
 )
-pass 'candidate config test memory limit'
+pass 'all config tests have bounded memory'
 
 # New core: prints its version; rejects configs when NEW_CORE_REJECTS=1.
 new_core="$tmpdir/new-core"

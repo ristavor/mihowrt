@@ -214,6 +214,7 @@ setup_runtime_paths() {
 	CORE_VERSION_CACHE="$PKG_STATE_DIR/core.version"
 	RUNNING_MARKER="$PKG_STATE_DIR/running"
 	USER_STOP_FILE="$PKG_STATE_DIR/stopped"
+	CONFIG_TESTED_FILE="$PKG_STATE_DIR/config.tested"
 	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"

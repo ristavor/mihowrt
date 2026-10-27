@@ -85,12 +85,37 @@ config_profile_apply() {
 	return 0
 }
 
-# Validate a candidate, back up the current config, install, hot reload.
-# A failed reload restores the backup. Prints {"action": ...}: unchanged
-# (nothing written), saved or hot_reloaded.
+# Restore the exact files saved before installation, not the older .bak.
+config_install_restore() {
+	local old_config="$1" old_runtime="$2" old_profile="$3" live="$4"
+
+	[ ! -f "$PROFILE_FILE" ] || mv -f "$PROFILE_FILE" "$old_profile.failed" || return 1
+	if [ -f "$old_config" ]; then
+		mv -f "$old_config" "$CLASH_CONFIG" || return 1
+	else
+		rm -f "$CLASH_CONFIG" || return 1
+	fi
+	if [ -f "$old_runtime" ]; then
+		mv -f "$old_runtime" "$RUNTIME_CONFIG" || return 1
+	else
+		rm -f "$RUNTIME_CONFIG" || return 1
+	fi
+	if [ -f "$old_profile" ]; then
+		mv -f "$old_profile" "$PROFILE_FILE" || return 1
+	else
+		rm -f "$PROFILE_FILE" || return 1
+	fi
+	[ "$live" -eq 0 ] || api_reload "$RUNTIME_CONFIG" || return 1
+	config_profile_apply "$old_profile.failed"
+}
+
+# Validate a candidate, install, hot reload, then rotate the backup only on
+# success. A failed reload or profile apply restores the pre-install state.
 config_install() {
 	local candidate="$1" runtime_candidate="$PKG_TMP_DIR/runtime.candidate.yaml"
-	local old_profile="$PKG_TMP_DIR/profile.old" same_runtime=0
+	local old_profile="$PKG_TMP_DIR/profile.old" old_runtime="$PKG_TMP_DIR/runtime.old"
+	local old_config="$CLASH_CONFIG.previous.$$" same_runtime=0 live=0 action=saved
+	local error="" restore_error=""
 
 	# Same bytes: spare the flash and the reload.
 	if [ -f "$CLASH_CONFIG" ] && cmp -s "$candidate" "$CLASH_CONFIG"; then
@@ -103,45 +128,68 @@ config_install() {
 		rm -f "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
 	fi
-	# Before the YAML changes: an unlocked profile_ensure (status) would
-	# otherwise rebuild the live profile from the new YAML first.
-	rm -f "$old_profile"
-	[ -f "$PROFILE_FILE" ] && cp "$PROFILE_FILE" "$old_profile"
-	# Hard link: the old YAML is not written again; the install below
-	# replaces $CLASH_CONFIG with a new inode, the backup keeps the old one.
-	if [ -f "$CLASH_CONFIG" ]; then
-		ln -f "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP" 2>/dev/null || cp -p "$CLASH_CONFIG" "$CLASH_CONFIG_BACKUP"
+	# Save the live profile before replacing YAML: status can rebuild it.
+	# A hard link preserves YAML without another flash content write.
+	rm -f "$old_profile" "$old_runtime" "$old_config"
+	if ! {
+		{ [ ! -f "$PROFILE_FILE" ] || cp "$PROFILE_FILE" "$old_profile"; } &&
+			{ [ ! -f "$RUNTIME_CONFIG" ] || cp "$RUNTIME_CONFIG" "$old_runtime"; } &&
+			{ [ ! -f "$CLASH_CONFIG" ] || ln -f "$CLASH_CONFIG" "$old_config" 2>/dev/null || cp -p "$CLASH_CONFIG" "$old_config"; }
+	}; then
+		rm -f "$old_profile" "$old_runtime" "$old_config" "$runtime_candidate" "$runtime_candidate.profile"
+		err "Cannot back up $CLASH_CONFIG"
+		return 1
 	fi
 	if ! { cp "$candidate" "$CLASH_CONFIG.tmp" && chmod 600 "$CLASH_CONFIG.tmp" && mv -f "$CLASH_CONFIG.tmp" "$CLASH_CONFIG"; }; then
-		rm -f "$CLASH_CONFIG.tmp" "$runtime_candidate" "$runtime_candidate.profile" "$old_profile"
+		rm -f "$CLASH_CONFIG.tmp" "$runtime_candidate" "$runtime_candidate.profile" "$old_profile" "$old_runtime" "$old_config"
 		err "Cannot write $CLASH_CONFIG"
 		return 1
 	fi
 	config_check_record ok
 	# Only x-mihowrt changed: Mihomo keeps running without a reload pause.
 	cmp -s "$runtime_candidate" "$RUNTIME_CONFIG" && same_runtime=1
-	mv -f "$runtime_candidate" "$RUNTIME_CONFIG"
-	mv -f "$runtime_candidate.profile" "$PROFILE_FILE" && touch "$PROFILE_FILE"
-
-	if ! service_running || ! api_alive; then
-		config_profile_apply "$old_profile" || warn "Failed to apply the new subscription settings"
-		rm -f "$old_profile"
-		echo '{"action":"saved"}'
-		return 0
+	if ! { mv -f "$runtime_candidate" "$RUNTIME_CONFIG" && mv -f "$runtime_candidate.profile" "$PROFILE_FILE" && touch "$PROFILE_FILE"; }; then
+		error="Cannot publish the runtime config"
 	fi
-	if [ "$same_runtime" -eq 0 ] && ! api_reload "$RUNTIME_CONFIG"; then
-		rm -f "$old_profile"
-		err "Mihomo rejected the new config at reload; restoring the previous one"
-		if [ -f "$CLASH_CONFIG_BACKUP" ]; then
-			cp -p "$CLASH_CONFIG_BACKUP" "$CLASH_CONFIG"
-			config_runtime_reload || warn "Previous config reload failed too; restart the service"
+	if service_running && api_alive; then
+		live=1
+		action=hot_reloaded
+		if [ -z "$error" ] && [ "$same_runtime" -eq 0 ]; then
+			if error="$(api_reload "$RUNTIME_CONFIG" 2>&1)"; then
+				error=""
+			else
+				error="${error:-Mihomo rejected the new config at reload}"
+			fi
 		fi
+	fi
+	if [ -z "$error" ]; then
+		if error="$(config_profile_apply "$old_profile" 2>&1)"; then
+			error=""
+		else
+			error="${error:-Failed to apply policy}"
+		fi
+	fi
+	if [ -n "$error" ]; then
+		error="$(printf '%s\n' "$error" | sed 's/^Error: //')"
+		if restore_error="$(config_install_restore "$old_config" "$old_runtime" "$old_profile" "$live" 2>&1)"; then
+			err "Failed to apply the new subscription settings: $error; the previous config is restored"
+		else
+			restore_error="$(printf '%s\n' "$restore_error" | sed 's/^Error: //')"
+			err "Failed to apply the new subscription settings: $error; restoring the previous config failed: ${restore_error:-Failed to restore config or policy}"
+		fi
+		rm -f "$old_profile" "$old_profile.failed" "$old_runtime" "$old_config" "$runtime_candidate" "$runtime_candidate.profile"
 		return 1
 	fi
-	[ "$same_runtime" -eq 1 ] || log "Configuration hot-reloaded"
-	config_profile_apply "$old_profile" || warn "Failed to apply the new subscription settings"
-	rm -f "$old_profile"
-	echo '{"action":"hot_reloaded"}'
+	if [ -f "$old_config" ]; then
+		mv -f "$old_config" "$CLASH_CONFIG_BACKUP" || {
+			rm -f "$old_profile" "$old_runtime"
+			err "Cannot rotate $CLASH_CONFIG_BACKUP"
+			return 1
+		}
+	fi
+	rm -f "$old_profile" "$old_runtime"
+	[ "$action" != hot_reloaded ] || [ "$same_runtime" -eq 1 ] || log "Configuration hot-reloaded"
+	printf '{"action":"%s"}\n' "$action"
 }
 
 config_has_keys() {

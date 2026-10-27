@@ -155,6 +155,8 @@ settings_load() {
 	CRON_MINUTE="$(uci_get cron_minute 17)"
 	is_uint "$CRON_MINUTE" && [ "$CRON_MINUTE" -le 59 ] || CRON_MINUTE=17
 	CRON_MINUTE="$(uint_norm "$CRON_MINUTE")"
+	DASHBOARD_ENABLED="$(uci_get dashboard 0)"
+	[ "$DASHBOARD_ENABLED" = 1 ] || DASHBOARD_ENABLED=0
 	SETTINGS_LOADED=1
 	return 0
 }

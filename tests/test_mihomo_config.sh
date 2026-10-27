@@ -13,6 +13,8 @@ setup_runtime_paths "$tmpdir"
 
 fake_uci_set network.lan.ipaddr 192.168.8.1/24
 API_SECRET="s3cr3t-value-0001"
+# The frozen runtime fixtures describe an enabled dashboard.
+DASHBOARD_ENABLED=1
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
 
@@ -275,7 +277,10 @@ x-mihowrt:
     - "https://p.example/t.txt;443"
   direct-ips: []
 Y
-mihomo_config_generate "$src" "$out"
+DASHBOARD_ENABLED=0 generator_under_test "$src" "$out"
+assert_eq 0 "$(count '^external-ui')" "dashboard off: no external-ui keys"
+assert_file_not_contains "$out" "$MIHOMO_DASHBOARD_URL" "dashboard off: no download URL"
+DASHBOARD_ENABLED=1 mihomo_config_generate "$src" "$out"
 assert_eq 1 "$(count '^external-ui: ui$')" "dashboard owned"
 assert_file_contains "$out" "$MIHOMO_DASHBOARD_URL" "dashboard URL owned"
 assert_file_not_contains "$out" external-ui-name "dashboard name dropped"

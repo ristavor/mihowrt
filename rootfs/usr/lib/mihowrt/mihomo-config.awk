@@ -359,8 +359,11 @@ function finish_document() {
 	emit("external-controller: " api)
 	emit("external-controller-unix: " sock)
 	emit("secret: \"" secret "\"")
-	emit("external-ui: ui")
-	emit("external-ui-url: \"" ui_url "\"")
+	# Empty URL: the dashboard is not installed (settings flag 0).
+	if (ui_url != "") {
+		emit("external-ui: ui")
+		emit("external-ui-url: \"" ui_url "\"")
+	}
 }
 { process_line($0, FNR) }
 END {

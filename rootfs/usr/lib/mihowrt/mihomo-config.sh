@@ -39,7 +39,7 @@ lan_ip_detect() {
 }
 
 mihomo_config_generate() {
-	local src="$1" dst="$2" tmp="" line=""
+	local src="$1" dst="$2" tmp="" line="" ui_url=""
 
 	[ -r "$src" ] || {
 		err "Mihomo config not found: $src"
@@ -47,6 +47,7 @@ mihomo_config_generate() {
 	}
 	ensure_dir "$(dirname "$dst")" || return 1
 	tmp="$dst.tmp.$$"
+	[ "${DASHBOARD_ENABLED:-0}" != 1 ] || ui_url="$MIHOMO_DASHBOARD_URL"
 	awk -f "$(mihowrt_lib_dir)/yaml-lex.awk" -f "$(mihowrt_lib_dir)/mihomo-config.awk" \
 		-v drop=" $MIHOMO_OWNED_KEYS " \
 		-v dnsdrop=" $MIHOMO_OWNED_DNS_KEYS " \
@@ -58,7 +59,7 @@ mihomo_config_generate() {
 		-v api="$(lan_ip_detect):$MIHOMO_API_PORT" \
 		-v sock="$MIHOMO_SOCKET_TMPFS" \
 		-v secret="$API_SECRET" \
-		-v ui_url="$MIHOMO_DASHBOARD_URL" \
+		-v ui_url="$ui_url" \
 		-v profile="$tmp.profile" \
 		-v warnfile="$tmp.warn" \
 		"$src" >"$tmp" || {

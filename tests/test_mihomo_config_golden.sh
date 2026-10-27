@@ -15,13 +15,16 @@ for dialect in gawk busybox; do
  for src in "$ROOT_DIR"/tests/fixtures/generator/*.yaml \
             "$ROOT_DIR"/tests/fixtures/yaml-forms/*.yaml \
             "$ROOT_DIR/rootfs/opt/clash/config.yaml"; do
-  for renderer in legacy current; do
+  for renderer in legacy current current-off; do
    args=(-f "$legacy")
-   if [ "$renderer" = current ]; then
+   ui_url=https://example.com/ui.zip
+   if [ "$renderer" != legacy ]; then
     args=()
     if [ -f "$MIHOWRT_LIB_DIR/yaml-lex.awk" ]; then args+=(-f "$MIHOWRT_LIB_DIR/yaml-lex.awk"); fi
     args+=(-f "$MIHOWRT_LIB_DIR/mihomo-config.awk")
    fi
+   # Dashboard flag 0: the shell passes an empty URL.
+   [ "$renderer" != current-off ] || ui_url=
    : >"$tmpdir/$renderer.profile"
    : >"$tmpdir/$renderer.warn"
    rc=0
@@ -30,7 +33,7 @@ for dialect in gawk busybox; do
     -v dnsdrop=' enable listen fake-ip-range fake-ip-range6 ' \
     -v dns_port=7874 -v fakeip=198.18.0.0/16 -v tproxy=7894 -v direct_tproxy=7895 \
     -v mark=255 -v api=192.0.2.1:9090 -v sock=/tmp/mihomo.sock \
-    -v secret=golden-secret -v ui_url=https://example.com/ui.zip \
+    -v secret=golden-secret -v ui_url="$ui_url" \
     -v profile="$tmpdir/$renderer.profile" -v warnfile="$tmpdir/$renderer.warn" \
     "$src" >"$tmpdir/$renderer.yaml" || rc=$?
    printf '%s\n' "$rc" >"$tmpdir/$renderer.rc"
@@ -39,7 +42,15 @@ for dialect in gawk busybox; do
    assert_true "$dialect/${src#"$ROOT_DIR/"} byte-identical $output" \
     cmp -s "$tmpdir/legacy.$output" "$tmpdir/current.$output"
   done
+  grep -v '^external-ui' "$tmpdir/legacy.yaml" >"$tmpdir/legacy-off.yaml" || true
+  cp "$tmpdir/legacy.rc" "$tmpdir/legacy-off.rc"
+  cp "$tmpdir/legacy.profile" "$tmpdir/legacy-off.profile"
+  cp "$tmpdir/legacy.warn" "$tmpdir/legacy-off.warn"
+  for output in yaml profile warn rc; do
+   assert_true "$dialect/${src#"$ROOT_DIR/"} dashboard off = baseline without external-ui $output" \
+    cmp -s "$tmpdir/legacy-off.$output" "$tmpdir/current-off.$output"
+  done
  done
- pass "$dialect renderer matches frozen baseline on all 45 YAML fixtures"
+ pass "$dialect renderer matches frozen baseline on all 45 YAML fixtures (dashboard on and off)"
  )
 done

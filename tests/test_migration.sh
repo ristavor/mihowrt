@@ -130,3 +130,35 @@ assert_eq untouched "$(cat "$tmpdir/retired-init")" 'retired init target untouch
 migrate
 assert_true 'main service link kept after repeated migration' test -L "$RC_D_DIR/S21mihowrt"
 pass 'migrate removes recover link'
+
+# 5.6: the dashboard flag is decided once; existing users keep their panel.
+dashboard_case() {
+ uci -q delete mihowrt.settings.dashboard
+ rm -rf "$CLASH_DIR/ui"
+ case "$1" in
+ empty) mkdir -p "$CLASH_DIR/ui" ;;
+ filled) mkdir -p "$CLASH_DIR/ui" && printf x >"$CLASH_DIR/ui/index.html" ;;
+ esac
+ migrate
+ assert_eq "$2" "$(uci_get dashboard)" "dashboard flag with $1 ui dir"
+}
+dashboard_case missing 0
+dashboard_case empty 0
+dashboard_case filled 1
+rm -rf "$CLASH_DIR/ui"
+migrate
+assert_eq 1 "$(uci_get dashboard)" 'repeated migration keeps flag 1'
+fake_uci_set mihowrt.settings.dashboard 0
+mkdir -p "$CLASH_DIR/ui" && printf x >"$CLASH_DIR/ui/index.html"
+migrate
+assert_eq 0 "$(uci_get dashboard)" 'repeated migration keeps flag 0'
+rm -rf "$CLASH_DIR/ui"
+pass 'migrate sets the dashboard flag once from /opt/clash/ui'
+
+fake_uci_set mihowrt.settings.dashboard 1
+settings_load
+assert_eq 1 "$DASHBOARD_ENABLED" 'settings_load reads the dashboard flag'
+uci -q delete mihowrt.settings.dashboard
+settings_load
+assert_eq 0 "$DASHBOARD_ENABLED" 'missing dashboard flag means off'
+pass 'settings_load exposes DASHBOARD_ENABLED'

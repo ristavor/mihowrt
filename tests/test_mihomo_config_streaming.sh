@@ -44,7 +44,7 @@ for dialect in gawk busybox; do
    : >"$tmpdir/$renderer.profile"
    : >"$tmpdir/$renderer.warn"
    rc=0
-   awk "${args[@]}" -v direct_tproxy=7895 \
+   awk "${args[@]}" -v direct_tproxy=7895 -v ui_url=https://example.com/ui.zip \
     -v profile="$tmpdir/$renderer.profile" -v warnfile="$tmpdir/$renderer.warn" \
     "$tmpdir/$source.yaml" >"$tmpdir/$renderer.yaml" || rc=$?
    printf '%s\n' "$rc" >"$tmpdir/$renderer.rc"

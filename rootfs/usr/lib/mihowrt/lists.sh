@@ -3,7 +3,7 @@
 # Policy lists: one entry per line, IPv4, IPv6 or MAC (device lists only).
 #   addr[/prefix][;ports]   e.g. 1.1.1.1, 2001:db8::/32;443
 #   ;ports                  any address on these ports
-#   URL[;ports]             remote list (cached); a trailing "| hours" is ignored
+#   URL[;ports]             remote list (cached)
 # Remote URLs are fetched by lists_update_remote and read from the cache, so
 # applying policy never waits on the network. The provider may ship dst and
 # direct lists (x-mihowrt proxy-ips/direct-ips); the user's list source

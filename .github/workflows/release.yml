@@ -17,8 +17,13 @@ jobs:
     permissions:
       contents: read
     timeout-minutes: 45
+    strategy:
+      matrix:
+        sdk: ['25.12', '24.10']
     outputs:
       prerelease: ${{ steps.version.outputs.prerelease }}
+    env:
+      MIHOWRT_SDK: ${{ matrix.sdk }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -51,16 +56,23 @@ jobs:
           echo "PRERELEASE=$prerelease" >> "$GITHUB_ENV"
           echo "prerelease=$prerelease" >> "${GITHUB_OUTPUT:-/dev/null}"
 
+      - name: Cache SDK archive
+        uses: actions/cache@d4323d4df104b026a6aa633fdb11d772115f676a # v4
+        with:
+          path: .sdk
+          key: sdk-${{ matrix.sdk }}
+
       - name: Build test image
         run: docker build -t mihowrt-test:local -f Dockerfile.test .
 
       - name: Run tests
         run: docker run --rm -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash tests/run.sh
 
-      - name: Build APKs
+      - name: Build packages
         run: ./tools/build-sdk.sh build
 
       - name: Inspect built APKs
+        if: matrix.sdk == '25.12'
         run: |
           docker run --rm -i -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash -euo pipefail << 'EOF'
           set -euo pipefail
@@ -171,6 +183,110 @@ jobs:
           echo "All APK checks passed."
           EOF
 
+      - name: Inspect built IPKs
+        if: matrix.sdk == '24.10'
+        run: |
+          docker run --rm -i -v "$PWD:/workspace:ro" -w /workspace mihowrt-test:local bash -euo pipefail << 'EOF'
+          set -euo pipefail
+          ipk_list=(dist/*.ipk)
+          [ "${#ipk_list[@]}" -gt 0 ] || { echo "No IPKs found in dist/" >&2; exit 1; }
+
+          for ipk in "${ipk_list[@]}"; do
+            [ -f "$ipk" ] || continue
+            echo "=========================================="
+            echo "Inspecting IPK: $(basename "$ipk")"
+            echo "=========================================="
+            tmp_dir="$(mktemp -d)"
+            tar -xzf "$ipk" -C "$tmp_dir"
+            mkdir -p "$tmp_dir/control_dir" "$tmp_dir/data_dir"
+            tar -xzf "$tmp_dir/control.tar.gz" -C "$tmp_dir/control_dir"
+            tar -xzf "$tmp_dir/data.tar.gz" -C "$tmp_dir/data_dir"
+
+            # 1. Architecture check (must be Architecture: all)
+            arch="$(awk -F': *' '$1 == "Architecture" { print $2 }' "$tmp_dir/control_dir/control")"
+            echo "Architecture: $arch"
+            if [ "$arch" != "all" ]; then
+              echo "ERROR: $(basename "$ipk") Architecture: $arch is not Architecture: all" >&2
+              exit 1
+            fi
+
+            # 2. Dependencies check (must be non-empty)
+            echo "Dependencies:"
+            deps="$(awk -F': *' '$1 == "Depends" { print $2 }' "$tmp_dir/control_dir/control")"
+            if [ -z "$deps" ]; then
+              echo "ERROR: $(basename "$ipk") has no Depends list" >&2
+              exit 1
+            fi
+            printf "%s\n" "$deps"
+
+            # 3. Conffiles and file modes for app package
+            case "$(basename "$ipk")" in
+              luci-app-mihowrt*)
+                if [ ! -s "$tmp_dir/control_dir/conffiles" ]; then
+                  echo "ERROR: $(basename "$ipk") missing conffiles" >&2
+                  exit 1
+                fi
+                if ! grep -q "^/etc/config/mihowrt" "$tmp_dir/control_dir/conffiles" || \
+                   ! grep -q "^/opt/clash/config.yaml" "$tmp_dir/control_dir/conffiles"; then
+                  echo "ERROR: $(basename "$ipk") conffiles missing expected entries" >&2
+                  exit 1
+                fi
+
+                init_file="$tmp_dir/data_dir/etc/init.d/mihowrt"
+                if [ ! -f "$init_file" ]; then
+                  echo "ERROR: $(basename "$ipk") missing etc/init.d/mihowrt" >&2
+                  exit 1
+                fi
+                init_mode="$(stat -c "%04a" "$init_file")"
+                case "$init_mode" in
+                  07[57][57]|0555) echo "OK: etc/init.d/mihowrt mode $init_mode" ;;
+                  *) echo "ERROR: etc/init.d/mihowrt has non-executable mode $init_mode" >&2; exit 1 ;;
+                esac
+
+                usr_bin_files=("$tmp_dir/data_dir/usr/bin/"*)
+                if [ "${#usr_bin_files[@]}" -eq 0 ] || [ ! -f "${usr_bin_files[0]}" ]; then
+                  echo "ERROR: $(basename "$ipk") missing usr/bin/*" >&2
+                  exit 1
+                fi
+                for ub in "${usr_bin_files[@]}"; do
+                  ub_mode="$(stat -c "%04a" "$ub")"
+                  case "$ub_mode" in
+                    07[57][57]|0555) echo "OK: $(basename "$ub") mode $ub_mode" ;;
+                    *) echo "ERROR: $ub has non-executable mode $ub_mode" >&2; exit 1 ;;
+                  esac
+                done
+                ;;
+            esac
+            rm -rf "$tmp_dir"
+          done
+          echo "All IPK checks passed."
+          EOF
+
+      - name: Upload built packages
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: packages-${{ matrix.sdk }}
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    timeout-minutes: 45
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Download release packages
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: packages-*
+          merge-multiple: true
+          path: dist
+
       - name: Stage release assets and checksums
         run: |
           set -eu
@@ -183,50 +299,40 @@ jobs:
             fi
             cp "$1" "release/$(basename "$1")"
             cp "$1" "release/$name.apk"
+
+            set -- dist/"${name}"_[0-9]*_all.ipk
+            if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
+              echo "Expected exactly one dist/${name}_<ver>_all.ipk, found: $*" >&2
+              exit 1
+            fi
+            cp "$1" "release/$(basename "$1")"
+            cp "$1" "release/$name.ipk"
           done
           cd release
           sha256sum \
             luci-app-mihowrt-[0-9]*.apk \
             luci-i18n-mihowrt-ru-[0-9]*.apk \
             luci-app-mihowrt.apk \
-            luci-i18n-mihowrt-ru.apk > SHA256SUMS
+            luci-i18n-mihowrt-ru.apk \
+            luci-app-mihowrt_[0-9]*_all.ipk \
+            luci-i18n-mihowrt-ru_[0-9]*_all.ipk \
+            luci-app-mihowrt.ipk \
+            luci-i18n-mihowrt-ru.ipk > SHA256SUMS
           cat SHA256SUMS
 
       - name: Extract release notes
-        if: startsWith(github.ref, 'refs/tags/')
         run: |
           set -eu
-          awk -v v="$VERSION" '
+          version="$(sed -n 's/^PKG_VERSION:=//p' Makefile)"
+          awk -v v="$version" '
             $0 == "## " v { found = 1; next }
             found && /^## / { exit }
             found { print }
           ' CHANGELOG.md > release-notes.md
           if ! grep -q '[^[:space:]]' release-notes.md; then
-            echo "CHANGELOG.md has no non-empty '## $VERSION' section" >&2
+            echo "CHANGELOG.md has no non-empty '## $version' section" >&2
             exit 1
           fi
-
-      - name: Upload release files
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: release
-          path: |
-            release/
-            release-notes.md
-
-  publish:
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    timeout-minutes: 45
-    if: startsWith(github.ref, 'refs/tags/')
-    steps:
-      - name: Download release files
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: release
 
       - name: Create GitHub release
         env:
@@ -234,7 +340,7 @@ jobs:
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
           set -eu
-          set -- release/*.apk release/SHA256SUMS
+          set -- release/*.apk release/*.ipk release/SHA256SUMS
           if [ "$PRERELEASE" = 1 ]; then
             set -- --prerelease "$@"
           fi

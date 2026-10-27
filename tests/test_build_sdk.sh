@@ -301,6 +301,19 @@ assert_contains "release.yml guards publish on tag refs" "startsWith(github.ref,
 assert_contains "release.yml has concurrency group" "concurrency:" "$release_yml"
 assert_contains "release.yml does not cancel in progress" "cancel-in-progress: false" "$release_yml"
 assert_contains "release.yml build job has 45 min timeout" "timeout-minutes: 45" "$release_yml"
+assert_contains "release.yml has SDK matrix" "matrix:" "$release_yml"
+assert_contains "release.yml matrix includes 25.12" "'25.12'" "$release_yml"
+assert_contains "release.yml matrix includes 24.10" "'24.10'" "$release_yml"
+assert_contains "release.yml sets MIHOWRT_SDK" "MIHOWRT_SDK" "$release_yml"
+assert_contains "release.yml caches SDK archive" "actions/cache@" "$release_yml"
+assert_contains "release.yml cache key includes MIHOWRT_SDK" 'sdk-${{ matrix.sdk }}' "$release_yml"
+assert_contains "release.yml lists the fixed-name app IPK" "luci-app-mihowrt.ipk" "$release_yml"
+assert_contains "release.yml lists the fixed-name i18n IPK" "luci-i18n-mihowrt-ru.ipk" "$release_yml"
+assert_contains "release.yml lists versioned app IPK" "luci-app-mihowrt_[0-9]*_all.ipk" "$release_yml"
+assert_contains "release.yml lists versioned i18n IPK" "luci-i18n-mihowrt-ru_[0-9]*_all.ipk" "$release_yml"
+assert_contains "release.yml inspects built IPKs" "Inspect built IPKs" "$release_yml"
+assert_contains "release.yml asserts IPK Architecture: all" "Architecture: all" "$release_yml"
+assert_contains "release.yml asserts IPK conffiles" "conffiles" "$release_yml"
 for wf in "$TEST_YML" "$RELEASE_YML"; do
 	if [[ -f "$wf" ]] && ! grep -P '\t' "$wf" >/dev/null && ! grep -q '@master\|@main' "$wf"; then
 		printf 'ok - %s has no tabs and no floating action refs\n' "${wf##*/}"
@@ -318,10 +331,15 @@ if [[ -n "$release_yml" ]]; then
 	mkdir -p "$stage_dir/dist"
 	printf a > "$stage_dir/dist/luci-app-mihowrt-0.10.0-r1.apk"
 	printf b > "$stage_dir/dist/luci-i18n-mihowrt-ru-0.10.0-r1.apk"
+	printf c > "$stage_dir/dist/luci-app-mihowrt_0.10.0-r1_all.ipk"
+	printf d > "$stage_dir/dist/luci-i18n-mihowrt-ru_0.10.0-r1_all.ipk"
 	(cd "$stage_dir" && bash -c "$stage_script" >/dev/null 2>&1) || true
 	sums="$(cat "$stage_dir/release/SHA256SUMS" 2>/dev/null || true)"
 	assert_contains "staging lists the versioned app APK by bare name" "  luci-app-mihowrt-0.10.0-r1.apk" "$sums"
 	assert_contains "staging lists the fixed-name i18n APK by bare name" "  luci-i18n-mihowrt-ru.apk" "$sums"
+	assert_contains "staging lists the versioned app IPK by bare name" "  luci-app-mihowrt_0.10.0-r1_all.ipk" "$sums"
+	assert_contains "staging lists the fixed-name app IPK by bare name" "  luci-app-mihowrt.ipk" "$sums"
+	assert_contains "staging lists the fixed-name i18n IPK by bare name" "  luci-i18n-mihowrt-ru.ipk" "$sums"
 	if [[ "$sums" == *"/"* || "$sums" == *"dist"* ]]; then
 		printf 'not ok - SHA256SUMS contains paths\n' >&2
 		failed=$((failed + 1))
@@ -485,6 +503,80 @@ mock_bad_mode_rc=0
 (cd "$inspect_test_dir" && PATH="$inspect_test_dir/bin:$PATH" bash -c "$inspect_body" >/dev/null 2>&1) || mock_bad_mode_rc=$?
 assert_eq "inspect script fails on non-executable etc/init.d/mihowrt" 1 "$mock_bad_mode_rc"
 rm -rf "$inspect_test_dir"
+
+# Test 14e: extract and test inspect-ipks block from release.yml
+inspect_ipk_body="$(awk '/- name: Inspect built IPKs/{f=1;next} f&&/<< .EOF./{r=1;next} r&&/^[[:space:]]*EOF/{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+assert_contains "inspect IPK script extracted from release.yml" "tar -xzf" "$inspect_ipk_body"
+inspect_ipk_dir="$(mktemp -d)"
+mkdir -p "$inspect_ipk_dir/dist" "$inspect_ipk_dir/pkg/control" "$inspect_ipk_dir/pkg/data/etc/init.d" "$inspect_ipk_dir/pkg/data/usr/bin"
+cat > "$inspect_ipk_dir/pkg/control/control" << 'EOF'
+Package: luci-app-mihowrt
+Version: 0.11.0-r1
+Depends: libc, kmod-nft-tproxy, curl, ucode
+Architecture: all
+EOF
+cat > "$inspect_ipk_dir/pkg/control/conffiles" << 'EOF'
+/etc/config/mihowrt
+/opt/clash/config.yaml
+EOF
+touch "$inspect_ipk_dir/pkg/data/etc/init.d/mihowrt" "$inspect_ipk_dir/pkg/data/usr/bin/mihowrt"
+chmod 0755 "$inspect_ipk_dir/pkg/data/etc/init.d/mihowrt" "$inspect_ipk_dir/pkg/data/usr/bin/mihowrt"
+(cd "$inspect_ipk_dir/pkg/control" && tar -czf ../control.tar.gz .)
+(cd "$inspect_ipk_dir/pkg/data" && tar -czf ../data.tar.gz .)
+echo 2.0 > "$inspect_ipk_dir/pkg/debian-binary"
+(cd "$inspect_ipk_dir/pkg" && tar -czf "$inspect_ipk_dir/dist/luci-app-mihowrt_0.11.0-r1_all.ipk" control.tar.gz data.tar.gz debian-binary)
+
+mock_ipk_rc=0
+(cd "$inspect_ipk_dir" && bash -c "$inspect_ipk_body" >/dev/null 2>&1) || mock_ipk_rc=$?
+assert_eq "inspect script succeeds on valid IPK" 0 "$mock_ipk_rc"
+
+# Bad architecture (x86_64)
+cat > "$inspect_ipk_dir/pkg/control/control" << 'EOF'
+Package: luci-app-mihowrt
+Version: 0.11.0-r1
+Depends: libc, kmod-nft-tproxy, curl, ucode
+Architecture: x86_64
+EOF
+(cd "$inspect_ipk_dir/pkg/control" && tar -czf ../control.tar.gz .)
+(cd "$inspect_ipk_dir/pkg" && tar -czf "$inspect_ipk_dir/dist/luci-app-mihowrt_0.11.0-r1_all.ipk" control.tar.gz data.tar.gz debian-binary)
+mock_bad_ipk_arch_rc=0
+(cd "$inspect_ipk_dir" && bash -c "$inspect_ipk_body" >/dev/null 2>&1) || mock_bad_ipk_arch_rc=$?
+assert_eq "inspect script fails on non-all IPK architecture" 1 "$mock_bad_ipk_arch_rc"
+
+# Bad mode (non-executable etc/init.d/mihowrt)
+cat > "$inspect_ipk_dir/pkg/control/control" << 'EOF'
+Package: luci-app-mihowrt
+Version: 0.11.0-r1
+Depends: libc, kmod-nft-tproxy, curl, ucode
+Architecture: all
+EOF
+chmod 0644 "$inspect_ipk_dir/pkg/data/etc/init.d/mihowrt"
+(cd "$inspect_ipk_dir/pkg/control" && tar -czf ../control.tar.gz .)
+(cd "$inspect_ipk_dir/pkg/data" && tar -czf ../data.tar.gz .)
+(cd "$inspect_ipk_dir/pkg" && tar -czf "$inspect_ipk_dir/dist/luci-app-mihowrt_0.11.0-r1_all.ipk" control.tar.gz data.tar.gz debian-binary)
+mock_bad_ipk_mode_rc=0
+(cd "$inspect_ipk_dir" && bash -c "$inspect_ipk_body" >/dev/null 2>&1) || mock_bad_ipk_mode_rc=$?
+assert_eq "inspect script fails on non-executable IPK etc/init.d/mihowrt" 1 "$mock_bad_ipk_mode_rc"
+
+# Missing conffiles
+chmod 0755 "$inspect_ipk_dir/pkg/data/etc/init.d/mihowrt"
+rm -f "$inspect_ipk_dir/pkg/control/conffiles"
+(cd "$inspect_ipk_dir/pkg/control" && tar -czf ../control.tar.gz .)
+(cd "$inspect_ipk_dir/pkg/data" && tar -czf ../data.tar.gz .)
+(cd "$inspect_ipk_dir/pkg" && tar -czf "$inspect_ipk_dir/dist/luci-app-mihowrt_0.11.0-r1_all.ipk" control.tar.gz data.tar.gz debian-binary)
+mock_missing_conffiles_rc=0
+(cd "$inspect_ipk_dir" && bash -c "$inspect_ipk_body" >/dev/null 2>&1) || mock_missing_conffiles_rc=$?
+assert_eq "inspect script fails on missing IPK conffiles" 1 "$mock_missing_conffiles_rc"
+rm -rf "$inspect_ipk_dir"
+
+# Test 14f: installer download names match release.yml SHA256SUMS step
+pkg_name="$(sed -n 's/^PKG="*\([^"]*\)"*/\1/p' "${ROOT_DIR}/install.sh")"
+i18n_pkg_name="$(sed -n 's/^I18N_PKG="*\([^"]*\)"*/\1/p' "${ROOT_DIR}/install.sh")"
+staging_step="$(awk '/- name: Stage release assets/{f=1;next} f&&/run: \|/{r=1;next} r&&/^      - /{exit} r{print}' "$RELEASE_YML")"
+for ext in apk ipk; do
+	assert_contains "SHA256SUMS step lists installer $ext app package" "${pkg_name}.${ext}" "$staging_step"
+	assert_contains "SHA256SUMS step lists installer $ext i18n package" "${i18n_pkg_name}.${ext}" "$staging_step"
+done
 
 # Test 15: license and package metadata
 BUG_YML="${ROOT_DIR}/.github/ISSUE_TEMPLATE/bug.yml"

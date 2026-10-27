@@ -114,6 +114,16 @@ $BASE/luci-i18n-mihowrt-ru.apk" "$(cat "$tmpdir/downloads")" "only fixed release
 if grep -q 'api.github.com\|-r1.apk' "$tmpdir/downloads"; then fail "no API or -r1 URLs"; fi
 pass "urls"
 
+# The release base override covers checksums and both APKs.
+fake_release ok
+out="$(MIHOWRT_RELEASE_URL=file:///mirror source_install_lib; install_packages ru 2>&1)" || fail "mirror install failed: $out"
+assert_eq $'file:///mirror/SHA256SUMS\nfile:///mirror/luci-app-mihowrt.apk\nfile:///mirror/luci-i18n-mihowrt-ru.apk' "$(cat "$tmpdir/downloads")" "release URL override covers all assets"
+pass "release URL override"
+
+# Restore the default release fixture for the version assertion below.
+fake_release ok
+out="$(install_packages ru 2>&1)" || fail "install_packages must succeed: $out"
+
 assert_file_contains "$apk_log" "apk add --allow-untrusted $WORK/luci-app-mihowrt.apk" "matching sums install the app"
 [[ "$out" == *"Installing 0.10.0-r1..."* ]] || fail "version from SHA256SUMS: $out"
 pass "version message"

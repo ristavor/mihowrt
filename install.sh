@@ -5,7 +5,7 @@
 set -eu
 
 REPO="ristavor/mihowrt"
-RELEASE_URL="https://github.com/$REPO/releases/latest/download"
+RELEASE_URL="${MIHOWRT_RELEASE_URL:-https://github.com/$REPO/releases/latest/download}"
 PKG="luci-app-mihowrt"
 I18N_PKG="luci-i18n-mihowrt-ru"
 DEPS="luci-base nftables jq kmod-nft-tproxy curl"

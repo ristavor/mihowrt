@@ -843,3 +843,6 @@ msgstr "Запустите MihoWRT перед установкой панели.
 
 msgid "Mihomo rejected the configuration."
 msgstr "Mihomo отклонил конфигурацию."
+
+msgid "The upload failed. Check your LuCI permissions and try again."
+msgstr "Не удалось загрузить файл. Проверьте права доступа в LuCI и попробуйте снова."

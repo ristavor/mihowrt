@@ -489,7 +489,7 @@ return baseclass.extend({
 			throw e;
 		}
 		if (reply?.failure)
-			throw new Error(reply.message);
+			throw new Error(_('The upload failed. Check your LuCI permissions and try again.'));
 		if (reply?.size !== blob.size)
 			throw new Error(_('The upload was incomplete. Try again.'));
 		return path;

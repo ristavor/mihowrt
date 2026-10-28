@@ -149,7 +149,10 @@ test('upload byte size, session, URL, ACL errors and allowed prefixes', async ()
 	assert.equal(seen[1].get('sessionid'), 'session-secret'); assert.equal(seen[1].get('filename'), path);
 	assert.equal(seen[1].get('filedata').size, size); assert.equal(Buffer.from(await seen[1].get('filedata').arrayBuffer()).toString('utf8'), content);
 	reply = { size: size - 1 }; await assert.rejects(api.upload('mihowrt-config', content), { message: 'The upload was incomplete. Try again.' });
-	reply = { failure: [0, ''], message: 'Access to path denied by ACL' }; await assert.rejects(api.upload('mihowrt-config', content), { message: reply.message });
+	for (const message of ['Access to path denied by ACL', 'Cannot create file', undefined]) {
+  reply = { failure: [0, ''], message };
+  await assert.rejects(api.upload('mihowrt-config', content), { message: 'The upload failed. Check your LuCI permissions and try again.' });
+ }
 	await assert.rejects(api.upload('../etc/config', content));
 	reply = { size }; assert.match(await api.upload('mihowrt-policy-list', content), /^\/tmp\/mihowrt-policy-list\.[a-z0-9]+$/);
 });

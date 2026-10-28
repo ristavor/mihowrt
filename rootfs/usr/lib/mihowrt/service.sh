@@ -136,7 +136,11 @@ runtime_config_build() {
 
 	inputs="$(mihomo_config_key "$CLASH_CONFIG" 2>/dev/null)" || inputs=""
 	runtime_config_key_store ""
-	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1
+	mihomo_config_generate "$CLASH_CONFIG" "$1" || {
+		# A rejected YAML fails the same way on every hotplug retry.
+		[ "$?" != 2 ] || { ensure_dir "$PKG_STATE_DIR" && : >"$CONFIG_INVALID_FILE"; }
+		return 1
+	}
 	[ -x "$CLASH_BIN" ] || { mihomo_config_test "$1"; return 1; }
 	if { key="$(mihomo_config_test_key "$1")" && [ "$key" = "$(cat "$CONFIG_TESTED_FILE" 2>/dev/null)" ]; } ||
 		mihomo_config_test "$1" "$CLASH_BIN" "$key"; then

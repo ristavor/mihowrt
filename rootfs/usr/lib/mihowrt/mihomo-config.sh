@@ -42,8 +42,9 @@ lan_ip_detect() {
 # With "key", print a fingerprint of every generator input instead: the awk
 # -v list below (hashed as is, so no input can be missed), the source bytes
 # and the awk programs. The output paths are per build and not inputs.
+# Returns 2 when the parser rejects the YAML itself, 1 on other failures.
 mihomo_config_generate() {
-	local src="$1" dst="$2" mode="${3:-}" tmp="" line="" ui_url="" lib="" files="" source_hash="" key=""
+	local src="$1" dst="$2" mode="${3:-}" tmp="" line="" rc=1 ui_url="" lib="" files="" source_hash="" key=""
 
 	[ -r "$src" ] || {
 		err "Mihomo config not found: $src"
@@ -78,12 +79,14 @@ mihomo_config_generate() {
 		-v warnfile="$tmp.warn" \
 		"$src" >"$tmp" || {
 		if [ -s "$tmp.warn" ]; then
+			# The parser explained why: the YAML itself is rejected (rc 2).
 			while IFS= read -r line; do err "$line"; done <"$tmp.warn"
+			rc=2
 		else
 			err "Failed to generate runtime config"
 		fi
 		rm -f "$tmp" "$tmp.profile" "$tmp.warn"
-		return 1
+		return "$rc"
 	}
 	# Invalid x-mihowrt children are ignored and logged.
 	sed -n 's/^ignored //p' "$tmp.profile" 2>/dev/null | while IFS= read -r line; do

@@ -66,13 +66,14 @@ core_fail() {
 	return 1
 }
 
-# Install the latest release or a local .gz/binary ($1). Sets CORE_UPDATED (0|1), CORE_VERSION, CORE_ERROR.
+# Install the latest release or a local .gz/binary ($1). Sets CORE_UPDATED/CORE_VERIFIED (0|1), CORE_VERSION, CORE_ERROR.
 core_update() {
 	local arch="" json="" tag="" current="" name="" meta="" url="" digest="" size="" gz="" gz_bytes="" free=""
 	local config="$PKG_TMP_DIR/core-test.yaml" file="${1:-}" version=""
 
 	rm -rf "$CORE_TMP_DIR" "$CLASH_BIN.new"
 	CORE_UPDATED=0
+	CORE_VERIFIED=0
 	CORE_ERROR=""
 	CORE_VERSION="$(core_version)"
 	settings_load 2>/dev/null || true
@@ -126,8 +127,15 @@ core_update() {
 		case "$digest" in
 		sha256:*)
 			[ "$(sha256sum "$gz" | cut -d' ' -f1)" = "${digest#sha256:}" ] || core_fail "sha256 mismatch" || return 1
+			CORE_VERIFIED=1
 			;;
-		*) warn "Core update: release has no sha256 digest; size check only" ;;
+		*)
+			if is_uint "$size"; then
+				warn "Core update: release has no sha256 digest; size check only"
+			else
+				warn "Core update: release has no sha256 digest; size not checked"
+			fi
+			;;
 		esac
 	fi
 
@@ -173,6 +181,6 @@ core_update_json() {
 	local rc=0
 
 	core_update "$@" || rc=$?
-	mihowrt-json build core --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED"
+	mihowrt-json build core --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED" --arg verified "$CORE_VERIFIED"
 	return "$rc"
 }

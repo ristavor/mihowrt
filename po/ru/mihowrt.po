@@ -855,3 +855,6 @@ msgstr "Панель Mihomo по-прежнему показывает все у
 
 msgid "No LAN IPv4 address found. Check the LAN interface settings to open the dashboard."
 msgstr "IPv4-адрес локальной сети не найден. Чтобы открыть панель, проверьте настройки интерфейса локальной сети."
+
+msgid "checksum not verified"
+msgstr "контрольная сумма не проверена"

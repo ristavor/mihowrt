@@ -46,7 +46,7 @@ function coreMissingCard() {
 
 	install.addEventListener('click', () => api.busy(install, async () => {
 		const res = await api.job('core-update');
-		api.reloadWithNotice(_('Mihomo core %s installed.').format(res.version || ''));
+		api.reloadWithNotice(_('Mihomo core %s installed.').format(res.version || '') + (res.verified === false ? ' ' + _('checksum not verified') : ''));
 	}));
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
@@ -378,7 +378,7 @@ function toolsSection(status) {
 	});
 	core.addEventListener('click', () => api.busy(core, async () => {
 		const res = await api.job('core-update');
-		api.notify(res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version));
+		api.notify((res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version)) + (res.updated && res.verified === false ? ' ' + _('checksum not verified') : ''));
 	}));
 
 	return E('div', { class: 'cbi-section' }, [

@@ -162,7 +162,7 @@ function build(shape, a) {
 	case 'runtime': return {content: read(), generated: a.generated};
 	case 'changed': return {changed: a.c == '1' || a.r == 'changed'};
 	case 'version': return {version: a.v, installed: a.v != ''};
-	case 'core': return {updated: a.u == '1', version: a.v, error: a.e == '' ? null : a.e};
+	case 'core': return {updated: a.u == '1', version: a.v, error: a.e == '' ? null : a.e, verified: a.verified == '1'};
 	case 'job': return {id: a.id, op: a.op, state: 'running', started: a.started, finished: null, result: null, error: null};
 	case 'finish': return {state: a.state, finished: a.finished, result: a.result, error: a.state == 'ok' ? null : a.error};
 	case 'restart': return a.e == '' ? {restarted: a.restarted} : {restarted: a.restarted, error: a.e};

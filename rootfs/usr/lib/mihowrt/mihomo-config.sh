@@ -8,7 +8,8 @@
 
 MIHOMO_OWNED_KEYS="log-level tproxy-port routing-mark allow-lan bind-address tun profile external-controller external-controller-unix external-controller-tls external-controller-pipe external-doh-server external-controller-cors secret external-ui external-ui-url external-ui-name x-mihowrt"
 MIHOMO_OWNED_DNS_KEYS="enable listen fake-ip-range fake-ip-range6"
-MIHOMO_DASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
+# Mihomo downloads the dashboard itself, so a sha256 check is not possible here.
+MIHOMO_DASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip"
 
 yaml_has_top_key() {
 	awk -v key="$1" '

@@ -22,6 +22,8 @@ assert_eq 127.0.0.1 "$(lan_ip_detect)" 'no usable LAN address'
 unset -f ip
 fake_uci_reset
 
+assert_eq 'https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip' "$MIHOMO_DASHBOARD_URL" 'dashboard release is pinned'
+[[ "$MIHOMO_DASHBOARD_URL" != *'/latest/'* ]] || fail 'dashboard must not track latest'
 # Source the real CLI functions without dispatching a command.
 sed '/^cmd=/,$d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" |
  sed "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" >"$tmpdir/cli-functions.sh"

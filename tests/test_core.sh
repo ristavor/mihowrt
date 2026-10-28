@@ -235,13 +235,14 @@ core_free_kb() {
  [ ! -e "$CORE_TMP_DIR/x" ] && [ ! -e "$CLASH_BIN.new" ] || { echo 0; return; }
  echo "$free_kb"
 }
-core_update || fail "update must succeed after stale leftovers are removed"
+result="$(core_update_json)" || fail "update must succeed after stale leftovers are removed"
+assert_eq true "$(jq -r .verified <<<"$result")" "matching release checksum is verified"
 assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after core success"
-assert_eq "1:v1.19.32" "$CORE_UPDATED:$(core_version)" "core replaced"
+assert_eq "true:v1.19.32" "$(jq -r .updated <<<"$result"):$(core_version)" "core replaced"
 core_update
 assert_eq 0 "$CORE_UPDATED" "same version is a no-op"
 assert_eq "" "$(find "$PKG_TMP_DIR" -name 'fetch.headers.*')" "no header files left after up-to-date core"
-assert_eq '{"updated":false,"version":"v1.19.32","error":null}' "$(core_update_json)" "json result"
+assert_eq '{"updated":false,"version":"v1.19.32","error":null,"verified":false}' "$(core_update_json)" "json result"
 pass "core update"
 
 # GitHub API unreachable (or rate-limited): tag from the github.com redirect,

@@ -66,5 +66,5 @@ assert_false 'offline failure removes profile' test -e "$PKG_TMP_DIR/core-test.y
 pass 'offline config rejection keeps old core'
 # JSON layer forwards the optional local path too.
 result="$(core_update_json "$tmpdir/local core")"
-assert_eq '{"updated":true,"version":"v1.2.3","error":null}' "$result" 'offline JSON result'
+assert_eq '{"updated":true,"version":"v1.2.3","error":null,"verified":false}' "$result" 'offline JSON result'
 pass 'offline JSON forwards local file'

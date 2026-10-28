@@ -265,6 +265,23 @@ seq(async () => {
  console.log('ok - dashboard Overview install, stopped and read-only states');
 });
 
+seq(async () => {
+ for (const missing of [false, true]) {
+  for (const result of [{ updated: true, verified: false }, { updated: true, verified: true }, { updated: false, verified: false }]) {
+   const notices = [];
+   const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+    E, view: { extend: v => v }, poll: { add() {} }, window: {},
+    api: { ...api, busy: (b, fn) => fn(), job: async () => ({ ...result, version: 'v1.2.3' }),
+     notify: message => notices.push(message), reloadWithNotice: message => notices.push(message) }
+   }).module;
+   const p = ov.render([{ ...base, core_installed: !missing, subscription_configured: true }, {}, []]);
+   await findButton(p, missing ? 'Install Mihomo core' : 'Update Mihomo core').listeners.click();
+   h.assertEq(notices.some(message => message.includes('checksum not verified')), !result.verified && (missing || result.updated), 'checksum warning accompanies only unverified install/update results');
+  }
+ }
+ console.log('ok - core update checksum notices');
+});
+
 // Provider-first form and event contracts (Tasks 11-14).
 seq(async () => {
  class Option {

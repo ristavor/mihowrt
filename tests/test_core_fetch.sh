@@ -11,6 +11,7 @@ CLASH_BIN="$tmpdir/clash"
 core_arch() { echo arm64; }
 settings_load() { :; }
 core_free_kb() { echo 1000000; }
+warn() { printf '%s\n' "$*" >&2; }
 printf '#!/bin/sh\necho "Mihomo v1.2.3"\n' >"$tmpdir/new-core"
 gzip -c "$tmpdir/new-core" >"$tmpdir/asset.gz"
 jq -nc --arg s "$(wc -c <"$tmpdir/asset.gz" | tr -d ' ')" \
@@ -36,7 +37,13 @@ curl() {
 for fallback in 0 1; do
  rm -f "$CLASH_BIN" "$CORE_VERSION_CACHE"
  : >"$tmpdir/curl.log"
- core_update 2>/dev/null || fail "asset fetch succeeds: $CORE_ERROR"
+ result="$(core_update_json 2>"$tmpdir/warnings")" || fail "asset fetch succeeds: $result"
+ assert_eq false "$(jq -r .verified <<<"$result")" "missing digest is unverified (fallback=$fallback)"
+ if [ "$fallback" = 1 ]; then
+  assert_file_contains "$tmpdir/warnings" 'release has no sha256 digest; size not checked' 'fallback warning never claims a size check'
+ else
+  assert_file_contains "$tmpdir/warnings" 'release has no sha256 digest; size check only' 'API size-only warning'
+ fi
  api_args="$(grep api.github.com "$tmpdir/curl.log")"
  [[ "$api_args" == *'--max-time 30'* ]] || fail 'release metadata retains fixed timeout'
  asset_args="$(grep -E 'example.com/core.gz|releases/download/' "$tmpdir/curl.log")"

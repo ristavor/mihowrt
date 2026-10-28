@@ -106,7 +106,7 @@ function build(shape, a) {
 		config_valid: a.config_valid, config_backup: a.config_backup, config_error: a.config_error, dns_mode: a.dns_mode, dns_ok: a.dns_ok, policy_active: a.policy,
 		mode: a.mode, block_client_ipv6: a.block_client_ipv6 == '1', interfaces: lines(a.interfaces, ' '), custom_dns_servers: lines(a.custom, ' '),
 		lists: {dst: num(a.dst), src: num(a.src), direct: num(a.direct), direct_src: num(a.direct_src)},
-		route: {table: a.table, priority: a.priority}, errors: lines(a.errors, '\n')
+		route: {table: a.table, priority: a.priority}, errors: length(a.errors) ? [a.errors] : []
 	};
 	case 'profile':
 		let provider = {};

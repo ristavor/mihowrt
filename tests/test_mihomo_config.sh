@@ -267,7 +267,7 @@ assert_eq 1 "$(count '^dns:$')" "managed dns block used"
 pass "scalar dns treated as absent"
 
 # The shipped config leaves router-owned keys to the managed section.
-for key in tproxy-port routing-mark allow-lan bind-address profile external-controller external-controller-unix; do
+for key in log-level tproxy-port routing-mark allow-lan bind-address profile external-controller external-controller-unix; do
 	if grep -q "^$key:" "$ROOT_DIR/rootfs/opt/clash/config.yaml"; then fail "built-in config sets router-owned $key"; fi
 done
 for key in enable listen fake-ip-range; do

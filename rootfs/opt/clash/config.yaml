@@ -1,11 +1,10 @@
 # Mihomo config used without a subscription.
-# MihoWRT sets these itself, so they are not needed here: tproxy-port,
+# MihoWRT sets these itself, so they are not needed here: log-level, tproxy-port,
 # routing-mark, allow-lan, bind-address, tun, profile, external-controller*,
 # secret, external-ui* (dashboard) and dns enable/listen/fake-ip-range.
 # Empty fake-ip whitelist: no proxy domains until a subscription is installed.
 mode: rule
 ipv6: false
-log-level: warning
 unified-delay: true
 tcp-concurrent: true
 find-process-mode: off

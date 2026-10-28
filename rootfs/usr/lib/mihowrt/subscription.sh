@@ -166,11 +166,19 @@ subscription_set() {
 
 # A and AAAA answers for a host from the router resolver (dnsmasq).
 subscription_host_addresses() {
-	is_ipv4 "$1" || is_ipv6 "$1" && {
-		echo "$1"
-		return 0
+	{
+		if is_ipv4 "$1" || is_ipv6 "$1"; then
+			echo "$1"
+		else
+			nslookup "$1" 127.0.0.1 2>/dev/null | awk '/^Name:/ { name = 1; next } name && /^Address/ { sub(/^Address[^:]*:[[:space:]]*/, ""); print }'
+		fi
+	} | awk -v range="$FAKEIP_RANGE" '
+	function ipv4(ip, octets) {
+		split(ip, octets, ".")
+		return ((octets[1] * 256 + octets[2]) * 256 + octets[3]) * 256 + octets[4]
 	}
-	nslookup "$1" 127.0.0.1 2>/dev/null | awk '/^Name:/ { name = 1; next } name && /^Address/ { sub(/^Address[^:]*:[[:space:]]*/, ""); print }'
+	BEGIN { split(range, cidr, "/"); size = 2 ^ (32 - cidr[2]); network = int(ipv4(cidr[1]) / size) }
+	index($0, ":") || int(ipv4($0) / size) != network { print }'
 }
 
 # A Clash/Mihomo config has a top-level proxies or proxy-providers key.
@@ -179,13 +187,19 @@ subscription_is_clash() {
 	yaml_has_top_key 'proxies|proxy-providers' "$1"
 }
 
+# Restore DNS exceptions from the saved URL after a failed replacement.
+subscription_restore_dns() {
+	settings_load && with_lock dns_apply
+}
+
 # Download the subscription, validate and install it, update metadata.
 # With a URL argument that link is tried and saved only if it works, so a
 # typo never replaces the working link.
 subscription_update() {
-	local new_url="${1:-}" candidate="$PKG_TMP_DIR/subscription.$$.yaml" headers_file="$PKG_TMP_DIR/subscription.$$.headers" meta="" result="" bypass="" rc=0
+	local new_url="${1:-}" candidate="$PKG_TMP_DIR/subscription.$$.yaml" headers_file="$PKG_TMP_DIR/subscription.$$.headers" meta="" result="" bypass="" rc=0 dns_changed=0 saved_host=""
 
 	settings_load || return 1
+	saved_host="$(url_host "$SUBSCRIPTION_URL")"
 	if [ -n "$new_url" ]; then
 		is_http_url "$new_url" || {
 			err "Subscription download failed: invalid_url"
@@ -197,6 +211,13 @@ subscription_update() {
 		err "Subscription URL is not set"
 		return 1
 	}
+	if [ -f "$RUNNING_MARKER" ] && [ "$saved_host" != "$(url_host "$SUBSCRIPTION_URL")" ]; then
+		dns_changed=1
+		with_lock dns_apply || {
+			subscription_restore_dns || warn "Failed to restore subscription DNS"
+			return 1
+		}
+	fi
 	# Download directly (not through Mihomo) when the toggle is on: the IPs
 	# come from the same resolver curl uses and are removed right after.
 	bypass=""
@@ -212,16 +233,19 @@ subscription_update() {
 	if [ "$rc" -ne 0 ]; then
 		rm -f "$headers_file"
 		err "Subscription download failed: $FETCH_ERROR"
+		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1
 	fi
 	[ -s "$candidate" ] || {
 		rm -f "$candidate" "$headers_file"
 		err "Subscription returned an empty config"
+		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1
 	}
 	subscription_is_clash "$candidate" || {
 		rm -f "$candidate" "$headers_file"
 		err "The provider returned something that is not a Clash/Mihomo config (V2Ray links, base64, sing-box JSON or a web page). Use the Clash/Mihomo link from your provider's account."
+		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1
 	}
 	meta="$(subscription_metadata_from_headers)" || meta=""
@@ -230,6 +254,7 @@ subscription_update() {
 	config_api_wait || true
 	result="$(with_lock config_install "$candidate")" || {
 		rm -f "$candidate" "$headers_file"
+		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1
 	}
 	rm -f "$candidate"

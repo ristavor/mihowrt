@@ -235,6 +235,52 @@ subscription_update >/dev/null
 assert_eq $'download\nfetch-order' "$(cat "$nft_log")" "no bypass when the toggle is off"
 pass "temporary subscription bypass"
 
+(
+ settings_load() { SUBSCRIPTION_URL=https://sub.example.com/s; BYPASS_SUBSCRIPTION_DNS=1; }
+ nslookup() { printf 'Name: sub.example.com\nAddress: 198.18.0.5\n'; }
+ : >"$nft_log"
+ subscription_update >/dev/null
+ assert_file_not_contains "$nft_log" 'bypass_dst' 'fake-IP must never enter the temporary bypass'
+ assert_eq '' "$(subscription_host_addresses 198.18.0.5)" 'literal fake-IP is filtered too'
+ assert_eq 198.19.0.5 "$(subscription_host_addresses 198.19.0.5)" 'address outside FAKEIP_RANGE retained'
+)
+pass 'subscription fake-IP answers excluded from bypass'
+
+(
+ load_modules dns.sh
+ settings_load() { SUBSCRIPTION_URL="$(uci_get subscription_url)"; BYPASS_SUBSCRIPTION_DNS=1; }
+ settings_require() { :; }
+ dns_confdirs() { echo "$tmpdir/dnsmasq"; }
+ dns_restart_dnsmasq() { :; }
+ DNS_AUTO_RESOLVFILE="$tmpdir/resolv.auto"
+ printf 'nameserver 192.0.2.53\n' >"$DNS_AUTO_RESOLVFILE"
+ fake_uci_set mihowrt.settings.subscription_url https://old.example/sub
+ touch "$RUNNING_MARKER"
+ for outcome in success download_failure empty non_clash install_failure; do
+  http_fetch() {
+   assert_file_contains "$tmpdir/dnsmasq/$DNS_CONF_NAME" 'server=/new.example/192.0.2.53' 'new host DNS bypass installed before fetch'
+   case "$outcome" in
+   download_failure) FETCH_ERROR=network; return 1 ;;
+   empty) : >"$2" ;;
+   non_clash) echo '<html>' >"$2" ;;
+   *) echo 'proxies: []' >"$2" ;;
+   esac
+  }
+  config_install() { [ "$outcome" != install_failure ] || return 1; echo '{"action":"saved"}'; }
+  if [ "$outcome" = success ]; then
+   subscription_update https://new.example/sub >/dev/null
+   fake_uci_set mihowrt.settings.subscription_url https://old.example/sub
+  else
+   assert_false "$outcome fails" subscription_update https://new.example/sub >/dev/null 2>"$tmpdir/dns-failure.err"
+   assert_file_contains "$tmpdir/dnsmasq/$DNS_CONF_NAME" 'server=/old.example/192.0.2.53' 'failed replacement restores saved host DNS bypass'
+   assert_file_not_contains "$tmpdir/dnsmasq/$DNS_CONF_NAME" 'server=/new.example/' 'failed host DNS bypass removed'
+  fi
+ done
+ rm -f "$RUNNING_MARKER"
+)
+pass 'replacement host DNS prepared before fetch and restored on failure'
+
+
 # A broken metadata file must not break the subscription page.
 : >"$SUBSCRIPTION_META_FILE"
 subscription_json | jq -e '.url != null' >/dev/null || fail "empty metadata file must be ignored"

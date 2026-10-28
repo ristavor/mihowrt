@@ -18,6 +18,13 @@ DASHBOARD_ENABLED=1
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
 
+# R28: controller exposure remains router-owned, including quoted/nested keys.
+printf 'external-doh-server: /dns-query\n"external-controller-cors":\n  allow-origins: ["*"]\nproxies: []\n' >"$src"
+mihomo_config_generate "$src" "$out"
+assert_file_not_contains "$out" 'external-doh-server' 'subscription DoH listener stripped'
+assert_file_not_contains "$out" 'allow-origins' 'subscription CORS children stripped'
+pass 'controller exposure keys owned'
+
 # R4: subscription log verbosity never overrides the router setting.
 printf 'log-level: info\nproxies: []\n' >"$src"
 for level in silent error warning info debug; do

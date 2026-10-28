@@ -1,0 +1,4 @@
+external-doh-server: /dns-query
+external-controller-cors:
+  allow-origins: ["*"]
+proxies: []

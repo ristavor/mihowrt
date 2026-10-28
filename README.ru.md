@@ -10,7 +10,7 @@ MihoWRT запускает [Mihomo](https://github.com/MetaCubeX/mihomo) на Op
 - **Минимум 128 МиБ RAM, рекомендуется 256 МиБ.** Большим конфигам (несколько МиБ) нужно **256 МиБ и больше**; на 128 МиБ держите YAML небольшим. Конфиг на 8 МиБ вызвал нехватку памяти во всех проверенных сборках на 128 МиБ, включая 0.10; на 512 МиБ проверка прошла, 256 МиБ не проверяли.
 - **100 МиБ и больше свободной флеш-памяти — безопасный запас**: ядро ≈12 МиБ в архиве, до ≈55 МиБ после распаковки, ×2 во время обновления; геоданные и панель требуют дополнительного места (панель заняла 5284 КиБ). Размер зависит от версии ядра и архитектуры; сжимающие файловые системы UBIFS/JFFS2 требуют меньше места. Установщик проверяет наличие 2 МиБ; обновление ядра — свободное место ≥ размер архива + 4 МиБ. Если при распаковке место кончится, старое ядро сохранится.
 - Обновление ядра работало в VM со 128 МиБ, но в самой низкой точке оставалось лишь ≈6–8 МиБ MemAvailable. Это не гарантия для любого роутера.
-- Зависимости: `luci-base cgi-io jq nftables kmod-nft-tproxy curl` (их разрешает менеджер пакетов). Для русского интерфейса нужны `luci-i18n-base-ru` и `luci-i18n-mihowrt-ru`.
+- Зависимости: `luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl` (их разрешает менеджер пакетов). Для русского интерфейса нужны `luci-i18n-base-ru` и `luci-i18n-mihowrt-ru`.
 
 ## Установка и первый запуск
 
@@ -79,10 +79,10 @@ scp -O ./luci-app-mihowrt.apk ./mihomo.gz root@router:/tmp/
 
 ```sh
 cd /tmp
-apk update && apk add luci-base cgi-io jq nftables kmod-nft-tproxy curl
+apk update && apk add luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl
 apk add --allow-untrusted ./luci-app-mihowrt.apk
 # Для OpenWrt 24.10 вместо этого:
-opkg update && opkg install luci-base cgi-io jq nftables kmod-nft-tproxy curl
+opkg update && opkg install luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl
 opkg install ./luci-app-mihowrt.ipk
 mihowrt core-update --file /tmp/mihomo.gz
 /etc/init.d/mihowrt enable

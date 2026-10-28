@@ -10,7 +10,7 @@ MihoWRT runs [Mihomo](https://github.com/MetaCubeX/mihomo) on OpenWrt with a LuC
 - **128 MiB RAM minimum, 256 MiB recommended.** Large configs (several MiB) need **256 MiB+**; on 128 MiB keep the YAML small. An 8 MiB config ran out of memory on 128 MiB in every tested build, including 0.10; 512 MiB passed, 256 MiB was not measured.
 - **100 MiB+ free flash is a safe budget**: core ≈12 MiB compressed, up to ≈55 MiB unpacked, ×2 during update; geodata and dashboard are extra (dashboard measured 5284 KiB installed). Sizes vary by core/architecture; compressing overlays (UBIFS/JFFS2) need less space. The installer checks for 2 MiB free; core update checks free space ≥ compressed file size + 4 MiB and keeps the old core if unpacking fills flash.
 - Core updates worked on 128 MiB in the VM, with only ≈6–8 MiB MemAvailable at the low point; not a hardware guarantee.
-- Dependencies: `luci-base cgi-io jq nftables kmod-nft-tproxy curl` (package manager resolves them). Russian UI also needs `luci-i18n-base-ru` and `luci-i18n-mihowrt-ru`.
+- Dependencies: `luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl` (package manager resolves them). Russian UI also needs `luci-i18n-base-ru` and `luci-i18n-mihowrt-ru`.
 
 ## Install and first start
 
@@ -79,10 +79,10 @@ On the router, install dependencies from OpenWrt feeds, then the transferred fil
 
 ```sh
 cd /tmp
-apk update && apk add luci-base cgi-io jq nftables kmod-nft-tproxy curl
+apk update && apk add luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl
 apk add --allow-untrusted ./luci-app-mihowrt.apk
 # OpenWrt 24.10 instead:
-opkg update && opkg install luci-base cgi-io jq nftables kmod-nft-tproxy curl
+opkg update && opkg install luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl
 opkg install ./luci-app-mihowrt.ipk
 mihowrt core-update --file /tmp/mihomo.gz
 /etc/init.d/mihowrt enable

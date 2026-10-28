@@ -32,7 +32,6 @@ State of the 0.11.0 stable-review documentation checkpoint (2026-10-28). This is
 
 - **D12. Separate shell and awk validators:** retained deliberately, with parity tests; no shared-validator rewrite.
 - **D14. Packages are not signed; no signed opkg feed.** Key management needs a separate decision. Installer `SHA256SUMS` protects download integrity, not release authenticity.
-- **jq → ucode:** the proposed migration is not in this source tree; current package and installer still require jq. Do not describe that proposal as shipped.
 - **fd 9 static check:** line-based; it would not catch a background shell function started under a lock (none currently exists).
 
 ## Acceptance boundaries / not checked here

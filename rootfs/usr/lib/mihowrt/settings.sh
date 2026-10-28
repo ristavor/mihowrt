@@ -241,7 +241,9 @@ settings_ensure_generated() {
 		;;
 	esac
 
-	chmod 600 "$API_SECRET_FILE" || return 1
+	if [ "$(stat -c %a "$API_SECRET_FILE" 2>/dev/null)" != 600 ]; then
+		chmod 600 "$API_SECRET_FILE" || return 1
+	fi
 
 	minute="$(uci_get cron_minute)"
 	if ! is_uint "$minute" || [ "$minute" -gt 59 ]; then

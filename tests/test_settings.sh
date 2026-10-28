@@ -137,6 +137,16 @@ assert_eq "keep-this-secret-01" "$(cat "$API_SECRET_FILE")" "existing secret kep
 settings_load
 assert_eq "keep-this-secret-01" "$API_SECRET" "load reads file"
 pass "load reads file and generated values stay stable"
+(
+ chmod() { printf '%s\n' "$*" >>"$tmpdir/secret-chmod.calls"; command chmod "$@"; }
+ settings_ensure_generated
+ assert_false 'correct secret mode skips metadata write' test -e "$tmpdir/secret-chmod.calls"
+ command chmod 644 "$API_SECRET_FILE"
+ settings_ensure_generated
+ assert_eq "600 $API_SECRET_FILE" "$(cat "$tmpdir/secret-chmod.calls")" 'unsafe secret mode repaired once'
+ assert_eq 600 "$(stat -c %a "$API_SECRET_FILE")" 'secret mode restored'
+)
+
 
 for invalid in 'a b' short 'bad"secret'; do
  printf '%s\n' "$invalid" >"$API_SECRET_FILE"

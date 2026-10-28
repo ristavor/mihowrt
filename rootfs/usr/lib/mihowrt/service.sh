@@ -138,7 +138,8 @@ runtime_config_build() {
 	runtime_config_key_store ""
 	mihomo_config_generate "$CLASH_CONFIG" "$1" || {
 		# A rejected YAML fails the same way on every hotplug retry.
-		[ "$?" != 2 ] || { ensure_dir "$PKG_STATE_DIR" && : >"$CONFIG_INVALID_FILE"; }
+		# The parser's reason is already the last error; the check itself failed.
+		[ "$?" != 2 ] || { CONFIG_TEST_OUTPUT=""; config_check_record err && : >"$CONFIG_INVALID_FILE"; }
 		return 1
 	}
 	[ -x "$CLASH_BIN" ] || { mihomo_config_test "$1"; return 1; }

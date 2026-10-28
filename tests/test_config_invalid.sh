@@ -18,7 +18,8 @@ mihomo_config_generate() { cp "$1" "$2"; }
 mihomo_memory_limit() { echo 128MiB; }
 for scenario in settings validation geodata missing_core nonexec_core lock layout yaml_rejected generate_io; do
  (
-  rm -f "$CONFIG_INVALID_FILE" "$CONFIG_TESTED_FILE" "$CORE_VERSION_CACHE"
+  rm -f "$CONFIG_INVALID_FILE" "$CONFIG_TESTED_FILE" "$CORE_VERSION_CACHE" "$CONFIG_ERR_FILE"
+  mkdir -p "$PKG_STATE_DIR" && touch "$CONFIG_OK_FILE"
   printf '#!/bin/sh\n[ "$1" != -v ] || { echo "Mihomo v1.2.3"; exit 0; }\nexit 0\n' >"$CLASH_BIN"
   chmod +x "$CLASH_BIN"
   with_lock() { "$@"; }
@@ -41,6 +42,11 @@ for scenario in settings validation geodata missing_core nonexec_core lock layou
    assert_true "$scenario blocks automatic restart" test -f "$CONFIG_INVALID_FILE"
   else
    assert_false "$scenario must not block automatic restart" test -e "$CONFIG_INVALID_FILE"
+  fi
+  if [ "$scenario" = yaml_rejected ]; then
+   # Diagnostics must say "has errors", not "not checked yet".
+   assert_false 'parser rejection clears the valid mark' test -e "$CONFIG_OK_FILE"
+   assert_true 'parser rejection records a failed check' test -f "$CONFIG_ERR_FILE"
   fi
  )
  pass "configuration invalid marker: $scenario"

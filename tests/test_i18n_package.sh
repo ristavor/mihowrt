@@ -26,10 +26,31 @@ EOF
 (cd "$ROOT_DIR" && make -s -f "$tmpdir/package.mk" install-test PKG_VERSION=9.9.9 DESTDIR="$tmpdir/root" CONFIG_USE_APK=y)
 assert_file_contains "$tmpdir/root/usr/lib/mihowrt/constants.sh" 'PKG_VERSION="9.9.9"' "installed version should come from Makefile"
 # Exercise the installed bootstrap before any module load or command dispatch.
-seams=(MIHOWRT_BACKEND MIHOWRT_LIB_DIR SUBSCRIPTION_META_FILE JOB_PROC_DIR ROUTE_PROC_ROOT RC_D_DIR
- LOCK_DEPTH SETTINGS_LOADED SETTINGS_UCI_SNAPSHOT NET_REFRESH_DELAY DASHBOARD_WAIT_SECONDS
- RUNTIME_LOCK_TIMEOUT API_DELAY_URL SUBSCRIPTION_MAX_BYTES SUBSCRIPTION_TIMEOUT
- LISTS_REMOTE_MAX_BYTES LISTS_REMOTE_MAX_URLS LISTS_REMOTE_TIMEOUT MIHOWRT_QUIET MIHOWRT_STOP)
+read -r -a seams <<<"$(sed -n 's/^unset \(.*\)\\$/\1/p' "$ROOT_DIR/tools/harden.sed")"
+[[ ${#seams[@]} -gt 0 ]] || fail 'package hardening must unset environment seams'
+mapfile -t defaults < <(find "$ROOT_DIR/rootfs/usr" -type f \( -name '*.sh' -o -path "$ROOT_DIR/rootfs/usr/bin/*" \) \
+ -exec grep -ohE '\$\{[a-zA-Z_][a-zA-Z0-9_]*:-' {} + | sed 's/^${//; s/:-$//' | sort -u)
+[[ ${#defaults[@]} -gt 0 ]] || fail 'shell environment defaults must be discovered'
+constants=" $(sed -n '/\${.*:-/d; s/^\([a-zA-Z_][a-zA-Z0-9_]*\)=.*/\1/p' "$MIHOWRT_LIB_DIR/constants.sh" | tr '\n' ' ')"
+for name in "${defaults[@]}"; do
+ [[ " ${seams[*]} $constants " == *" $name "* ]] && continue
+ case "$name" in
+ # settings_load owns these values; packaged SETTINGS_LOADED cannot bypass it.
+ BLOCK_CLIENT_IPV6 | BYPASS_NTP | BYPASS_SUBSCRIPTION_DNS | DASHBOARD_ENABLED | DIRECT_LIST_SOURCE | DIRECT_LISTENER | \
+ DISABLE_QUIC | DNS_HIJACK | DNS_MODE | DST_LIST_SOURCE | LISTS_INTERVAL | NETBIRD_INTERFACE | NETBIRD_MARK | \
+ NETBIRD_PROXY | POLICY_MODE | SOURCE_INTERFACES | SUBSCRIPTION_URL) ;;
+ # http_fetch resets FETCH_HDR before subscription metadata is read.
+ FETCH_HDR) ;;
+ # route_state_read clears both before reading the saved route state.
+ ROUTE_PRIORITY | ROUTE_TABLE) ;;
+ # Function-local temporaries are initialized before use, not read from env.
+ current | error | memlimit | restore_error | value) ;;
+ # wait_for_ready reads the caller run_service's local stop=0 flag.
+ stop) ;;
+ *) fail "unreviewed environment default: $name" ;;
+ esac
+done
+pass 'shell environment defaults are hardened, constants-owned or explicitly reviewed'
 poison=()
 for seam in "${seams[@]}"; do poison+=("$seam=/tmp/hostile"); done
 for entry in mihowrt mihowrt-read; do

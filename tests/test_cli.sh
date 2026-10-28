@@ -220,6 +220,7 @@ pass 'config CLI wait count and return status'
 
 # Offline core CLI passes one exact path through the real lock/result wrapper.
 sed '/^case "$cmd" in/i core_update_json() { echo "$*" >"$CORE_STATE_DIR/file-args"; echo '\''{"updated":false,"version":"v1.2.3","error":null}'\''; }' "$tmpdir/core-cli.sh" >"$tmpdir/offline-cli.sh"
+touch "$tmpdir/local core.gz"
 EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file "$tmpdir/local core.gz" >/dev/null
 assert_eq "$tmpdir/local core.gz" "$(cat "$CORE_STATE_DIR/file-args")" 'offline path forwarded without splitting'
 for args in '--file' '--unknown path' '--file path extra' 'path'; do
@@ -228,3 +229,28 @@ for args in '--file' '--unknown path' '--file path extra' 'path'; do
 done
 assert_false 'empty local core path rejected' sh "$tmpdir/offline-cli.sh" core-update --file '' >/dev/null 2>&1
 pass 'offline core CLI boundary'
+
+# No cgi-upload-writable file may become an executable root core.
+while IFS= read -r prefix; do
+ file="${prefix%\*}core-test"
+ touch "$file"
+ ln -s "$file" "$tmpdir/upload-link"
+ mkdir "$file.dir"
+ touch "$file.dir/core"
+ ln -s "$file.dir" "$tmpdir/upload-dir"
+ for path in "$file" "/tmp/../tmp/${file##*/}" "$tmpdir/upload-link" "$tmpdir/upload-dir/core"; do
+  if sh "$tmpdir/offline-cli.sh" core-update --file "$path" >/dev/null 2>&1; then fail "upload core accepted: $path"; fi
+ done
+ rm -f "$file" "$tmpdir/upload-link" "$tmpdir/upload-dir"
+ rm -rf "$file.dir"
+done < <(jq -r '."luci-app-mihowrt".write.file | to_entries[] | select(.value | index("write")) | .key' "$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json")
+mkfifo "$tmpdir/core-fifo"
+ln -s "$tmpdir/local core.gz" "$tmpdir/core-link"
+for path in "$tmpdir/core-fifo" "$tmpdir" "$tmpdir/core-link" "$tmpdir/missing"; do
+ if sh "$tmpdir/offline-cli.sh" core-update --file "$path" >/dev/null 2>&1; then fail "non-regular or symlink core accepted: $path"; fi
+done
+touch /tmp/mihomo.gz
+EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file /tmp/mihomo.gz >/dev/null
+assert_eq /tmp/mihomo.gz "$(cat "$CORE_STATE_DIR/file-args")" 'documented scp offline path accepted'
+rm /tmp/mihomo.gz
+pass 'offline core CLI rejects upload paths, symlinks and non-regular files'

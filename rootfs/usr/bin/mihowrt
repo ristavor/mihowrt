@@ -170,7 +170,11 @@ core-update)
 		core_update_cmd
 	else
 		need_args $# 2
-		[ "$1" = --file ] && [ -n "$2" ] || usage
+		[ "$1" = --file ] && [ -f "$2" ] && [ ! -L "$2" ] || usage
+		# cgi-upload writers must never supply an executable core.
+		case "$(readlink -f "$2")" in
+		/tmp/mihowrt-config.* | /tmp/mihowrt-policy-list.*) usage ;;
+		esac
 		core_update_cmd "$2"
 	fi
 	;;

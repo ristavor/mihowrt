@@ -29,6 +29,15 @@ nft_active() { true; }
 route_active() { true; }
 core_version() { echo v1.19.32; }
 
+(
+ export settings_uci_netbird_mark=bad settings_uci_subscription_url=http://evil
+ status_json >"$tmpdir/poison-status.json" || fail 'status returns JSON with inherited snapshot variables'
+ assert_false 'status with inherited snapshot variables creates no invalid marker' test -e "$CONFIG_INVALID_FILE"
+ assert_eq "$NETBIRD_DEFAULT_MARK" "$NETBIRD_MARK" 'status ignores inherited NetBird mark'
+ assert_eq '' "$SUBSCRIPTION_URL" 'status ignores inherited subscription URL'
+)
+pass 'status ignores inherited settings snapshot variables'
+
 echo ok >"$HEALTH_FILE"
 json="$(status_json)"
 assert_eq "true|true|true|null" "$(jq -r '"\(.running)|\(.dns_ok)|\(.policy_active)|\(.config_valid)"' <<<"$json")" "checklist flags"

@@ -24,6 +24,8 @@ profile_get() { case "$1" in mode) echo direct-first ;; dns) echo fake-ip ;; dir
 profile_entries() { printf 'disable_quic 0\ndns_hijack 0\n'; }
 API_SECRET_FILE="$SNAPSHOT_TMP/secret"
 SUBSCRIPTION_META_FILE="$SNAPSHOT_TMP/meta"
+PKG_STATE_DIR="$SNAPSHOT_TMP/state"
+CONFIG_INVALID_FILE="$PKG_STATE_DIR/config.invalid"
 settings_load || exit 1
 for key in POLICY_MODE DNS_MODE DIRECT_LISTENER PROVIDER_KEYS PROVIDER_OVERRIDES DST_LIST_SOURCE DIRECT_LIST_SOURCE SOURCE_INTERFACES DNS_HIJACK DISABLE_QUIC NETBIRD_PROXY BYPASS_NTP BYPASS_SUBSCRIPTION_DNS BLOCK_CLIENT_IPV6 NETBIRD_MARK NETBIRD_INTERFACE SUBSCRIPTION_URL SUBSCRIPTION_INTERVAL LISTS_INTERVAL API_SECRET CRON_MINUTE DASHBOARD_ENABLED SETTINGS_LOADED; do
  eval 'value="${'"$key"'}"'
@@ -49,6 +51,18 @@ for name in defaults full lists quoting; do
   assert_eq 1 "$(grep -c '^show mihowrt$' "$UCI_CALLS" || true)" "$name one UCI show pass"
   assert_eq 0 "$(grep -c '^get mihowrt' "$UCI_CALLS" || true)" "$name no per-option UCI get"
  fi
+done
+# Absent UCI keys must not fall through to inherited snapshot variables.
+for poisoned_key in subscription_url netbird_mark both; do
+ poison=()
+ [ "$poisoned_key" = subscription_url ] || poison+=(settings_uci_netbird_mark=bad)
+ [ "$poisoned_key" = netbird_mark ] || poison+=(settings_uci_subscription_url=http://evil)
+ if ! env "${poison[@]}" UCI_FIXTURE="$ROOT_DIR/tests/fixtures/settings/defaults" PATH="$path" \
+  ash "$tmpdir/snapshot.sh" >"$tmpdir/poison.actual"; then
+  fail "$awk_impl awk: inherited $poisoned_key snapshot must not invalidate settings"
+ fi
+ assert_true "$awk_impl awk: inherited $poisoned_key snapshot ignored" cmp -s "$ROOT_DIR/tests/fixtures/settings/defaults.snapshot" "$tmpdir/poison.actual"
+ assert_false "$awk_impl awk: inherited $poisoned_key creates no invalid marker" test -e "$tmpdir/state/config.invalid"
 done
 # Values are eval'd: backticks, $() and a multi-line value must stay literal.
 printf '%s\n' "mihowrt.settings='settings'" \

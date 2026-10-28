@@ -13,7 +13,9 @@ settings_uci_get() {
 		return
 	fi
 	case "$1" in '' | *[!a-zA-Z0-9_]*) return 1 ;; esac
-	eval 'value="${settings_uci_'"$1"':-}"'
+	case "$settings_uci_seen" in
+	*" $1 "*) eval 'value="${settings_uci_'"$1"':-}"' ;;
+	esac
 	[ -n "$value" ] || value="${2:-}"
 	printf '%s' "$value"
 }
@@ -114,7 +116,7 @@ settings_require() {
 }
 
 settings_load() {
-	local iface="" SETTINGS_UCI_SNAPSHOT=1
+	local iface="" SETTINGS_UCI_SNAPSHOT=1 settings_uci_seen=" "
 
 	# UCI show uses shell-quoted scalars and space-separated quoted list items.
 	# Decode once, then quote literal values again before eval (never eval UCI).
@@ -137,7 +139,9 @@ settings_load() {
 				escaped = escaped (c == q ? q "\\" q q : c)
 			}
 			print "local settings_uci_" key "=" escaped q
+			seen = seen key " "
 		}
+		END { print "settings_uci_seen=\" " seen "\"" }
 	')"
 
 	SETTINGS_LOADED=0

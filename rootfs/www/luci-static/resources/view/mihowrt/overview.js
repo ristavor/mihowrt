@@ -17,12 +17,7 @@ function firstRunCard() {
 		if (!/^https?:\/\//i.test(value))
 			throw new Error(_('Enter the subscription link that starts with https://'));
 		// The link is saved only after a successful download.
-		try {
-			await api.job('connect', value);
-		}
-		catch (e) {
-			throw new Error(api.subscriptionError(e.message));
-		}
+		await api.job('connect', value);
 		// Give the service a moment to start; stay inside busy so the buttons stay disabled until the reload.
 		await new Promise(resolve => window.setTimeout(resolve, 1500));
 		api.reloadWithNotice(_('Subscription connected. MihoWRT is starting.'));
@@ -175,13 +170,7 @@ function subscriptionSection(sub) {
 	const warning = subscriptionWarning(sub);
 
 	update.addEventListener('click', () => api.busy(update, async () => {
-		let res;
-		try {
-			res = await api.job('update-subscription');
-		}
-		catch (e) {
-			throw new Error(api.subscriptionError(e.message));
-		}
+		const res = await api.job('update-subscription');
 		api.reloadWithNotice(api.actionNotice(res.action));
 	}));
 

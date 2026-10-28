@@ -512,8 +512,6 @@ return baseclass.extend({
 	formatDate,
 	trafficSummary,
 	safeLink,
-	// Kept for the Overview page; api.job() already returns this text.
-	subscriptionError: backendErrorText,
 	toggle,
 	busy,
 	notify,

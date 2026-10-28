@@ -101,7 +101,7 @@ define Package/$(PKG_NAME)/preinst
 	# default_postinst may stop the service (skipped start below), so
 	# record the running state now; the new constants.sh is not installed yet.
 	# opkg already recorded it in the old prerm, before stopping the service.
-	[ -n "$$(find /tmp/luci-app-mihowrt.was-running -mmin -5 2>/dev/null)" ] ||
+	[ "$$PKG_UPGRADE" = 1 ] && command -v opkg >/dev/null 2>&1 ||
 		rm -f /tmp/luci-app-mihowrt.was-running
 	if pgrep -f "/usr/bin/mihowrt run-service" >/dev/null 2>&1; then
 		: >/tmp/luci-app-mihowrt.was-running

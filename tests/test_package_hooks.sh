@@ -345,13 +345,30 @@ assert_file_not_contains "$hook_log" "mihowrt:uninstall" "prerm on a running pac
 [[ -z "$(find "$tmpdir/opt" -name '*.keep')" ]] || fail "prerm on upgrade must not park .keep files"
 rm -f "$was_running_marker"
 
-# The new preinst runs after that prerm: it keeps a fresh marker and drops a stale one.
+# The new preinst keeps only the old opkg-prerm upgrade marker.
+mkdir -p "$tmpdir/bin-opkg"
+printf '#!/bin/sh\nexit 0\n' >"$tmpdir/bin-opkg/opkg"
+chmod +x "$tmpdir/bin-opkg/opkg"
 : >"$was_running_marker"
-PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
+PATH="$tmpdir/bin-opkg:$tmpdir/bin-stopped:$PATH" PKG_UPGRADE=1 IPKG_INSTROOT="" "$preinst_path"
 [[ -e "$was_running_marker" ]] || fail "preinst should keep the marker written by the old prerm"
 touch -d '2024-01-01 00:00:00' "$was_running_marker"
 PATH="$tmpdir/bin-stopped:$PATH" IPKG_INSTROOT="" "$preinst_path"
 [[ ! -e "$was_running_marker" ]] || fail "preinst should drop a stale was-running marker"
+for manager in apk opkg; do
+ for upgrade in 0 1; do
+  : >"$was_running_marker"
+  hook_path="$tmpdir/bin-stopped:$PATH"
+  [ "$manager" != opkg ] || hook_path="$tmpdir/bin-opkg:$hook_path"
+  PATH="$hook_path" PKG_UPGRADE="$upgrade" IPKG_INSTROOT="" "$preinst_path"
+  if [ "$manager:$upgrade" = opkg:1 ]; then
+   assert_true 'opkg upgrade preserves prerm running marker' test -f "$was_running_marker"
+  else
+   assert_false "$manager upgrade=$upgrade clears recent stale marker" test -e "$was_running_marker"
+  fi
+ done
+done
+rm -f "$was_running_marker"
 pass "opkg upgrade keeps the core and the running state"
 
 # Removal: apk deletes package-owned files, so prerm parks the user's YAML and

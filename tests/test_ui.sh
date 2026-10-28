@@ -57,6 +57,7 @@ h.assertEq(api.trafficSummary({}), 'Unlimited', 'no usage, no total');
 h.assertEq(api.trafficSummary({ total: 1073741824 }), '1.0 GiB', 'total only');
 h.assert(api.safeLink('javascript:alert(1)', 'x') === null, 'non-http links are dropped');
 h.assertEq(api.safeLink('https://example.com', 'x').attrs.rel, 'noopener noreferrer', 'external links isolated');
+h.assertEq(api.subscriptionError, undefined, 'redundant subscription error alias removed');
 console.log('ok - api helpers');
 
 function collect(node, out = []) {
@@ -485,8 +486,8 @@ seq(async () => {
   http_500: 'error (HTTP 500)', network: 'cannot reach', too_large: 'too large', invalid_url: 'starts with https://'
  };
  for (const [code, expected] of Object.entries(messages))
-  h.assert(api.subscriptionError('Subscription download failed: ' + code).includes(expected), 'subscription error ' + code);
- h.assertEq(api.subscriptionError('unrelated'), 'unrelated', 'unrelated errors preserved');
+  h.assert(api.errorText({ name: 'JobError', message: 'Subscription download failed: ' + code }).includes(expected), 'subscription error ' + code);
+ h.assertEq(api.errorText('unrelated'), 'unrelated', 'unrelated errors preserved');
  const content = E('pre'); let opens = 0;
  const toggle = api.toggle('Show', 'Hide', content, () => opens++), button = collect(toggle).find(n => n.tag === 'button');
  h.assert(content.hidden && button.attrs['aria-expanded'] === 'false', 'toggle initially hidden');

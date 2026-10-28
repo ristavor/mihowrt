@@ -222,6 +222,7 @@ download_file() {
 	set --
 	case "$RELEASE_URL" in
 	https://*) set -- --proto =https --proto-redir =https ;;
+	http://*) warn "MIHOWRT_RELEASE_URL uses plain HTTP; downloads and checksums are unauthenticated" ;;
 	esac
 	curl -fsSL "$@" --retry 3 --connect-timeout 15 --max-time 300 -o "$out" "$RELEASE_URL/$name"
 }

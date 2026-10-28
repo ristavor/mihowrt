@@ -154,8 +154,13 @@ pass "missing dependencies only"
  assert_file_contains "$tmpdir/curl.args" '--proto' "HTTPS protocol restricted"
  assert_file_contains "$tmpdir/curl.args" '--proto-redir' "HTTPS redirects restricted"
  assert_eq 2 "$(grep -c '^=https$' "$tmpdir/curl.args")" "HTTPS only for request and redirects"
+ RELEASE_URL=http://mirror
+ download_file SHA256SUMS "$tmpdir/sums" >"$tmpdir/http.out" 2>"$tmpdir/http.err"
+ assert_file_contains "$tmpdir/http.err" 'Warning: MIHOWRT_RELEASE_URL uses plain HTTP' 'plain HTTP mirror warning on stderr'
+ assert_eq '' "$(cat "$tmpdir/http.out")" 'HTTP warning never goes to stdout'
  RELEASE_URL=file:///mirror
- download_file SHA256SUMS "$tmpdir/sums"
+ download_file SHA256SUMS "$tmpdir/sums" 2>"$tmpdir/file.err"
+ assert_eq '' "$(cat "$tmpdir/file.err")" 'local mirror needs no warning'
  assert_file_not_contains "$tmpdir/curl.args" '--proto' "file mirror allowed"
 )
 assert_file_contains "$ROOT_DIR/README.md" 'mihowrt@v0.11.0/install.sh' "mirror pinned to release tag"

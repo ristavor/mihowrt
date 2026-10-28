@@ -418,3 +418,24 @@ SH
  assert_eq '' "$(find "$concurrent/tmp" -name 'subscription.*.json')" 'metadata staging cleaned'
 )
 pass 'concurrent CLI and job subscription publication serialized'
+
+# Never expose provider credentials while files are being filled or published.
+(
+ umask 022
+ settings_load() { SUBSCRIPTION_URL=https://same.example/sub; BYPASS_SUBSCRIPTION_DNS=0; }
+ subscription_metadata_from_headers() { echo '{"profile_title":"private"}'; }
+ http_fetch() {
+  assert_eq 600 "$(stat -c %a "$2")" 'subscription candidate private before fetch'
+  assert_eq 600 "$(stat -c %a "$6")" 'subscription headers private before fetch'
+  printf 'proxies: []\n' >"$2"
+  FETCH_HDR="$6"
+ }
+ config_install() { assert_eq 600 "$(stat -c %a "$1")" 'downloaded subscription mode'; echo '{"action":"saved"}'; }
+ atomic_copy() {
+  assert_eq 600 "$(stat -c %a "$1")" 'staged metadata mode'
+  command cp "$1" "$2"
+ }
+ subscription_update >/dev/null
+ assert_eq 0022 "$(umask)" 'subscription update does not change caller umask'
+)
+pass 'subscription candidates, headers and metadata created mode 600'

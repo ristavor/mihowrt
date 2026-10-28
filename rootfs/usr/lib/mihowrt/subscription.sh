@@ -200,7 +200,7 @@ subscription_install() {
 	ensure_dir "$(dirname "$SUBSCRIPTION_META_FILE")"
 	# Written only on change to spare flash, and only if it is valid JSON.
 	if [ -n "$meta" ]; then
-		printf '%s\n' "$meta" >"$metadata_file"
+		(umask 077 && printf '%s\n' "$meta" >"$metadata_file")
 		if ! cmp -s "$metadata_file" "$SUBSCRIPTION_META_FILE" &&
 			! atomic_copy "$metadata_file" "$SUBSCRIPTION_META_FILE"; then
 			warn "Cannot write $SUBSCRIPTION_META_FILE"
@@ -237,9 +237,12 @@ subscription_update() {
 		err "Subscription URL is not set"
 		return 1
 	}
+	ensure_dir "$PKG_TMP_DIR" || return 1
+	(umask 077 && : >"$candidate" && : >"$headers_file") || return 1
 	if [ -f "$RUNNING_MARKER" ] && [ "$saved_host" != "$(url_host "$SUBSCRIPTION_URL")" ]; then
 		dns_changed=1
 		with_lock dns_apply || {
+			rm -f "$candidate" "$headers_file"
 			subscription_restore_dns || warn "Failed to restore subscription DNS"
 			return 1
 		}
@@ -257,7 +260,7 @@ subscription_update() {
 	# shellcheck disable=SC2086
 	[ -z "$bypass" ] || nft_bypass delete $bypass
 	if [ "$rc" -ne 0 ]; then
-		rm -f "$headers_file"
+		rm -f "$candidate" "$headers_file"
 		err "Subscription download failed: $FETCH_ERROR"
 		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1

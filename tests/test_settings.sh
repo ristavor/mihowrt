@@ -244,3 +244,19 @@ settings_load
 assert_eq 0 "$LISTS_INTERVAL" 'existing lists interval 0 preserved'
 assert_file_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "option lists_interval '24'" 'shipped default interval'
 pass 'default interval and existing disabled interval'
+
+# Private runtime directories must be safe before the first service start.
+(
+ umask 022
+ PKG_TMP_DIR="$tmpdir/before-layout/tmp"
+ PKG_STATE_DIR="$tmpdir/before-layout/run"
+ for private in "$PKG_TMP_DIR/nested" "$PKG_STATE_DIR/nested"; do
+  ensure_dir "$private"
+  assert_eq 700 "$(stat -c %a "$private")" 'private subdirectory mode without layout_init'
+  assert_eq 700 "$(stat -c %a "${private%/*}")" 'private root mode without layout_init'
+ done
+ ensure_dir "$tmpdir/public"
+ assert_eq 755 "$(stat -c %a "$tmpdir/public")" 'unrelated directories keep caller umask'
+ assert_eq 0022 "$(umask)" 'ensure_dir does not change caller umask'
+)
+pass 'private runtime directories created mode 700 before layout_init'

@@ -20,7 +20,12 @@ have_command() {
 }
 
 ensure_dir() {
-	[ -d "$1" ] || mkdir -p "$1"
+	[ ! -d "$1" ] || return 0
+	case "$1" in
+	"${PKG_TMP_DIR:-/tmp/mihowrt}" | "${PKG_TMP_DIR:-/tmp/mihowrt}"/* | "${PKG_STATE_DIR:-/var/run/mihowrt}" | "${PKG_STATE_DIR:-/var/run/mihowrt}"/*)
+		(umask 077 && mkdir -p "$1") ;;
+	*) mkdir -p "$1" ;;
+	esac
 }
 
 # Publish a complete value without exposing a truncated file to status readers.

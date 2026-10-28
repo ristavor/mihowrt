@@ -18,6 +18,27 @@ DASHBOARD_ENABLED=1
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
 
+# R5: inspect the actual external awk argv, not a shell mock.
+(
+ export AWK_ARGV="$tmpdir/awk.argv"
+ real_awk="$(command -v awk)"
+ cat >"$tmpdir/bin/awk" <<EOF
+#!/bin/sh
+printf '%s\\n' "\$@" >>"\$AWK_ARGV"
+exec "$real_awk" "\$@"
+EOF
+ chmod +x "$tmpdir/bin/awk"
+ printf 'proxies: []\n' >"$src"
+ mihomo_config_generate "$src" "$out"
+ assert_file_contains "$out" "secret: \"$API_SECRET\"" 'secret preserved from environment'
+ assert_file_not_contains "$AWK_ARGV" "$API_SECRET" 'secret absent from awk argv'
+ first="$(mihomo_config_key "$src")"
+ API_SECRET=another-secret
+ assert_false 'secret remains a config fingerprint input' test "$first" = "$(mihomo_config_key "$src")"
+ rm "$tmpdir/bin/awk"
+)
+pass 'controller secret absent from awk argv'
+
 # R28: controller exposure remains router-owned, including quoted/nested keys.
 printf 'external-doh-server: /dns-query\n"external-controller-cors":\n  allow-origins: ["*"]\nproxies: []\n' >"$src"
 mihomo_config_generate "$src" "$out"

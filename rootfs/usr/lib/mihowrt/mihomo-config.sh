@@ -40,7 +40,7 @@ lan_ip_detect() {
 
 # mihomo_config_generate <src> <dst> [key]
 # With "key", print a fingerprint of every generator input instead: the awk
-# -v list below (hashed as is, so no input can be missed), the source bytes
+# -v list below, the secret, the source bytes
 # and the awk programs. The output paths are per build and not inputs.
 # Returns 2 when the parser rejects the YAML itself, 1 on other failures.
 mihomo_config_generate() {
@@ -63,19 +63,18 @@ mihomo_config_generate() {
 		-v mark="$MIHOMO_ROUTING_MARK" \
 		-v api="$(lan_ip_detect):$MIHOMO_API_PORT" \
 		-v sock="$MIHOMO_SOCKET_TMPFS" \
-		-v secret="$API_SECRET" \
 		-v ui_url="$ui_url"
 	if [ "$mode" = key ]; then
 		files="$(sha256sum "$lib/yaml-lex.awk" "$lib/mihomo-config.awk")" &&
 			source_hash="$(sha256sum <"$src")" || return 1
 		# The list goes through a pipe only: the secret never reaches argv.
-		key="$({ printf '%s\n' "$files" "$source_hash" "$@"; } | sha256sum)" || return 1
+		key="$({ printf '%s\n' "$files" "$source_hash" "$API_SECRET" "$@"; } | sha256sum)" || return 1
 		printf '%s\n' "${key%% *}"
 		return 0
 	fi
 	ensure_dir "$(dirname "$dst")" || return 1
 	tmp="$dst.tmp.$$"
-	awk -f "$lib/yaml-lex.awk" -f "$lib/mihomo-config.awk" "$@" \
+	MIHOWRT_SECRET="$API_SECRET" awk -f "$lib/yaml-lex.awk" -f "$lib/mihomo-config.awk" "$@" \
 		-v profile="$tmp.profile" \
 		-v warnfile="$tmp.warn" \
 		"$src" >"$tmp" || {

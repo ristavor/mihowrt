@@ -359,7 +359,7 @@ function finish_document() {
 	emit("  store-fake-ip: true")
 	emit("external-controller: " api)
 	emit("external-controller-unix: " sock)
-	emit("secret: \"" secret "\"")
+	emit("secret: \"" ENVIRON["MIHOWRT_SECRET"] "\"")
 	# Empty URL: the dashboard is not installed (settings flag 0).
 	if (ui_url != "") {
 		emit("external-ui: ui")

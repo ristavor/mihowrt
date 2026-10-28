@@ -356,7 +356,7 @@ END {
 	emit("  store-fake-ip: true")
 	emit("external-controller: " api)
 	emit("external-controller-unix: " sock)
-	emit("secret: \"" secret "\"")
+	emit("secret: \"" ENVIRON["MIHOWRT_SECRET"] "\"")
 	emit("external-ui: ui")
 	emit("external-ui-url: \"" ui_url "\"")
 	print_runtime()

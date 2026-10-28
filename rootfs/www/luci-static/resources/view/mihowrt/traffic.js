@@ -164,21 +164,28 @@ return view.extend({
 			this.devicesOption(s, 'src', _('All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
 		}
 
+		// Button next to the field; its own row only when the provider may own the interval.
+		const ownRefreshRow = !api.readOnly() && 'lists_interval' in (this.profile.provider || {});
 		this.providerScalar(s, 'basic', 'lists_interval', () => {
 			const v = s.taboption('basic', form.Value, 'lists_interval', _('Update remote lists every (hours)'), _('0: only when you press "Update remote lists".'));
 			v.datatype = 'range(0,8760)';
 			v.placeholder = '0';
 			// No type=number: some themes (openwrt-2020) style only text inputs.
 			this.extendWidget(v, (node) => {
-				node.querySelector('input')?.setAttribute('inputmode', 'numeric');
-				return node;
+				const input = node.querySelector('input');
+				input?.setAttribute('inputmode', 'numeric');
+				if (api.readOnly() || ownRefreshRow)
+					return node;
+				if (input)
+					input.style.width = '8em';
+				return E('div', { class: 'mw-row' }, [ node, this.refreshButton() ]);
 			});
 			return v;
 		});
-		// Own row: the interval above may be the provider's read-only value.
-		if (!api.readOnly()) {
+		if (ownRefreshRow) {
 			o = s.taboption('basic', form.DummyValue, '_refresh_lists', _('Remote lists'));
-			o.renderWidget = () => this.refreshButton();
+			// Wrapped: themes may right-align a field whose direct child is a button.
+			o.renderWidget = () => E('div', {}, [ this.refreshButton() ]);
 		}
 
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));

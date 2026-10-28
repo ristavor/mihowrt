@@ -193,30 +193,28 @@ seq(async () => {
 
 // Dashboard link: the setup route makes zashboard use the given secret even
 // when the browser stores an older backend for the same host and port.
-// The window opens inside the click (popup blockers), the RPC fills it in.
+// The window opens after the RPC with noopener; no pre-opened blank window
+// (it failed from HTTPS LuCI to the http:// dashboard in a real browser).
 {
 	const dashboardReply = { host: '192.168.1.1', port: 9090, secret: 'a b', running: true };
 	const dashboardUrl = 'http://192.168.1.1:9090/ui/#/setup?hostname=192.168.1.1&port=9090&secret=a%20b';
-	const dashboardButton = (reply, order, popup) => {
+	const dashboardButton = (reply, order) => {
 		const view = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', { poll: { add() {} },
 			E: EL, view: { extend: (v) => v }, location: {},
-			window: { open: (...args) => { order.push('open:' + args.join('|')); return popup; } },
+			window: { open: (...args) => { order.push('open:' + args.join('|')); return null; } },
 			api: Object.assign({}, api, { busy: async (b, fn) => { try { return await fn(); } catch (e) { order.push('error:' + e.message); return null; } },
 				write: async () => { order.push('rpc'); return reply; } })
 		}).module;
 		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true, dashboard_installed: true }), {}, [] ]))
 			.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
 	};
-	let order = [], popup = { location: '', opener: 'page', close() { order.push('close'); } };
+	let order = [];
 	seq(async () => {
-		await dashboardButton(dashboardReply, order, popup).listeners.click();
-		h.assertEq(order.join(','), 'open:about:blank|_blank,rpc', 'dashboard window opens before the RPC');
-		h.assertEq(popup.location, dashboardUrl, 'dashboard opens the setup route');
-		h.assertEq(popup.opener, null, 'dashboard window loses its opener');
-		order = []; popup = { location: '', opener: 'page', close() { order.push('close'); } };
-		await dashboardButton({ running: false }, order, popup).listeners.click();
-		h.assertEq(order.join(','), 'open:about:blank|_blank,rpc,close,error:Start MihoWRT to use the dashboard.', 'stopped service closes the blank window');
-		h.assertEq(popup.location, '', 'blank window never navigates when stopped');
+		await dashboardButton(dashboardReply, order).listeners.click();
+		h.assertEq(order.join(','), 'rpc,open:' + dashboardUrl + '|_blank|noopener', 'dashboard opens the setup route after the RPC, without opener');
+		order = [];
+		await dashboardButton({ running: false }, order).listeners.click();
+		h.assertEq(order.join(','), 'rpc,error:Start MihoWRT to use the dashboard.', 'stopped service opens no window');
 		console.log('ok - dashboard link');
 	}).catch((err) => { console.error(err); process.exitCode = 1; });
 }
@@ -264,7 +262,7 @@ seq(async () => {
   value(k, label) { this.values.push([k, label]); }
   remove() {}
   isActive() { return true; }
-  renderWidget() { const n = E('input'); n.querySelector = () => n; return n; }
+  renderWidget() { const n = E('input'); n.style = {}; n.querySelector = () => n; return n; }
  }
  class Flag extends Option {}
  class Map {
@@ -1153,7 +1151,7 @@ seq(async () => {
   write(sid, value) { this.uci.set('mihowrt', sid, this.name, value); }
   remove(sid) { this.uci.unset('mihowrt', sid, this.name); }
   isActive() { return !this.dependencies.length || this.dependencies.some(([key, value]) => this.options[key].cfgvalue('settings') === value); }
-  renderWidget() { const n = E('input'); n.querySelector = () => n; return n; }
+  renderWidget() { const n = E('input'); n.style = {}; n.querySelector = () => n; return n; }
  }
  class Map {
   constructor(name, title, description) { Object.assign(this, { name, title, description, options: {} }); }
@@ -1493,24 +1491,30 @@ seq(async () => {
   const p = picker(setup(), {}, 'aa:bb:cc:dd:ee:ff # phone');
   h.assert(texts(p.p).includes('Not connected now: aa:bb:cc:dd:ee:ff'), 'absence even without leases');
  });
- // C4: the refresh button does not depend on who sets the interval.
- await check('refresh remote lists row always visible', async () => {
-  for (const profile of [{}, { provider: { lists_interval: '6' } }]) {
-   const t = setup(); await t.render({ ...lists }, profile);
-   const names = Object.keys(t.tv.map.options), o = t.tv.map.options._refresh_lists;
-   h.assert(o, 'refresh row present with provider=' + !!profile.provider);
-   h.assertEq(o.tab, 'basic', 'refresh row on the basic tab');
-   h.assertEq(o.title, 'Remote lists', 'refresh row title');
-   h.assertEq(o.dependencies.length, 0, 'refresh row has no depends');
-   if (!profile.provider) h.assertEq(names.indexOf('_refresh_lists'), names.indexOf('lists_interval') + 1, 'refresh row follows the interval');
-   const b = o.renderWidget();
-   h.assertEq(b.tag, 'button', 'refresh row renders the button'); h.assertEq(texts(b).join(''), 'Update remote lists', 'button label');
-   const input = t.tv.map.options.lists_interval.renderWidget();
-   h.assertEq(input.tag, 'input', 'interval widget not wrapped'); h.assertEq(input.attrs.inputmode, 'numeric', 'numeric keyboard');
-  }
-  const t = setup({ readOnly: () => true }); await t.render();
-  h.assert(!t.tv.map.options._refresh_lists, 'read-only user gets no refresh button');
-  h.assert(!('intervalField' in t.tv), 'no interval wrapper');
+ // C4: the refresh button does not depend on who sets the interval. Own value:
+ // next to the field (as in 0.11.0). Provider may own it: a separate row, the
+ // button wrapped (themes right-align a field whose direct child is a button).
+ await check('refresh remote lists button always reachable', async () => {
+  const button = (n) => collect(n).find((x) => x.tag === 'button');
+  let t = setup(); await t.render({ ...lists }, {});
+  h.assert(!t.tv.map.options._refresh_lists, 'no separate row without a provider value');
+  let w = t.tv.map.options.lists_interval.renderWidget();
+  h.assertEq(w.tag, 'div', 'interval widget wrapped in a row');
+  h.assertEq(texts(button(w)).join(''), 'Update remote lists', 'button next to the interval');
+  h.assertEq(collect(w).find((x) => x.tag === 'input').attrs.inputmode, 'numeric', 'numeric keyboard');
+  t = setup(); await t.render({ ...lists }, { provider: { lists_interval: '6' } });
+  const o = t.tv.map.options._refresh_lists;
+  h.assert(o, 'separate refresh row with a provider value');
+  h.assertEq(o.tab, 'basic', 'refresh row on the basic tab');
+  h.assertEq(o.title, 'Remote lists', 'refresh row title');
+  h.assertEq(o.dependencies.length, 0, 'refresh row has no depends');
+  const b = o.renderWidget();
+  h.assertEq(b.tag, 'div', 'refresh button wrapped'); h.assertEq(texts(button(b)).join(''), 'Update remote lists', 'button label');
+  w = t.tv.map.options.lists_interval.renderWidget();
+  h.assert(!button(w), 'own-value field has no second button');
+  t = setup({ readOnly: () => true }); await t.render();
+  h.assert(!t.tv.map.options._refresh_lists, 'read-only user gets no refresh row');
+  h.assert(!button(t.tv.map.options.lists_interval.renderWidget()), 'read-only user gets no refresh button');
  });
  await check('update lists job', async () => {
   const t = setup(); const b = t.tv.refreshButton();

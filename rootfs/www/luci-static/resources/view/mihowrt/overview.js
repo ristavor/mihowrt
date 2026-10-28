@@ -355,28 +355,17 @@ function toolsSection(status) {
 				dashboardState = await api.write('dashboard-json');
 				updateDashboard();
 			});
-		// Opened inside the click: browsers block windows opened after the RPC.
-		const win = window.open('about:blank', '_blank');
-		if (win)
-			win.opener = null;
+		// Opened after the short RPC, still within the click's user activation.
+		// No pre-opened about:blank: sending it from HTTPS LuCI to the http://
+		// dashboard failed in a user's browser ("The operation is insecure").
 		return api.busy(dashboard, async () => {
-			try {
-				const d = await api.write('dashboard-json');
-				if (!d.running)
-					throw new Error(_('Start MihoWRT to use the dashboard.'));
-				// The setup route applies these values even when the browser keeps an
-				// older backend (e.g. without a secret) for the same host and port.
-				const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
-				const url = 'http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs);
-				if (win)
-					win.location = url;
-				else
-					window.open(url, '_blank', 'noopener');
-			}
-			catch (e) {
-				win?.close();
-				throw e;
-			}
+			const d = await api.write('dashboard-json');
+			if (!d.running)
+				throw new Error(_('Start MihoWRT to use the dashboard.'));
+			// The setup route applies these values even when the browser keeps an
+			// older backend (e.g. without a secret) for the same host and port.
+			const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
+			window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
 		});
 	});
 	core.addEventListener('click', () => api.busy(core, async () => {

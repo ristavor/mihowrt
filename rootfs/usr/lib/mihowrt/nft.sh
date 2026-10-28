@@ -188,6 +188,9 @@ nft_render_netbird_output() {
 		# transport; dataplane marks and replies to inbound flows stay direct.
 		nft_rule mangle_output "meta mark { $dp } return"
 		nft_rule mangle_output "ct direction original meta mark $m0 meta l4proto { tcp, udp } $NFT_MARK_SET accept"
+	elif [ "$DNS_MODE" = "fake-ip" ]; then
+		nft_rule mangle_output "meta nfproto ipv6 meta mark { $m0, $dp } return"
+		nft_rule mangle_output "ip daddr != $FAKEIP_RANGE meta mark { $m0, $dp } return"
 	else
 		nft_rule mangle_output "meta mark { $m0, $dp } return"
 	fi

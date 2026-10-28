@@ -27,9 +27,8 @@ subscription_decode_metadata_value() {
 	'' | *[!A-Za-z0-9+/=]* | *=[!=]* | *===*) return 0 ;;
 	esac
 	[ $((${#payload} % 4)) -eq 0 ] && [ "${#payload}" -le 16384 ] || return 0
-	# OpenWrt has no base64 tool; jq decodes. jq turns invalid UTF-8 into
-	# U+FFFD, so such values (and NUL bytes) are dropped.
-	decoded="$(printf '%s' "$payload" | jq -Rr '@base64d | select(length > 0 and (explode | all(. != 0 and . != 65533)))' 2>/dev/null)"
+	# Keep metadata compatibility: drop NUL, invalid UTF-8 and U+FFFD.
+	decoded="$(printf '%s' "$payload" | mihowrt-json base64 2>/dev/null)"
 	printf '%s' "$decoded"
 }
 
@@ -107,7 +106,7 @@ EOF
 	title="$(subscription_decode_metadata_value "$title")"
 	announce="$(subscription_decode_metadata_value "$announce")"
 
-	jq -nc \
+	mihowrt-json build metadata \
 		--arg title "$title" \
 		--arg announce "$announce" \
 		--arg support "$support" \
@@ -116,12 +115,7 @@ EOF
 		--arg upload "$upload" \
 		--arg download "$download" \
 		--arg total "$total" \
-		--arg expire "$expire" '
-		def num: if . == "" then null else (tonumber? // null) end;
-		{profile_title: $title, announce: $announce, support_url: $support,
-		 web_page_url: $web, header_interval: ($interval | num),
-		 upload: ($upload | num), download: ($download | num),
-		 total: ($total | num), expire: ($expire | num)}'
+		--arg expire "$expire"
 }
 
 subscription_stamp_file() {
@@ -141,13 +135,11 @@ subscription_json() {
 	[ ! -f "$CLASH_CONFIG_BACKUP" ] || backup=true
 
 	# A damaged file must not break the page: fall back to no metadata.
-	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(jq -c 'objects' "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
+	[ -r "$SUBSCRIPTION_META_FILE" ] && meta="$(mihowrt-json object "$SUBSCRIPTION_META_FILE" 2>/dev/null)"
 	[ -n "$meta" ] || meta="{}"
-	jq -nc --arg url "$(uci_get subscription_url)" --arg auto "$(uci_get subscription_auto_update 1)" \
+	mihowrt-json build subscription --arg url "$(uci_get subscription_url)" --arg auto "$(uci_get subscription_auto_update 1)" \
 		--arg effective "$(settings_subscription_interval)" --arg updated "$(date -r "$stamp" +%s 2>/dev/null)" --argjson meta "$meta" \
-		--argjson backup "$backup" '
-		$meta + {url: $url, auto_update: ($auto != "0"), effective_interval: ($effective | tonumber), config_backup: $backup,
-		         last_update: (if $updated == "" then null else ($updated | tonumber) end)}'
+		--argjson backup "$backup"
 }
 
 subscription_set() {

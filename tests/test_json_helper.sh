@@ -102,3 +102,16 @@ done
 for input in '{"a":1.5,"x":"quote\" : []"}' '{"a":[1.50,{"b":true},null],"x":{"empty":[],"obj":{}}}' $'{\n "a" : 1.5, "x" : [false, "1.5"]\n}'; do
  parity 'tokenized nested/escaped JSON parity' "$(jq -c . <<<"$input")" object <<<"$input"
 done
+rc=0
+"$helper" object <<< 'not-json' >"$tmpdir/error.out" 2>"$tmpdir/error.err" || rc=$?
+assert_eq 1 "$rc" 'JSON parse error exit status'
+assert_eq 1 "$(wc -l <"$tmpdir/error.err" | tr -d ' ')" 'JSON parse error has one line for job stderr'
+assert_file_not_contains "$tmpdir/error.err" 'stacktrace' 'JSON parse error hides stack frames'
+# Native errors currently stringify only their message. Force a structured error
+# at the real handler entry to pin the message-only branch without a production hook.
+sed "s/} catch (e) {/} catch (e) { e = {message: 'safe JSON error', stacktrace: ['private stack frame']};/" "$helper" >"$tmpdir/structured-error.uc"
+rc=0
+ucode "$tmpdir/structured-error.uc" object <<< 'not-json' >"$tmpdir/error.out" 2>"$tmpdir/error.err" || rc=$?
+assert_eq 1 "$rc" 'structured JSON error exit status'
+assert_eq 'mihowrt-json: safe JSON error' "$(cat "$tmpdir/error.err")" 'structured JSON error exposes message only'
+pass 'JSON helper: error handler prints message only, without stack trace'

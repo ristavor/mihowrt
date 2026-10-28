@@ -90,8 +90,8 @@ for number in 1e1000000000 1e-99999999999999; do
  assert_true "out-of-double-range exponent $number stays valid JSON" jq -e 'type == "object" and (.header_interval | type) == "number"' "$tmpdir/extreme.json" >/dev/null
  pass "JSON helper: out-of-double-range exponent $number stays valid JSON"
 done
-# json-c accepts extensions which jq rejects. Neither parser path may hang or accept them.
-for input in '/* comment */{"a":1.5}' $'{"a":1.5// comment\n}' '{"a":1.5/* comment */}' "{'a':1.5}" '{"a":1.5,}' '[1.5,]' '{"a":1.5' "{\"a\":1.5,'x':1}" '{"a":1.5/*"*/}' '/* comment */{"a":1}' '{"a":1,}' '{"a":1/*"*/}'; do
+# The precision-preserving token walk rejects json-c extensions without hanging.
+for input in '/* comment */{"a":1.5}' $'{"a":1.5// comment\n}' '{"a":1.5/* comment */}' "{'a':1.5}" '{"a":1.5,}' '[1.5,]' '{"a":1.5' "{\"a\":1.5,'x':1}" '{"a":1.5/*"*/}' '{"a":1'; do
  rc=0
  timeout 5 "$helper" object <<<"$input" >"$tmpdir/malformed.out" 2>"$tmpdir/malformed.err" || rc=$?
  assert_eq 1 "$rc" "malformed JSON rejects without hanging [$input]"
@@ -145,3 +145,15 @@ rc=0
 "$helper" build object --rawfile content "$tmpdir" >/dev/null 2>"$tmpdir/read-error.err" || rc=$?
 assert_eq 1 "$rc" 'streaming read failure is not successful truncated JSON'
 pass 'JSON helper: streaming rawfile read error fails'
+
+# Intentional json-c leniency on the native small-integer path: always re-encode strictly.
+lax_inputs=('/* comment */{"a":1}' $'{"a":1// comment\n}' '{"a":1/* comment */}' "{'a':1}" '{"a":1,}' '[1,]' "{\"a\":1,'x':1}" '{"a":1/*"*/}')
+lax_outputs=('{"a":1}' '{"a":1}' '{"a":1}' '{"a":1}' '{"a":1}' '[1]' '{"a":1,"x":1}' '{"a":1}')
+for i in "${!lax_inputs[@]}"; do
+ rc=0
+ timeout 5 "$helper" result <<<"${lax_inputs[$i]}" >"$tmpdir/lax.out" 2>"$tmpdir/lax.err" || rc=$?
+ assert_eq 0 "$rc" "native JSON leniency does not hang [${lax_inputs[$i]}]"
+ assert_eq "${lax_outputs[$i]}" "$(cat "$tmpdir/lax.out")" 'native JSON leniency emits strict JSON'
+ assert_true 'native JSON leniency output is valid JSON' jq -e . "$tmpdir/lax.out" >/dev/null
+ pass "JSON helper: native leniency emits strict JSON [${lax_inputs[$i]}]"
+done

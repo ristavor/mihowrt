@@ -34,12 +34,11 @@ function num(s) {
 }
 function parse(s) {
 	let native = json(s);
-	// json-c accepts comments, single quotes and trailing commas. Validate the
-	// token grammar too, even when native integers need no decimal preservation.
-	let tokens = match(s, /"([^"\\]|\\.)*"|[^][{}:, \t\r\n"]+|[][{}:,"]/g) ?? [];
-	let preserve = false, pos = 0;
-	for (let t in tokens)
-		if (substr(t[0], 0, 1) != '"' && match(t[0], /[0-9][.eE]|[0-9]{16}|-0|[A-Z]/)) preserve = true;
+	// Native small-integer JSON intentionally accepts json-c extensions (comments,
+	// single quotes, trailing commas); emit() still produces strict JSON, never code.
+	let bare = replace(s, /"([^"\\]|\\.)*"/g, '');
+	if (!match(bare, /[0-9][.eE]|[0-9]{16}|-0|Infinity|NaN/)) return native;
+	let tokens = match(s, /"([^"\\]|\\.)*"|[^][{}:, \t\r\n"]+|[][{}:,"]/g) ?? [], pos = 0;
 	function take() {
 		if (pos >= length(tokens)) die('Unexpected end of JSON input');
 		return tokens[pos++][0];
@@ -47,7 +46,7 @@ function parse(s) {
 	function value() {
 		let t = take();
 		if (t == '{' || t == '[') {
-			let obj = preserve ? (t == '{' ? {} : []) : null, end = t == '{' ? '}' : ']';
+			let obj = t == '{' ? {} : [], end = t == '{' ? '}' : ']';
 			if (pos < length(tokens) && tokens[pos][0] == end) { pos++; return obj; }
 			while (pos < length(tokens)) {
 				let key;
@@ -57,14 +56,14 @@ function parse(s) {
 					if (take() != ':') die('Expected JSON colon');
 				}
 				let v = value();
-				if (preserve) { if (t == '{') obj[json(key)] = v; else push(obj, v); }
+				if (t == '{') obj[json(key)] = v; else push(obj, v);
 				let separator = take();
 				if (separator == end) return obj;
 				if (separator != ',') die('Expected JSON comma or closing delimiter');
 			}
 			die('Unexpected end of JSON input');
 		}
-		if (length(t) >= 2 && substr(t, 0, 1) == '"' && substr(t, -1) == '"') return preserve ? json(t) : null;
+		if (length(t) >= 2 && substr(t, 0, 1) == '"' && substr(t, -1) == '"') return json(t);
 		if (t == 'true' || t == 'false' || t == 'null') return t == 'true' ? true : t == 'false' ? false : null;
 		let n = num(t);
 		if (n == null && t != 'NaN' && t != '-NaN') die('Unexpected JSON token');
@@ -72,7 +71,7 @@ function parse(s) {
 	}
 	let parsed = value();
 	if (pos != length(tokens)) die('Unexpected trailing JSON token');
-	return preserve ? parsed : native;
+	return parsed;
 }
 function valid_utf8(s) {
 	for (let i = 0; i < length(s); i++) {

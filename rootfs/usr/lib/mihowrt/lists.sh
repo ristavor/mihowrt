@@ -346,6 +346,7 @@ lists_update_remote() {
 	local total="" next_total=""
 
 	ensure_dir "$POLICY_CACHE_DIR" && ensure_dir "$PKG_STATE_DIR/lists-stamp" || return 1
+	lists_cache_gc "$urls" || return 1
 	tmp="$PKG_TMP_DIR/list.$$"
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	# URLs come from providers too: no pathname expansion.
@@ -374,7 +375,7 @@ lists_update_remote() {
 			if [ -z "$total" ]; then
 				# Globbing is off for provider URLs; re-enable it only in this subshell.
 				# (OpenWrt BusyBox may lack find -exec {} +.)
-				total="$(set +f; cat "$POLICY_CACHE_DIR"/*.txt 2>/dev/null | wc -c)"
+				total="$(set +f; { cat "$POLICY_CACHE_DIR"/*.txt 2>/dev/null || true; } | wc -c)"
 				total="${total##* }"
 			fi
 			if ! next_total="$({ wc -c "$tmp.clean" "$cache" 2>/dev/null || true; } | awk -v total="$total" -v max="$LISTS_CACHE_MAX_TOTAL" '
@@ -402,7 +403,6 @@ lists_update_remote() {
 	done
 	set +f
 	rm -f "$tmp" "$tmp.clean"
-	lists_cache_gc "$urls" || return 1
 	if [ "$changed" -eq 1 ]; then
 		echo changed
 	else

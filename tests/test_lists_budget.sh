@@ -73,3 +73,13 @@ pass 'under-cap refresh accounts for replaced cache bytes'
  assert_eq 'Error: Failed to update 1 of 9 remote lists: Remote list cache write failed: budget.example' "$(cat "$tmpdir/err")" 'only publication failed, not budget'
 )
 pass 'failed publication does not consume total budget'
+
+# Changing URLs must reclaim stale caches before enforcing the budget.
+rm -f "$POLICY_CACHE_DIR"/*.txt
+for n in {1..8}; do cp "$tmpdir/full" "$POLICY_CACHE_DIR/stale$n.txt"; done
+printf 'https://budget.example/new\n' >"$DST_LIST_FILE"
+lists_update_remote 1 >"$tmpdir/out" 2>"$tmpdir/err"
+assert_eq changed "$(cat "$tmpdir/out")" 'new URL fits after stale cache GC'
+assert_false 'stale cache removed' test -e "$POLICY_CACHE_DIR/stale1.txt"
+assert_true 'new cache published' cmp -s "$tmpdir/full" "$(lists_cache_file https://budget.example/new)"
+pass 'URL change reclaims full stale cache before budget check'

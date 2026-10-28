@@ -37,7 +37,7 @@ State of the 0.11.0 stable-review documentation checkpoint (2026-10-28). This is
 
 ## Acceptance boundaries / not checked here
 
-- OpenWrt 24.10 VM runtime/package-hook acceptance is ongoing; feed/image inspection and an IPK build alone do not prove feature parity. See the [24.10 pending limits](reference.md#openwrt-2410).
+- OpenWrt 24.10 was accepted in the QEMU VM only (24.10.8, 512 MiB): package hooks, runtime, network rows, LuCI and core update. A 128 MiB 24.10 guest and `sysupgrade -k` on 24.10 were not tested. See the [24.10 limits](reference.md#openwrt-2410).
 - No physical-router F3 approval, real NetBird peers, split DNS/reconnect across NAT, hardware offloading or previously offloaded flows are claimed from synthetic VM evidence.
 - Telegram's reported IPv6/direct-first hang is not confirmed fixed: an IPv6 refusal does not prove application IPv4 fallback on the affected client.
 - Russian responsive/theme visual acceptance remains separate from string coverage. The synthetic QEMU harness cannot prove physical-router throughput or memory peaks; a safe sysupgrade backup/restore check is not an actual firmware-flash test.

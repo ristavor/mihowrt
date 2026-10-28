@@ -32,7 +32,7 @@ wget -qO- https://raw.githubusercontent.com/ristavor/mihowrt/main/install.sh | M
 
 ## Update
 
-Run the installer again. APK and IPK updates keep language, core and user files, preserve running/stopped state, and restart a previously running service; a disabled service is not enabled again. <!-- verify: 24.10 hooks (sr-opkg-vm) --> Update Mihomo separately on Overview or with `mihowrt core-update`. Subscription updates replace your YAML, including manual edits. Upgrades from 0.9.0+ are supported; from 0.8 or older remove the package first, then install.
+Run the installer again. APK and IPK updates keep language, core and user files, preserve running/stopped state, and restart a previously running service; a disabled service is not enabled again. Update Mihomo separately on Overview or with `mihowrt core-update`. Subscription updates replace your YAML, including manual edits. Upgrades from 0.9.0+ are supported; from 0.8 or older remove the package first, then install.
 
 ## Remove
 
@@ -44,7 +44,7 @@ apk del luci-i18n-mihowrt-ru luci-app-mihowrt
 opkg remove luci-i18n-mihowrt-ru luci-app-mihowrt
 ```
 
-APK and IPK removal stops the service and clears DNS/nftables/routes, the cron entry, core, dashboard, geodata, subscription metadata (`subscription.json`), saved proxy selection (`cache.db`) and remote-list cache (`policy-cache`). YAML and `config.yaml.bak`, lists, UCI settings and `/etc/mihowrt/hwid` stay, so the provider sees the same device after reinstall. <!-- verify: 24.10 hooks (sr-opkg-vm) --> **`mihowrt uninstall` performs that cleanup but does not remove the package.**
+APK and IPK removal stops the service and clears DNS/nftables/routes, the cron entry, core, dashboard, geodata, subscription metadata (`subscription.json`), saved proxy selection (`cache.db`) and remote-list cache (`policy-cache`). YAML and `config.yaml.bak`, lists, UCI settings and `/etc/mihowrt/hwid` stay, so the provider sees the same device after reinstall. **`mihowrt uninstall` performs that cleanup but does not remove the package.**
 
 ## If GitHub is unavailable
 

@@ -20,6 +20,7 @@ Fixes
 - Background jobs keep unsaved page edits. Saving a changed subscription link validates it through a download before storing it; list refresh is always accessible, proxy selection is debounced, and Overview refreshes once after startup. Read-only users no longer see write actions; errors and Russian translations are clearer.
 - The installer works without a controlling terminal when an action is supplied, installs only missing dependencies, preserves autostart on update and reports reinstall/removal accurately. Default HTTPS downloads cannot redirect to another protocol; the fallback script mirror is release-pinned.
 - Package upgrades/reinstalls clean unmerged APK UCI defaults; removal does not create empty config directories.
+- Stopping the service removes its IPv6 local route also with BusyBox `ip`; before, every stop left a routing table in use, and after about 50 restarts the service could not start ("No free routing table id").
 - Router-owned DNS (queries sent to any address of the router, including a global IPv6 address) always reaches dnsmasq, so local names such as `<host>.lan` keep resolving to local addresses.
 - The controller secret is no longer stored in UCI or passed on command lines: it lives in `/etc/mihowrt/api_secret` (root-only) and is hidden in the read-only YAML view. An upgrade moves the old value there.
 - *Last update* of the subscription survives a reboot.

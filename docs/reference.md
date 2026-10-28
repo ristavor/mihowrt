@@ -280,5 +280,9 @@ Open and deferred issues: [open-issues.md](open-issues.md).
 
 ### OpenWrt 24.10
 
-The stock 24.10.8 image has BusyBox `ip`, not iproute2 (`ip-tiny`/`ip-full`); image/feed inspection alone does not prove all runtime parsing or routing behaviour. The 24.10 VM acceptance is still pending; no parity claim follows from package availability alone.
-<!-- 24.10 limits: pending VM -->
+Tested on OpenWrt 24.10.8 in the VM (kernel 6.6, nft 1.1.1, BusyBox `ip` without iproute2): install via the installer, upgrade and removal with opkg, start/stop/restart, the network acceptance rows, LuCI pages and jobs, and core update behave as on 25.12. Differences:
+
+- 0.11.0 is the first `.ipk` release. Upgrading from a self-built 0.10.x `.ipk` deletes the core and leaves the service stopped (the old package's removal script runs on upgrade); run `mihowrt core-update` and start the service once.
+- `opkg install --force-reinstall` is a removal plus an install: the core is deleted and the service stops. Use the installer or a plain `opkg install` instead; reinstalling the same version with plain `opkg install` does nothing.
+- opkg prints `Collected errors: resolve_conffiles: Existing conffile … will be placed at …-opkg` when you have changed `/etc/config/mihowrt`, `config.yaml` or the lists. Your files are kept and the `-opkg` copies are removed afterwards.
+- A stopped service prints `ubus call service delete … (Not found)` during upgrade or removal; this is harmless OpenWrt output.

@@ -385,3 +385,16 @@ pass 'mac only in device lists'
  assert_file_contains "$tmpdir/examples.err" '(30 total)' 'invalid total retained'
 )
 pass 'invalid list examples bounded with total'
+
+(
+ first="/tmp/mihowrt-policy-list.first.$$"
+ second="/tmp/mihowrt-policy-list.second.$$"
+ trap 'rm -f "$first" "$second"' EXIT
+ printf '1.2.3.4\n' >"$first"; printf '5.6.7.8\n' >"$second"
+ cp "$DST_LIST_FILE" "$tmpdir/first.before"
+ cp() { [ "$1" != "$second" ] || { printf partial >"$2"; return 1; }; command cp "$@"; }
+ assert_false 'second staging copy fails install' lists_install "$first" "$second" - - >"$tmpdir/install.out"
+ assert_true 'first list not published before second staged' cmp -s "$DST_LIST_FILE" "$tmpdir/first.before"
+ assert_eq '' "$(find "$LIST_DIR" -name '*.new.*')" 'all staged lists cleaned'
+)
+pass 'list staging failure preserves published lists'

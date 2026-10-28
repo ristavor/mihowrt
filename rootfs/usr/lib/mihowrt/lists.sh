@@ -435,7 +435,7 @@ lists_own_count() {
 # Install edited lists uploaded by LuCI (/tmp/mihowrt-policy-list.*) after
 # validating every line. Runs under the runtime lock; prints 1 if changed.
 lists_install() {
-	local kind="" tmp="" bad="" url="" changed=0 dst="" size=""
+	local kind="" tmp="" bad="" url="" changed=0 dst="" size="" failed=0
 
 	for kind in dst src direct direct_src; do
 		tmp="$1"
@@ -488,15 +488,27 @@ lists_install() {
 				}
 			' "$tmp" >"$tmp.normalized" && mv -f "$tmp.normalized" "$tmp"; }; then
 				rm -f "$tmp.normalized"
-				return 1
+				failed=1
+				break
 			fi
 			;;
 		esac
 		if ! cmp -s "$tmp" "$dst"; then
-			atomic_copy "$tmp" "$dst" || return 1
+			cp "$tmp" "$dst.new.$$" || { failed=1; break; }
 			changed=1
 		fi
 	done
+	if [ "$failed" -eq 0 ]; then
+		for kind in dst src direct direct_src; do
+			dst="$(lists_file "$kind")"
+			[ -f "$dst.new.$$" ] || continue
+			mv -f "$dst.new.$$" "$dst" || { failed=1; break; }
+		done
+	fi
+	for kind in dst src direct direct_src; do
+		rm -f "$(lists_file "$kind").new.$$"
+	done
+	[ "$failed" -eq 0 ] || return 1
 	settings_load && cron_update
 	echo "$changed"
 }

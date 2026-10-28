@@ -117,3 +117,55 @@ for legacy in OLD_NFT_INTERCEPT_MARK 'ROUTE_TABLE_ID=' 'ROUTE_RULE_PRIORITY='; d
  assert_file_not_contains "$MIHOWRT_LIB_DIR/route.sh" "$legacy" "route runtime has no legacy"
 done
 pass "route runtime has no legacy"
+
+# Named table reservations must not be overwritten, even without a rule.
+(
+ mkdir -p /etc/iproute2/rt_tables.d
+ printf '200 vpn\n' >/etc/iproute2/rt_tables
+ printf '201 vpn_extra\n' >/etc/iproute2/rt_tables.d/mihowrt-test.conf
+ ip() {
+  case "$*" in
+  '-4 route show table all') printf 'default via 192.0.2.1 dev eth0 table vpn\nlocal default dev lo table 202\n' ;;
+  '-4 rule show') printf '0:\tfrom all lookup local\n' ;;
+  esac
+ }
+ route_allocate || fail 'named table allocation succeeds'
+ assert_eq 203 "$ROUTE_TABLE" 'reserved and non-empty tables skipped'
+ rm -f /etc/iproute2/rt_tables /etc/iproute2/rt_tables.d/mihowrt-test.conf
+)
+pass 'route allocation reserves named and populated tables'
+
+(
+ ROUTE_TABLE=200
+ ROUTE_PRIORITY=50
+ ip() { printf '%s\n' "$rule"; }
+ for rule in $'50:\tfrom all fwmark 0x8000000/0x8000000 lookup vpn' $'50:\tfrom all fwmark 0x8000000 lookup vpn'; do
+  assert_true 'named lookup counts as active' route_rule_present 4
+ done
+ for rule in $'51:\tfrom all fwmark 0x8000000/0x8000000 lookup vpn' $'50:\tfrom all fwmark 0x4000000/0x4000000 lookup 200' $'50:\tfrom all fwmark 0x80000000 lookup 200'; do
+  assert_false 'different priority or mark is not our rule' route_rule_present 4
+ done
+)
+pass 'route presence matches priority and mark, not table name'
+
+(
+ rm -f "$ROUTE_STATE_FILE" "$tmpdir/rule-present"
+ ip() {
+  echo "ip $*" >>"$calls"
+  case "$*" in
+  '-4 rule show')
+   if [ -f "$tmpdir/rule-present" ]; then
+    printf '50:\tfrom all fwmark 0x8000000/0x8000000 lookup vpn\n'
+   fi ;;
+  '-4 rule del'*) [ -f "$tmpdir/rule-present" ] || return 1; rm -f "$tmpdir/rule-present" ;;
+  '-4 rule add'*) [ ! -f "$tmpdir/rule-present" ] || return 2; touch "$tmpdir/rule-present" ;;
+  esac
+ }
+ route_setup || fail 'first setup succeeds'
+ : >"$calls"
+ route_setup || fail 'second setup with named table succeeds'
+ assert_file_contains "$calls" 'rule del fwmark' 'reload deletes before adding'
+ assert_file_contains "$calls" 'rule add fwmark' 'reload re-adds the rule'
+ assert_true 'reload leaves policy present' route_active
+)
+pass 'route setup is idempotent with named tables'

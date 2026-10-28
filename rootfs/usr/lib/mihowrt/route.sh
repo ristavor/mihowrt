@@ -49,8 +49,12 @@ route_first_free() {
 }
 
 route_allocate() {
-	local fam="" used_tables="" used_prios=""
+	local fam="" used_tables="" used_prios="" file=""
 
+	# ip-full prints table names, so reserve every configured id as well.
+	used_tables="$(for file in /etc/iproute2/rt_tables /etc/iproute2/rt_tables.d/*.conf; do
+		[ ! -r "$file" ] || awk '$1 ~ /^[0-9]+$/ { print $1 }' "$file"
+	done | tr '\n' ' ')"
 	for fam in $(route_families); do
 		used_tables="$used_tables $(ip -"$fam" route show table all 2>/dev/null | sed -n 's/.* table \([0-9]*\).*/\1/p' | sort -u | tr '\n' ' ')"
 		used_tables="$used_tables $(ip -"$fam" rule show 2>/dev/null | sed -n 's/.* lookup \([0-9]*\).*/\1/p' | tr '\n' ' ')"
@@ -86,12 +90,12 @@ route_setup() {
 			err "Failed to add IPv$fam local route to table $ROUTE_TABLE"
 			return 1
 		}
-		route_rule_present "$fam" && continue
+		route_rule_present "$fam" || added=1
+		ip -"$fam" rule del fwmark "$mark/$mark" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null || true
 		ip -"$fam" rule add fwmark "$mark/$mark" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" || {
 			err "Failed to add IPv$fam policy rule"
 			return 1
 		}
-		added=1
 	done
 	# net_refresh re-runs this on every network change; log only real changes.
 	[ "$added" = 0 ] || log "Policy routing: mark $mark -> table $ROUTE_TABLE (priority $ROUTE_PRIORITY)"
@@ -113,7 +117,10 @@ route_cleanup() {
 
 # BusyBox/ip-tiny lack "ip rule show priority N", so match the listing.
 route_rule_present() {
-	ip -"$1" rule show 2>/dev/null | grep -q "^$ROUTE_PRIORITY:.* lookup $ROUTE_TABLE"
+	local mark=""
+
+	mark="$(printf '%x' "$((NFT_INTERCEPT_MARK))")"
+	ip -"$1" rule show 2>/dev/null | grep -qE "^$ROUTE_PRIORITY:[[:space:]].*fwmark 0x0*$mark(/0x0*$mark)?([[:space:]]|$)"
 }
 
 route_active() {

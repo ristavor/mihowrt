@@ -1,0 +1,244 @@
+#!/usr/bin/ucode
+'use strict';
+import { readfile, stdin } from 'fs';
+
+function read(path) {
+	let s = path == null ? stdin.read('all') : readfile(path);
+	if (s == null) die('Cannot read JSON input');
+	return s;
+}
+// jq retains decimal precision and scale; ucode's JSON numbers are doubles.
+// Keep validated number tokens separate from ordinary, untrusted JSON objects.
+let decimal = {};
+function number(s) {
+	let m = match(s, /^([+-]?)([0-9]*)(\.([0-9]*))?([eE]([+-]?[0-9]+))?$/);
+	if (!m || !length((m[2] ?? '') + (m[4] ?? ''))) return null;
+	let digits = replace(m[2] + (m[4] ?? ''), /^0+/, '') || '0';
+	let exp = +(m[6] ?? '0') - length(m[4] ?? ''), adjusted = exp + length(digits) - 1, out;
+	if (exp > 0 || adjusted < -6)
+		out = substr(digits, 0, 1) + (length(digits) > 1 ? '.' + substr(digits, 1) : '') + 'E' + (adjusted >= 0 ? '+' : '') + adjusted;
+	else if (exp < 0) {
+		let at = length(digits) + exp;
+		while (at <= 0) { digits = '0' + digits; at++; }
+		out = substr(digits, 0, at) + '.' + substr(digits, at);
+	} else out = digits;
+	return proto({text: (m[1] == '-' ? '-' : '') + out}, decimal);
+}
+function parse(s) {
+	json(s); // Validate syntax before preserving number tokens.
+	let pos = 0;
+	function value() {
+		while (match(substr(s, pos, 1), /^[ \t\r\n]$/)) pos++;
+		let c = substr(s, pos, 1), m;
+		if (c == '{' || c == '[') {
+			pos++;
+			let obj = c == '{' ? {} : [], end = c == '{' ? '}' : ']';
+			while (true) {
+				while (match(substr(s, pos, 1), /^[ \t\r\n,]$/)) pos++;
+				if (substr(s, pos, 1) == end) { pos++; return obj; }
+				if (c == '{') {
+					let key = value();
+					while (substr(s, pos++, 1) != ':') {}
+					obj[key] = value();
+				} else push(obj, value());
+			}
+		}
+		if (c == '\"') {
+			let start = pos++;
+			while (substr(s, pos, 1) != '\"') { if (substr(s, pos, 1) == '\\') pos++; pos++; }
+			return json(substr(s, start, ++pos - start));
+		}
+		m = match(substr(s, pos), /^[^],} \t\r\n]+/)[0];
+		pos += length(m);
+		return m == 'true' ? true : m == 'false' ? false : m == 'null' ? null : number(m);
+	}
+	return value();
+}
+function padding(depth) {
+	let s = '';
+	while (depth-- > 0) s += '  ';
+	return s;
+}
+function encode(v, pretty, depth) {
+	depth ??= 0;
+	if (type(v) == 'object' && proto(v) == decimal) return v.text;
+	let t = type(v), out = [], indent = padding(depth + 1);
+	if (t == 'array' || t == 'object') {
+		for (let key, value in v) {
+			push(out, (t == 'object' ? sprintf('%J', key) + (pretty ? ': ' : ':') : '') + encode(v[key], pretty, depth + 1));
+		}
+		let l = t == 'array' ? '[' : '{', r = t == 'array' ? ']' : '}';
+		return !length(out) ? l + r : l + (pretty ? '\n' + indent : '') + join(pretty ? ',\n' + indent : ',', out) + (pretty ? '\n' + padding(depth) : '') + r;
+	}
+	return sprintf('%J', v);
+}
+function emit(v, pretty) { print(encode(v, pretty), '\n'); }
+function raw(v) { return type(v) == 'string' ? v : encode(v); }
+function fallback(v, d) { return v == null || v === false ? d : v; }
+function lines(s, sep) { return filter(split(s ?? '', sep ?? '\n'), (v) => length(v) > 0); }
+function num(s) {
+	if (s == 'NaN' || s == '-NaN') return null;
+	if (s == 'Infinity' || s == 'Inf' || s == '+Infinity' || s == '+Inf') return proto({text: '1.7976931348623157e+308'}, decimal);
+	if (s == '-Infinity' || s == '-Inf') return proto({text: '-1.7976931348623157e+308'}, decimal);
+	return number(s);
+}
+function numeric(v) { return type(v) == 'object' && proto(v) == decimal ? +v.text : v; }
+function merge(a, b) {
+	for (let k, v in b) a[k] = v;
+	return a;
+}
+function build(shape, a) {
+	switch (shape) {
+	case 'object': return a;
+	case 'config': return {path: a.p, content: read()};
+	case 'runtime': return {content: read(), generated: a.generated};
+	case 'changed': return {changed: a.c == '1' || a.r == 'changed'};
+	case 'version': return {version: a.v, installed: a.v != ''};
+	case 'core': return {updated: a.u == '1', version: a.v, error: a.e == '' ? null : a.e};
+	case 'job': return {id: a.id, op: a.op, state: 'running', started: a.started, finished: null, result: null, error: null};
+	case 'finish': return {state: a.state, finished: a.finished, result: a.result, error: a.state == 'ok' ? null : a.error};
+	case 'restart': return a.e == '' ? {restarted: a.restarted} : {restarted: a.restarted, error: a.e};
+	case 'service': return {running: a.running, enabled: a.enabled, state: a.state, dns_ok: a.dns_ok, last_error: a.last_error};
+	case 'status': return {
+		running: a.running, enabled: a.enabled, state: a.state, last_error: a.last_error, version: a.version, core: a.core,
+		dashboard_installed: a.dashboard_installed, core_installed: a.core != '', subscription_configured: a.url != '',
+		subscription_insecure: index(lc(a.url), 'http://') == 0,
+		config_valid: a.config_valid, config_backup: a.config_backup, config_error: a.config_error, dns_mode: a.dns_mode, dns_ok: a.dns_ok, policy_active: a.policy,
+		mode: a.mode, block_client_ipv6: a.block_client_ipv6 == '1', interfaces: lines(a.interfaces, ' '), custom_dns_servers: lines(a.custom, ' '),
+		lists: {dst: num(a.dst), src: num(a.src), direct: num(a.direct), direct_src: num(a.direct_src)},
+		route: {table: a.table, priority: a.priority}, errors: lines(a.errors, '\n')
+	};
+	case 'profile':
+		let provider = {};
+		for (let row in lines(a.provider)) { let p = split(row, ' '); provider[p[0]] = p[1]; }
+		let list = (k) => ({provided: a[k + '_provided'], provider_count: num(a[k + '_provider']), own_count: num(a[k + '_own']), source: a[k + '_source']});
+		return {dashboard_installed: a.dashboard_installed, mode: a.mode, dns: a.dns, provider, overrides: lines(a.overrides, ' '), lists: {dst: list('dst'), direct: list('direct')}};
+	case 'diagnostics': return {
+		conflicts: lines(a.conflicts), flash_free_kb: num(a.flash), tmp_clash_kb: num(a.tmp_clash), tmp_free_kb: num(a.tmp_free),
+		ram_available_kb: num(a.ram), mihomo_rss_kb: num(a.rss), open_proxy_ports: map(lines(a.ports), num)
+	};
+	case 'logs': return {available: a.available ?? true, lines: lines(a.l)};
+	case 'metadata': return {
+		profile_title: a.title ?? '', announce: a.announce ?? '', support_url: a.support ?? '', web_page_url: a.web ?? '',
+		header_interval: num(a.interval ?? ''), upload: num(a.upload ?? ''), download: num(a.download ?? ''), total: num(a.total ?? ''), expire: num(a.expire ?? '')
+	};
+	case 'subscription': return merge(a.meta, {url: a.url, auto_update: a.auto != '0', effective_interval: num(a.effective), config_backup: a.backup, last_update: num(a.updated)});
+	case 'dashboard': return {host: a.host, port: num(a.port), secret: split(a.secret, '\n')[0] ?? '', running: a.running, enabled: a.enabled, installed: a.installed, size: a.size};
+	default: die('Unknown JSON shape: ' + shape);
+	}
+}
+function valid_utf8(s) {
+	for (let i = 0; i < length(s); i++) {
+		let b = ord(s, i), n = 0, low = 128, high = 191;
+		if (b < 128) continue;
+		if (b >= 194 && b <= 223) n = 1;
+		else if (b >= 224 && b <= 239) { n = 2; if (b == 224) low = 160; if (b == 237) high = 159; }
+		else if (b >= 240 && b <= 244) { n = 3; if (b == 240) low = 144; if (b == 244) high = 143; }
+		else return false;
+		if (i + n >= length(s) || ord(s, i + 1) < low || ord(s, i + 1) > high) return false;
+		while (n-- > 0) { b = ord(s, ++i); if (b < 128 || b > 191) return false; }
+	}
+	return true;
+}
+function proxies(p) {
+	p = p.proxies;
+	let names = [], seen = {}, out = [];
+	for (let k in (fallback(p.GLOBAL?.all, []))) push(names, k);
+	for (let k in sort(keys(p))) push(names, k);
+	for (let k in names) {
+		let g = p[k];
+		if (k == 'GLOBAL' || seen[k] || g == null || (g.hidden !== false && g.hidden != null) || index(['Selector', 'URLTest', 'Fallback', 'LoadBalance'], g.type) < 0) continue;
+		seen[k] = true;
+		let delays = {};
+		for (let n in fallback(g.all, [])) {
+			let h = fallback(p[n]?.history, []);
+			if (length(h)) delays[n] = h[-1].delay;
+		}
+		push(out, {name: k, type: g.type, now: g.now, all: g.all, fixed: fallback(g.fixed, ''), delays});
+	}
+	return out;
+}
+let cmd = shift(ARGV);
+try {
+	switch (cmd) {
+	case 'build':
+	case 'merge': {
+		let shape = shift(ARGV), a = {}, path;
+		while (length(ARGV)) {
+			let flag = shift(ARGV);
+			if (flag != '--arg' && flag != '--argjson' && flag != '--rawfile') { path = flag; break; }
+			let key = shift(ARGV), value = shift(ARGV);
+			if (key == null || value == null) die('Missing JSON argument');
+			a[key] = flag == '--argjson' ? parse(value) : flag == '--rawfile' ? read(value) : value;
+		}
+		let value = build(shape, a);
+		emit(cmd == 'merge' ? merge(parse(read(path)), value) : value, shape == 'config' || shape == 'runtime');
+		break;
+	}
+	case 'get': {
+		let fields = split(shift(ARGV), ':'), empty = ARGV[0] == 'empty';
+		if (empty) shift(ARGV);
+		let obj = parse(read(shift(ARGV)));
+		print(join(':', map(fields, (k) => raw(empty ? fallback(obj[k], '') : obj[k]))), '\n');
+		break;
+	}
+	case 'has': {
+		let key = shift(ARGV), obj = parse(read(shift(ARGV)));
+		exit(type(obj) == 'object' && exists(obj, key) ? 0 : 1);
+	}
+	case 'object': {
+		let obj = parse(read(shift(ARGV)));
+		if (type(obj) == 'object') emit(obj);
+		break;
+	}
+	case 'history': {
+		let action = shift(ARGV), jobs = [];
+		if (action == 'sort') {
+			for (let path in ARGV) push(jobs, parse(read(path)));
+			sort(jobs, (a, b) => {
+				let av = [a.started, ...map(split(a.id, '-'), num)], bv = [b.started, ...map(split(b.id, '-'), num)];
+				for (let i = 0; i < length(av); i++) if (numeric(av[i]) != numeric(bv[i])) return numeric(av[i]) < numeric(bv[i]) ? -1 : 1;
+				return 0;
+			});
+			emit(jobs, true);
+		} else {
+			jobs = parse(read());
+			if (action == 'last') print(raw(fallback(jobs[-1]?.id, '')), '\n');
+			else if (action == 'prune') for (let j in slice(filter(jobs, (j) => j.state != 'running'), 0, -5)) print(raw(j.id), '\n');
+			else die('Unknown history operation');
+		}
+		break;
+	}
+	case 'result': {
+		let s = trim(read(shift(ARGV)));
+		emit(length(s) ? parse(s) : null);
+		break;
+	}
+	case 'uri': {
+		let s = read(), out = '';
+		for (let i = 0; i < length(s); i++) {
+			let c = substr(s, i, 1);
+			out += match(c, /^[A-Za-z0-9_.~-]$/) ? c : sprintf('%%%02X', ord(c));
+		}
+		print(out, '\n');
+		break;
+	}
+	case 'base64': {
+		let s = b64dec(trim(read()));
+		if (s != null && length(s) && valid_utf8(s) && index(s, '\x00') < 0 && index(s, '�') < 0) print(s, '\n');
+		break;
+	}
+	case 'proxies': { emit(proxies(parse(read()))); break;
+	}
+	case 'asset': {
+		let name = shift(ARGV), obj = parse(read(shift(ARGV)));
+		for (let a in fallback(obj.assets, [])) if (a.name == name) print(raw(a.browser_download_url), '\t', raw(fallback(a.digest, '')), '\t', raw(fallback(a.size, '')), '\n');
+		break;
+	}
+	default: { die('Unknown JSON operation: ' + cmd);
+	}
+	}
+} catch (e) {
+	warn('mihowrt-json: ', e, '\n');
+	exit(1);
+}

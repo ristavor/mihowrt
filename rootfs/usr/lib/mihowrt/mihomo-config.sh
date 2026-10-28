@@ -184,7 +184,8 @@ mihomo_config_test() {
 		if [ "$memlimit" -gt 0 ]; then
 			export GOMEMLIMIT="${memlimit}MiB"
 		fi
-		"$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1
+		{ printf '1000\n' >/proc/self/oom_score_adj; } 2>/dev/null || :
+		exec "$bin" -d "$CLASH_DIR" -f "$config" -t 2>&1
 	)"; then
 		if [ -n "$key" ] || key="$(mihomo_config_test_key "$config" "$bin")"; then
 			ensure_dir "$PKG_STATE_DIR" && atomic_write "$CONFIG_TESTED_FILE" "$key"

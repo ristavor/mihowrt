@@ -27,6 +27,8 @@ layout_init() {
 	chmod 700 "$PKG_STATE_DIR" "$PKG_TMP_DIR" || return 1
 	layout_link "$RULESET_LINK" "$RULESET_TMPFS" dir || return 1
 	layout_link "$PROXY_PROVIDERS_LINK" "$PROXY_PROVIDERS_TMPFS" dir || return 1
+	layout_link "$PROXIES_LINK" "$PROXIES_TMPFS" dir || return 1
+	layout_link "$RULES_LINK" "$RULES_TMPFS" dir || return 1
 	if [ ! -e "$CACHE_DB_TMPFS" ] && [ -f "$PKG_PERSIST_DIR/cache.db" ]; then
 		cp "$PKG_PERSIST_DIR/cache.db" "$CACHE_DB_TMPFS"
 	fi
@@ -119,7 +121,7 @@ uninstall_cleanup() {
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE" || rc=1
 	nft_fw4_input_cleanup || rc=1
 	cron_sync "$CRON_MARKER" 0 "" || rc=1
-	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$CACHE_DB_LINK" || rc=1
+	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$PROXIES_LINK" "$RULES_LINK" "$CACHE_DB_LINK" || rc=1
 	rm -f "$CLASH_DIR/mihomo.sock" "$CLASH_BIN" || rc=1
 	rm -rf "$CLASH_DIR/ui" || rc=1
 	for name in GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do

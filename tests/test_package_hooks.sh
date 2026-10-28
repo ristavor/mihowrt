@@ -523,6 +523,7 @@ mkdir -p "$uninstall_root/lib" "$uninstall_root/opt/clash/bin" "$uninstall_root/
 	"$uninstall_root/opt/clash/lst" "$uninstall_root/etc/mihowrt/policy-cache" \
 	"$uninstall_root/etc/config" "$uninstall_root/etc/init.d" "$uninstall_root/tmp/dnsmasq.test.d" \
 	"$uninstall_root/tmp/clash/ruleset" "$uninstall_root/tmp/clash/proxy_providers" \
+	"$uninstall_root/tmp/clash/proxies" "$uninstall_root/tmp/clash/rules" \
 	"$uninstall_root/var/run/mihowrt" "$uninstall_root/tmp/mihowrt" "$uninstall_root/etc/crontabs"
 for module in "$MIHOWRT_LIB_DIR"/*.sh; do
 	sed -e "s|/opt/clash|@ROOT@/opt/clash|g" \
@@ -558,7 +559,7 @@ done
 for kept in opt/clash/config.yaml opt/clash/config.yaml.bak opt/clash/lst/custom.txt opt/clash/manual.txt etc/config/mihowrt etc/mihowrt/hwid; do
 	printf 'keep\n' >"$uninstall_root/$kept"
 done
-for name in ruleset proxy_providers cache.db mihomo.sock; do
+for name in ruleset proxy_providers proxies rules cache.db mihomo.sock; do
 	touch "$uninstall_root/tmp/clash/$name/fixture" 2>/dev/null || touch "$uninstall_root/tmp/clash/$name"
 	ln -s "$uninstall_root/tmp/clash/$name" "$uninstall_root/opt/clash/$name"
 done
@@ -571,7 +572,7 @@ MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
 assert_eq 'init:stop' "$(head -n 1 "$uninstall_root/actions")" "uninstall stops first, outside runtime lock"
 assert_false 'uninstall removes fw4 input include even with a lingering policy' test -e "$uninstall_root/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft"
 assert_eq 1 "$(grep -c '^fw4:reload$' "$uninstall_root/actions")" 'uninstall reloads fw4 after removing include'
-for removed in bin/clash ui GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb ruleset proxy_providers cache.db mihomo.sock; do
+for removed in bin/clash ui GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb ruleset proxy_providers proxies rules cache.db mihomo.sock; do
 	[[ ! -e "$uninstall_root/opt/clash/$removed" && ! -L "$uninstall_root/opt/clash/$removed" ]] || fail "uninstall removes $removed"
 done
 for removed in etc/mihowrt/subscription.json etc/mihowrt/cache.db etc/mihowrt/policy-cache tmp/mihowrt var/run/mihowrt tmp/clash tmp/dnsmasq.test.d/mihowrt.conf; do
@@ -596,9 +597,13 @@ nft_cleanup() { echo nft >>"$CLASH_DIR/cleanup-calls"; }
 route_cleanup() { echo route >>"$CLASH_DIR/cleanup-calls"; }
 EOF_STUBS
 touch "$uninstall_root/opt/clash/test-running" "$uninstall_root/opt/clash/test-pid"
+for name in proxies rules; do
+ mkdir -p "$uninstall_root/opt/clash/$name"
+ printf 'legacy cache\n' >"$uninstall_root/opt/clash/$name/provider"
+done
 MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
 assert_eq $'dns\nnft\nroute' "$(cat "$uninstall_root/opt/clash/cleanup-calls" 2>/dev/null || true)" "lingering supervisor still restores DNS/nft/routes under lock"
-for marker in test-running test-pid; do
+for marker in test-running test-pid proxies rules; do
 	[[ ! -e "$uninstall_root/opt/clash/$marker" ]] || fail "uninstall explicitly removes $marker"
 done
 pass "uninstall restores router state despite lingering supervisor"

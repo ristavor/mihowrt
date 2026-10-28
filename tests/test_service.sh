@@ -31,6 +31,32 @@ setup_runtime_paths "$tmpdir"
 )
 pass 'stop removes fw4 input include without recursive reload'
 
+# Default provider directories follow the existing tmpfs-link migration.
+(
+ root="$tmpdir/layout"
+ sed -e 's|/opt/clash|@ROOT@/opt/clash|g' \
+  -e 's|/tmp/|@ROOT@/tmp/|g' -e 's|/var/run/|@ROOT@/run/|g' \
+  -e 's|/etc/|@ROOT@/etc/|g' -e "s|@ROOT@|$root|g" \
+  "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/layout-constants.sh"
+ # shellcheck disable=SC1090
+ source "$tmpdir/layout-constants.sh"
+ for name in proxies rules; do
+  mkdir -p "$root/opt/clash/$name"
+  printf 'provider cache\n' >"$root/opt/clash/$name/provider"
+ done
+ layout_init
+ for name in proxies rules; do
+  assert_symlink_target "$root/opt/clash/$name" "$root/tmp/clash/$name" "$name provider directory uses tmpfs"
+  assert_file_contains "$root/tmp/clash/$name/provider" 'provider cache' "$name existing provider cache migrated"
+ done
+ rm -rf "$root/tmp/clash/proxies" "$root/tmp/clash/rules"
+ layout_init
+ for name in proxies rules; do
+  assert_true "$name tmpfs directory recreated after reboot" test -d "$root/tmp/clash/$name"
+ done
+)
+pass 'default provider caches migrate to tmpfs links and recover after reboot'
+
 
 PKG_STATE_DIR="$tmpdir/run"
 PKG_TMP_DIR="$tmpdir/tmp"

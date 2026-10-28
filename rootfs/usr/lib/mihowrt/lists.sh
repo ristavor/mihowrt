@@ -467,6 +467,9 @@ lists_install() {
 		set +f
 	done
 	for kind in dst src direct direct_src; do
+		rm -f "$(lists_file "$kind").new."*
+	done
+	for kind in dst src direct direct_src; do
 		eval "tmp=\"\$LIST_TMP_$kind\""
 		[ "$tmp" != - ] || continue
 		dst="$(lists_file "$kind")"

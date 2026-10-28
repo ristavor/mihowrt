@@ -398,3 +398,60 @@ pass 'invalid list examples bounded with total'
  assert_eq '' "$(find "$LIST_DIR" -name '*.new.*')" 'all staged lists cleaned'
 )
 pass 'list staging failure preserves published lists'
+
+(
+ upload="/tmp/mihowrt-policy-list.utf8.$$"
+ trap 'rm -f "$upload"' EXIT
+ printf '%0199dЖ\n' 0 >"$upload"
+ assert_false 'Cyrillic invalid entry rejected' lists_install "$upload" - - - 2>"$tmpdir/utf8-list.err"
+ mihowrt-json build object --arg error "$(cat "$tmpdir/utf8-list.err")" >"$tmpdir/utf8-list.json"
+ node - "$tmpdir/utf8-list.json" <<'NODE'
+const fs = require('fs');
+const text = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(process.argv[2]));
+const data = JSON.parse(text);
+if (!data.error.includes('0'.repeat(199)) || !data.error.includes('(1 total)'))
+ throw new Error('invalid list diagnostic lost');
+NODE
+)
+pass 'byte-cut UTF-8 list example survives real JSON consumer'
+
+(
+ uploads=()
+ trap 'rm -f "${uploads[@]}"' EXIT
+ n=0
+ for kind in dst src direct direct_src; do
+  n=$((n + 1))
+  uploads+=("/tmp/mihowrt-policy-list.rename-$kind.$$")
+  printf '192.0.2.%s\n' "$n" >"${uploads[n-1]}"
+  printf '198.51.100.%s\n' "$n" >"$(lists_file "$kind")"
+ done
+ mv() {
+  [ "$3" != "$SRC_LIST_FILE" ] || return 1
+  command mv "$@"
+ }
+ rc=0
+ lists_install "${uploads[@]}" >"$tmpdir/rename.out" || rc=$?
+ assert_eq 1 "$rc" 'second list rename failure returns 1'
+ assert_true 'first list published before rename failure' cmp -s "${uploads[0]}" "$DST_LIST_FILE"
+ assert_eq 198.51.100.2 "$(cat "$SRC_LIST_FILE")" 'failed second rename preserves previous list'
+ assert_eq '' "$(find "$tmpdir" -name '*.new.*')" 'rename failure removes remaining stages'
+ unset -f mv
+ assert_eq 1 "$(lists_install "${uploads[@]}")" 'following refresh publishes remaining changes'
+ n=0
+ for kind in dst src direct direct_src; do
+  assert_true "following refresh heals $kind" cmp -s "${uploads[n]}" "$(lists_file "$kind")"
+  n=$((n + 1))
+ done
+ assert_eq '' "$(find "$tmpdir" -name '*.new.*')" 'successful retry leaves no stages'
+)
+pass 'list rename failure cleans stages and following refresh self-heals'
+
+# An interrupted publisher leaves stages for any kind, including omitted uploads.
+for kind in dst src direct direct_src; do
+ printf 'orphaned\n' >"$(lists_file "$kind").new.12345"
+done
+assert_eq '{"changed":false}' "$(lists_apply - - - -)" 'refresh without edits sweeps orphaned stages'
+for kind in dst src direct direct_src; do
+ assert_false "interrupted $kind stage removed" test -e "$(lists_file "$kind").new.12345"
+done
+pass 'interrupted list publication stages swept'

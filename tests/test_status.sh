@@ -236,3 +236,16 @@ pass 'huge status and recorded errors stay bounded'
  assert_false 'empty error snapshots never fork awk' test -e "$tmpdir/error-awk-called"
 )
 pass 'empty error snapshots stay fork-free'
+
+# The real JSON consumer replaces a trailing byte fragment rather than emitting invalid UTF-8.
+printf '%0999dЖ' 0 >"$LAST_ERROR_FILE"
+assert_eq 1000 "$(error_text "$LAST_ERROR_FILE" | tr -d '\n' | wc -c)" 'diagnostic cut lands inside Cyrillic character'
+json="$(status_json)"
+printf '%s\n' "$json" >"$tmpdir/utf8-status.json"
+node - "$tmpdir/utf8-status.json" <<'NODE'
+const fs = require('fs');
+const text = new TextDecoder('utf-8', { fatal: true }).decode(fs.readFileSync(process.argv[2]));
+const data = JSON.parse(text);
+if (!data.last_error.startsWith('0'.repeat(999))) throw new Error('diagnostic prefix lost');
+NODE
+pass 'byte-cut UTF-8 diagnostic survives real status JSON consumer'

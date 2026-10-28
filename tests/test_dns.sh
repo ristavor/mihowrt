@@ -140,6 +140,9 @@ test_net_refresh_coalesced() (
 		return 0
 	}
 	flock() {
+		if [ "$scenario" = write-before-lock ] && [ "$*" = "-n 6" ]; then
+			assert_true 'pending exists before lock attempt' test -f "$PKG_STATE_DIR/net-refresh.pending"
+		fi
 		command flock "$@" || return $?
 		# Inject exactly after the last pending check, at unlock.
 		if [ "$*" = '-u 6' ] && [ "$injected" = 0 ]; then
@@ -187,7 +190,7 @@ test_net_refresh_coalesced() (
 	assert_true 'coalescing lock released' bash -c 'exec 6>>"$1/net-refresh.flock"; flock -n 6' bash "$PKG_STATE_DIR"
 	assert_false 'no pending file after refresh' test -e "$PKG_STATE_DIR/net-refresh.pending"
 	case "$scenario" in
-	single | debounce | default-delay) assert_eq 1 "$calls" 'single event refreshes once' ;;
+	single | debounce | default-delay | write-before-lock) assert_eq 1 "$calls" 'single event refreshes once' ;;
 	*) assert_eq 2 "$calls" 'pending event refreshes exactly twice' ;;
 	esac
 	if [ "$scenario" = last-failure ]; then
@@ -198,7 +201,7 @@ test_net_refresh_coalesced() (
 )
 
 coalesced_failures=0
-for scenario in single pending busy last-success last-failure unlock-window retry-busy debounce default-delay; do
+for scenario in write-before-lock single pending busy last-success last-failure unlock-window retry-busy debounce default-delay; do
 	if test_net_refresh_coalesced "$scenario"; then
 		pass "net_refresh_coalesced $scenario"
 	else

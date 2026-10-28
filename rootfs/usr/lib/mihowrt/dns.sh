@@ -152,8 +152,8 @@ net_refresh_coalesced() {
 	ensure_dir "$PKG_STATE_DIR" || return 1
 	while :; do
 		exec 6>>"$PKG_STATE_DIR/net-refresh.flock"
+		: >"$pending" || { exec 6>&-; return 1; }
 		if ! flock -n 6; then
-			: >"$pending"
 			exec 6>&-
 			return "$rc"
 		fi
@@ -166,7 +166,7 @@ net_refresh_coalesced() {
 		done
 		flock -u 6
 		exec 6>&-
-		# A losing event can mark pending after the last check but before unlock.
+		# An event arriving after the last check still needs an owner.
 		[ -f "$pending" ] || return "$rc"
 	done
 }

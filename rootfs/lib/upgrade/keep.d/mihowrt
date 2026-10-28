@@ -1,4 +1,6 @@
 /etc/config/mihowrt
-/etc/mihowrt
+/etc/mihowrt/api_secret
+/etc/mihowrt/hwid
+/etc/mihowrt/subscription.json
 /opt/clash/config.yaml
 /opt/clash/lst

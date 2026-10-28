@@ -473,15 +473,19 @@ pass "postrm removes empty directories without deleting user files"
 
 assert_file_contains "$ROOT_DIR/Makefile" '+curl' "package should depend on curl for Mihomo API hot reload"
 installer_deps="$(sed -n 's/^DEPS="\(.*\)"$/\1/p' "$ROOT_DIR/install.sh")"
-for dep in $installer_deps; do
-	assert_file_contains "$ROOT_DIR/Makefile" "+$dep" "installer dependency $dep must match package LUCI_DEPENDS"
-done
+package_deps="$(sed -n 's/^LUCI_DEPENDS:=//p' "$ROOT_DIR/Makefile" | tr -d '+')"
+assert_eq "$(printf '%s\n' "$package_deps" | tr ' ' '\n' | sort -u)" "$(printf '%s\n' "$installer_deps" | tr ' ' '\n' | sort -u)" "installer and package dependency sets match both ways"
 assert_file_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "option subscription_url ''" "default UCI config should disable subscriptions"
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "policy_remote_update_interval" "default UCI config should use per-URL policy list intervals"
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "route_table_id" "default UCI config should keep route table selection automatic"
 assert_file_not_contains "$ROOT_DIR/rootfs/etc/config/mihowrt" "route_rule_priority" "default UCI config should keep route rule selection automatic"
 assert_file_contains "$keep_file" "/etc/config/mihowrt" "sysupgrade keep list should preserve UCI config"
-assert_file_contains "$keep_file" "/etc/mihowrt" "sysupgrade keep list should preserve persistent MihoWRT state"
+assert_false "sysupgrade excludes the persistent state directory" grep -qxF /etc/mihowrt "$keep_file"
+for file in api_secret hwid subscription.json; do
+ assert_true "sysupgrade preserves $file" grep -qxF "/etc/mihowrt/$file" "$keep_file"
+done
+assert_file_not_contains "$keep_file" 'policy-cache' "sysupgrade excludes regenerable lists cache"
+assert_file_not_contains "$keep_file" 'cache.db' "sysupgrade excludes regenerable core cache"
 assert_file_contains "$keep_file" "/opt/clash/config.yaml" "sysupgrade keep list should preserve Mihomo config"
 assert_file_contains "$keep_file" "/opt/clash/lst" "sysupgrade keep list should preserve policy lists"
 assert_file_contains "$ROOT_DIR/rootfs/etc/apk/protected_paths.d/mihowrt.list" "/opt/clash/lst/direct_dst.txt" "APK protected paths should preserve direct destination list"
@@ -490,6 +494,9 @@ assert_file_not_contains "$ROOT_DIR/rootfs/etc/apk/protected_paths.d/mihowrt.lis
 pass "package hook snippets"
 
 source_init_mihowrt_lib
+procd_add_reload_trigger() { printf '%s\n' "$@" >"$tmpdir/reload-triggers"; }
+service_triggers
+assert_eq $'mihowrt\ndhcp' "$(cat "$tmpdir/reload-triggers")" "service reloads for MihoWRT and DHCP changes"
 SKIP_START_FILE="$skip_start"
 MIHOWRT="$tmpdir/mihowrt"
 procd_open_instance() { printf 'procd:open\n' >>"$hook_log"; }

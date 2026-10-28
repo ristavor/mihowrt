@@ -28,3 +28,6 @@ for module in core.sh subscription.sh lists.sh; do
  ) || fail "$module owns its interfaces"
 done
 pass "runtime modules and packaged generator"
+
+load_modules config.sh
+assert_false "dead runtime reload helper removed" declare -F config_runtime_reload

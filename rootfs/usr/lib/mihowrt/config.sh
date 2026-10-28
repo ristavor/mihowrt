@@ -62,10 +62,6 @@ config_locked() {
 	with_lock "$@"
 }
 
-config_runtime_reload() {
-	runtime_config_build "$RUNTIME_CONFIG" && api_reload "$RUNTIME_CONFIG"
-}
-
 # The profile (mode, DNS, provider settings and lists) changed: re-apply
 # schedule and policy. A DNS mode switch also flushes the dnsmasq cache so
 # clients do not keep fake-IP answers.

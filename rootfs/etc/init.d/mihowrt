@@ -58,5 +58,5 @@ reload_service() {
 }
 
 service_triggers() {
-	procd_add_reload_trigger "mihowrt"
+	procd_add_reload_trigger "mihowrt" "dhcp"
 }

@@ -149,23 +149,29 @@ pass 'route allocation reserves named and populated tables'
 pass 'route presence matches priority and mark, not table name'
 
 (
- rm -f "$ROUTE_STATE_FILE" "$tmpdir/rule-present"
+ rm -f "$ROUTE_STATE_FILE" "$tmpdir/rule-present-4" "$tmpdir/rule-present-6"
  ip() {
   echo "ip $*" >>"$calls"
   case "$*" in
   '-4 rule show')
-   if [ -f "$tmpdir/rule-present" ]; then
+   if [ -f "$tmpdir/rule-present-4" ]; then
     printf '50:\tfrom all fwmark 0x8000000/0x8000000 lookup vpn\n'
    fi ;;
-  '-4 rule del'*) [ -f "$tmpdir/rule-present" ] || return 1; rm -f "$tmpdir/rule-present" ;;
-  '-4 rule add'*) [ ! -f "$tmpdir/rule-present" ] || return 2; touch "$tmpdir/rule-present" ;;
+  '-6 rule show')
+   if [ -f "$tmpdir/rule-present-6" ]; then
+    printf '50:\tfrom all fwmark 0x8000000/0x8000000 lookup vpn\n'
+   fi ;;
+  '-4 rule del'*) rm -f "$tmpdir/rule-present-4" ;;
+  '-6 rule del'*) rm -f "$tmpdir/rule-present-6" ;;
+  '-4 rule add'*) [ ! -f "$tmpdir/rule-present-4" ] || return 2; touch "$tmpdir/rule-present-4" ;;
+  '-6 rule add'*) [ ! -f "$tmpdir/rule-present-6" ] || return 2; touch "$tmpdir/rule-present-6" ;;
   esac
  }
  route_setup || fail 'first setup succeeds'
  : >"$calls"
  route_setup || fail 'second setup with named table succeeds'
- assert_file_contains "$calls" 'rule del fwmark' 'reload deletes before adding'
- assert_file_contains "$calls" 'rule add fwmark' 'reload re-adds the rule'
+ assert_file_not_contains "$calls" 'rule del fwmark' 'preserve existing policy rule without delete'
+ assert_file_not_contains "$calls" 'rule add fwmark' 'preserve existing policy rule without re-add'
  assert_true 'reload leaves policy present' route_active
 )
 pass 'route setup is idempotent with named tables'

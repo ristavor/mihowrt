@@ -90,7 +90,8 @@ route_setup() {
 			err "Failed to add IPv$fam local route to table $ROUTE_TABLE"
 			return 1
 		}
-		route_rule_present "$fam" || added=1
+		route_rule_present "$fam" && continue
+		added=1
 		ip -"$fam" rule del fwmark "$mark/$mark" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" 2>/dev/null || true
 		ip -"$fam" rule add fwmark "$mark/$mark" lookup "$ROUTE_TABLE" priority "$ROUTE_PRIORITY" || {
 			err "Failed to add IPv$fam policy rule"

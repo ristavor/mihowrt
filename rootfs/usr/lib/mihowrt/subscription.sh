@@ -187,9 +187,15 @@ subscription_is_clash() {
 	yaml_has_top_key 'proxies|proxy-providers' "$1"
 }
 
+# The service may stop during a download or while waiting for the lock.
+subscription_dns_sync() {
+	[ -f "$RUNNING_MARKER" ] || return 0
+	dns_apply
+}
+
 # Restore DNS exceptions from the saved URL after a failed replacement.
 subscription_restore_dns() {
-	settings_load && with_lock dns_apply
+	settings_load && with_lock subscription_dns_sync
 }
 
 # Keep the installed config, metadata and saved URL in one runtime transaction.
@@ -200,8 +206,9 @@ subscription_install() {
 	ensure_dir "$(dirname "$SUBSCRIPTION_META_FILE")"
 	# Written only on change to spare flash, and only if it is valid JSON.
 	if [ -n "$meta" ]; then
-		(umask 077 && printf '%s\n' "$meta" >"$metadata_file")
-		if ! cmp -s "$metadata_file" "$SUBSCRIPTION_META_FILE" &&
+		if ! (umask 077 && printf '%s\n' "$meta" >"$metadata_file"); then
+			warn "Cannot write $SUBSCRIPTION_META_FILE"
+		elif ! cmp -s "$metadata_file" "$SUBSCRIPTION_META_FILE" &&
 			! atomic_copy "$metadata_file" "$SUBSCRIPTION_META_FILE"; then
 			warn "Cannot write $SUBSCRIPTION_META_FILE"
 		fi
@@ -238,10 +245,13 @@ subscription_update() {
 		return 1
 	}
 	ensure_dir "$PKG_TMP_DIR" || return 1
-	(umask 077 && : >"$candidate" && : >"$headers_file") || return 1
+	(umask 077 && : >"$candidate" && : >"$headers_file") || {
+		rm -f "$candidate" "$headers_file"
+		return 1
+	}
 	if [ -f "$RUNNING_MARKER" ] && [ "$saved_host" != "$(url_host "$SUBSCRIPTION_URL")" ]; then
 		dns_changed=1
-		with_lock dns_apply || {
+		with_lock subscription_dns_sync || {
 			rm -f "$candidate" "$headers_file"
 			subscription_restore_dns || warn "Failed to restore subscription DNS"
 			return 1

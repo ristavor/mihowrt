@@ -276,9 +276,34 @@ pass 'subscription fake-IP answers excluded from bypass'
    assert_file_not_contains "$tmpdir/dnsmasq/$DNS_CONF_NAME" 'server=/new.example/' 'failed host DNS bypass removed'
   fi
  done
+ # Stop may finish while the fetch is in progress or before the lock is acquired.
+ for stop_at in fetch lock; do
+  touch "$RUNNING_MARKER"
+  with_lock() {
+   if [ "$stop_at" = lock ]; then
+    rm -f "$RUNNING_MARKER"
+    dns_cleanup
+   fi
+   "$@"
+  }
+  http_fetch() {
+   if [ "$stop_at" = fetch ]; then
+    rm -f "$RUNNING_MARKER"
+    dns_cleanup
+   fi
+   if [ -e "$tmpdir/dnsmasq/$DNS_CONF_NAME" ]; then
+    touch "$tmpdir/dns-rewritten"
+   fi
+   FETCH_ERROR=network
+   return 1
+  }
+  assert_false "failed fetch after stop at $stop_at" subscription_update https://new.example/sub >/dev/null 2>"$tmpdir/dns-stop.err"
+  assert_false 'stopped service has no DNS config before failed fetch returns' test -e "$tmpdir/dns-rewritten"
+  assert_false 'failed fetch must not recreate DNS config after stop' test -e "$tmpdir/dnsmasq/$DNS_CONF_NAME"
+ done
  rm -f "$RUNNING_MARKER"
 )
-pass 'replacement host DNS prepared before fetch and restored on failure'
+pass 'replacement host DNS prepared before fetch and restored only while running'
 
 
 # A broken metadata file must not break the subscription page.
@@ -439,3 +464,33 @@ pass 'concurrent CLI and job subscription publication serialized'
  assert_eq 0022 "$(umask)" 'subscription update does not change caller umask'
 )
 pass 'subscription candidates, headers and metadata created mode 600'
+
+# A short metadata write must never replace the previous complete JSON.
+(
+ printf '{"profile_title":"previous"}\n' >"$SUBSCRIPTION_META_FILE"
+ config_install() { echo '{"action":"saved"}'; }
+ printf() {
+  if [ "${2:-}" = '{"profile_title":"replacement"}' ]; then
+   builtin printf '{"profile_title":'
+   return 1
+  fi
+  # Forward printf's format unchanged in this fault stub.
+  # shellcheck disable=SC2059
+  builtin printf "$@"
+ }
+ subscription_install "$CLASH_CONFIG" '{"profile_title":"replacement"}' '' >/dev/null 2>"$tmpdir/metadata-write.err" || fail 'metadata write failure must not reject the installed config'
+ assert_eq '{"profile_title":"previous"}' "$(cat "$SUBSCRIPTION_META_FILE")" 'failed staged metadata write keeps previous JSON'
+ assert_false 'failed metadata staging removed' test -e "$PKG_TMP_DIR/subscription.$$.json"
+)
+pass 'short subscription metadata writes are not published'
+
+# Failure creating the second staging file also cleans the first one.
+(
+ settings_load() { SUBSCRIPTION_URL=https://same.example/sub; BYPASS_SUBSCRIPTION_DNS=0; }
+ ln -s "$tmpdir/missing-parent/headers" "$PKG_TMP_DIR/subscription.$$.headers"
+ http_fetch() { fail 'staging failure must not start a download'; }
+ assert_false 'staging failure rejects update' subscription_update >/dev/null 2>"$tmpdir/staging.err"
+ assert_false 'candidate removed after header staging fails' test -e "$PKG_TMP_DIR/subscription.$$.yaml"
+ assert_false 'failed header staging path removed' test -L "$PKG_TMP_DIR/subscription.$$.headers"
+)
+pass 'subscription staging failure cleans partial files'

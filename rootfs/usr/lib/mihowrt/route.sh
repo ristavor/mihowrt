@@ -69,7 +69,7 @@ route_allocate() {
 route_setup() {
 	settings_require || return 1
 
-	local fam="" mark="$NFT_INTERCEPT_MARK"
+	local fam="" mark="$NFT_INTERCEPT_MARK" added=0
 
 	if route_state_read; then
 		if [ "$ROUTE_PRIORITY" -lt "$ROUTE_RULE_PRIORITY_AUTO_MIN" ] || [ "$ROUTE_PRIORITY" -gt "$ROUTE_RULE_PRIORITY_AUTO_MAX" ]; then
@@ -91,8 +91,10 @@ route_setup() {
 			err "Failed to add IPv$fam policy rule"
 			return 1
 		}
+		added=1
 	done
-	log "Policy routing: mark $mark -> table $ROUTE_TABLE (priority $ROUTE_PRIORITY)"
+	# net_refresh re-runs this on every network change; log only real changes.
+	[ "$added" = 0 ] || log "Policy routing: mark $mark -> table $ROUTE_TABLE (priority $ROUTE_PRIORITY)"
 }
 
 route_cleanup() {

@@ -60,6 +60,17 @@ assert_file_contains "$calls" "ip -6 route replace local default dev lo table 20
 assert_file_contains "$calls" "ip -6 rule add fwmark 0x08000000/0x08000000 lookup 202 priority 51" "v6 rule"
 pass "route v6 added with IPv6"
 
+(
+ log() { echo "log $*" >>"$tmpdir/route-log"; }
+ route_rule_present() { return 0; }
+ route_setup || fail 'refresh with present rules must succeed'
+ [ ! -s "$tmpdir/route-log" ] || fail "unchanged rules logged: $(cat "$tmpdir/route-log")"
+ route_rule_present() { return 1; }
+ route_setup
+ assert_file_contains "$tmpdir/route-log" 'Policy routing: mark' 'added rule is logged'
+ pass 'route setup logs only when it adds a rule'
+)
+
 : >"$calls"
 route_cleanup
 assert_file_contains "$calls" "ip -4 rule del fwmark 0x08000000/0x08000000 lookup 202 priority 51" "current mark rule removed"

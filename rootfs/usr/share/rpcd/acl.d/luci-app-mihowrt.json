@@ -2,6 +2,7 @@
 	"luci-app-mihowrt": {
 		"description": "Grant access to MihoWRT procedures",
 		"read": {
+			"cgi-io": [ "exec" ],
 			"file": {
 				"/usr/bin/mihowrt-read": [ "exec" ]
 			},

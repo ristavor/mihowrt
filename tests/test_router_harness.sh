@@ -111,6 +111,48 @@ grep -q '| nft syntax | NOT TESTED |' "$tmpdir/project/.build/verification-0110/
 grep -q '| local names | NOT TESTED |' "$tmpdir/project/.build/verification-0110/network/REPORT.md" || fail 'failed transport must report local names as untested'
 echo 'ok - network host pins transport, fails closed and retains failed-restore state'
 
+# Exercise the real UDP observation block without sockets or a privileged /proc.
+# A concurrent conntrack dump can omit a live tuple on one read.
+snapshot_block="$(sed -n '/^[[:space:]]*# Observe this tuple/,/^)/p' "$guest" | sed '1d;$d')"
+[ -n "$snapshot_block" ] || fail 'UDP conntrack observation block missing'
+mkdir -p "$tmpdir/udp/logs"
+cat >"$tmpdir/udp-check.sh" <<'EOF'
+set -eu
+WORK="$UDP_TEST_WORK"
+label=fixture ns=router port=8088 listen_port=8088
+absent() { if "$@"; then exit 1; fi; }
+sleep() { :; }
+cat() {
+  if [ "$1" != /proc/net/nf_conntrack ]; then command cat "$@"; return; fi
+  count="$(command cat "$WORK/reads")"
+  count=$((count + 1))
+  printf '%s\n' "$count" >"$WORK/reads"
+  case "$UDP_TEST_KIND" in
+    missing) return 0 ;;
+    transient) [ "$count" -gt 1 ] || return 0 ;;
+  esac
+  reply=198.19.22.1 status=''
+  [ "$UDP_TEST_KIND" != unreplied ] || status='[UNREPLIED] '
+  [ "$UDP_TEST_KIND" != wrong-reply ] || reply=192.0.2.2
+  printf 'ipv4 2 udp 17 59 src=198.19.22.2 dst=198.19.22.1 sport=43210 dport=8088 %ssrc=%s dst=198.19.22.2 sport=8088 dport=43210 mark=0\n' "$status" "$reply"
+}
+EOF
+printf '%s\n' "$snapshot_block" >>"$tmpdir/udp-check.sh"
+for kind in transient missing unreplied wrong-reply; do
+  echo 0 >"$tmpdir/udp/reads"
+  if UDP_TEST_WORK="$tmpdir/udp" UDP_TEST_KIND="$kind" sh "$tmpdir/udp-check.sh" >"$tmpdir/udp-$kind.log" 2>&1; then
+    [ "$kind" = transient ] || fail "UDP conntrack must reject $kind evidence"
+  else
+    [ "$kind" != transient ] || fail 'UDP conntrack must retry a transiently omitted replied tuple'
+  fi
+  if [ "$kind" = transient ]; then
+    [ "$(cat "$tmpdir/udp/reads")" = 2 ] || fail 'UDP observation must stop once a replied tuple is proven'
+  else
+    [ "$(cat "$tmpdir/udp/reads")" -le 5 ] || fail 'UDP observation retries must be bounded'
+  fi
+done
+echo 'ok - UDP conntrack retries transient omissions but requires the replied tuple'
+
 grep -q -- '-e "VM_MEM=${VM_MEM:-512}"' "${ROUTER_DIR}/start.sh" || fail 'start.sh must pass VM_MEM (default 512) to the VM container'
 grep -q -- '-m "${VM_MEM:-512}M"' "${ROUTER_DIR}/entrypoint.sh" || fail 'entrypoint.sh must size guest RAM from VM_MEM (default 512)'
 echo 'ok - VM memory override defaults to 512 MiB'

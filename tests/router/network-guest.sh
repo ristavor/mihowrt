@@ -932,7 +932,7 @@ stop_reply_listeners() {
 }
 
 udp_echo() (
-	local label="$1" address="$2" port="$3" ns="$4" listen_port="$5" pid="" reply_src=""
+	local label="$1" address="$2" port="$3" ns="$4" listen_port="$5" pid="" reply_src="" attempt=""
 	# One bounded foreground echo per probe: no untracked forked listeners.
 	if [ "$ns" = router ]; then
 		socat -T 4 "UDP4-RECVFROM:$listen_port" PIPE >"$WORK/logs/a1-$label.listener" 2>&1 6>&- 7>&- 8>&- 9>&- &
@@ -948,10 +948,17 @@ udp_echo() (
 	(BOUNDED_STDIN="$WORK/udp-probe" bounded ip netns exec m22-w socat -t 2 -T 3 - "UDP4:$address:$port") >"$WORK/logs/a1-$label.udp" 2>"$WORK/logs/a1-$label.stderr" || true
 	cmp "$WORK/udp-probe" "$WORK/logs/a1-$label.udp"
 	# Observe this tuple before teardown/later probes can retire the UDP flow.
+	# A /proc dump can omit a live entry during concurrent table changes.
 	case "$ns" in router) reply_src='198[.]19[.]22[.]1' ;; *) reply_src='192[.]0[.]2[.]2' ;; esac
-	cat /proc/net/nf_conntrack >"$WORK/logs/a1-$label.conntrack-all"
-	grep -E "udp .*src=198[.]19[.]22[.]2 dst=198[.]19[.]22[.]1 sport=[0-9]+ dport=$port .*src=$reply_src dst=198[.]19[.]22[.]2 sport=$listen_port dport=" "$WORK/logs/a1-$label.conntrack-all" >"$WORK/logs/a1-$label.conntrack"
-	absent grep -q UNREPLIED "$WORK/logs/a1-$label.conntrack"
+	for attempt in 1 2 3 4 5; do
+		cat /proc/net/nf_conntrack >"$WORK/logs/a1-$label.conntrack-all"
+		if grep -E "udp .*src=198[.]19[.]22[.]2 dst=198[.]19[.]22[.]1 sport=[0-9]+ dport=$port .*src=$reply_src dst=198[.]19[.]22[.]2 sport=$listen_port dport=" "$WORK/logs/a1-$label.conntrack-all" >"$WORK/logs/a1-$label.conntrack"; then
+			absent grep -q UNREPLIED "$WORK/logs/a1-$label.conntrack"
+			return 0
+		fi
+		sleep 1
+	done
+	return 1
 )
 
 # Handle of the nth rule of a mihowrt chain.

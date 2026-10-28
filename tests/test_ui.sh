@@ -24,7 +24,9 @@ function E(tag, attrs, children) {
 	}
 	if (typeof children === 'string')
 		throw new Error(`E('${tag}') got a string child: ${children}`);
-	const n = { tag, attrs: attrs || {}, children: children || [], listeners: {}, classList: { add() {}, remove() {} } };
+	if (Array.isArray(children) && children.some(c => c === null))
+  throw new Error(`E('${tag}') would render literal null text`);
+ const n = { tag, attrs: attrs || {}, children: children || [], listeners: {}, classList: { add() {}, remove() {} } };
  n.setAttribute = (k, v) => { n.attrs[k] = v; };
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);

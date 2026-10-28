@@ -27,7 +27,7 @@ function firstRunCard() {
 		E('h3', text(_('Connect a subscription'))),
 		E('p', text(_('Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
 		E('label', { for: 'mw-sub-url' }, text(_('Subscription URL'))),
-		E('div', { class: 'mw-row' }, [ url, !api.readOnly() ? connect : null ])
+		E('div', { class: 'mw-row' }, [ url, !api.readOnly() ? connect : '' ])
 	]);
 }
 
@@ -51,7 +51,7 @@ function coreMissingCard() {
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
 		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems).'))),
-		E('div', { class: 'mw-row' }, [ !api.readOnly() ? install : null ])
+		E('div', { class: 'mw-row' }, [ !api.readOnly() ? install : '' ])
 	]);
 }
 
@@ -79,7 +79,7 @@ function statusSection(status) {
 			E('span', { class: 'mw-muted' }, text(api.modeLabel(status.mode))),
 			boot
 		]),
-		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : null
+		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : ''
 	]);
 	const update = fresh => {
 		status = Object.assign({}, status, fresh);
@@ -319,7 +319,7 @@ function groupsSection(groups) {
 				if (!done)
 					status.textContent = before;
 			});
-			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, !api.readOnly() ? test : null, ping ]) ];
+			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, !api.readOnly() ? test : '', ping ]) ];
 			// The note gets its own grid row: a wrapped row would push the label off its select.
 			if (fixedOnly)
 				cells.push(E('span'), E('span', { class: 'mw-muted' }, [ _('Mihomo spreads connections across these servers'), ' · ', status ]));
@@ -385,7 +385,7 @@ function toolsSection(status) {
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : null, !api.readOnly() ? core : null,
+		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : '', !api.readOnly() ? core : '',
 			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
 	]);
 }

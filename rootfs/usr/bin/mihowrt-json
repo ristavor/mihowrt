@@ -1,6 +1,6 @@
 #!/usr/bin/ucode
 'use strict';
-import { readfile, stdin } from 'fs';
+import { readfile, stdin, open } from 'fs';
 
 function read(path) {
 	let s = path == null ? stdin.read('all') : readfile(path);
@@ -90,6 +90,8 @@ function valid_utf8(s) {
 // json-c preserves invalid bytes; jq replaces each malformed UTF-8 sequence.
 let non_ascii = regexp('[' + chr(128) + '-' + chr(255) + ']+', 'g');
 function utf8(s) {
+	// POSIX regex stops at NUL; repair each binary-string segment.
+	if (index(s, '\x00') >= 0) return join('\x00', map(split(s, '\x00'), utf8));
 	return replace(s, non_ascii, (run) => {
 		let out = '';
 		for (let i = 0; i < length(run); i++) {
@@ -119,6 +121,31 @@ function encode(v, pretty, depth) {
 		return !length(out) ? l + r : l + (pretty ? '\n' + indent : '') + join(pretty ? ',\n' + indent : ',', out) + (pretty ? '\n' + padding(depth) : '') + r;
 	}
 	return sprintf('%J', t == 'string' ? utf8(v) : v);
+}
+function emit_rawfile(path) {
+	let file = open(path, 'r');
+	if (file == null) die('Cannot read raw JSON file');
+	let carry = '', chunk;
+	print('"');
+	while ((chunk = file.read(65536)) != null && length(chunk)) {
+		let data = carry + chunk;
+		carry = '';
+		// Defer an incomplete UTF-8 sequence; repairing each half would differ
+		// from jq, including when the complete sequence itself is malformed.
+		let end = length(data), start = end - 1;
+		for (let n = 0; start >= 0 && n < 3 && ord(data, start) >= 128 && ord(data, start) <= 191; n++) start--;
+		if (start >= 0) {
+			let b = ord(data, start), width = b >= 194 && b <= 223 ? 2 : b >= 224 && b <= 239 ? 3 : b >= 240 && b <= 244 ? 4 : 0;
+			if (width > end - start) { carry = substr(data, start); data = substr(data, 0, start); }
+		}
+		let quoted = encode(data);
+		print(substr(quoted, 1, length(quoted) - 2));
+	}
+	let failure = file.error();
+	file.close();
+	if (failure != null) die(failure);
+	let quoted = encode(carry);
+	print(substr(quoted, 1, length(quoted) - 2), '"');
 }
 function emit(v, pretty) { print(encode(v, pretty), '\n'); }
 function raw(v) { return type(v) == 'string' ? utf8(v) : encode(v); }
@@ -193,6 +220,25 @@ try {
 	case 'build':
 	case 'merge': {
 		let shape = shift(ARGV), a = {}, path;
+		// Raw list files must not all reside in memory alongside the encoded object.
+		if (cmd == 'build' && shape == 'object' && length(ARGV) && length(ARGV) % 3 == 0) {
+			let files = {}, only_files = true;
+			for (let i = 0; i < length(ARGV); i += 3) {
+				if (ARGV[i] != '--rawfile') { only_files = false; break; }
+				files[ARGV[i + 1]] = ARGV[i + 2];
+			}
+			if (only_files) {
+				let separator = '';
+				print('{');
+				for (let key, file in files) {
+					print(separator, encode(key), ':');
+					emit_rawfile(file);
+					separator = ',';
+				}
+				print('}\n');
+				break;
+			}
+		}
 		while (length(ARGV)) {
 			let flag = shift(ARGV);
 			if (flag != '--arg' && flag != '--argjson' && flag != '--rawfile') { path = flag; break; }

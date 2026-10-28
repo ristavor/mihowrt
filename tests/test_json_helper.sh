@@ -126,3 +126,22 @@ parity 'empty open proxy ports stay empty' '{"conflicts":[],"flash_free_kb":null
 printf '%s\n' '{"id":"10-3","started":10,"state":"ok"}' >"$tmpdir/history-valid.json"
 printf '%s\n' '{"id":"10-x","started":10,"state":"ok"}' >"$tmpdir/history-invalid.json"
 parity 'non-numeric history id segment sorts as null' $'[\n  {\n    "id": "10-x",\n    "started": 10,\n    "state": "ok"\n  },\n  {\n    "id": "10-3",\n    "started": 10,\n    "state": "ok"\n  }\n]' history sort "$tmpdir/history-valid.json" "$tmpdir/history-invalid.json"
+# Pin multibyte characters across a 64 KiB boundary before streaming raw files.
+for character in '¢' '€' '😀'; do
+ printf '%65535s%s\n"\\/\001' '' "$character" >"$tmpdir/boundary"
+ "$helper" build object --rawfile first "$tmpdir/boundary" --rawfile second "$tmpdir/boundary" >"$tmpdir/streamed.json"
+ "$helper" build object --arg whole '' --rawfile first "$tmpdir/boundary" --rawfile second "$tmpdir/boundary" | jq -c 'del(.whole)' >"$tmpdir/whole.json"
+ assert_true "streamed/whole UTF-8 boundary parity [$character]" cmp -s "$tmpdir/whole.json" "$tmpdir/streamed.json"
+ pass "JSON helper: streamed/whole UTF-8 boundary parity [$character]"
+done
+for bytes in '\xe2\x82' '\xe0\x80\x80' '\xf0\x9f\x98\x80' '\xff\x00\xc0\xaf'; do
+ { printf '%65535s' ''; printf '%b' "$bytes"; printf '\n'; } >"$tmpdir/boundary"
+ "$helper" build object --rawfile content "$tmpdir/boundary" >"$tmpdir/streamed.json"
+ jq -nc --rawfile content "$tmpdir/boundary" '{content:$content}' >"$tmpdir/whole.json"
+ assert_true "streamed/jq malformed UTF-8 boundary parity [$bytes]" cmp -s "$tmpdir/whole.json" "$tmpdir/streamed.json"
+ pass "JSON helper: streamed/jq malformed UTF-8 boundary parity [$bytes]"
+done
+rc=0
+"$helper" build object --rawfile content "$tmpdir" >/dev/null 2>"$tmpdir/read-error.err" || rc=$?
+assert_eq 1 "$rc" 'streaming read failure is not successful truncated JSON'
+pass 'JSON helper: streaming rawfile read error fails'

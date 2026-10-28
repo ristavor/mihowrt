@@ -1547,10 +1547,20 @@ seq(async () => {
   }).module;
   for (const running of [false, true]) {
    const p = ov.render([{ ...base, subscription_configured: true, running }, {}, []]);
-   for (const label of [running ? 'Stop' : 'Start', 'Restart', 'Update Mihomo core'])
+   for (const label of [running ? 'Stop' : 'Start', 'Restart', 'Update Mihomo core', 'Update subscription'])
     h.assertEq(!!findButton(p, label), !readOnly, 'overview ' + label + ' shown=' + !readOnly);
    h.assert(texts(p).some(t => t.includes('MihoWRT ')), 'version stays visible');
   }
+  const missingCore = ov.render([{ ...base, core_installed: false }, {}, []]);
+  h.assertEq(!!findButton(missingCore, 'Install Mihomo core'), !readOnly, 'install core shown=' + !readOnly);
+  const firstRun = ov.render([{ ...base, subscription_configured: false, running: false }, {}, []]);
+  h.assertEq(!!findButton(firstRun, 'Connect'), !readOnly, 'connect shown=' + !readOnly);
+  const proxies = ov.render([{ ...base, subscription_configured: true, running: true }, {}, [
+   { name: 'Proxy', type: 'Selector', now: 'one', all: ['one', 'two'] }
+  ]]);
+  h.assertEq(!!findButton(proxies, 'Test'), !readOnly, 'latency Test shown=' + !readOnly);
+  const select = collect(proxies).find(n => n.tag === 'select');
+  h.assertEq(select.attrs.disabled != null, readOnly, 'proxy select disabled=' + readOnly);
  }
  console.log('ok - overview read-only hides service and core actions');
 }).catch(err => { console.error(err); process.exitCode = 1; });

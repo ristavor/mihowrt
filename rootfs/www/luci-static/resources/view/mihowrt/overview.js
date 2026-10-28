@@ -32,7 +32,7 @@ function firstRunCard() {
 		E('h3', text(_('Connect a subscription'))),
 		E('p', text(_('Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing.'))),
 		E('label', { for: 'mw-sub-url' }, text(_('Subscription URL'))),
-		E('div', { class: 'mw-row' }, [ url, connect ])
+		E('div', { class: 'mw-row' }, [ url, !api.readOnly() ? connect : null ])
 	]);
 }
 
@@ -56,7 +56,7 @@ function coreMissingCard() {
 	return E('div', { class: 'cbi-section' }, [
 		E('h3', text(_('Mihomo core is not installed'))),
 		E('p', text(_('MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems).'))),
-		E('div', { class: 'mw-row' }, [ install ])
+		E('div', { class: 'mw-row' }, [ !api.readOnly() ? install : null ])
 	]);
 }
 
@@ -190,7 +190,7 @@ function subscriptionSection(sub) {
 		warning ? E('div', { class: 'alert-message warning' }, text(warning)) : '',
 		sub.announce ? E('p', { class: 'mw-announce' }, announce(sub.announce)) : '',
 		api.infoGrid(rows),
-		E('div', { class: 'mw-row mw-actions' }, [ update ].concat(links))
+		E('div', { class: 'mw-row mw-actions' }, (!api.readOnly() ? [ update ] : []).concat(links))
 	]);
 }
 
@@ -253,7 +253,7 @@ function groupsSection(groups) {
 			const status = E('span', { id: id + '-ping', class: fixedOnly ? null : 'mw-muted mw-ping' }, text(pingText(group)));
 			const ping = fixedOnly ? E('span', { class: 'mw-muted mw-ping' }) : status;
 			let debounce = null, writing = false, inFlightValue = null;
-			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly ? '' : null, 'aria-describedby': id + '-ping' });
+			const select = E('select', { id, class: 'cbi-input-select', disabled: fixedOnly || api.readOnly() ? '' : null, 'aria-describedby': id + '-ping' });
 			const test = E('button', { class: 'cbi-button', title: _('Measure latency of every server in this group'),
 				'aria-label': _('Test servers of %s').format(group.name) }, text(_('Test')));
 			let previous = groupOptions(select, group);
@@ -326,11 +326,11 @@ function groupsSection(groups) {
 					live.textContent = '%s: %s — %s'.format(group.name, fixedOnly ? _('All servers in turn') : group.now, status.textContent);
 					return true;
 				});
-				select.disabled = fixedOnly;
+				select.disabled = fixedOnly || api.readOnly();
 				if (!done)
 					status.textContent = before;
 			});
-			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, test, ping ]) ];
+			const cells = [ E('label', { for: id }, text(group.name)), E('div', { class: 'mw-row' }, [ select, !api.readOnly() ? test : null, ping ]) ];
 			// The note gets its own grid row: a wrapped row would push the label off its select.
 			if (fixedOnly)
 				cells.push(E('span'), E('span', { class: 'mw-muted' }, [ _('Mihomo spreads connections across these servers'), ' · ', status ]));

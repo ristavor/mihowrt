@@ -24,6 +24,8 @@ function number(s) {
 	} else out = digits;
 	return proto({text: (m[1] == '-' ? '-' : '') + out}, decimal);
 }
+// Empty/malformed snapshot numbers intentionally become null, not an error:
+// keep status, profile, diagnostics ports and history readable with damaged state.
 function num(s) {
 	if (s == 'NaN' || s == '-NaN') return null;
 	if (s == 'Infinity' || s == 'Inf' || s == '+Infinity' || s == '+Inf') return proto({text: '1.7976931348623157e+308'}, decimal);

@@ -115,3 +115,14 @@ ucode "$tmpdir/structured-error.uc" object <<< 'not-json' >"$tmpdir/error.out" 2
 assert_eq 1 "$rc" 'structured JSON error exit status'
 assert_eq 'mihowrt-json: safe JSON error' "$(cat "$tmpdir/error.err")" 'structured JSON error exposes message only'
 pass 'JSON helper: error handler prints message only, without stack trace'
+# Read-only snapshots deliberately keep malformed numeric state as null, not jq errors.
+status_args=(--argjson running false --argjson enabled false --arg state stopped --arg last_error '' --arg version '' --arg core '' --argjson dashboard_installed false --arg url '' --argjson config_valid null --argjson config_backup false --arg config_error '' --arg dns_mode '' --argjson dns_ok null --argjson policy false --arg mode '' --arg block_client_ipv6 0 --arg interfaces '' --arg custom '' --arg dst '' --arg src not-a-number --arg direct 0 --arg direct_src 0 --arg table '' --arg priority '' --arg errors '')
+"$helper" build status "${status_args[@]}" >"$tmpdir/lenient-status.json"
+assert_true 'status numeric snapshot leniency' jq -e '.lists == {dst:null,src:null,direct:0,direct_src:0}' "$tmpdir/lenient-status.json" >/dev/null
+pass 'JSON helper: empty and malformed status counts are null'
+parity 'empty profile counts are null' '{"dashboard_installed":false,"mode":"proxy-first","dns":"redir-host","provider":{},"overrides":[],"lists":{"dst":{"provided":false,"provider_count":null,"own_count":null,"source":"own"},"direct":{"provided":false,"provider_count":null,"own_count":null,"source":"own"}}}' build profile --argjson dashboard_installed false --arg mode proxy-first --arg dns redir-host --arg provider '' --arg overrides '' --argjson dst_provided false --arg dst_provider '' --arg dst_own '' --arg dst_source own --argjson direct_provided false --arg direct_provider '' --arg direct_own '' --arg direct_source own
+parity 'malformed open proxy ports are null' '{"conflicts":[],"flash_free_kb":null,"tmp_clash_kb":null,"tmp_free_kb":null,"ram_available_kb":null,"mihomo_rss_kb":null,"open_proxy_ports":[null,null]}' build diagnostics --arg conflicts '' --arg flash '' --arg tmp_clash '' --arg tmp_free '' --arg ram '' --arg rss '' --arg ports $' \nnot-a-number'
+parity 'empty open proxy ports stay empty' '{"conflicts":[],"flash_free_kb":null,"tmp_clash_kb":null,"tmp_free_kb":null,"ram_available_kb":null,"mihomo_rss_kb":null,"open_proxy_ports":[]}' build diagnostics --arg ports ''
+printf '%s\n' '{"id":"10-3","started":10,"state":"ok"}' >"$tmpdir/history-valid.json"
+printf '%s\n' '{"id":"10-x","started":10,"state":"ok"}' >"$tmpdir/history-invalid.json"
+parity 'non-numeric history id segment sorts as null' $'[\n  {\n    "id": "10-x",\n    "started": 10,\n    "state": "ok"\n  },\n  {\n    "id": "10-3",\n    "started": 10,\n    "state": "ok"\n  }\n]' history sort "$tmpdir/history-valid.json" "$tmpdir/history-invalid.json"

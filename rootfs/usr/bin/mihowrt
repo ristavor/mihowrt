@@ -10,7 +10,7 @@ Service:  prepare | run-service | wait-stopped | recover | reload | migrate | un
 Config:   read-config [tmp] | runtime-config | save-config <tmp> | restore-config
 Subscr.:  subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 Lists:    lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
-Updates:  auto-update | net-refresh | core-update [--file <path.gz|binary>] | core-version-json
+Updates:  auto-update | net-refresh | core-update [--file /tmp/mihomo[.gz]|/tmp/mihomo-linux-*] | core-version-json
 Status:   status-json | service-state-json | profile-json | diagnostics-json | logs-json [lines]
 Jobs:     job-start <op> [args] | job-status [id]
 Proxies:  proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
@@ -172,9 +172,12 @@ core-update)
 	else
 		need_args $# 2
 		[ "$1" = --file ] && [ -f "$2" ] && [ ! -L "$2" ] || usage
-		# cgi-upload writers must never supply an executable core.
-		case "$(readlink -f "$2")" in
-		/tmp/mihowrt-config.* | /tmp/mihowrt-policy-list.*) usage ;;
+		# Allowlist: root-written files with user-controlled content (config.yaml,
+		# uploads, list caches) must never run as the core. Empty readlink fails closed.
+		real="$(readlink -f "$2")" || usage
+		case "${real%/*}:${real##*/}" in
+		/tmp:mihomo | /tmp:mihomo.gz | /tmp:mihomo-linux-*) ;;
+		*) usage ;;
 		esac
 		core_update_cmd "$2"
 	fi

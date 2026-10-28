@@ -175,7 +175,7 @@ mihowrt status-json | service-state-json | profile-json | diagnostics-json | log
 mihowrt subscription-json | set-subscription <url> <0|1> | update-subscription [url]
 mihowrt lists-json | apply-lists <dst-tmp|-> <src-tmp|-> <direct-tmp|-> <direct-src-tmp|-> | update-lists
 mihowrt read-config [tmp] | runtime-config | save-config <tmp> | restore-config
-mihowrt core-update [--file <path.gz|binary>] | core-version-json
+mihowrt core-update [--file /tmp/mihomo[.gz]|/tmp/mihomo-linux-*] | core-version-json
 mihowrt proxies-json | select-proxy <group> <name|''> | group-delay <group> | dashboard-json
 mihowrt job-start <op> [args] | job-status [id]
 mihowrt auto-update | net-refresh | recover | reload | migrate | uninstall
@@ -196,7 +196,7 @@ dashboard-install | dashboard-remove | service <start|stop|restart>
 
 For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it with `mihowrt job-status <id>`. Install requires a running service; `dashboard-remove` disables and removes the panel. `dashboard-json` includes `enabled`, `installed`, `size` (bytes), controller connection data and secret: keep its output private. Jobs serialize LuCI/cron operations; their output/error logs keep at most 64 KiB each. Temporary upload paths for `save-config` and `apply-lists` must use `/tmp/mihowrt-config.*` and `/tmp/mihowrt-policy-list.*` respectively.
 
-`update-subscription [url]` saves a new URL only after a successful download and validation. `core-update --file` accepts an architecture-compatible local gzip or executable, skips the release digest check with a warning, then uses the normal version/config test and atomic replacement. Verify local files yourself. Online update checks the GitHub release digest when available; API fallback via the latest-release redirect has no digest and logs a warning. Download stalls are bounded (below 2048 bytes/s for 60 s, two retries), not a fixed five-minute total.
+`update-subscription [url]` saves a new URL only after a successful download and validation. `core-update --file` accepts an architecture-compatible local gzip or executable, only as a regular non-symlink file named `/tmp/mihomo`, `/tmp/mihomo.gz` or `/tmp/mihomo-linux-*` (the release asset name), so no file a LuCI user can write runs as root. It skips the release digest check with a warning, then uses the normal version/config test and atomic replacement. Verify local files yourself. Online update checks the GitHub release digest when available; API fallback via the latest-release redirect has no digest and logs a warning. Download stalls are bounded (below 2048 bytes/s for 60 s, two retries), not a fixed five-minute total.
 
 `mihowrt uninstall` stops the service and removes DNS/nftables/routes, its cron entry, runtime state, core, dashboard, geodata, `/etc/mihowrt/subscription.json` (subscription metadata), `/etc/mihowrt/cache.db` (saved proxy selection/fake-IP cache) and `/etc/mihowrt/policy-cache/` (remote lists). Your YAML and `config.yaml.bak`, policy list files, UCI settings, API secret and `/etc/mihowrt/hwid` stay. Keeping HWID lets the provider recognise the same device after reinstall. Package removal calls the same cleanup. It does **not** remove the package: use the installer, `apk del` or `opkg remove` (see [README](../README.md#remove)).
 

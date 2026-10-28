@@ -220,9 +220,10 @@ pass 'config CLI wait count and return status'
 
 # Offline core CLI passes one exact path through the real lock/result wrapper.
 sed '/^case "$cmd" in/i core_update_json() { echo "$*" >"$CORE_STATE_DIR/file-args"; echo '\''{"updated":false,"version":"v1.2.3","error":null}'\''; }' "$tmpdir/core-cli.sh" >"$tmpdir/offline-cli.sh"
-touch "$tmpdir/local core.gz"
-EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file "$tmpdir/local core.gz" >/dev/null
-assert_eq "$tmpdir/local core.gz" "$(cat "$CORE_STATE_DIR/file-args")" 'offline path forwarded without splitting'
+touch "/tmp/mihomo-linux-local core.gz" "$tmpdir/local core.gz"
+EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file "/tmp/mihomo-linux-local core.gz" >/dev/null
+assert_eq "/tmp/mihomo-linux-local core.gz" "$(cat "$CORE_STATE_DIR/file-args")" 'offline path forwarded without splitting'
+rm -f "/tmp/mihomo-linux-local core.gz"
 for args in '--file' '--unknown path' '--file path extra' 'path'; do
  # shellcheck disable=SC2086
  assert_false "invalid core arguments rejected: $args" sh "$tmpdir/offline-cli.sh" core-update $args >/dev/null 2>&1
@@ -249,8 +250,17 @@ ln -s "$tmpdir/local core.gz" "$tmpdir/core-link"
 for path in "$tmpdir/core-fifo" "$tmpdir" "$tmpdir/core-link" "$tmpdir/missing"; do
  if sh "$tmpdir/offline-cli.sh" core-update --file "$path" >/dev/null 2>&1; then fail "non-regular or symlink core accepted: $path"; fi
 done
-touch /tmp/mihomo.gz
+touch /tmp/mihomo.gz /tmp/mihomo
 EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file /tmp/mihomo.gz >/dev/null
 assert_eq /tmp/mihomo.gz "$(cat "$CORE_STATE_DIR/file-args")" 'documented scp offline path accepted'
-rm /tmp/mihomo.gz
+EXPECT_RESTART=0 sh "$tmpdir/offline-cli.sh" core-update --file /tmp/mihomo >/dev/null
+assert_eq /tmp/mihomo "$(cat "$CORE_STATE_DIR/file-args")" 'plain offline binary accepted'
+# Only the documented /tmp names: no root-written user file (config.yaml, list caches) may run as the core.
+mkdir -p /tmp/mihowrt-cli-test /tmp/mihomo-linux-dir
+touch "$tmpdir/config.yaml" /tmp/mihowrt-cli-test/list.1 /tmp/mihomo-linux-dir/core /tmp/mihomo.gz.bak
+for path in "$tmpdir/config.yaml" "$tmpdir/local core.gz" /tmp/mihowrt-cli-test/list.1 /tmp/mihomo-linux-dir/core /tmp/mihomo-linux-dir/../mihowrt-cli-test/list.1 /tmp/mihomo.gz.bak; do
+ if sh "$tmpdir/offline-cli.sh" core-update --file "$path" >/dev/null 2>&1; then fail "non-allowlisted core accepted: $path"; fi
+done
+rm -rf /tmp/mihomo.gz /tmp/mihomo /tmp/mihomo.gz.bak /tmp/mihowrt-cli-test /tmp/mihomo-linux-dir
+pass 'offline core CLI accepts only the documented /tmp core names'
 pass 'offline core CLI rejects upload paths, symlinks and non-regular files'

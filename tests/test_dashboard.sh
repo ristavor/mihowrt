@@ -39,6 +39,9 @@ cat >"$tmpdir/init-mihowrt" <<EOF
 #!/bin/ash
 [ ! -e /proc/self/fd/9 ] || exit 1
 printf '%s\n' "\$*" >>"$tmpdir/init-calls"
+if [ "\$(uci -q get mihowrt.settings.dashboard)" = 0 ] && [ -d "$CLASH_DIR/ui" ]; then
+ printf '%s\n' "\$*" >"$tmpdir/rollback-before-cleanup"
+fi
 [ "\$RESTART_FAIL" = 0 ] || exit 1
 if [ "\$DOWNLOAD" = 1 ]; then
  mkdir -p "$CLASH_DIR/ui"; printf panel >"$CLASH_DIR/ui/index.html"
@@ -79,10 +82,12 @@ DOWNLOAD=0
 mkdir -p "$CLASH_DIR/ui"; echo partial >"$CLASH_DIR/ui/partial"
 if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'timeout must fail'; fi
 assert_eq 0 "$(uci_get dashboard)" 'timeout resets flag'
+assert_true 'timeout restarts before deleting partial files' test -f "$tmpdir/rollback-before-cleanup"
+assert_eq restart "$(cat "$tmpdir/rollback-before-cleanup")" 'rollback kills in-flight download before cleanup'
 assert_false 'timeout deletes partial files' test -d "$CLASH_DIR/ui"
 assert_eq 'Error: Could not download the dashboard. Check that GitHub is reachable from the router.' "$(cat "$tmpdir/error")" 'exact timeout error'
-assert_eq 2 "$reloads" 'timeout rollback reload only'
-assert_eq 2 "$(wc -l <"$tmpdir/init-calls")" 'timeout attempts restart'
+assert_eq 1 "$reloads" 'timeout rollback never hot reloads'
+assert_eq 3 "$(wc -l <"$tmpdir/init-calls")" 'timeout restarts to install and rollback'
 RESTART_FAIL=1
 if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'restart failure must fail'; fi
 assert_eq 0 "$(uci_get dashboard)" 'restart failure resets flag'

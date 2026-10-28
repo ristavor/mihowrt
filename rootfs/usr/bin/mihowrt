@@ -66,7 +66,7 @@ dashboard_install() {
 	fi
 	uci_set dashboard 0
 	uci_commit
-	with_lock service_reload >/dev/null 2>&1 || true
+	/etc/init.d/mihowrt restart 9>&- >/dev/null 2>&1 || true
 	rm -rf "$CLASH_DIR/ui"
 	err 'Could not download the dashboard. Check that GitHub is reachable from the router.'
 	return 1

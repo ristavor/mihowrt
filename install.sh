@@ -305,7 +305,7 @@ do_install() {
 		log "Installing the Mihomo core..."
 		# stdout is the JSON; the backend's own "Error: ..." line stays on stderr.
 		result="$("$MIHOWRT_BIN" core-update)" || {
-			reason="$(printf '%s' "$result" | jq -r '.error // empty' 2>/dev/null)" || reason=""
+			reason="$(printf '%s' "$result" | mihowrt-json get error empty 2>/dev/null)" || reason=""
 			die "Mihomo core installation failed${reason:+: $reason}; retry from LuCI → Services → MihoWRT"
 		}
 	fi

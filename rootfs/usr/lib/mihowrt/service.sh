@@ -180,7 +180,7 @@ service_prepare() {
 last_error_record() {
 	local error=""
 
-	error="$(sed 's/^Error: //' "$1" 2>/dev/null)"
+	error="$(error_text "$1" 2>/dev/null)"
 	atomic_write "$LAST_ERROR_FILE" "${error:-MihoWRT could not start. See the system log.}"
 	return 0
 }

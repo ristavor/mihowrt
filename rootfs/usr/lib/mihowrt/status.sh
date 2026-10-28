@@ -57,7 +57,7 @@ service_state_json() {
 		--argjson enabled "$(json_bool service_enabled)" \
 		--arg state "$(service_state "$running")" \
 		--argjson dns_ok "$(health_json)" \
-		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")"
+		--arg last_error "$(error_text "$LAST_ERROR_FILE" 2>/dev/null)"
 }
 
 # Plain upstream servers in dnsmasq bypass Mihomo; domain-scoped ones are fine.
@@ -94,7 +94,7 @@ status_json() {
 	fi
 	[ ! -f "$CLASH_DIR/ui/index.html" ] || dashboard_installed=true
 	config_valid="$(config_valid_json)"
-	[ "$config_valid" = false ] && config_error="$(status_file_read "$CONFIG_ERR_FILE")"
+	[ "$config_valid" = false ] && config_error="$(error_text "$CONFIG_ERR_FILE" 2>/dev/null)"
 	route_state_read 2>/dev/null
 
 	mihowrt-json build status \
@@ -103,7 +103,7 @@ status_json() {
 		--argjson enabled "$(json_bool service_enabled)" \
 		--argjson dns_ok "$(health_json)" \
 		--arg state "$(service_state "$running")" \
-		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")" \
+		--arg last_error "$(error_text "$LAST_ERROR_FILE" 2>/dev/null)" \
 		--argjson dashboard_installed "$dashboard_installed" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \

@@ -215,7 +215,7 @@ job_run() {
 	fi
 	if ! job_execute "$@" >"$JOBS_DIR/$id.out" 2>"$JOBS_DIR/$id.err"; then
 		state=error
-		error="$(tail -n 20 "$JOBS_DIR/$id.err" | sed 's/^Error: //')"
+		error="$(tail -n 20 "$JOBS_DIR/$id.err" | error_text)"
 		[ -n "$error" ] || error='The operation failed.'
 	fi
 	result="$(mihowrt-json result "$JOBS_DIR/$id.out" 2>/dev/null)" || result=null

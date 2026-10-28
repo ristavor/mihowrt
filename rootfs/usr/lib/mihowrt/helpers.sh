@@ -225,3 +225,14 @@ mihowrt_load_modules() {
 		. "$dir/$module" || return 1
 	done
 }
+
+# Bound diagnostics before they cross an exec argv boundary (BusyBox is byte-based).
+error_text() {
+	[ "$#" -eq 0 ] || [ -s "$1" ] || return 0
+	LC_ALL=C awk '
+		{ sub(/^Error: /, ""); line = substr($0, 1, 1000)
+		  room = 4096 - used; if (room <= 1) next
+		  line = substr(line, 1, room - 1); print line; used += length(line) + 1
+		}
+	' "$@"
+}

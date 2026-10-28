@@ -212,6 +212,6 @@ config_check_record() {
 		# A -t rejection needing geodata/network waits for YAML/UCI changes or manual Start.
 		[ ! -x "$CLASH_BIN" ] || : >"$CONFIG_INVALID_FILE"
 		rm -f "$CONFIG_OK_FILE"
-		printf '%s\n' "$CONFIG_TEST_OUTPUT" | tail -n 20 >"$CONFIG_ERR_FILE"
+		printf '%s\n' "$CONFIG_TEST_OUTPUT" | tail -n 20 | error_text >"$CONFIG_ERR_FILE"
 	fi
 }

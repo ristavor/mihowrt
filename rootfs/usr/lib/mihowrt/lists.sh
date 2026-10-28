@@ -451,11 +451,14 @@ lists_install() {
 			err "List $kind is larger than 1 MiB."
 			return 1
 		}
-		bad="$({ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 "$kind" | tr '\n' ' ')"
-		set -f
-		for url in $(lists_clean_lines "$tmp" | sed -n '/^https\?:\/\//p'); do
-			is_http_url "${url%%;*}" && { [ "${url%%;*}" = "$url" ] || is_port_spec "${url#*;}"; } || bad="$bad$url "
-		done
+		bad="$(
+			{
+			{ lists_clean_lines "$tmp" | grep -v '^https\?://' || true; } | lists_classify 1 "$kind"
+			lists_clean_lines "$tmp" | sed -n '/^https\?:\/\//p' | while IFS= read -r url; do
+				is_http_url "${url%%;*}" && { [ "${url%%;*}" = "$url" ] || is_port_spec "${url#*;}"; } || printf '%s\n' "$url"
+			done
+			} | LC_ALL=C awk 'NR <= 20 { printf "%s ", substr($0, 1, 200) } END { if (NR) printf "(%d total)", NR }'
+		)"
 		[ -z "$bad" ] || {
 			err "Invalid $kind entries: $bad"
 			set +f

@@ -217,3 +217,22 @@ pass 'status and profile expose cheap dashboard installation flag'
  service_state_json >/dev/null
  assert_false 'polled state does not detect LAN address' test -e "$tmpdir/lan.calls"
 )
+awk 'BEGIN { printf "%0200000d\n", 1 }' >"$LAST_ERROR_FILE"
+json="$(status_json)"
+assert_true 'huge snapshot gives bounded JSON error' test "$(jq -rj .last_error <<<"$json" | wc -c)" -le 4096
+last_error_record "$LAST_ERROR_FILE"
+assert_true 'recorded start error bounded' test "$(wc -c <"$LAST_ERROR_FILE")" -le 4096
+CONFIG_TEST_OUTPUT="$(awk 'BEGIN { for (i=0;i<25;i++) printf "%010000d\n", i }')"
+config_check_record err
+assert_true 'recorded config error bounded' test "$(wc -c <"$CONFIG_ERR_FILE")" -le 4096
+assert_true 'config error lines bounded' test "$(awk 'length > n { n=length } END { print n }' "$CONFIG_ERR_FILE")" -le 1000
+pass 'huge status and recorded errors stay bounded'
+
+(
+ awk() { touch "$tmpdir/error-awk-called"; command awk "$@"; }
+ : >"$tmpdir/empty-error"
+ assert_eq '' "$(error_text "$tmpdir/empty-error")" 'empty diagnostic snapshot'
+ assert_eq '' "$(error_text "$tmpdir/missing-error" 2>/dev/null)" 'missing diagnostic snapshot'
+ assert_false 'empty error snapshots never fork awk' test -e "$tmpdir/error-awk-called"
+)
+pass 'empty error snapshots stay fork-free'

@@ -38,6 +38,7 @@ lists_refresh() {
  text) echo not-json ;;
  empty) ;;
  lines) i=0; while [ "$i" -lt 25 ]; do echo "Error: line $i" >&2; i=$((i + 1)); done; return 1 ;;
+ hugeline) awk 'BEGIN { printf "%0300000d\n", 1 }' >&2; return 1 ;;
  big)
   awk 'BEGIN { for (i = 1; i <= 2100; i++) printf "%099d\n", i; print "last-out-line" }'
   awk 'BEGIN { for (i = 1; i <= 2100; i++) printf "%099d\n", i; print "last-err-line" }' >&2
@@ -328,3 +329,12 @@ assert_true "small output <= 65536" test "$small_out_size" -le 65536
 assert_eq '{"changed":true}' "$(cat "$tmpdir/run/jobs/$id.out")" "small output untouched"
 pass 'job log cap limits large output to JOB_LOG_MAX and keeps tail'
 
+
+echo hugeline >"$tmpdir/mode"
+start_job update-lists; wait_job
+assert_eq error "$(jq -r .state <<<"$status")" 'hugeline state'
+assert_true 'hugeline diagnostic preserved' test "$(jq -r .error <<<"$status" | cut -c1)" = 0
+assert_true 'hugeline truncated per line' test "$(jq -rj .error <<<"$status" | wc -c)" -le 1000
+assert_false 'hugeline releases slot' test -L "$tmpdir/run/jobs/active"
+assert_true 'hugeline error bounded' test "$(jq -rj .error <<<"$status" | wc -c)" -le 4096
+pass 'hugeline error completes job and releases slot'

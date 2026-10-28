@@ -207,7 +207,7 @@ pass 'empty error fallback'
 # polish: one last-error prefix stripping site
 (
  set -e
- count="$(grep -hcF "sed 's/^Error: //'" "$ROOT_DIR/rootfs/etc/init.d/mihowrt" "$MIHOWRT_LIB_DIR/service.sh" | awk '{ n += $1 } END { print n + 0 }')"
+ count="$(grep -hcF 'error_text "$1"' "$ROOT_DIR/rootfs/etc/init.d/mihowrt" "$MIHOWRT_LIB_DIR/service.sh" | awk '{ n += $1 } END { print n + 0 }')"
  assert_eq 1 "$count" 'last error prefix stripped in one helper only'
 )
 pass 'one last-error prefix stripping site'

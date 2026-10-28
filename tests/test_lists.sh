@@ -349,7 +349,7 @@ for kind in dst direct; do
  rc=0
  lists_apply "${args[@]}" >"$tmpdir/mac.out" 2>"$tmpdir/mac.err" || rc=$?
  assert_eq 1 "$rc" 'MAC rejected in address list'
- assert_eq "Error: Invalid $kind entries: aa:bb:cc:dd:ee:ff " "$(cat "$tmpdir/mac.err")" 'exact invalid MAC error'
+ assert_eq "Error: Invalid $kind entries: aa:bb:cc:dd:ee:ff (1 total)" "$(cat "$tmpdir/mac.err")" 'exact invalid MAC error'
 done
 for kind in src direct_src; do
  printf 'AA:BB:CC:DD:EE:FF # Device\n10.2.3.4\n' >"$upload"
@@ -375,3 +375,13 @@ DST_LIST_SOURCE=provider
 lists_resolve dst "$tmpdir/m4" "$tmpdir/m6" "$tmpdir/mac"
 assert_eq '' "$(cat "$tmpdir/mac")" 'provider destination MAC excluded'
 pass 'mac only in device lists'
+
+(
+ upload="/tmp/mihowrt-policy-list.huge.$$"
+ trap 'rm -f "$upload"' EXIT
+ awk 'BEGIN { for (i=0;i<30;i++) printf "%0300d\n", i }' >"$upload"
+ assert_false 'invalid examples rejected' lists_install "$upload" - - - 2>"$tmpdir/examples.err"
+ assert_true 'invalid examples bounded' test "$(wc -c <"$tmpdir/examples.err")" -le 4096
+ assert_file_contains "$tmpdir/examples.err" '(30 total)' 'invalid total retained'
+)
+pass 'invalid list examples bounded with total'

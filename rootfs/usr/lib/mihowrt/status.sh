@@ -86,13 +86,14 @@ config_valid_json() {
 }
 
 status_json() {
-	local running=false policy=false config_valid=null config_error="" errors=""
+	local running=false policy=false config_valid=null config_error="" errors="" dashboard_installed=false
 
 	settings_load 2>/dev/null || errors="Invalid MihoWRT settings"
 	service_running && running=true
 	if [ "$running" = true ]; then
 		nft_active && route_active && policy=true
 	fi
+	[ ! -f "$CLASH_DIR/ui/index.html" ] || dashboard_installed=true
 	config_valid="$(config_valid_json)"
 	[ "$config_valid" = false ] && config_error="$(status_file_read "$CONFIG_ERR_FILE")"
 	route_state_read 2>/dev/null
@@ -103,6 +104,7 @@ status_json() {
 		--argjson dns_ok "$(health_json)" \
 		--arg state "$(service_state "$running")" \
 		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")" \
+		--argjson dashboard_installed "$dashboard_installed" \
 		--argjson policy "$policy" \
 		--argjson config_valid "$config_valid" \
 		--argjson config_backup "$(json_bool test -f "$CLASH_CONFIG_BACKUP")" \
@@ -122,7 +124,7 @@ status_json() {
 		--arg errors "$errors" '
 		def words: split(" ") | map(select(length > 0));
 		{running: $running, enabled: $enabled, state: $state, last_error: $last_error, version: $version, core: $core,
-		 core_installed: ($core != ""), subscription_configured: ($url != ""),
+		 dashboard_installed: $dashboard_installed, core_installed: ($core != ""), subscription_configured: ($url != ""),
 		 subscription_insecure: ($url | ascii_downcase | startswith("http://")),
 		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
 		 mode: $mode, block_client_ipv6: ($block_client_ipv6 == "1"), interfaces: ($interfaces | words),
@@ -135,8 +137,12 @@ status_json() {
 # Provider profile for the Traffic page: mode, DNS, provider settings,
 # the user's overrides and provider list state.
 profile_json() {
+	local dashboard_installed=false
+
+	[ ! -f "$CLASH_DIR/ui/index.html" ] || dashboard_installed=true
 	settings_load || return 1
 	jq -nc \
+		--argjson dashboard_installed "$dashboard_installed" \
 		--arg mode "$POLICY_MODE" --arg dns "$DNS_MODE" \
 		--arg provider "$(profile_entries set)" \
 		--arg overrides "$PROVIDER_OVERRIDES" \
@@ -148,7 +154,7 @@ profile_json() {
 		--arg direct_own "$(lists_own_count direct)" --arg direct_source "$DIRECT_LIST_SOURCE" '
 		def words: split(" ") | map(select(length > 0));
 		def list($p; $n; $o; $s): {provided: $p, provider_count: ($n | tonumber), own_count: ($o | tonumber), source: $s};
-		{mode: $mode, dns: $dns,
+		{dashboard_installed: $dashboard_installed, mode: $mode, dns: $dns,
 		 provider: ($provider | split("\n") | map(select(length > 0) | split(" ") | {(.[0]): .[1]}) | add // {}),
 		 overrides: ($overrides | words),
 		 lists: {dst: list($dst_provided; $dst_provider; $dst_own; $dst_source),

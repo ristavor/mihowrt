@@ -200,7 +200,7 @@ seq(async () => {
 			api: Object.assign({}, api, { busy: async (b, fn) => { try { return await fn(); } catch (e) { order.push('error:' + e.message); return null; } },
 				write: async () => { order.push('rpc'); return reply; } })
 		}).module;
-		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true }), {}, [], { installed: true } ]))
+		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true, dashboard_installed: true }), {}, [] ]))
 			.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
 	};
 	let order = [], popup = { location: '', opener: 'page', close() { order.push('close'); } };
@@ -229,7 +229,9 @@ seq(async () => {
    job: async op => { calls.push(op); state = { running: true, installed: true }; return {}; }
   }
  }).module;
- const running = { ...base, running: true, subscription_configured: true };
+ await ov.load();
+ h.assertEq(calls.length, 0, 'write-user Overview load skips dashboard RPC');
+ const running = { ...base, running: true, subscription_configured: true, dashboard_installed: false };
  let p = ov.render([running, {}, [], state]);
  const install = findButton(p, 'Install dashboard');
  h.assert(install, 'uninstalled dashboard has Install on Overview');
@@ -1183,7 +1185,7 @@ seq(async () => {
    E, api: bridge, form, uci, ui, Event, window: { confirm: msg => { calls.push(['confirm', msg]); return true; } }, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
   }).module;
   const render = async (data = { ...lists }, profile = {}, dashboard = {}) => {
-   const page = await tv.render([data, profile, {}, dashboard]);
+   const page = await tv.render([data, { ...profile, dashboard_installed: !!dashboard.installed }, {}]);
    for (const o of Object.values(tv.map.options)) Object.assign(o, { uci, options: tv.map.options });
    return page;
   };
@@ -1198,32 +1200,25 @@ seq(async () => {
   try { await fn(); console.log('ok - traffic ' + name); }
   catch (e) { console.error('not ok - traffic ' + name, e); process.exitCode = 1; }
  }
- await check('dashboard immediate actions and stopped state', async () => {
-  let state = { installed: false, running: true };
-  const t = setup({ write: async () => state });
-  await t.render(undefined, {}, state);
+ await check('dashboard lazy status and removal', async () => {
+  const t = setup({ write: async cmd => { t.calls.push(['write', cmd]); return { installed: false }; } });
+  await t.tv.load();
+  h.assert(!t.calls.some(c => c[0] === 'write'), 'Traffic load skips dashboard RPC');
+  await t.render(undefined, {}, { installed: false });
   const o = t.tv.map.options._dashboard;
   h.assert(o && o.tab === 'advanced', 'dashboard standalone Advanced row');
   h.assertEq(Object.keys(t.tv.map.options).at(-1), '_dashboard', 'dashboard row last');
   let widget = o.renderWidget();
-  h.assert(findButton(widget, 'Install'), 'running Advanced offers Install');
-  state = { installed: true, running: true, size: 4096 };
-  await findButton(widget, 'Install').listeners.click();
-  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-install', 'Advanced install job');
-  h.assert(texts(widget).includes('Installed, 4.0 KiB'), 'installed byte size shown');
-  h.assert(findButton(widget, 'Remove'), 'same widget offers Remove after install');
-  // Removal remains available while stopped; it is an immediate job, not a UCI save.
-  await t.render(undefined, {}, { installed: true, running: false, size: 4096 });
+  h.assert(texts(widget).includes('Not installed'), 'uninstalled status');
+  h.assert(!findButton(widget, 'Install'), 'Install lives on Overview only');
+  await t.render(undefined, {}, { installed: true });
   widget = t.tv.map.options._dashboard.renderWidget();
-  state = { installed: false, running: false };
+  h.assert(texts(widget).includes('Installed'), 'initial installed status needs no size RPC');
   await findButton(widget, 'Remove').listeners.click();
   h.assertEq(t.calls.filter(c => c[0] === 'confirm').at(-1)[1], 'Remove the dashboard? You can install it again from the Overview page.', 'exact removal confirmation');
-  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-remove', 'stopped Advanced removal job');
-  h.assert(texts(widget).includes('Not installed') && !findButton(widget, 'Install'), 'removed stopped panel stays status-only');
-  await t.render(undefined, {}, { installed: false, running: false });
-  widget = t.tv.map.options._dashboard.renderWidget();
-  h.assert(texts(widget).includes('Not installed'), 'stopped status text');
-  h.assert(!findButton(widget, 'Install'), 'stopped Advanced has no Install');
+  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-remove', 'Advanced removal job');
+  h.assert(texts(widget).includes('Not installed') && !findButton(widget, 'Install'), 'removed panel stays status-only');
+  h.assertEq(t.calls.filter(c => c[0] === 'write').at(-1)[1], 'dashboard-json', 'refresh only after action');
   const ro = setup({ readOnly: () => true, write: async () => { throw new Error('secret RPC for read-only'); } });
   await ro.tv.load(); await ro.render();
   h.assert(!ro.tv.map.options._dashboard, 'read-only Advanced hides row');

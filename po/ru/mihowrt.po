@@ -808,6 +808,9 @@ msgstr "Скачает веб-панель Mihomo (около %s МБ) на ро
 msgid "Mihomo dashboard"
 msgstr "Панель Mihomo"
 
+msgid "Installed"
+msgstr "Установлена"
+
 msgid "Installed, %s"
 msgstr "Установлена, %s"
 

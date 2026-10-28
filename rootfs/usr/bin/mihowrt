@@ -23,7 +23,7 @@ need_args() {
 }
 
 dashboard_json() {
-	local installed=false size=null blocks=""
+	local installed=false size=null blocks="" secret_file=/dev/null
 
 	settings_load || return 1
 	if [ -f "$CLASH_DIR/ui/index.html" ]; then
@@ -32,11 +32,12 @@ dashboard_json() {
 		blocks="${blocks%%[[:space:]]*}"
 		is_uint "$blocks" && size=$(( $(uint_norm "$blocks") * 1024 ))
 	fi
-	jq -nc --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --arg secret "$API_SECRET" \
+	[ ! -f "$API_SECRET_FILE" ] || secret_file="$API_SECRET_FILE"
+	jq -nc --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --rawfile secret "$secret_file" \
 		--argjson running "$(json_bool service_running)" \
 		--argjson enabled "$(json_bool test "$DASHBOARD_ENABLED" = 1)" \
 		--argjson installed "$installed" --argjson size "$size" \
-		'{host: $host, port: ($port | tonumber), secret: $secret, running: $running,
+		'{host: $host, port: ($port | tonumber), secret: ($secret | split("\n")[0]), running: $running,
 		  enabled: $enabled, installed: $installed, size: $size}'
 }
 

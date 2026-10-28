@@ -199,3 +199,13 @@ assert_eq null "$(health_json)" 'malformed health snapshot stays unknown'
 printf 'ok\n\n' >"$HEALTH_FILE"
 assert_eq true "$(health_json)" 'health trailing newlines retain previous meaning'
 pass 'health file exact snapshot semantics'
+
+CLASH_DIR="$tmpdir/dashboard"
+mkdir -p "$CLASH_DIR/ui"
+for installed in false true; do
+ rm -f "$CLASH_DIR/ui/index.html"
+ [ "$installed" != true ] || touch "$CLASH_DIR/ui/index.html"
+ assert_eq "$installed" "$(status_json | jq .dashboard_installed)" 'status dashboard install flag'
+ assert_eq "$installed" "$(profile_json | jq .dashboard_installed)" 'profile dashboard install flag'
+done
+pass 'status and profile expose cheap dashboard installation flag'

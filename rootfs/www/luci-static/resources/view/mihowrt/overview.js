@@ -341,7 +341,8 @@ function groupsSection(groups) {
 
 const DASHBOARD_DOWNLOAD_MB = 5;
 
-function toolsSection(status, dashboardState) {
+function toolsSection(status) {
+	let dashboardState = { installed: status.dashboard_installed };
 	const dashboard = E('button', { class: 'cbi-button', type: 'button' });
 	const updateDashboard = () => {
 		dashboard.textContent = dashboardState?.installed ? _('Open dashboard') : _('Install dashboard');
@@ -406,11 +407,10 @@ return view.extend({
 	load: () => Promise.all([
 		api.read('status-json'),
 		api.read('subscription-json').catch(() => ({})),
-		api.readLarge('proxies-json').catch(e => ({ error: api.errorText(e) })),
-		api.readOnly() ? Promise.resolve(null) : api.write('dashboard-json').catch(() => null)
+		api.readLarge('proxies-json').catch(e => ({ error: api.errorText(e) }))
 	]),
 
-	render: ([ status, sub, groups, dashboardState ]) => {
+	render: ([ status, sub, groups ]) => {
 		const body = [ api.style(), E('h2', text(_('MihoWRT'))), api.jobNotice() ];
 
 		// Without the core nothing else can work yet: only the install card.
@@ -429,7 +429,7 @@ return view.extend({
 				: groups.error ? E('div', { class: 'cbi-section alert-message error' },
 				text(_('Cannot load the proxy groups: %s').format(groups.error)))
 				: groupsSection(Array.isArray(groups) ? groups : []));
-		body.push(toolsSection(status, dashboardState));
+		body.push(toolsSection(status));
 		return E('div', { class: 'mw-page' }, body);
 	},
 

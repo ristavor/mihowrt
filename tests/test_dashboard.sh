@@ -14,7 +14,11 @@ settings_load() { DASHBOARD_ENABLED="$(uci_get dashboard 0)"; API_SECRET=secret;
 lan_ip_detect() { echo 192.0.2.1; }
 service_running() { return 1; }
 fake_uci_set mihowrt.settings.dashboard 0
+API_SECRET_FILE="$tmpdir/api_secret"
+printf 'secret\n' >"$API_SECRET_FILE"
+jq() { printf '%s\n' "$@" >"$tmpdir/jq.argv"; command jq "$@"; }
 json="$(dashboard_json)"
+assert_eq 1 "$(grep -xcF secret "$tmpdir/jq.argv")" 'only secret argument name, never its value, in jq argv'
 assert_eq 'false:false:false:null' "$(jq -r '[.running,.enabled,.installed,.size] | map(tostring) | join(":")' <<<"$json")" 'missing dashboard status'
 assert_eq '192.0.2.1:9090:secret' "$(jq -r '[.host,(.port|tostring),.secret]|join(":")' <<<"$json")" 'existing dashboard fields retained'
 mkdir -p "$CLASH_DIR/ui"

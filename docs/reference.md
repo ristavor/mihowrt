@@ -250,7 +250,7 @@ Other architecture names are not automatically supported. A local `--file` bypas
 ## Known limits
 
 - Dumb AP mode: if the default route is via the LAN bridge, MihoWRT treats that bridge as WAN and does not exclude its non-RFC1918 connected subnets. This follows the connected-network algorithm; do not assume AP mode has the same exclusions as routed LAN mode.
-- RAM: 128 MiB is for small YAML. Large configs (several MiB) need 256 MiB+; an 8 MiB fixture OOMed on 128 MiB in all tested builds, including 0.10. The 8 MiB upload limit is not a capacity guarantee. 512 MiB passed; 256 MiB has not been measured. Core updates succeeded on 128 MiB in the VM with only about 6–8 MiB MemAvailable at the low point; this is not a physical-router guarantee.
+- RAM: 128–256 MiB is for small YAML. An 8 MiB fixture OOMed on 128 MiB in all tested builds, including 0.10, and on 256 MiB; 512 MiB passed. Sizes between were not measured. The 8 MiB upload limit is not a capacity guarantee. Core updates succeeded on 128 MiB in the VM with only about 6–8 MiB MemAvailable at the low point; this is not a physical-router guarantee.
 - The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
   provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
   Mihomo*, controller secret hidden) and the subscription link to every LuCI

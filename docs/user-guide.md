@@ -27,7 +27,7 @@ to run again. The status block of Overview refreshes every 10 seconds while the 
 
 ### Editing the YAML
 
-The editor on the *Subscription* page takes a YAML up to 8 MiB. This is an upload limit, not a RAM guarantee: large configs (several MiB) need 256 MiB+; on 128 MiB keep the YAML small. The 8 MiB VM fixture ran out of memory on 128 MiB, including on older builds; 512 MiB succeeded, 256 MiB was not measured. An empty YAML is
+The editor on the *Subscription* page takes a YAML up to 8 MiB. This is an upload limit, not a RAM guarantee: on 128–256 MiB keep the YAML small. The 8 MiB VM fixture ran out of memory on 128 MiB (including older builds) and on 256 MiB; 512 MiB succeeded. An empty YAML is
 refused and nothing is changed. *Restore the previous YAML* puts
 `config.yaml.bak` back (the current one becomes the new backup, so restore can
 be undone). A subscription update or an automatic update replaces the YAML

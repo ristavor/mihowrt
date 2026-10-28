@@ -20,7 +20,9 @@ State of the 0.11.0 stable-review documentation checkpoint (2026-10-28). This is
 - **D4. A killed runtime-lock holder's foreground child may retain the lock until exit.** Checkpoint C1 kept L0: no new failure evidence justifies a lock redesign; normal locked children are short-lived.
 - **D5. Failure to write the lock owner file can silently drop the lock.** Also kept at L0 by C1; the timeout may say `(process )`. No new evidence changed that decision.
 - **D7. Dumb AP mode follows WAN detection.** A default route through the LAN bridge makes that bridge WAN; non-RFC1918 connected subnets on it are not excluded. Inherent in the algorithm, documented rather than redesigned.
-- **Large YAML on 128 MiB:** the 8 MiB fixture exhausted memory in all tested builds, including 0.10. Keep YAML small on 128 MiB; several-MiB configs need 256 MiB+. 512 MiB succeeded, 256 MiB was not measured. An upload limit does not promise enough runtime RAM.
+- **Large YAML on 128–256 MiB:** the 8 MiB fixture exhausted memory on 128 MiB in all tested builds, including 0.10, and on 256 MiB (the validating core was OOM-killed; the running core kept working). 512 MiB succeeded; sizes between were not measured. An upload limit does not promise enough runtime RAM.
+- **OpenWrt `logd` crash:** under heavy concurrent logging and reading, `logd` segfaults in libubox (reproduced without MihoWRT on 24.10.8 and, more rarely, 25.12). The Diagnostics log can then come back empty or a read can stall until procd restarts `logd`. Upstream bug; MihoWRT does not work around it.
+- **Firmware upgrade:** `sysupgrade -k` keeps UCI, the API secret, the YAML and lists (backup/restore checked in the VM; a real flash was not). The package and the core are not kept: reinstall the package with the installer, then install the core.
 - **Unconfirmed physical-router memory-leak report:** investigation postponed by the user, not claimed fixed by resource optimisations.
 
 ### UI (theme-owned rendering)

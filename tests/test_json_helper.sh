@@ -78,3 +78,15 @@ for bytes in '\xff\xc0\xaf' '\xe2\x82' '\xe2\x82A' '\xed\xa0\x80' '\xf4\x90\x80\
  parity "rawfile invalid UTF-8 [$bytes]" "$(jq -nc --rawfile content "$tmpdir/invalid" '{content:$content}')" build object --rawfile content "$tmpdir/invalid"
  parity "URI invalid UTF-8 [$bytes]" "$(jq -sRr @uri <"$tmpdir/invalid")" uri <"$tmpdir/invalid"
 done
+for input in '{"n":1,"a":[0,42,-42],"s":"1.5"}' '{"n":1.5,"a":[1,2.00]}' '{"n":1e2}' '{"n":9007199254740993}' '{"n":-9007199254740993}' '{"n":-0}' '{"n":9007199254740992}' '{"n":-9007199254740992}'; do
+ parity "native/decimal parser parity [$input]" "$(jq -c '.+{now:2}' <<<"$input")" merge object --argjson now 2 <<<"$input"
+done
+for input in '{"n":Infinity}' '{"n":-Infinity}' '{"n":NaN}' '{"d":1.0,"n":Infinity}'; do
+ parity "non-finite JSON number parity [$input]" "$(jq -c '.+{now:2}' <<<"$input")" merge object --argjson now 2 <<<"$input"
+done
+# jq clamps/underflows here; parity intentionally not kept for out-of-double-range exponents.
+for number in 1e1000000000 1e-99999999999999; do
+ "$helper" build metadata --arg interval "$number" >"$tmpdir/extreme.json"
+ assert_true "out-of-double-range exponent $number stays valid JSON" jq -e 'type == "object" and (.header_interval | type) == "number"' "$tmpdir/extreme.json" >/dev/null
+ pass "JSON helper: out-of-double-range exponent $number stays valid JSON"
+done

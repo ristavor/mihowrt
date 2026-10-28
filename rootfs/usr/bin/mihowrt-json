@@ -24,8 +24,18 @@ function number(s) {
 	} else out = digits;
 	return proto({text: (m[1] == '-' ? '-' : '') + out}, decimal);
 }
+function num(s) {
+	if (s == 'NaN' || s == '-NaN') return null;
+	if (s == 'Infinity' || s == 'Inf' || s == '+Infinity' || s == '+Inf') return proto({text: '1.7976931348623157e+308'}, decimal);
+	if (s == '-Infinity' || s == '-Inf') return proto({text: '-1.7976931348623157e+308'}, decimal);
+	return number(s);
+}
 function parse(s) {
-	json(s); // Validate syntax before preserving number tokens.
+	let native = json(s);
+	// Most API/job numbers are small integers. Scan outside strings in C;
+	// decimals, exponents, large integers and negative zero retain jq spelling.
+	let tokens = replace(s, /"([^"\\]|\\.)*"/g, '');
+	if (!match(tokens, /[0-9][.eE]|[0-9]{16}|-0|[A-Z]/)) return native;
 	let pos = 0;
 	function value() {
 		while (match(substr(s, pos, 1), /^[ \t\r\n]$/)) pos++;
@@ -50,7 +60,7 @@ function parse(s) {
 		}
 		m = match(substr(s, pos), /^[^],} \t\r\n]+/)[0];
 		pos += length(m);
-		return m == 'true' ? true : m == 'false' ? false : m == 'null' ? null : number(m);
+		return m == 'true' ? true : m == 'false' ? false : m == 'null' ? null : num(m);
 	}
 	return value();
 }
@@ -104,12 +114,6 @@ function emit(v, pretty) { print(encode(v, pretty), '\n'); }
 function raw(v) { return type(v) == 'string' ? utf8(v) : encode(v); }
 function fallback(v, d) { return v == null || v === false ? d : v; }
 function lines(s, sep) { return filter(split(s ?? '', sep ?? '\n'), (v) => length(v) > 0); }
-function num(s) {
-	if (s == 'NaN' || s == '-NaN') return null;
-	if (s == 'Infinity' || s == 'Inf' || s == '+Infinity' || s == '+Inf') return proto({text: '1.7976931348623157e+308'}, decimal);
-	if (s == '-Infinity' || s == '-Inf') return proto({text: '-1.7976931348623157e+308'}, decimal);
-	return number(s);
-}
 function numeric(v) { return type(v) == 'object' && proto(v) == decimal ? +v.text : v; }
 function merge(a, b) {
 	for (let k, v in b) a[k] = v;

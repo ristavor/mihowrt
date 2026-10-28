@@ -104,6 +104,7 @@ settings_list_source() {
 }
 
 settings_invalid() {
+	ensure_dir "$PKG_STATE_DIR" && : >"$CONFIG_INVALID_FILE"
 	err "Invalid $1: $2"
 	return 1
 }

@@ -75,6 +75,7 @@ for file in health degraded last_error config.invalid; do
  [ ! -e "$INIT_TEST_STATE/$file" ] || echo "$file" >>"$INIT_TEST_STATE/stale"
 done
 if [ -f "$INIT_TEST_STATE/reject" ]; then
+ : >"$INIT_TEST_STATE/config.invalid"
  echo 'Mihomo rejected the configuration' >"$INIT_TEST_STATE/last_error"
  exit 1
 fi
@@ -98,6 +99,10 @@ CLI
  assert_file_contains "$tmpdir/prepare.err" 'Mihomo rejected the configuration' 'prepare failure keeps error text'
  assert_false 'invalid configuration never launches supervisor' test -e "$PKG_STATE_DIR/launched"
  rm "$PKG_STATE_DIR/reject"
+ printf '#!/bin/sh\necho transient >"$INIT_TEST_STATE/last_error"\nexit 1\n' >"$MIHOWRT"
+ assert_false 'transient prepare failure aborts start' start_service 2>"$tmpdir/prepare.err"
+ assert_false 'transient prepare failure does not block hotplug' test -e "$CONFIG_INVALID_FILE"
+ printf '#!/bin/sh\nexit 0\n' >"$MIHOWRT"
  start_service
  assert_false 'manual start clears previous configuration failure' test -e "$CONFIG_INVALID_FILE"
  assert_true 'fixed configuration launches supervisor' test -f "$PKG_STATE_DIR/launched"

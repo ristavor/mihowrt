@@ -8,7 +8,7 @@ export HOTPLUG_TEST_DIR="$tmpdir" PATH="$tmpdir/bin:$PATH"
 sed -e "s|/var/run/mihowrt|$tmpdir/run|g" -e "s|/opt/clash|$tmpdir/clash|g" \
  "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/constants.sh"
 sed -e "s|/usr/lib/mihowrt/constants.sh|$tmpdir/constants.sh|g" \
- -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init|g" \
+ -e "s|/etc/config/mihowrt|$tmpdir/uci-config|g" -e "s|/usr/bin/mihowrt|$tmpdir/cli|g" -e "s|/etc/init.d/mihowrt|$tmpdir/init|g" \
  "$ROOT_DIR/rootfs/etc/hotplug.d/iface/90-mihowrt" >"$tmpdir/hotplug.sh"
 cat >"$tmpdir/bin/pgrep" <<'PGREP'
 #!/bin/sh
@@ -28,11 +28,11 @@ start) echo start >"$HOTPLUG_TEST_DIR/command" ;;
 esac
 INIT
 chmod +x "$tmpdir/bin/pgrep" "$tmpdir/cli" "$tmpdir/init"
-cases=(supervisor_ifup supervisor_ifupdate broken fixed not_ready core_exited watchdog stopped disabled marker)
+cases=(supervisor_ifup supervisor_ifupdate broken fixed uci_fixed not_ready core_exited watchdog stopped disabled marker)
 [ $# -eq 0 ] || cases=("$@")
 for scenario in "${cases[@]}"; do
  rm -f "$tmpdir/command" "$tmpdir/supervisor" "$tmpdir/disabled" "$tmpdir/run/"*
- touch -d '2020-01-01' "$tmpdir/clash/config.yaml"
+ touch -d '2020-01-01' "$tmpdir/clash/config.yaml" "$tmpdir/uci-config"
  expected=net-refresh
  action=ifup
  case "$scenario" in
@@ -42,6 +42,11 @@ for scenario in "${cases[@]}"; do
  fixed)
   touch -d '2021-01-01' "$tmpdir/run/config.invalid" "$tmpdir/run/last_error"
   touch -d '2022-01-01' "$tmpdir/clash/config.yaml"
+  expected=start
+  ;;
+ uci_fixed)
+  touch -d '2021-01-01' "$tmpdir/run/config.invalid"
+  touch -d '2022-01-01' "$tmpdir/uci-config"
   expected=start
   ;;
  not_ready | core_exited | watchdog)

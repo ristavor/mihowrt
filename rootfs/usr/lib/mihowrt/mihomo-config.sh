@@ -198,9 +198,11 @@ mihomo_config_test() {
 config_check_record() {
 	ensure_dir "$PKG_STATE_DIR" || return 1
 	if [ "$1" = ok ]; then
-		rm -f "$CONFIG_ERR_FILE"
+		rm -f "$CONFIG_ERR_FILE" "$CONFIG_INVALID_FILE"
 		touch "$CONFIG_OK_FILE"
 	else
+		# A -t rejection needing geodata/network waits for YAML/UCI changes or manual Start.
+		[ ! -x "$CLASH_BIN" ] || : >"$CONFIG_INVALID_FILE"
 		rm -f "$CONFIG_OK_FILE"
 		printf '%s\n' "$CONFIG_TEST_OUTPUT" | tail -n 20 >"$CONFIG_ERR_FILE"
 	fi

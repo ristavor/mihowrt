@@ -137,6 +137,7 @@ runtime_config_build() {
 	inputs="$(mihomo_config_key "$CLASH_CONFIG" 2>/dev/null)" || inputs=""
 	runtime_config_key_store ""
 	mihomo_config_generate "$CLASH_CONFIG" "$1" || return 1
+	[ -x "$CLASH_BIN" ] || { mihomo_config_test "$1"; return 1; }
 	if { key="$(mihomo_config_test_key "$1")" && [ "$key" = "$(cat "$CONFIG_TESTED_FILE" 2>/dev/null)" ]; } ||
 		mihomo_config_test "$1" "$CLASH_BIN" "$key"; then
 		config_check_record ok

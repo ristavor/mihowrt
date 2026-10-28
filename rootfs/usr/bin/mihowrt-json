@@ -32,37 +32,45 @@ function num(s) {
 }
 function parse(s) {
 	let native = json(s);
-	// Most API/job numbers are small integers. Scan outside strings in C;
-	// decimals, exponents, large integers and negative zero retain jq spelling.
-	let tokens = replace(s, /"([^"\\]|\\.)*"/g, '');
-	if (!match(tokens, /[0-9][.eE]|[0-9]{16}|-0|[A-Z]/)) return native;
-	let pos = 0;
-	function value() {
-		while (match(substr(s, pos, 1), /^[ \t\r\n]$/)) pos++;
-		let c = substr(s, pos, 1), m;
-		if (c == '{' || c == '[') {
-			pos++;
-			let obj = c == '{' ? {} : [], end = c == '{' ? '}' : ']';
-			while (true) {
-				while (match(substr(s, pos, 1), /^[ \t\r\n,]$/)) pos++;
-				if (substr(s, pos, 1) == end) { pos++; return obj; }
-				if (c == '{') {
-					let key = value();
-					while (substr(s, pos++, 1) != ':') {}
-					obj[key] = value();
-				} else push(obj, value());
-			}
-		}
-		if (c == '\"') {
-			let start = pos++;
-			while (substr(s, pos, 1) != '\"') { if (substr(s, pos, 1) == '\\') pos++; pos++; }
-			return json(substr(s, start, ++pos - start));
-		}
-		m = match(substr(s, pos), /^[^],} \t\r\n]+/)[0];
-		pos += length(m);
-		return m == 'true' ? true : m == 'false' ? false : m == 'null' ? null : num(m);
+	// json-c accepts comments, single quotes and trailing commas. Validate the
+	// token grammar too, even when native integers need no decimal preservation.
+	let tokens = match(s, /"([^"\\]|\\.)*"|[^][{}:, \t\r\n"]+|[][{}:,"]/g) ?? [];
+	let preserve = false, pos = 0;
+	for (let t in tokens)
+		if (substr(t[0], 0, 1) != '"' && match(t[0], /[0-9][.eE]|[0-9]{16}|-0|[A-Z]/)) preserve = true;
+	function take() {
+		if (pos >= length(tokens)) die('Unexpected end of JSON input');
+		return tokens[pos++][0];
 	}
-	return value();
+	function value() {
+		let t = take();
+		if (t == '{' || t == '[') {
+			let obj = preserve ? (t == '{' ? {} : []) : null, end = t == '{' ? '}' : ']';
+			if (pos < length(tokens) && tokens[pos][0] == end) { pos++; return obj; }
+			while (pos < length(tokens)) {
+				let key;
+				if (t == '{') {
+					key = take();
+					if (length(key) < 2 || substr(key, 0, 1) != '"' || substr(key, -1) != '"') die('Expected JSON object key');
+					if (take() != ':') die('Expected JSON colon');
+				}
+				let v = value();
+				if (preserve) { if (t == '{') obj[json(key)] = v; else push(obj, v); }
+				let separator = take();
+				if (separator == end) return obj;
+				if (separator != ',') die('Expected JSON comma or closing delimiter');
+			}
+			die('Unexpected end of JSON input');
+		}
+		if (length(t) >= 2 && substr(t, 0, 1) == '"' && substr(t, -1) == '"') return preserve ? json(t) : null;
+		if (t == 'true' || t == 'false' || t == 'null') return t == 'true' ? true : t == 'false' ? false : null;
+		let n = num(t);
+		if (n == null && t != 'NaN' && t != '-NaN') die('Unexpected JSON token');
+		return n;
+	}
+	let parsed = value();
+	if (pos != length(tokens)) die('Unexpected trailing JSON token');
+	return preserve ? parsed : native;
 }
 function valid_utf8(s) {
 	for (let i = 0; i < length(s); i++) {

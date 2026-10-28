@@ -90,3 +90,15 @@ for number in 1e1000000000 1e-99999999999999; do
  assert_true "out-of-double-range exponent $number stays valid JSON" jq -e 'type == "object" and (.header_interval | type) == "number"' "$tmpdir/extreme.json" >/dev/null
  pass "JSON helper: out-of-double-range exponent $number stays valid JSON"
 done
+# json-c accepts extensions which jq rejects. Neither parser path may hang or accept them.
+for input in '/* comment */{"a":1.5}' $'{"a":1.5// comment\n}' '{"a":1.5/* comment */}' "{'a':1.5}" '{"a":1.5,}' '[1.5,]' '{"a":1.5' "{\"a\":1.5,'x':1}" '{"a":1.5/*"*/}' '/* comment */{"a":1}' '{"a":1,}' '{"a":1/*"*/}'; do
+ rc=0
+ timeout 5 "$helper" object <<<"$input" >"$tmpdir/malformed.out" 2>"$tmpdir/malformed.err" || rc=$?
+ assert_eq 1 "$rc" "malformed JSON rejects without hanging [$input]"
+ assert_false 'malformed JSON emits no stdout' test -s "$tmpdir/malformed.out"
+ assert_false 'jq rejects the same malformed input' jq -e . <<<"$input" >/dev/null 2>&1
+ pass "JSON helper: malformed input rejects within timeout [$input]"
+done
+for input in '{"a":1.5,"x":"quote\" : []"}' '{"a":[1.50,{"b":true},null],"x":{"empty":[],"obj":{}}}' $'{\n "a" : 1.5, "x" : [false, "1.5"]\n}'; do
+ parity 'tokenized nested/escaped JSON parity' "$(jq -c . <<<"$input")" object <<<"$input"
+done

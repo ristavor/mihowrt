@@ -24,6 +24,7 @@ fake_uci_reset
 
 assert_eq 'https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip' "$MIHOMO_DASHBOARD_URL" 'dashboard release is pinned'
 [[ "$MIHOMO_DASHBOARD_URL" != *'/latest/'* ]] || fail 'dashboard must not track latest'
+assert_file_contains "$ROOT_DIR/docs/reference.md" "external-ui-url: \"$MIHOMO_DASHBOARD_URL\"" 'dashboard reference documents the pinned release'
 # Source the real CLI functions without dispatching a command.
 sed '/^cmd=/,$d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" |
  sed "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" >"$tmpdir/cli-functions.sh"

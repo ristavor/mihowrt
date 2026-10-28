@@ -57,7 +57,7 @@ external-controller: <LAN IP>:9090
 external-controller-unix: /tmp/clash/mihomo.sock
 secret: "<generated, /etc/mihowrt/api_secret>"
 external-ui: ui          # only when the optional dashboard is enabled
-external-ui-url: "https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
+external-ui-url: "https://github.com/Zephyruso/zashboard/releases/download/v3.29.1/dist-no-fonts.zip"
 # external-ui and external-ui-url are omitted when the dashboard is disabled
 # and inside dns: enable, listen 0.0.0.0:7874, and fake-ip-range
 # 198.18.0.0/16 when enhanced-mode is fake-ip (fake-ip-range6 is dropped)

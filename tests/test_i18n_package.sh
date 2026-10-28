@@ -109,5 +109,6 @@ assert_file_contains "$po_file" 'msgid "Subscription"' "PO file should contain S
 assert_file_contains "$po_file" 'msgid "Traffic"' "PO file should contain Traffic msgid"
 assert_file_contains "$po_file" 'msgid "Diagnostics"' "PO file should contain Diagnostics msgid"
 assert_file_contains "$po_file" 'msgid "All traffic via proxy except exclusions"' "PO file should contain policy mode translation"
+assert_eq 'msgstr "Контрольная сумма не проверена"' "$(sed -n '/^msgid "checksum not verified"$/{n;p;}' "$po_file")" "checksum notice should start a new Russian sentence"
 
 pass "i18n package Makefile and PO catalog"

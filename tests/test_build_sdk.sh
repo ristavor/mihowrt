@@ -248,6 +248,8 @@ assert_contains "tools/build-sdk.sh validates host tool po2lmo" "staging_dir/hos
 assert_contains "tools/build-sdk.sh runs direct package clean" "make -C package/luci-app-mihowrt clean" "$script_content"
 assert_contains "tools/build-sdk.sh runs direct package compile" "make -C package/luci-app-mihowrt compile" "$script_content"
 
+assert_contains "SDK sync includes shared package hardening rules" 'rsync -a --delete /workspace/tools/harden.sed package/luci-app-mihowrt/tools/' "$script_content"
+
 # Test 13: Verify SDK archive exists and sha256 matches expected
 archive="${ROOT_DIR}/.sdk/openwrt-sdk-25.12.6-x86-64.tar.zst"
 if [[ -f "$archive" ]]; then

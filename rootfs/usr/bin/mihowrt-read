@@ -1,4 +1,5 @@
 #!/bin/ash
+# MIHOWRT_PACKAGE_HARDEN
 
 # Read-only entry point for the LuCI read ACL. Mutating commands need the
 # write ACL and /usr/bin/mihowrt.

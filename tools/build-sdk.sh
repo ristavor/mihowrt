@@ -260,8 +260,9 @@ run_build_docker() {
 		cd "${CONTAINER_SDK_DIR}"
 
 		echo "==> Synchronizing package sources into SDK..."
-		mkdir -p package/luci-app-mihowrt
+		mkdir -p package/luci-app-mihowrt/tools
 		rsync -a --delete /workspace/Makefile package/luci-app-mihowrt/
+		rsync -a --delete /workspace/tools/harden.sed package/luci-app-mihowrt/tools/
 		if [ -d /workspace/rootfs ]; then
 			rsync -a --delete /workspace/rootfs package/luci-app-mihowrt/
 			# Ensure removed Ace assets do not persist in SDK build tree

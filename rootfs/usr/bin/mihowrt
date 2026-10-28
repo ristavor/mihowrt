@@ -1,4 +1,5 @@
 #!/bin/ash
+# MIHOWRT_PACKAGE_HARDEN
 
 LIB="${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"
 . "$LIB/constants.sh" && . "$LIB/helpers.sh" && mihowrt_load_modules "${1:-}" || exit 1

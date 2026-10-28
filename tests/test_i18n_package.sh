@@ -25,6 +25,34 @@ $(eval $(InstallTest))
 EOF
 (cd "$ROOT_DIR" && make -s -f "$tmpdir/package.mk" install-test PKG_VERSION=9.9.9 DESTDIR="$tmpdir/root" CONFIG_USE_APK=y)
 assert_file_contains "$tmpdir/root/usr/lib/mihowrt/constants.sh" 'PKG_VERSION="9.9.9"' "installed version should come from Makefile"
+# Exercise the installed bootstrap before any module load or command dispatch.
+seams=(MIHOWRT_BACKEND MIHOWRT_LIB_DIR SUBSCRIPTION_META_FILE JOB_PROC_DIR ROUTE_PROC_ROOT RC_D_DIR
+ LOCK_DEPTH SETTINGS_LOADED SETTINGS_UCI_SNAPSHOT NET_REFRESH_DELAY DASHBOARD_WAIT_SECONDS
+ RUNTIME_LOCK_TIMEOUT API_DELAY_URL SUBSCRIPTION_MAX_BYTES SUBSCRIPTION_TIMEOUT
+ LISTS_REMOTE_MAX_BYTES LISTS_REMOTE_MAX_URLS LISTS_REMOTE_TIMEOUT MIHOWRT_QUIET MIHOWRT_STOP)
+poison=()
+for seam in "${seams[@]}"; do poison+=("$seam=/tmp/hostile"); done
+for entry in mihowrt mihowrt-read; do
+ installed="$tmpdir/root/usr/bin/$entry"
+ assert_file_not_contains "$installed" 'MIHOWRT_PACKAGE_HARDEN' "installed $entry has no hardening marker"
+ assert_eq unset "$(sed -n '2s/ .*//p' "$installed")" "$entry clears seams immediately after shebang"
+ sh -n "$installed"
+ sed -e '/^\. "\$LIB\/constants.sh"/,$d' -e '/^case /,$d' "$installed" >"$tmpdir/bootstrap"
+ printf '\n/usr/bin/env\n' >>"$tmpdir/bootstrap"
+ env "${poison[@]}" PATH=/tmp/hostile /bin/ash "$tmpdir/bootstrap" >"$tmpdir/environment"
+ for seam in "${seams[@]}"; do
+  assert_false "$entry ignores inherited $seam" grep -q "^$seam=" "$tmpdir/environment"
+ done
+ assert_true "$entry sets a trusted PATH" grep -qxF 'PATH=/usr/sbin:/usr/bin:/sbin:/bin' "$tmpdir/environment"
+done
+assert_file_contains "$tmpdir/root/usr/bin/mihowrt" 'LIB=/usr/lib/mihowrt' 'installed CLI fixes library path'
+assert_file_contains "$tmpdir/root/usr/bin/mihowrt-read" 'BACKEND=/usr/bin/mihowrt' 'installed read wrapper fixes backend'
+assert_eq /usr/lib/mihowrt "$(MIHOWRT_LIB_DIR=/tmp/hostile ash -c '. "$1"; mihowrt_lib_dir' sh "$tmpdir/root/usr/lib/mihowrt/helpers.sh")" 'installed helpers ignore library override'
+sh -n "$tmpdir/root/usr/lib/mihowrt/helpers.sh"
+assert_file_contains "$ROOT_DIR/rootfs/usr/bin/mihowrt" 'LIB="${MIHOWRT_LIB_DIR:-/usr/lib/mihowrt}"' 'source CLI retains test seam'
+assert_file_contains "$ROOT_DIR/rootfs/usr/bin/mihowrt-read" 'BACKEND="${MIHOWRT_BACKEND:-/usr/bin/mihowrt}"' 'source read wrapper retains test seam'
+pass 'packaged entrypoints ignore hostile seam environment and retain ash syntax'
+
 luci_depends="$(sed -n 's/^LUCI_DEPENDS:=//p' "$ROOT_DIR/Makefile")"
 [[ " $luci_depends " == *" +cgi-io "* ]] || fail "LUCI_DEPENDS should explicitly contain +cgi-io"
 for list in always_proxy_dst always_proxy_src direct_dst direct_src; do

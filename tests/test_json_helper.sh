@@ -7,7 +7,9 @@ trap 'rm -rf "$tmpdir"' EXIT
 [[ -x "$helper" ]] || fail 'mihowrt-json executable helper is missing'
 parity() {
  local label="$1" expected="$2"; shift 2
- assert_eq "$expected" "$("$helper" "$@")" "$label"
+ local actual
+ actual="$("$helper" "$@")" || fail "$label: helper failed"
+ assert_eq "$expected" "$actual" "$label"
  pass "JSON helper: $label"
 }
 text=$'quotes " slash / backslash \\ русский 😀\n\t\r\001\037'
@@ -71,3 +73,8 @@ parity 'proxy group ordering, dedup, defaults and history' "$(jq -c "$filter" <<
 parity 'status keeps a multiline settings error as one entry' "$(jq -nc '{running:false,enabled:false,state:"failed",last_error:"",version:"",core:"",dashboard_installed:false,core_installed:false,subscription_configured:false,subscription_insecure:false,config_valid:null,config_backup:false,config_error:"",dns_mode:"",dns_ok:null,policy_active:false,mode:"",block_client_ipv6:false,interfaces:[],custom_dns_servers:[],lists:{dst:0,src:0,direct:0,direct_src:0},route:{table:"",priority:""},errors:["first\nsecond"]}')" build status --argjson running false --argjson enabled false --arg state failed --arg last_error '' --arg version '' --arg core '' --argjson dashboard_installed false --arg url '' --argjson config_valid null --argjson config_backup false --arg config_error '' --arg dns_mode '' --argjson dns_ok null --argjson policy false --arg mode '' --arg block_client_ipv6 0 --arg interfaces '' --arg custom '' --arg dst 0 --arg src 0 --arg direct 0 --arg direct_src 0 --arg table '' --arg priority '' --arg errors $'first\nsecond'
 parity 'empty history stream is silent' '' history last </dev/null
 parity 'empty pruning stream is silent' '' history prune </dev/null
+for bytes in '\xff\xc0\xaf' '\xe2\x82' '\xe2\x82A' '\xed\xa0\x80' '\xf4\x90\x80\x80' '\xe0\x80\x80' '\xf5\x80\x80\x80'; do
+ printf '%b' "$bytes" >"$tmpdir/invalid"
+ parity "rawfile invalid UTF-8 [$bytes]" "$(jq -nc --rawfile content "$tmpdir/invalid" '{content:$content}')" build object --rawfile content "$tmpdir/invalid"
+ parity "URI invalid UTF-8 [$bytes]" "$(jq -sRr @uri <"$tmpdir/invalid")" uri <"$tmpdir/invalid"
+done

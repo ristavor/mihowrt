@@ -54,6 +54,34 @@ function parse(s) {
 	}
 	return value();
 }
+function valid_utf8(s) {
+	for (let i = 0; i < length(s); i++) {
+		let b = ord(s, i), n = 0, low = 128, high = 191;
+		if (b < 128) continue;
+		if (b >= 194 && b <= 223) n = 1;
+		else if (b >= 224 && b <= 239) { n = 2; if (b == 224) low = 160; if (b == 237) high = 159; }
+		else if (b >= 240 && b <= 244) { n = 3; if (b == 240) low = 144; if (b == 244) high = 143; }
+		else return false;
+		if (i + n >= length(s) || ord(s, i + 1) < low || ord(s, i + 1) > high) return false;
+		while (n-- > 0) { b = ord(s, ++i); if (b < 128 || b > 191) return false; }
+	}
+	return true;
+}
+// json-c preserves invalid bytes; jq replaces each malformed UTF-8 sequence.
+let non_ascii = regexp('[' + chr(128) + '-' + chr(255) + ']+', 'g');
+function utf8(s) {
+	return replace(s, non_ascii, (run) => {
+		let out = '';
+		for (let i = 0; i < length(run); i++) {
+			let start = i, b = ord(run, i), n = b >= 194 && b <= 223 ? 1 : b >= 224 && b <= 239 ? 2 : b >= 240 && b <= 244 ? 3 : 0;
+			if (!n) { out += '�'; continue; }
+			while (n > 0 && i + 1 < length(run) && ord(run, i + 1) >= 128 && ord(run, i + 1) <= 191) { i++; n--; }
+			let seq = substr(run, start, i - start + 1);
+			out += n == 0 && valid_utf8(seq) ? seq : '�';
+		}
+		return out;
+	});
+}
 function padding(depth) {
 	let s = '';
 	while (depth-- > 0) s += '  ';
@@ -65,15 +93,15 @@ function encode(v, pretty, depth) {
 	let t = type(v), out = [], indent = padding(depth + 1);
 	if (t == 'array' || t == 'object') {
 		for (let key, value in v) {
-			push(out, (t == 'object' ? sprintf('%J', key) + (pretty ? ': ' : ':') : '') + encode(v[key], pretty, depth + 1));
+			push(out, (t == 'object' ? sprintf('%J', utf8(key)) + (pretty ? ': ' : ':') : '') + encode(v[key], pretty, depth + 1));
 		}
 		let l = t == 'array' ? '[' : '{', r = t == 'array' ? ']' : '}';
 		return !length(out) ? l + r : l + (pretty ? '\n' + indent : '') + join(pretty ? ',\n' + indent : ',', out) + (pretty ? '\n' + padding(depth) : '') + r;
 	}
-	return sprintf('%J', v);
+	return sprintf('%J', t == 'string' ? utf8(v) : v);
 }
 function emit(v, pretty) { print(encode(v, pretty), '\n'); }
-function raw(v) { return type(v) == 'string' ? v : encode(v); }
+function raw(v) { return type(v) == 'string' ? utf8(v) : encode(v); }
 function fallback(v, d) { return v == null || v === false ? d : v; }
 function lines(s, sep) { return filter(split(s ?? '', sep ?? '\n'), (v) => length(v) > 0); }
 function num(s) {
@@ -126,19 +154,6 @@ function build(shape, a) {
 	case 'dashboard': return {host: a.host, port: num(a.port), secret: split(a.secret, '\n')[0] ?? '', running: a.running, enabled: a.enabled, installed: a.installed, size: a.size};
 	default: die('Unknown JSON shape: ' + shape);
 	}
-}
-function valid_utf8(s) {
-	for (let i = 0; i < length(s); i++) {
-		let b = ord(s, i), n = 0, low = 128, high = 191;
-		if (b < 128) continue;
-		if (b >= 194 && b <= 223) n = 1;
-		else if (b >= 224 && b <= 239) { n = 2; if (b == 224) low = 160; if (b == 237) high = 159; }
-		else if (b >= 240 && b <= 244) { n = 3; if (b == 240) low = 144; if (b == 244) high = 143; }
-		else return false;
-		if (i + n >= length(s) || ord(s, i + 1) < low || ord(s, i + 1) > high) return false;
-		while (n-- > 0) { b = ord(s, ++i); if (b < 128 || b > 191) return false; }
-	}
-	return true;
 }
 function proxies(p) {
 	p = p.proxies;
@@ -217,7 +232,7 @@ try {
 		break;
 	}
 	case 'uri': {
-		let s = read(), out = '';
+		let s = utf8(read()), out = '';
 		for (let i = 0; i < length(s); i++) {
 			let c = substr(s, i, 1);
 			out += match(c, /^[A-Za-z0-9_.~-]$/) ? c : sprintf('%%%02X', ord(c));

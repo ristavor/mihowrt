@@ -143,7 +143,7 @@ pass "urls"
  fake_release ok
  install_packages en >/dev/null
  assert_eq 1 "$(grep -c '^apk update$' "$apk_log")" "update once for missing deps"
- assert_file_contains "$apk_log" "apk add jq curl" "only missing deps installed"
+ assert_file_contains "$apk_log" "apk add ucode ucode-mod-fs curl" "only missing deps installed"
 )
 pass "missing dependencies only"
 
@@ -322,7 +322,7 @@ done
  new_work() { rm -f "$tmpdir/downloads" "$opkg_log"; WORK="$tmpdir/owork.$RANDOM"; mkdir -p "$WORK"; }
 
  # All dependencies present: no update, no feed install.
- pkg_installed_names() { printf '%s\n' luci-base nftables-json jq kmod-nft-tproxy curl; }
+ pkg_installed_names() { printf '%s\n' luci-base nftables-json ucode ucode-mod-fs kmod-nft-tproxy curl; }
  new_work
  out="$(install_packages ru 2>&1)" || fail "opkg install must succeed: $out"
  [[ "$out" == *"Installing 0.11.0-r2..."* ]] || fail "ipk version from SHA256SUMS: $out"
@@ -337,15 +337,15 @@ $BASE/luci-i18n-mihowrt-ru.ipk" "$(cat "$tmpdir/downloads")" "ipk assets from th
  new_work
  install_packages en >/dev/null 2>&1 || fail "opkg install with missing deps must succeed"
  assert_eq "opkg update
-opkg install jq curl
+opkg install ucode ucode-mod-fs curl
 opkg install $WORK/luci-app-mihowrt.ipk" "$(cat "$opkg_log")" "only missing deps installed through opkg"
- pkg_installed_names() { printf '%s\n' luci-base kmod-nft-tproxy jq curl; }
+ pkg_installed_names() { printf '%s\n' luci-base kmod-nft-tproxy ucode ucode-mod-fs curl; }
  new_work
  install_packages en >/dev/null 2>&1 || fail "opkg install without nftables must succeed"
  assert_file_contains "$opkg_log" "opkg install nftables" "nftables installed when no variant is present"
 
  # Switching to English removes the Russian package with opkg.
- pkg_installed_names() { printf '%s\n' luci-base nftables-json jq kmod-nft-tproxy curl luci-i18n-mihowrt-ru; }
+ pkg_installed_names() { printf '%s\n' luci-base nftables-json ucode ucode-mod-fs kmod-nft-tproxy curl luci-i18n-mihowrt-ru; }
  new_work
  install_packages en >/dev/null 2>&1 || fail "opkg english reinstall must succeed"
  assert_file_contains "$opkg_log" "opkg remove luci-i18n-mihowrt-ru" "Russian package removed for English"

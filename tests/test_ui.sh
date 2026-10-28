@@ -183,9 +183,10 @@ seq(async () => {
 	tv.lists = { dst: '', src: '', direct: '', direct_src: '' };
 	tv.titles = { dst: 'Addresses via proxy' };
 	tv.map = { parse: async () => { tv.edited.dst = 'abc'; calls.push('parse'); }, save: async () => calls.push('save') };
-	let failed = false;
-	await tv.handleSaveApply().catch(() => { failed = true; });
-	h.assert(failed, 'save rejects when a list is invalid');
+	await tv.handleSaveApply();
+	h.assertEq(tv.saving, false, 'invalid list is handled without rejecting the footer action');
+	h.assertEq(tv.edited.dst, 'abc', 'invalid list edit retained');
+	h.assertEq(tv.lists.dst, '', 'installed list unchanged');
 	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc', 'lists applied before map.save; error shown');
 	console.log('ok - traffic save order');
 });
@@ -1364,8 +1365,9 @@ seq(async () => {
   await t.tv.handleSaveApply(null, '0'); h.assert(!t.calls.some(c => c[0] === 'apply'), 'empty change arrays do not apply');
  });
  await check('rejected list', async () => {
-  const t = setup({ job: async () => { throw Error('Invalid src entries: x'); } }); await t.render(); t.saving(); t.edits.src = 'x';
-  try { await t.tv.handleSaveApply(null, '0'); } catch (_) {}
+  const t = setup({ job: async () => { throw Object.assign(Error('Invalid src entries: x'), { name: 'JobError' }); } }); await t.render(); t.saving(); t.edits.src = 'x';
+  await t.tv.handleSaveApply(null, '0');
+  h.assertEq(t.tv.saving, false, 'save guard released after rejection');
   h.assertEq(t.notices.at(-1)[0], '"Devices via proxy" has invalid lines: x', 'list title in notice');
   h.assert(!t.calls.some(c => c[0] === 'save'), 'settings not saved');
   h.assertEq(t.tv.edited.src, 'x', 'edits retained'); h.assertEq(t.tv.lists.src, '', 'installed snapshot unchanged');
@@ -1373,7 +1375,8 @@ seq(async () => {
  await check('settings failure after lists', async () => {
   const t = setup(); await t.render(); t.saving(); t.edits.src = '192.168.1.5';
   t.tv.map.save = async () => { throw Error('disk full'); };
-  try { await t.tv.handleSaveApply(null, '0'); } catch (_) {}
+  await t.tv.handleSaveApply(null, '0');
+  h.assertEq(t.tv.saving, false, 'save guard released after settings failure');
   h.assert(t.notices.at(-1)[0].includes('Lists were applied, but settings could not be saved: disk full'), 'partial success explained');
   h.assertEq(t.tv.lists.src, '192.168.1.5', 'applied lists remembered');
   h.assert(!t.calls.some(c => c[0] === 'apply'), 'no UCI apply after failed save');

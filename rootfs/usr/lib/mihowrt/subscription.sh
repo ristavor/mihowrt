@@ -192,6 +192,32 @@ subscription_restore_dns() {
 	settings_load && with_lock dns_apply
 }
 
+# Keep the installed config, metadata and saved URL in one runtime transaction.
+subscription_install() {
+	local candidate="$1" meta="$2" new_url="$3" result="" metadata_file="$PKG_TMP_DIR/subscription.$$.json"
+
+	result="$(config_install "$candidate")" || return 1
+	ensure_dir "$(dirname "$SUBSCRIPTION_META_FILE")"
+	# Written only on change to spare flash, and only if it is valid JSON.
+	if [ -n "$meta" ]; then
+		printf '%s\n' "$meta" >"$metadata_file"
+		if ! cmp -s "$metadata_file" "$SUBSCRIPTION_META_FILE" &&
+			! atomic_copy "$metadata_file" "$SUBSCRIPTION_META_FILE"; then
+			warn "Cannot write $SUBSCRIPTION_META_FILE"
+		fi
+		rm -f "$metadata_file"
+	else
+		warn "Subscription metadata could not be parsed; keeping the previous one"
+	fi
+	if [ -n "$new_url" ] && [ "$new_url" != "$(uci_get subscription_url)" ]; then
+		if ! { uci_set subscription_url "$new_url" && uci_commit; }; then
+			warn "Failed to save the subscription URL"
+		fi
+	fi
+	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
+	printf '%s\n' "$result"
+}
+
 # Download the subscription, validate and install it, update metadata.
 # With a URL argument that link is tried and saved only if it works, so a
 # typo never replaces the working link.
@@ -252,31 +278,13 @@ subscription_update() {
 	# Download without the lock; only installing needs it. A starting
 	# Mihomo is awaited before the lock (run_service needs it to finish).
 	config_api_wait || true
-	result="$(with_lock config_install "$candidate")" || {
+	result="$(with_lock subscription_install "$candidate" "$meta" "$new_url")" || {
 		rm -f "$candidate" "$headers_file"
 		[ "$dns_changed" = 0 ] || subscription_restore_dns || warn "Failed to restore subscription DNS"
 		return 1
 	}
 	rm -f "$candidate"
-	ensure_dir "$(dirname "$SUBSCRIPTION_META_FILE")"
-	# Written only on change to spare flash, and only if it is valid JSON.
-	if [ -n "$meta" ]; then
-		printf '%s\n' "$meta" >"$PKG_TMP_DIR/subscription.json"
-		if ! cmp -s "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE" &&
-			! atomic_copy "$PKG_TMP_DIR/subscription.json" "$SUBSCRIPTION_META_FILE"; then
-			warn "Cannot write $SUBSCRIPTION_META_FILE"
-		fi
-		rm -f "$PKG_TMP_DIR/subscription.json"
-	else
-		warn "Subscription metadata could not be parsed; keeping the previous one"
-	fi
 	rm -f "$headers_file"
-	if [ -n "$new_url" ] && [ "$new_url" != "$(uci_get subscription_url)" ]; then
-		if ! { uci_set subscription_url "$new_url" && uci_commit; }; then
-			warn "Failed to save the subscription URL"
-		fi
-	fi
-	touch "$PKG_STATE_DIR/subscription.stamp" 2>/dev/null
 	# Reload: the period header and provider lists may be new.
 	settings_load || return 1
 	if [ -n "$(lists_urls)" ] && [ "$(lists_update_remote 0)" = changed ]; then

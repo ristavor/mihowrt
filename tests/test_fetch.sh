@@ -366,3 +366,55 @@ for outcome in download_failure empty non_clash install_failure success; do
  assert_eq "" "$(find "$PKG_TMP_DIR" -name 'subscription.*.headers')" "no header files left after subscription $outcome"
 done
 pass 'subscription response headers cleaned on every exit'
+
+# CLI and job processes may download together, but publish config/metadata as a pair.
+(
+ concurrent="$tmpdir/concurrent"
+ mkdir -p "$concurrent/tmp" "$concurrent/run" "$concurrent/etc"
+ cat >"$concurrent/update.sh" <<'SH'
+#!/bin/ash
+set -eu
+root="$1"; identity="$2"
+for module in constants helpers validate mihomo-config subscription; do
+ . "$MIHOWRT_LIB_DIR/$module.sh"
+done
+PKG_TMP_DIR="$root/tmp"
+PKG_STATE_DIR="$root/run"
+SUBSCRIPTION_META_FILE="$root/etc/subscription.json"
+RUNTIME_LOCK_FILE="$root/run/runtime.flock"
+settings_load() { SUBSCRIPTION_URL=https://same.example/sub; BYPASS_SUBSCRIPTION_DNS=0; }
+uci_get() { echo https://same.example/sub; }
+http_fetch() { printf 'proxies: []\n# %s\n' "$identity" >"$2"; }
+subscription_metadata_from_headers() { printf '{"profile_title":"%s"}\n' "$identity"; }
+config_api_wait() { :; }
+config_install() {
+ cp "$1" "$root/config.yaml"
+ echo "install $identity" >>"$root/events"
+ sleep 0.2
+ echo '{"action":"saved"}'
+}
+atomic_copy() {
+ echo "metadata $identity depth=${LOCK_DEPTH:-0} stage=${1##*/}" >>"$root/events"
+ cp "$1" "$2"
+}
+lists_urls() { :; }
+cron_update() { :; }
+subscription_update >"$root/result.$identity"
+SH
+ ash "$concurrent/update.sh" "$concurrent" cli &
+ cli_pid=$!
+ ash "$concurrent/update.sh" "$concurrent" job &
+ job_pid=$!
+ wait "$cli_pid" || fail 'CLI subscription update succeeds'
+ wait "$job_pid" || fail 'job subscription update succeeds'
+ assert_eq 2 "$(grep -c 'depth=1 stage=subscription\.[0-9]*\.json$' "$concurrent/events" || true)" 'both metadata publications use per-PID staging under runtime lock'
+ awk '
+ /^install / { if (pending) exit 1; pending = $2; next }
+ /^metadata / { if ($2 != pending) exit 1; pending = "" }
+ END { if (pending) exit 1 }
+ ' "$concurrent/events" || fail 'install and metadata publication cannot interleave'
+ installed="$(sed -n 's/^# //p' "$concurrent/config.yaml")"
+ assert_eq "$installed" "$(jq -r .profile_title "$concurrent/etc/subscription.json")" 'final config and metadata belong to the same update'
+ assert_eq '' "$(find "$concurrent/tmp" -name 'subscription.*.json')" 'metadata staging cleaned'
+)
+pass 'concurrent CLI and job subscription publication serialized'

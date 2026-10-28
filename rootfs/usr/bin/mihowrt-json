@@ -202,7 +202,9 @@ try {
 			});
 			emit(jobs, true);
 		} else {
-			jobs = parse(read());
+			let s = read();
+			if (!length(trim(s))) break;
+			jobs = parse(s);
 			if (action == 'last') print(raw(fallback(jobs[-1]?.id, '')), '\n');
 			else if (action == 'prune') for (let j in slice(filter(jobs, (j) => j.state != 'running'), 0, -5)) print(raw(j.id), '\n');
 			else die('Unknown history operation');

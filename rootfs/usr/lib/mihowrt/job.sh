@@ -74,10 +74,8 @@ job_slot_release() {
 job_finish() {
 	local id="$1" state="$2" result="$3" error="$4" tmp="$JOBS_DIR/$1.json.tmp.$$"
 
-	jq -c --arg state "$state" --argjson result "$result" --arg error "$error" \
+	mihowrt-json merge finish --arg state "$state" --argjson result "$result" --arg error "$error" \
 		--argjson finished "$(date +%s)" \
-		'. + {state: $state, finished: $finished, result: $result,
-		       error: (if $state == "ok" then null else $error end)}' \
 		"$JOBS_DIR/$id.json" >"$tmp" && mv -f "$tmp" "$JOBS_DIR/$id.json"
 }
 
@@ -94,7 +92,7 @@ job_reconcile() {
 	local id="$1" pid=""
 
 	job_id_valid "$id" || return 1
-	[ "$(jq -r .state "$JOBS_DIR/$id.json" 2>/dev/null)" = running ] || {
+	[ "$(mihowrt-json get state "$JOBS_DIR/$id.json" 2>/dev/null)" = running ] || {
 		job_slot_release "$id"
 		return 0
 	}
@@ -105,13 +103,13 @@ job_reconcile() {
 }
 
 job_history() {
-	jq -s 'sort_by(.started, (.id | split("-") | map(tonumber)))' "$JOBS_DIR"/*.json 2>/dev/null
+	mihowrt-json history sort "$JOBS_DIR"/*.json 2>/dev/null
 }
 
 job_prune() {
 	local id="" ids=""
 
-	ids="$(job_history | jq -r '[.[] | select(.state != "running")] | .[:-5][] | .id')" || return 1
+	ids="$(job_history | mihowrt-json history prune)" || return 1
 	for id in $ids; do
 		job_id_valid "$id" || continue
 		rm -f "$JOBS_DIR/$id.json" "$JOBS_DIR/$id.pid" "$JOBS_DIR/$id.out" "$JOBS_DIR/$id.err"
@@ -134,9 +132,7 @@ job_start_locked() {
 		started="$(date +%s)"
 		id="$started-$$"
 	done
-	jq -nc --arg id "$id" --arg op "$op" --argjson started "$started" \
-		'{id: $id, op: $op, state: "running", started: $started,
-		  finished: null, result: null, error: null}' >"$JOBS_DIR/$id.json.tmp.$$" &&
+	mihowrt-json build job --arg id "$id" --arg op "$op" --argjson started "$started" >"$JOBS_DIR/$id.json.tmp.$$" &&
 		mv -f "$JOBS_DIR/$id.json.tmp.$$" "$JOBS_DIR/$id.json" || return 1
 	printf '%s\n' "$$" >"$JOBS_DIR/$id.pid" || return 1
 	while ! ln -s "$id" "$JOBS_DIR/active" 2>/dev/null; do
@@ -148,7 +144,7 @@ job_start_locked() {
 		fi
 		job_reconcile "$active" || return 1
 		if [ "$(readlink "$JOBS_DIR/active" 2>/dev/null)" = "$active" ]; then
-			busy_op="$(jq -r .op "$JOBS_DIR/$active.json")"
+			busy_op="$(mihowrt-json get op "$JOBS_DIR/$active.json")"
 			rm -f "$JOBS_DIR/$id.json" "$JOBS_DIR/$id.pid"
 			if [ "$op" = auto-update ]; then
 				log "skipped: another operation is running"
@@ -162,7 +158,7 @@ job_start_locked() {
 	( /usr/bin/mihowrt job-run "$id" "$@" ) 8>&- 9>&- </dev/null >/dev/null 2>&1 &
 	pid=$!
 	printf '%s\n' "$pid" >"$JOBS_DIR/$id.pid"
-	jq -nc --arg id "$id" '{id: $id}'
+	mihowrt-json build object --arg id "$id"
 }
 
 # Do not wrap this dispatcher in the runtime lock: init restarts acquire it
@@ -209,7 +205,7 @@ job_run() {
 	if ! error="$(job_validate "$@" 2>&1)"; then
 		error="$(printf '%s\n' "$error" | sed 's/^Error: //')"
 	elif [ "$(readlink "$JOBS_DIR/active" 2>/dev/null)" != "$id" ] ||
-		[ "$(jq -r '.state + ":" + .op' "$JOBS_DIR/$id.json" 2>/dev/null)" != "running:$op" ]; then
+		[ "$(mihowrt-json get state:op "$JOBS_DIR/$id.json" 2>/dev/null)" != "running:$op" ]; then
 		error="Job is not active: $id"
 	fi
 	if [ -n "$error" ]; then
@@ -222,7 +218,7 @@ job_run() {
 		error="$(tail -n 20 "$JOBS_DIR/$id.err" | sed 's/^Error: //')"
 		[ -n "$error" ] || error='The operation failed.'
 	fi
-	result="$(jq -sc 'if length == 1 then .[0] else null end' "$JOBS_DIR/$id.out" 2>/dev/null)" || result=null
+	result="$(mihowrt-json result "$JOBS_DIR/$id.out" 2>/dev/null)" || result=null
 	job_log_cap "$JOBS_DIR/$id.out"
 	job_log_cap "$JOBS_DIR/$id.err"
 	job_with_state_lock job_complete "$id" "$state" "$result" "$error"
@@ -231,7 +227,7 @@ job_run() {
 # Startup failures may finalize only the still-running slot they own.
 job_fail_owned() {
 	[ "$(readlink "$JOBS_DIR/active" 2>/dev/null)" = "$1" ] &&
-		[ "$(jq -r .state "$JOBS_DIR/$1.json" 2>/dev/null)" = running ] || return 0
+		[ "$(mihowrt-json get state "$JOBS_DIR/$1.json" 2>/dev/null)" = running ] || return 0
 	job_complete "$1" error null "$2"
 }
 
@@ -252,11 +248,11 @@ job_status_locked() {
 	local id="${1:-}"
 	if [ -z "$id" ]; then
 		id="$(readlink "$JOBS_DIR/active" 2>/dev/null)"
-		[ -n "$id" ] || id="$(job_history | jq -r 'last.id // empty')"
+		[ -n "$id" ] || id="$(job_history | mihowrt-json history last)"
 	fi
 	[ -n "$id" ] || { printf '{"state":"none"}\n'; return 0; }
 	job_id_valid "$id" && [ -f "$JOBS_DIR/$id.json" ] || { err "Job not found: $id"; return 1; }
 	job_reconcile "$id" || return 1
 	# Router clock for the UI: the browser clock may differ.
-	jq -c --argjson now "$(date +%s)" '. + {now: $now}' "$JOBS_DIR/$id.json"
+	mihowrt-json merge object --argjson now "$(date +%s)" "$JOBS_DIR/$id.json"
 }

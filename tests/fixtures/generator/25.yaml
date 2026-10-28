@@ -15,6 +15,7 @@ sniffer:
       ports: [80, 8080-8880]
     TLS:
       ports: [443, 8443]
+log-level: error
 tproxy-port: 7894
 routing-mark: 2
 allow-lan: true

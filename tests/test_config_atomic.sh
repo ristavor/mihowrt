@@ -13,7 +13,7 @@ setup_install() {
  RUNTIME_CONFIG="$PKG_TMP_DIR/config.yaml"
  printf 'proxies: []\nx-mihowrt:\n  disable-quic: true\n' >"$CLASH_CONFIG"
  printf 'older backup\n' >"$CLASH_CONFIG_BACKUP"
- printf 'proxies: []\nlog-level: debug\nx-mihowrt:\n  disable-quic: false\n' >"$PKG_TMP_DIR/candidate"
+ printf 'proxies: []\nipv6: false\nx-mihowrt:\n  disable-quic: false\n' >"$PKG_TMP_DIR/candidate"
  settings_load
  mihomo_config_generate "$CLASH_CONFIG" "$RUNTIME_CONFIG"
  cp "$RUNTIME_CONFIG.profile" "$PROFILE_FILE"

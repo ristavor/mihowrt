@@ -81,6 +81,7 @@ assert_eq "br-lan" "$SOURCE_INTERFACES" "default source interface"
 assert_eq "1:1:0:1:1" "$DNS_HIJACK:$DISABLE_QUIC:$NETBIRD_PROXY:$BYPASS_NTP:$BYPASS_SUBSCRIPTION_DNS" "default toggles"
 assert_eq "0:24" "$SUBSCRIPTION_INTERVAL:$LISTS_INTERVAL" "default intervals (no provider period)"
 assert_eq "113920" "$NETBIRD_MARK" "default NetBird mark"
+assert_eq error "$MIHOMO_LOG_LEVEL" "default Mihomo log detail"
 pass "settings defaults"
 
 expect_invalid() {
@@ -100,6 +101,13 @@ expect_invalid netbird_mark 0x08000000
 expect_invalid netbird_mark 0x1BD01
 expect_invalid subscription_url 'ftp://x'
 expect_invalid lists_interval abc
+expect_invalid mihomo_log_level trace
+for level in silent error warning info debug; do
+ fake_uci_reset
+ fake_uci_set mihowrt.settings.mihomo_log_level "$level"
+ settings_load
+ assert_eq "$level" "$MIHOMO_LOG_LEVEL" "allowed log detail"
+done
 pass "settings rejects invalid values"
 
 fake_uci_reset

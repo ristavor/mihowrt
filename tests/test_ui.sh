@@ -1202,6 +1202,13 @@ seq(async () => {
   try { await fn(); console.log('ok - traffic ' + name); }
   catch (e) { console.error('not ok - traffic ' + name, e); process.exitCode = 1; }
  }
+ await check('Mihomo log detail', async () => {
+  const t = setup(); await t.render();
+  const o = t.tv.map.options.mihomo_log_level;
+  h.assert(o && o.tab === 'advanced', 'log detail in Advanced');
+  h.assertEq(o.default, 'error', 'quiet default');
+  h.assertEq(o.values.map(v => v[0]).join(' '), 'silent error warning info debug', 'allowed log levels');
+ });
  await check('dashboard lazy status and removal', async () => {
   const t = setup({ write: async cmd => { t.calls.push(['write', cmd]); return { installed: false }; } });
   await t.tv.load();

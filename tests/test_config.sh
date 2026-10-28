@@ -193,6 +193,9 @@ assert_eq $'reload\ncron\npolicy\ndns-restart' "$(cat "$tmpdir/events")" "DNS mo
 : >"$tmpdir/events"
 printf 'log-level: warning\n' >>"$tmpdir/cand"
 config_install "$tmpdir/cand" >/dev/null
+assert_eq '' "$(cat "$tmpdir/events")" "owned subscription log detail does not reload runtime"
+printf 'ipv6: false\n' >>"$tmpdir/cand"
+config_install "$tmpdir/cand" >/dev/null
 assert_eq reload "$(cat "$tmpdir/events")" "same profile no policy or DNS restart"
 RUNTIME_LOCK_FILE="$tmpdir/lock"
 start_runtime_lock_holder "$RUNTIME_LOCK_FILE" "$tmpdir/holder.ready"

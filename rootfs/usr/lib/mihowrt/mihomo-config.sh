@@ -6,7 +6,7 @@
 # The same pass writes <dst>.profile: the mode derived from the DNS settings
 # and the provider's x-mihowrt settings (format in the 0.9 design, section 2).
 
-MIHOMO_OWNED_KEYS="tproxy-port routing-mark allow-lan bind-address tun profile external-controller external-controller-unix external-controller-tls external-controller-pipe secret external-ui external-ui-url external-ui-name x-mihowrt"
+MIHOMO_OWNED_KEYS="log-level tproxy-port routing-mark allow-lan bind-address tun profile external-controller external-controller-unix external-controller-tls external-controller-pipe secret external-ui external-ui-url external-ui-name x-mihowrt"
 MIHOMO_OWNED_DNS_KEYS="enable listen fake-ip-range fake-ip-range6"
 MIHOMO_DASHBOARD_URL="https://github.com/Zephyruso/zashboard/releases/latest/download/dist-no-fonts.zip"
 
@@ -55,6 +55,7 @@ mihomo_config_generate() {
 	set -- \
 		-v drop=" $MIHOMO_OWNED_KEYS " \
 		-v dnsdrop=" $MIHOMO_OWNED_DNS_KEYS " \
+		-v log_level="${MIHOMO_LOG_LEVEL:-error}" \
 		-v dns_port="$MIHOMO_DNS_PORT" \
 		-v fakeip="$FAKEIP_RANGE" \
 		-v tproxy="$MIHOMO_TPROXY_PORT" \

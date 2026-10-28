@@ -187,6 +187,12 @@ settings_load() {
 	SUBSCRIPTION_INTERVAL="$(settings_subscription_interval)"
 	LISTS_INTERVAL="$(settings_hours lists_interval)" || settings_invalid lists_interval "$(settings_value lists_interval)" || return 1
 
+	MIHOMO_LOG_LEVEL="$(settings_uci_get mihomo_log_level error)"
+	case "$MIHOMO_LOG_LEVEL" in
+	silent | error | warning | info | debug) ;;
+	*) settings_invalid mihomo_log_level "$MIHOMO_LOG_LEVEL" || return 1 ;;
+	esac
+
 	API_SECRET="$(cat "$API_SECRET_FILE" 2>/dev/null)" || API_SECRET=""
 	case "$API_SECRET" in
 	*[!A-Za-z0-9._~-]*) settings_invalid api_secret "(unsupported characters)" || return 1 ;;

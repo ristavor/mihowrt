@@ -346,6 +346,7 @@ function finish_document() {
 		emit("    TLS:")
 		emit("      ports: [443, 8443]")
 	}
+	emit("log-level: " (log_level == "" ? "error" : log_level))
 	emit("tproxy-port: " tproxy)
 	emit("routing-mark: " mark)
 	emit("allow-lan: true")

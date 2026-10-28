@@ -188,6 +188,12 @@ return view.extend({
 			o.renderWidget = () => E('div', {}, [ this.refreshButton() ]);
 		}
 
+		o = s.taboption('advanced', form.ListValue, 'mihomo_log_level', _('Mihomo log detail'), _('The dashboard still shows all log levels.'));
+		for (const level of ['silent', 'error', 'warning', 'info', 'debug'])
+			o.value(level);
+		o.default = 'error';
+		o.rmempty = false;
+
 		o = s.taboption('advanced', widgets.DeviceSelect, 'source_network_interfaces', _('Client interfaces'), _('Traffic from these interfaces is handled. Usually br-lan.'));
 		o.multiple = true;
 		o.noaliases = true;

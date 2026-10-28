@@ -12,6 +12,7 @@ migrate_settings() {
 	[ -n "$(uci_get bypass_ntp)" ] || uci_set bypass_ntp 1
 	[ -n "$(uci_get bypass_subscription_dns)" ] || uci_set bypass_subscription_dns 1
 	[ -n "$(uci_get lists_interval)" ] || uci_set lists_interval 0
+	[ -n "$(uci_get mihomo_log_level)" ] || uci_set mihomo_log_level error
 	# Decided once: users upgrading with a downloaded panel keep it.
 	if [ -z "$(uci_get dashboard)" ]; then
 		if [ -n "$(ls -A "$CLASH_DIR/ui" 2>/dev/null)" ]; then

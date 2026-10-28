@@ -18,6 +18,14 @@ DASHBOARD_ENABLED=1
 src="$tmpdir/src.yaml"
 out="$tmpdir/out.yaml"
 
+# R4: subscription log verbosity never overrides the router setting.
+printf 'log-level: info\nproxies: []\n' >"$src"
+for level in silent error warning info debug; do
+ MIHOMO_LOG_LEVEL="$level" mihomo_config_generate "$src" "$out"
+ assert_eq "log-level: $level" "$(grep '^log-level:' "$out")" 'router owns log detail'
+done
+pass 'router log detail overrides subscription'
+
 # polish: generate filters once
 (
  set -e

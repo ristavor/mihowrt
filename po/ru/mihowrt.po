@@ -846,3 +846,9 @@ msgstr "Mihomo отклонил конфигурацию."
 
 msgid "The upload failed. Check your LuCI permissions and try again."
 msgstr "Не удалось загрузить файл. Проверьте права доступа в LuCI и попробуйте снова."
+
+msgid "Mihomo log detail"
+msgstr "Подробность журнала Mihomo"
+
+msgid "The dashboard still shows all log levels."
+msgstr "Панель Mihomo по-прежнему показывает все уровни журнала."

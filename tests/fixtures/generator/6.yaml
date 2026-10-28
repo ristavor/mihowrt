@@ -5,7 +5,6 @@
 # Empty fake-ip whitelist: no proxy domains until a subscription is installed.
 mode: rule
 ipv6: false
-log-level: warning
 unified-delay: true
 tcp-concurrent: true
 find-process-mode: off
@@ -49,6 +48,7 @@ sniffer:
       ports: [80, 8080-8880]
     TLS:
       ports: [443, 8443]
+log-level: error
 tproxy-port: 7894
 routing-mark: 2
 allow-lan: true

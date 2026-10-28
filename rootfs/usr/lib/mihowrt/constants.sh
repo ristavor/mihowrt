@@ -69,6 +69,7 @@ DNS_AUTO_RESOLVFILE="/tmp/resolv.conf.d/resolv.conf.auto"
 CRON_FILE="/etc/crontabs/root"
 CRON_MARKER="# mihowrt auto-update"
 
+FW4_INPUT_INCLUDE="/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft"
 NFT_TABLE_NAME="mihowrt"
 NFT_INTERCEPT_MARK="0x08000000"
 NFT_DIRECT_MARK="0x04000000"

@@ -22,6 +22,7 @@ prerm_path="$tmpdir/prerm.sh"
 hook_log="$tmpdir/hook.log"
 skip_start="$tmpdir/skip-start"
 was_running_marker="$tmpdir/was-running"
+fw4_include="$tmpdir/fw4/30-mihowrt.nft"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
@@ -90,7 +91,8 @@ extract_prerm() {
 		sed \
 			-e "s|/tmp/luci-app-mihowrt.was-running|$was_running_marker|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
-			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g"
+			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
+			-e "s|/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft|$fw4_include|g"
 }
 
 mkdir -p "$(dirname "$live_config")" "$live_list_dir"
@@ -326,9 +328,18 @@ exit 0
 EOF
 chmod +x "$tmpdir/init-mihowrt" "$tmpdir/mihowrt"
 
+mkdir -p "${fw4_include%/*}"
+printf 'guest input rules\n' >"$fw4_include"
+printf '#!/bin/sh\necho "fw4:$*" >>"%s"\n' "$hook_log" >"$tmpdir/bin/fw4"
+chmod +x "$tmpdir/bin/fw4"
 : >"$hook_log"
-IPKG_INSTROOT="" "$prerm_path"
+PATH="$tmpdir/bin:$PATH" IPKG_INSTROOT="" "$prerm_path"
 assert_file_contains "$hook_log" "mihowrt:uninstall" "prerm runs uninstall before package files are removed"
+assert_false 'prerm fallback removes fw4 input include' test -e "$fw4_include"
+assert_eq 1 "$(grep -c '^fw4:reload$' "$hook_log")" 'prerm fallback reloads after removal'
+PATH="$tmpdir/bin:$PATH" IPKG_INSTROOT="" "$prerm_path"
+assert_eq 1 "$(grep -c '^fw4:reload$' "$hook_log")" 'prerm with no include does not reload'
+pass 'prerm removes stale fw4 input include only once'
 
 # opkg runs the old prerm on every upgrade (apk does not): the core, UI and
 # state must survive, and the running state is recorded here because opkg runs
@@ -518,6 +529,7 @@ for module in "$MIHOWRT_LIB_DIR"/*.sh; do
 		-e "s|/etc/|@ROOT@/etc/|g" \
 		-e "s|/tmp/|@ROOT@/tmp/|g" \
 		-e "s|/var/run/mihowrt|@ROOT@/var/run/mihowrt|g" \
+		-e "s|/usr/share/nftables.d|@ROOT@/usr/share/nftables.d|g" \
 		-e "s|@ROOT@|$uninstall_root|g" \
 		"$module" >"$uninstall_root/lib/${module##*/}"
 done
@@ -526,6 +538,7 @@ cat >>"$uninstall_root/lib/service.sh" <<'EOF'
 service_pid() { return 1; }
 nft_cleanup() { :; }
 route_cleanup() { :; }
+fw4() { echo "fw4:$*" >>"$CLASH_DIR/../../actions"; }
 EOF
 cat >"$uninstall_root/etc/init.d/mihowrt" <<EOF
 #!/bin/ash
@@ -551,9 +564,13 @@ for name in ruleset proxy_providers cache.db mihomo.sock; do
 done
 printf '0 * * * * user-job\n0 * * * * /usr/bin/mihowrt auto-update # mihowrt auto-update\n' >"$uninstall_root/etc/crontabs/root"
 touch "$uninstall_root/tmp/dnsmasq.test.d/mihowrt.conf"
+mkdir -p "$uninstall_root/usr/share/nftables.d/chain-pre/input"
+printf 'guest input rules\n' >"$uninstall_root/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft"
 sed "s|/etc/init.d/mihowrt|$uninstall_root/etc/init.d/mihowrt|g" "$ROOT_DIR/rootfs/usr/bin/mihowrt" >"$uninstall_root/cli"
 MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
 assert_eq 'init:stop' "$(head -n 1 "$uninstall_root/actions")" "uninstall stops first, outside runtime lock"
+assert_false 'uninstall removes fw4 input include even with a lingering policy' test -e "$uninstall_root/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft"
+assert_eq 1 "$(grep -c '^fw4:reload$' "$uninstall_root/actions")" 'uninstall reloads fw4 after removing include'
 for removed in bin/clash ui GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb ruleset proxy_providers cache.db mihomo.sock; do
 	[[ ! -e "$uninstall_root/opt/clash/$removed" && ! -L "$uninstall_root/opt/clash/$removed" ]] || fail "uninstall removes $removed"
 done

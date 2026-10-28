@@ -365,6 +365,29 @@ nft_input_hash() {
 	} | sha256sum
 }
 
+# fw4 input REJECT must not discard TPROXY traffic or redirected guest DNS.
+nft_fw4_input_apply() {
+	local iface="" ifaces="" content=""
+
+	for iface in $SOURCE_INTERFACES; do
+		ifaces="$ifaces${ifaces:+, }\"$iface\""
+	done
+	content="meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept
+iifname { $ifaces } meta l4proto {tcp,udp} th dport $MIHOMO_DNS_PORT ct status dnat accept"
+	printf '%s\n' "$content" | cmp -s - "$FW4_INPUT_INCLUDE" && return 0
+	ensure_dir "${FW4_INPUT_INCLUDE%/*}" && atomic_write "$FW4_INPUT_INCLUDE" "$content" || return 1
+	fw4 reload 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || warn "Failed to reload firewall4 input rules"
+	return 0
+}
+
+nft_fw4_input_cleanup() {
+	[ -e "$FW4_INPUT_INCLUDE" ] || return 0
+	# Remove before reload: re-entered cleanup cannot trigger another reload.
+	rm -f "$FW4_INPUT_INCLUDE" || return 1
+	fw4 reload 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || warn "Failed to reload firewall4 input rules"
+	return 0
+}
+
 nft_apply() {
 	rm -f "$NET_FP_FILE"
 	settings_require || return 1
@@ -377,7 +400,8 @@ nft_apply() {
 	{ IFS= read -r previous_inputs <"$NFT_APPLIED_FILE.inputs"; } 2>/dev/null || :
 	if [ -n "$inputs" ] && [ -n "$previous" ] &&
 		[ "$inputs $previous" = "$previous_inputs" ] && nft_active; then
-		return 0
+		nft_fw4_input_apply
+		return $?
 	fi
 	ensure_dir "$dir" || return 1
 	nft_render "$dir/ruleset.nft" "$dir" || rc=1
@@ -388,7 +412,8 @@ nft_apply() {
 	if [ "$rc" -eq 0 ] && [ "$hash" = "$previous" ] && nft_active; then
 		[ -z "$inputs" ] || atomic_write "$NFT_APPLIED_FILE.inputs" "$inputs $hash" || rm -f "$NFT_APPLIED_FILE.inputs"
 		rm -rf "$dir"
-		return 0
+		nft_fw4_input_apply
+		return $?
 	fi
 	[ "$rc" -eq 0 ] && nft -f "$dir/ruleset.nft" || rc=1
 	if [ "$rc" -ne 0 ]; then
@@ -400,7 +425,7 @@ nft_apply() {
 		mv -f "$dir/ruleset.sha256" "$NFT_APPLIED_FILE"; } || rm -f "$NFT_APPLIED_FILE"
 	[ -z "$inputs" ] || atomic_write "$NFT_APPLIED_FILE.inputs" "$inputs $hash" || rm -f "$NFT_APPLIED_FILE.inputs"
 	rm -rf "$dir"
-	return 0
+	nft_fw4_input_apply
 }
 
 nft_apply_if_ready() {
@@ -410,7 +435,7 @@ nft_apply_if_ready() {
 nft_cleanup() {
 	rm -f "$NET_FP_FILE" "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
 	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null
-	return 0
+	nft_fw4_input_cleanup
 }
 
 nft_active() {

@@ -162,7 +162,8 @@ UCI
 #!/usr/bin/env bash
 exit 0
 LOGGER
-	chmod +x "$dir/bin/uci" "$dir/bin/logger"
+	printf '#!/bin/sh\nexit 0\n' >"$dir/bin/fw4"
+	chmod +x "$dir/bin/uci" "$dir/bin/logger" "$dir/bin/fw4"
 	export PATH="$dir/bin:$PATH"
 }
 
@@ -220,6 +221,7 @@ setup_runtime_paths() {
 	CONFIG_OK_FILE="$PKG_STATE_DIR/config.ok"
 	CONFIG_ERR_FILE="$PKG_STATE_DIR/config.err"
 	NFT_APPLIED_FILE="$dir/nft.applied"
+	FW4_INPUT_INCLUDE="$dir/fw4/30-mihowrt.nft"
 	NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 	ROUTE_PROC_ROOT="$dir/proc"
 	mkdir -p "$ROUTE_PROC_ROOT/net" "$ROUTE_PROC_ROOT/sys/net/ipv6/conf/"{all,lo}

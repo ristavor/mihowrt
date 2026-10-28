@@ -9,6 +9,7 @@ trap 'rm -rf "$tmpdir"' EXIT
 
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh
+assert_eq '/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft' "$FW4_INPUT_INCLUDE" 'fw4 include path constant'
 setup_runtime_paths "$tmpdir"
 
 assert_eq "$tmpdir/proc" "${ROUTE_PROC_ROOT:-}" 'runtime paths isolate route proc checks'
@@ -533,3 +534,51 @@ pass 'empty MAC lists emit no ether saddr rules'
  assert_true 'failed rendered transaction retained for diagnosis' test -s "$PKG_TMP_DIR/nft/ruleset.nft"
 )
 pass 'client IPv6 toggle and failed transaction stay atomic'
+
+# fw4 input policy must admit intercepted guest traffic, without repeat writes.
+(
+ settings_require() { :; }
+ SOURCE_INTERFACES='br-guest br-iot'
+ NFT_INTERCEPT_MARK=0x10000000
+ MIHOMO_DNS_PORT=8853
+ nft_input_hash() { printf 'fixed inputs\n'; }
+ nft_render() { printf 'fixed transaction\n' >"$1"; }
+ nft_active() { return 0; }
+ nft() { :; }
+ fw4() {
+  for fd in 6 7 8 9; do
+   assert_false "fw4 does not inherit lock fd $fd" test -e "/proc/$BASHPID/fd/$fd"
+  done
+  printf '%s\n' "$*" >>"$tmpdir/fw4.calls"
+ }
+ exec 6>"$tmpdir/fw4.lock6" 7>"$tmpdir/fw4.lock7" 8>"$tmpdir/fw4.lock8" 9>"$tmpdir/fw4.lock9"
+ nft_apply
+ exec 6>&- 7>&- 8>&- 9>&-
+ expected="meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept
+iifname { \"br-guest\", \"br-iot\" } meta l4proto {tcp,udp} th dport $MIHOMO_DNS_PORT ct status dnat accept"
+ assert_eq "$expected" "$(cat "$FW4_INPUT_INCLUDE" 2>/dev/null || :)" 'fw4 include uses intercept mark, source interfaces and DNS port'
+ assert_eq reload "$(cat "$tmpdir/fw4.calls")" 'changed include reloads fw4 once'
+ touch -d '2024-01-01 00:00:00' "$FW4_INPUT_INCLUDE"
+ before="$(stat -c '%i:%Y' "$FW4_INPUT_INCLUDE")"
+ nft_apply
+ assert_eq "$before" "$(stat -c '%i:%Y' "$FW4_INPUT_INCLUDE")" 'identical include is not rewritten'
+ assert_eq reload "$(cat "$tmpdir/fw4.calls")" 'identical include does not reload fw4'
+ rm "$FW4_INPUT_INCLUDE"
+ nft_apply
+ assert_eq "$expected" "$(cat "$FW4_INPUT_INCLUDE")" 'cached nft inputs repair a missing include'
+ assert_eq 2 "$(wc -l <"$tmpdir/fw4.calls")" 'missing include reloads fw4 once'
+ SOURCE_INTERFACES=br-new
+ logger() { printf '%s\n' "$*" >>"$tmpdir/fw4.warnings"; }
+ fw4() { printf '%s\n' "$*" >>"$tmpdir/fw4.calls"; return 1; }
+ nft_apply 2>"$tmpdir/fw4.err" || fail 'fw4 reload failure must not fail start'
+ assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-new" }' 'changed interfaces update include despite reload failure'
+ assert_file_contains "$tmpdir/fw4.warnings" 'Failed to reload' 'fw4 reload failure warns'
+ SOURCE_INTERFACES=br-failed
+ before="$(cat "$FW4_INPUT_INCLUDE")"
+ atomic_write() { return 1; }
+ if nft_apply; then fail 'failed include write must report failure'; fi
+ assert_eq "$before" "$(cat "$FW4_INPUT_INCLUDE")" 'failed include write preserves previous include'
+ assert_eq 3 "$(wc -l <"$tmpdir/fw4.calls")" 'failed include write does not reload'
+ rm -f "$FW4_INPUT_INCLUDE" "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
+)
+pass 'fw4 input include is dynamic, change-only and nonfatal on reload failure'

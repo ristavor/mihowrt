@@ -18,6 +18,7 @@ test_root="$RELOAD_TEST_DIR/$scenario"
 PKG_TMP_DIR="$test_root/tmp"
 PKG_STATE_DIR="$test_root/run"
 NFT_APPLIED_FILE="$PKG_TMP_DIR/nft.applied"
+FW4_INPUT_INCLUDE="$test_root/fw4/30-mihowrt.nft"
 NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock"
 PROFILE_FILE="$test_root/profile"
@@ -104,7 +105,7 @@ done
 nft_sh="$ROOT_DIR/rootfs/usr/lib/mihowrt/nft.sh"
 hashed="$(sed -n '/^nft_input_hash() {/,/^}/p' "$nft_sh" | grep -oE '[A-Z][A-Z0-9_]+' | sort -u)"
 # Derived or bookkeeping names: NFT_MARK_SET comes from NFT_INTERCEPT_MARK; the rest are paths/state.
-not_inputs='NFT_MARK_SET NFT_FILE NET_FP_FILE NFT_APPLIED_FILE PKG_TMP_DIR'
+not_inputs='NFT_MARK_SET NFT_FILE NET_FP_FILE NFT_APPLIED_FILE FW4_INPUT_INCLUDE PKG_TMP_DIR'
 missing=""
 for var in $(sed '/^nft_input_hash() {/,/^}/d; /^nft_apply() {/,/^}/d; /^nft_cleanup() {/,/^}/d' "$nft_sh" |
 	grep -oE '\$\{?[A-Z][A-Z0-9_]+' | tr -d '${' | sort -u); do

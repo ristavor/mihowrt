@@ -11,6 +11,26 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh subscription.sh service.sh
 setup_runtime_paths "$tmpdir"
 
+# Removing the include before reload makes cleanup re-entry a no-op.
+(
+ mkdir -p "${FW4_INPUT_INCLUDE%/*}"
+ printf 'guest input rules\n' >"$FW4_INPUT_INCLUDE"
+ nft() { :; }
+ fw4() {
+  assert_false 'stop removes include before fw4 reload' test -e "$FW4_INPUT_INCLUDE"
+  printf '%s\n' "$*" >>"$tmpdir/stop-fw4.calls"
+  nft_cleanup
+ }
+ dns_cleanup() { :; }
+ route_cleanup() { :; }
+ policy_cleanup
+ assert_false 'stop removes fw4 input include' test -e "$FW4_INPUT_INCLUDE"
+ assert_eq reload "$(cat "$tmpdir/stop-fw4.calls")" 'stop reloads once without recursion'
+ policy_cleanup
+ assert_eq reload "$(cat "$tmpdir/stop-fw4.calls")" 'repeated stop does not reload'
+)
+pass 'stop removes fw4 input include without recursive reload'
+
 
 PKG_STATE_DIR="$tmpdir/run"
 PKG_TMP_DIR="$tmpdir/tmp"

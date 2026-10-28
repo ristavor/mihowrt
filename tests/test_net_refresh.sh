@@ -7,6 +7,7 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh service.sh
 setup_runtime_paths "$tmpdir"
 POLICY_MODE=direct-first
+SOURCE_INTERFACES=br-lan
 DNS_AUTO_RESOLVFILE="$tmpdir/resolv"
 NET_FP_FILE="$PKG_STATE_DIR/net.fp"
 RUNNING_MARKER="$PKG_STATE_DIR/running"

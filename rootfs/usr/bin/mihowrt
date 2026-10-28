@@ -37,7 +37,7 @@ dashboard_json() {
 		--argjson running "$(json_bool service_running)" \
 		--argjson enabled "$(json_bool test "$DASHBOARD_ENABLED" = 1)" \
 		--argjson installed "$installed" --argjson size "$size" \
-		'{host: $host, port: ($port | tonumber), secret: ($secret | split("\n")[0]), running: $running,
+		'{host: $host, port: ($port | tonumber), secret: (($secret | split("\n")[0]) // ""), running: $running,
 		  enabled: $enabled, installed: $installed, size: $size}'
 }
 

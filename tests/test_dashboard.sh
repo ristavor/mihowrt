@@ -21,6 +21,11 @@ json="$(dashboard_json)"
 assert_eq 1 "$(grep -xcF secret "$tmpdir/jq.argv")" 'only secret argument name, never its value, in jq argv'
 assert_eq 'false:false:false:null' "$(jq -r '[.running,.enabled,.installed,.size] | map(tostring) | join(":")' <<<"$json")" 'missing dashboard status'
 assert_eq '192.0.2.1:9090:secret' "$(jq -r '[.host,(.port|tostring),.secret]|join(":")' <<<"$json")" 'existing dashboard fields retained'
+for secret_case in missing empty; do
+	if [ "$secret_case" = missing ]; then rm -f "$API_SECRET_FILE"; else : >"$API_SECRET_FILE"; fi
+	assert_eq '""' "$(dashboard_json | jq -c .secret)" "$secret_case secret file gives an empty string"
+done
+printf 'secret\n' >"$API_SECRET_FILE"
 mkdir -p "$CLASH_DIR/ui"
 printf panel >"$CLASH_DIR/ui/index.html"
 fake_uci_set mihowrt.settings.dashboard 1

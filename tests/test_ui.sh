@@ -233,18 +233,24 @@ seq(async () => {
   api: { ...api, readOnly: () => readonly, busy: (b, fn) => fn(),
    read: async () => ({}), readLarge: async () => [],
    write: async cmd => { calls.push(cmd); return state; },
-   job: async op => { calls.push(op); state = { running: true, installed: true }; return {}; }
+   job: async op => { calls.push(op); state = { running: true, installed: true, host: '127.0.0.1' }; return {}; }
   }
  }).module;
  await ov.load();
  h.assertEq(calls.length, 0, 'write-user Overview load skips dashboard RPC');
- const running = { ...base, running: true, subscription_configured: true, dashboard_installed: false };
+ const running = { ...base, running: true, subscription_configured: true, dashboard_installed: false, dashboard_host: '127.0.0.1' };
  let p = ov.render([running, {}, [], state]);
  const install = findButton(p, 'Install dashboard');
- h.assert(install, 'uninstalled dashboard has Install on Overview');
+ h.assert(install && !install.hidden, 'loopback without dashboard keeps Install visible');
+ const hint = collect(p).find(n => n.tag === 'span' && texts(n).includes('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.'));
+ h.assert(hint && hint.hidden, 'loopback without dashboard hides LAN hint');
  h.assertEq(install.attrs.title, 'Downloads the Mihomo web panel (about 5 MB) to the router.', 'one provisional panel size hint');
  await install.listeners.click();
- h.assert(findButton(p, 'Open dashboard'), 'same button becomes Open after install');
+ h.assert(findButton(p, 'Open dashboard').hidden, 'loopback after install hides Open');
+ h.assert(!hint.hidden, 'loopback after install shows LAN hint');
+ const installed = ov.render([{ ...running, dashboard_installed: true }, {}, []]);
+ h.assert(findButton(installed, 'Open dashboard').hidden, 'loopback installed status hides Open');
+ h.assert(!collect(installed).find(n => n.tag === 'span' && texts(n).includes('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.')).hidden, 'loopback installed status shows LAN hint');
  h.assertEq(calls.join(','), 'dashboard-install,dashboard-json', 'install job then refresh status, no popup');
  h.assert(!findButton(p, 'Remove'), 'no remove on Overview');
  p = ov.render([{ ...running, running: false }, {}, [], { installed: false, running: false }]);

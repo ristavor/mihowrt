@@ -335,7 +335,7 @@ function toolsSection(status) {
 	const dashboardHint = E('span', { class: 'mw-muted' }, text(_('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.')));
 	const dashboard = E('button', { class: 'cbi-button', type: 'button' });
 	const updateDashboard = () => {
-		dashboard.hidden = dashboardState?.host === '127.0.0.1';
+		dashboard.hidden = dashboardState?.installed && dashboardState?.host === '127.0.0.1';
 		dashboardHint.hidden = !dashboard.hidden;
 		dashboard.textContent = dashboardState?.installed ? _('Open dashboard') : _('Install dashboard');
 		if (dashboardState?.installed) {

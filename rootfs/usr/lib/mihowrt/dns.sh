@@ -137,6 +137,7 @@ net_refresh() {
 	[ "$fingerprint" != "$previous" ] || ! nft_active || return 0
 	settings_load || return 1
 	dns_apply || rc=1
+	route_setup || rc=1
 	# New prefixes must reach nft even when dnsmasq could not be updated.
 	nft_apply || rc=1
 	[ "$rc" -ne 0 ] || printf '%s' "$fingerprint" >"$NET_FP_FILE"

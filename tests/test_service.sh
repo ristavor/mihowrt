@@ -642,6 +642,7 @@ pass 'hotplug'
  nft_active() { return 0; }
  nft() { echo "$*" >>"$tmpdir/refresh/nft.calls"; }
  dns_restart_dnsmasq() { echo restart >>"$tmpdir/refresh/restarts"; }
+ route_setup() { :; }
  # Observe settings reload under the runtime lock, without replacing apply.
  eval "$(declare -f settings_load | sed '1s/settings_load/refresh_settings_load/')"
  settings_load() {

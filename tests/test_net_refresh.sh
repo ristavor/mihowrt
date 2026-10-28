@@ -26,6 +26,7 @@ ip() {
  esac
 }
 events="$tmpdir/events"
+route_setup() { :; }
 
 check_refresh() (
  local scenario="$1" rc=0
@@ -46,7 +47,6 @@ check_refresh() (
   : >"$tmpdir/proc/net/if_inet6"
   echo 0 >"$tmpdir/proc/sys/net/ipv6/conf/all/disable_ipv6"
   echo 0 >"$tmpdir/proc/sys/net/ipv6/conf/lo/disable_ipv6"
-  ROUTE_PROC_ROOT="$tmpdir/proc"
   net_refresh
   : >"$events"
   echo 1 >"$tmpdir/proc/sys/net/ipv6/conf/all/disable_ipv6"
@@ -92,6 +92,42 @@ check_refresh() (
   ;;
  esac
 )
+
+check_ipv6_enable() (
+ # Exercise the real idempotent route setup with a persisted v4-only allocation.
+ load_modules route.sh
+ settings_require() { :; }
+ ROUTE_STATE_FILE="$PKG_STATE_DIR/route"
+ printf 'TABLE=100\nPRIORITY=50\n' >"$ROUTE_STATE_FILE"
+ echo 1 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+ rm -f "$NET_FP_FILE"
+ : >"$events"
+ ip() {
+  case "$*" in
+  '-4 route show table main' | '-6 route show table main' | '-4 route show default' | '-6 route show default') : ;;
+  '-4 rule show') echo '50: from all fwmark 0x1/0x1 lookup 100' ;;
+  '-6 rule show') : ;;
+  *) echo "$*" >>"$events" ;;
+  esac
+ }
+ dns_apply() { :; }
+ nft_apply() {
+  if route_ipv6_enabled; then
+   assert_file_contains "$events" '-6 rule add fwmark' 'v6 routing installed before nft'
+  fi
+ }
+ net_refresh
+ assert_file_not_contains "$events" '-6 rule add' 'disabled IPv6 has no rule'
+ echo 0 >"$ROUTE_PROC_ROOT/sys/net/ipv6/conf/all/disable_ipv6"
+ net_refresh
+ assert_file_contains "$events" '-6 route replace local default dev lo table 100' 'enabled IPv6 has local route'
+ assert_file_contains "$events" '-6 rule add fwmark' 'enabled IPv6 has fwmark rule'
+ : >"$events"
+ net_refresh
+ assert_eq '' "$(cat "$events")" 'unchanged fingerprint skips route setup too'
+)
+check_ipv6_enable
+pass 'net refresh restores IPv6 routing before nft on runtime enable'
 
 check_invalidation() (
  local scenario="$1"

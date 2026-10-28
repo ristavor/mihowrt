@@ -26,11 +26,15 @@ yaml_has_top_key() {
 }
 
 lan_ip_detect() {
-	local ip=""
+	local ip="" dev=""
 
 	ip="$(uci -q get network.lan.ipaddr 2>/dev/null)" || ip=""
 	ip="${ip%% *}"
 	ip="${ip%%/*}"
+	if ! is_ipv4 "$ip"; then
+		dev="$(lan_device_detect)"
+		ip="$(ip -4 addr show dev "$dev" 2>/dev/null | awk '$1 == "inet" { sub(/\/.*/, "", $2); print $2; exit }')"
+	fi
 	if is_ipv4 "$ip"; then
 		printf '%s' "$ip"
 	else

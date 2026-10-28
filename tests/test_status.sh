@@ -209,3 +209,11 @@ for installed in false true; do
  assert_eq "$installed" "$(profile_json | jq .dashboard_installed)" 'profile dashboard install flag'
 done
 pass 'status and profile expose cheap dashboard installation flag'
+
+(
+ lan_ip_detect() { echo called >>"$tmpdir/lan.calls"; echo 192.0.2.25; }
+ assert_eq 192.0.2.25 "$(status_json | jq -r .dashboard_host)" 'status includes nonsecret dashboard host'
+ rm "$tmpdir/lan.calls"
+ service_state_json >/dev/null
+ assert_false 'polled state does not detect LAN address' test -e "$tmpdir/lan.calls"
+)

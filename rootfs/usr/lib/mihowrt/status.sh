@@ -98,6 +98,7 @@ status_json() {
 	route_state_read 2>/dev/null
 
 	mihowrt-json build status \
+		--arg dashboard_host "$(lan_ip_detect)" \
 		--argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
 		--argjson dns_ok "$(health_json)" \

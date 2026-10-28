@@ -169,7 +169,7 @@ function build(shape, a) {
 	case 'service': return {running: a.running, enabled: a.enabled, state: a.state, dns_ok: a.dns_ok, last_error: a.last_error};
 	case 'status': return {
 		running: a.running, enabled: a.enabled, state: a.state, last_error: a.last_error, version: a.version, core: a.core,
-		dashboard_installed: a.dashboard_installed, core_installed: a.core != '', subscription_configured: a.url != '',
+		dashboard_host: a.dashboard_host, dashboard_installed: a.dashboard_installed, core_installed: a.core != '', subscription_configured: a.url != '',
 		subscription_insecure: index(lc(a.url), 'http://') == 0,
 		config_valid: a.config_valid, config_backup: a.config_backup, config_error: a.config_error, dns_mode: a.dns_mode, dns_ok: a.dns_ok, policy_active: a.policy,
 		mode: a.mode, block_client_ipv6: a.block_client_ipv6 == '1', interfaces: lines(a.interfaces, ' '), custom_dns_servers: lines(a.custom, ' '),

@@ -205,7 +205,7 @@ seq(async () => {
 			api: Object.assign({}, api, { busy: async (b, fn) => { try { return await fn(); } catch (e) { order.push('error:' + e.message); return null; } },
 				write: async () => { order.push('rpc'); return reply; } })
 		}).module;
-		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true, dashboard_installed: true }), {}, [] ]))
+		return collect(view.render([ Object.assign({}, base, { subscription_configured: true, running: true, dashboard_installed: true, dashboard_host: reply.initialHost }), {}, [] ]))
 			.find((n) => n.tag === 'button' && texts(n).includes('Open dashboard'));
 	};
 	let order = [];
@@ -215,6 +215,11 @@ seq(async () => {
 		order = [];
 		await dashboardButton({ running: false }, order).listeners.click();
 		h.assertEq(order.join(','), 'rpc,error:Start MihoWRT to use the dashboard.', 'stopped service opens no window');
+        h.assert(dashboardButton({ initialHost: '127.0.0.1' }, []).hidden, 'loopback status hides Open dashboard');
+        order = [];
+        const loopback = dashboardButton({ running: true, host: '127.0.0.1' }, order);
+        await loopback.listeners.click();
+        h.assert(!order.some(v => v.startsWith('open:')), 'loopback never opens browser localhost');
 		console.log('ok - dashboard link');
 	}).catch((err) => { console.error(err); process.exitCode = 1; });
 }

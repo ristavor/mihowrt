@@ -331,9 +331,12 @@ function groupsSection(groups) {
 const DASHBOARD_DOWNLOAD_MB = 5;
 
 function toolsSection(status) {
-	let dashboardState = { installed: status.dashboard_installed };
+	let dashboardState = { installed: status.dashboard_installed, host: status.dashboard_host };
+	const dashboardHint = E('span', { class: 'mw-muted' }, text(_('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.')));
 	const dashboard = E('button', { class: 'cbi-button', type: 'button' });
 	const updateDashboard = () => {
+		dashboard.hidden = dashboardState?.host === '127.0.0.1';
+		dashboardHint.hidden = !dashboard.hidden;
 		dashboard.textContent = dashboardState?.installed ? _('Open dashboard') : _('Install dashboard');
 		if (dashboardState?.installed) {
 			dashboard.removeAttribute('title');
@@ -360,6 +363,11 @@ function toolsSection(status) {
 		// dashboard failed in a user's browser ("The operation is insecure").
 		return api.busy(dashboard, async () => {
 			const d = await api.write('dashboard-json');
+			if (d.host === '127.0.0.1') {
+				dashboardState = d;
+				updateDashboard();
+				return;
+			}
 			if (!d.running)
 				throw new Error(_('Start MihoWRT to use the dashboard.'));
 			// The setup route applies these values even when the browser keeps an
@@ -374,7 +382,8 @@ function toolsSection(status) {
 	}));
 
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : '', !api.readOnly() ? core : '',
+		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : '',
+			!api.readOnly() && status.running ? dashboardHint : '', !api.readOnly() ? core : '',
 			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
 	]);
 }

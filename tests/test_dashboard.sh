@@ -6,6 +6,22 @@ trap 'rm -rf "$tmpdir"' EXIT
 setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh
 setup_runtime_paths "$tmpdir"
+# R25: use the configured LAN device when its address comes from DHCP.
+ip() {
+ assert_eq '-4 addr show dev br-test' "$*" 'LAN device address lookup'
+ printf '2: br-test: <UP>\n    inet 192.0.2.25/24 scope global br-test\n'
+}
+fake_uci_set network.lan.device br-test
+assert_eq 192.0.2.25 "$(lan_ip_detect)" 'DHCP LAN address fallback'
+fake_uci_set network.lan.ipaddr 192.0.2.99/24
+assert_eq 192.0.2.99 "$(lan_ip_detect)" 'static address preferred'
+fake_uci_set network.lan.ipaddr dhcp
+assert_eq 192.0.2.25 "$(lan_ip_detect)" 'invalid static address falls back'
+ip() { return 1; }
+assert_eq 127.0.0.1 "$(lan_ip_detect)" 'no usable LAN address'
+unset -f ip
+fake_uci_reset
+
 # Source the real CLI functions without dispatching a command.
 sed '/^cmd=/,$d' "$ROOT_DIR/rootfs/usr/bin/mihowrt" |
  sed "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" >"$tmpdir/cli-functions.sh"

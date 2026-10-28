@@ -16,7 +16,7 @@ function checks(st, diagnostics) {
 	const state = st.state || (st.running ? 'running' : 'stopped');
 	const up = state === 'running' || state === 'degraded';
 	const serviceHint = _('Press Start on Overview. If it stops again, check the log below.') +
-		(state === 'failed' && st.last_error ? '\n' + _('Last error: %s').format(st.last_error) : '');
+		(state === 'failed' && st.last_error ? '\n' + _('Last error: %s').format(api.errorText(st.last_error)) : '');
 	const kb = (value) => typeof value === 'number' && isFinite(value) ? value : null;
 	const flash = kb(diagnostics?.flash_free_kb);
 	const ram = kb(diagnostics?.ram_available_kb);

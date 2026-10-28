@@ -222,6 +222,19 @@ test('errorText maps backend errors to plain words and is idempotent', () => {
 		assert.equal(api.errorText({ stderr: plain }), plain, 'mapped text stays: ' + plain);
 	}
 });
+test('public error path maps status strings and summarizes Mihomo rejection', () => {
+ const { api } = setup();
+ const plain = 'The "dns" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.';
+ assert.equal(api.errorText('Unsupported dns form: use a block mapping'), plain);
+ for (const level of ['error', 'fatal']) {
+  const raw = `time="2026-10-27" level=info msg="noise"\ntime="2026-10-27" level=${level} msg="yaml: bad configuration /tmp/mihowrt-config.123"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration`;
+  const expected = 'Mihomo rejected the configuration. yaml: bad configuration …';
+  for (const value of [raw, { name: 'JobError', message: raw }, { stderr: raw }])
+   assert.equal(api.errorText(value), expected);
+  assert.equal(api.errorText(expected), expected, 'already mapped text stays unchanged');
+ }
+ assert.equal(api.errorText('Mihomo rejected the configuration'), 'Mihomo rejected the configuration.');
+});
 test('command errors carry the plain backend text', async () => {
 	const { api } = setup({ fs: { exec: async () => ({ code: 1, stderr: 'Error: Another operation is running: core-update\n' }) } });
 	await assert.rejects(api.job('update-lists'), { name: 'CommandError', message: 'Another operation is running: "Update Mihomo core". Wait until it finishes.' });

@@ -80,6 +80,12 @@ function backendErrorText(message) {
 		return _('Another operation is running: "%s". Wait until it finishes.').format(jobLabel(m[1]));
 	if ((m = /^Unsupported (\S+) form: use a block mapping$/.exec(raw)))
 		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
+	if (/Mihomo rejected the configuration$/.test(raw)) {
+		const headline = _('Mihomo rejected the configuration.');
+		const messages = [ ...raw.matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ]
+			.map(m => m[1].replace(/\\"/g, '"').replace(/\/tmp\/[^\s"'<>]+/g, '…'));
+		return messages.length ? headline + ' ' + messages.join('\n') : headline;
+	}
 	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
 		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
 	if (raw === 'Start MihoWRT before installing the dashboard.')
@@ -125,7 +131,7 @@ function errorText(res) {
 	if (res?.name === 'PermissionError' || res?.name === 'SessionError' || (res?.name === 'Error' && message === 'Access denied')
 		|| (res?.name === 'RPCError' && /failed with (?:ubus code 6:|HTTP error 403:|error -32002:)/.test(message)))
 		return ACCESS_DENIED;
-	return message || _('Unknown error');
+	return backendErrorText(message) || _('Unknown error');
 }
 
 async function run(bin, args) {

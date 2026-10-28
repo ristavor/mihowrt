@@ -840,3 +840,6 @@ msgstr "Не удалось скачать панель. Проверьте, ч�
 
 msgid "Start MihoWRT before installing the dashboard."
 msgstr "Запустите MihoWRT перед установкой панели."
+
+msgid "Mihomo rejected the configuration."
+msgstr "Mihomo отклонил конфигурацию."

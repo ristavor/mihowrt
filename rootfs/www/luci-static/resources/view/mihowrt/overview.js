@@ -90,7 +90,7 @@ function statusSection(status) {
 		else if (state === 'degraded')
 			label = _('Mihomo DNS does not answer: traffic goes direct until it recovers');
 		else if (state === 'failed')
-			label = status.last_error ? _('Stopped after an error: %s').format(status.last_error) : _('Stopped');
+			label = status.last_error ? _('Stopped after an error: %s').format(api.errorText(status.last_error)) : _('Stopped');
 		else if (state === 'running')
 			label = status.dns_ok === false ? _('Running, but DNS does not answer — see Diagnostics') : _('Running');
 		else if (status.config_valid === false)

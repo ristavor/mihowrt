@@ -1568,6 +1568,19 @@ seq(async () => {
  console.log('ok - overview read-only hides service and core actions');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+seq(async () => {
+ const last_error = 'Unsupported dns form: use a block mapping';
+ const detail = 'The "dns" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.';
+ const status = { ...base, state: 'failed', last_error };
+ h.assert(texts(overview.render([status, {}, []])).includes('Stopped after an error: ' + detail), 'overview maps backend status error');
+ h.assert(texts(diag.render([status, {}, {}])).some(t => t.includes('Last error: ' + detail)), 'diagnostics maps backend status error');
+ const raw = 'level=info msg="noise"\nlevel=error msg="bad proxy"\nconfiguration file /tmp/mihowrt-config.1 test failed\nMihomo rejected the configuration';
+ const headline = 'Mihomo rejected the configuration. bad proxy';
+ h.assert(texts(overview.render([{ ...status, last_error: raw }, {}, []])).includes('Stopped after an error: ' + headline), 'overview summarizes core rejection');
+ h.assert(texts(diag.render([{ ...status, last_error: raw }, {}, {}])).some(t => t.includes('Last error: ' + headline)), 'diagnostics summarizes core rejection');
+ console.log('ok - status views map backend errors and core rejection');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 20: diagnostics keeps its checklist while exposing runtime risks.
 seq(async () => {
  const check = async (name, fn) => {

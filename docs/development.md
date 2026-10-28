@@ -13,7 +13,7 @@ MIHOWRT_SDK=24.10 ./tools/build-sdk.sh build
 
 The default is 25.12: OpenWrt 25.12.6 SDK, `.apk`. The 24.10 selector uses the 24.10.8 SDK, `.ipk`. Archives are checksum-verified and cached in `.sdk/`; case-sensitive SDK trees live in Docker volumes `mihowrt-sdk-25.12.6` / `mihowrt-sdk-24.10.8` (important on macOS APFS). `prepare`, `shell`, `clean`, `test`, `--rebuild`, `-j<N>` and `--verbose` are listed by `./tools/build-sdk.sh help`. `clean` removes APKs and IPKs from `dist/`.
 
-Runtime dependencies currently include **jq**; a proposed ucode migration is not implemented in this source tree. See `Makefile` for package dependencies, conffiles and install/remove hooks. APK-only protected paths are guarded by `CONFIG_USE_APK`; both builds use the same runtime code and package-manager adapter.
+Runtime JSON uses the shared `mihowrt-json` helper, with **ucode** and **ucode-mod-fs** as package dependencies; jq is a test/build tool only. See `Makefile` for package dependencies, conffiles and install/remove hooks. APK-only protected paths are guarded by `CONFIG_USE_APK`; both builds use the same runtime code and package-manager adapter.
 
 ## Tests
 

@@ -15,13 +15,13 @@ api_request() {
 }
 
 uri_encode() {
-	printf '%s' "$1" | jq -sRr @uri
+	printf '%s' "$1" | mihowrt-json uri
 }
 
 # Mihomo answers DNS (any rcode, NXDOMAIN included) => alive.
 api_dns_probe() {
 	api_request GET "/dns/query?name=$WATCHDOG_PROBE_DOMAIN&type=A" "" 5 2>/dev/null |
-		jq -e 'has("Status")' >/dev/null 2>&1
+		mihowrt-json has Status >/dev/null 2>&1
 }
 
 # The controller answers (Mihomo is up, whatever its DNS does).
@@ -30,7 +30,7 @@ api_alive() {
 }
 
 api_reload() {
-	api_request PUT "/configs?force=true" "$(jq -nc --arg p "$1" '{path: $p}')" 60 >/dev/null
+	api_request PUT "/configs?force=true" "$(mihowrt-json build object --arg path "$1")" 60 >/dev/null
 }
 
 # Proxy groups: [{name, type, now, all, fixed, delays}] in config order (GLOBAL
@@ -38,16 +38,7 @@ api_reload() {
 # pinned to a server ("fixed"); LoadBalance cannot be switched. delays: last
 # Mihomo check per server (0 = no response); unchecked servers are absent.
 api_proxies_json() {
-	api_request GET /proxies | jq -c '
-		.proxies as $p
-		| reduce (((($p.GLOBAL.all // []) + ($p | keys))[])
-		    | select(. != "GLOBAL")
-		    | select($p[.] != null and ($p[.].hidden | not)
-		        and ($p[.].type | IN("Selector", "URLTest", "Fallback", "LoadBalance")))) as $k
-		    ({seen: {}, out: []}; if .seen[$k] then . else .seen[$k] = true | .out += [$k] end)
-		| [.out[] | {key: ., value: $p[.]}
-		 | {name: .key, type: .value.type, now: .value.now, all: .value.all, fixed: (.value.fixed // ""),
-		    delays: ([(.value.all // [])[] as $n | ($p[$n].history // []) | select(length > 0) | {($n): .[-1].delay}] | add // {})}]'
+	api_request GET /proxies | mihowrt-json proxies
 }
 
 # An empty name unpins a URLTest/Fallback group (automatic choice again).
@@ -55,7 +46,7 @@ api_select() {
 	if [ -z "$2" ]; then
 		api_request DELETE "/proxies/$(uri_encode "$1")" >/dev/null
 	else
-		api_request PUT "/proxies/$(uri_encode "$1")" "$(jq -nc --arg n "$2" '{name: $n}')" >/dev/null
+		api_request PUT "/proxies/$(uri_encode "$1")" "$(mihowrt-json build object --arg name "$2")" >/dev/null
 	fi
 }
 

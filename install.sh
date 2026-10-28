@@ -9,7 +9,7 @@ REPO="ristavor/mihowrt"
 RELEASE_URL="${MIHOWRT_RELEASE_URL:-https://github.com/$REPO/releases/latest/download}"
 PKG="luci-app-mihowrt"
 I18N_PKG="luci-i18n-mihowrt-ru"
-DEPS="luci-base nftables jq kmod-nft-tproxy curl"
+DEPS="luci-base nftables ucode ucode-mod-fs kmod-nft-tproxy curl"
 CORE="/opt/clash/bin/clash"
 MIHOWRT_BIN="/usr/bin/mihowrt"
 OPENWRT_RELEASE_FILE="/etc/openwrt_release"
@@ -305,7 +305,7 @@ do_install() {
 		log "Installing the Mihomo core..."
 		# stdout is the JSON; the backend's own "Error: ..." line stays on stderr.
 		result="$("$MIHOWRT_BIN" core-update)" || {
-			reason="$(printf '%s' "$result" | jq -r '.error // empty' 2>/dev/null)" || reason=""
+			reason="$(printf '%s' "$result" | mihowrt-json get error empty 2>/dev/null)" || reason=""
 			die "Mihomo core installation failed${reason:+: $reason}; retry from LuCI → Services → MihoWRT"
 		}
 	fi

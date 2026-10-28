@@ -207,6 +207,15 @@ assert_eq '' "$(jq -r .direct_src <<<"$json")" 'missing list JSON is empty'
 lists_ensure_files
 pass 'lists-json exact texts'
 
+# Four simultaneous local-list payloads exercise rawfile assembly, not argv limits.
+awk 'BEGIN { for (i=0;i<1048576;i++) print "1.2.3.4" }' >"$DST_LIST_FILE"
+for file in "$SRC_LIST_FILE" "$DIRECT_DST_LIST_FILE" "$DIRECT_SRC_LIST_FILE"; do cp "$DST_LIST_FILE" "$file"; done
+lists_json >"$tmpdir/four-lists.actual.json"
+jq -nc --rawfile dst "$DST_LIST_FILE" --rawfile src "$SRC_LIST_FILE" --rawfile direct "$DIRECT_DST_LIST_FILE" --rawfile direct_src "$DIRECT_SRC_LIST_FILE" \
+ '{dst:$dst,src:$src,direct:$direct,direct_src:$direct_src}' >"$tmpdir/four-lists.expected.json"
+assert_true 'four 8 MiB lists byte parity' cmp -s "$tmpdir/four-lists.expected.json" "$tmpdir/four-lists.actual.json"
+pass 'lists-json four simultaneous 8 MiB lists'
+
 # Exercise the fetch limit through the real http_fetch, stubbing transport only.
 load_modules fetch.sh
 curl() {

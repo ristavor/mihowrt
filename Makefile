@@ -13,7 +13,7 @@ PKG_POLICY_LIST_BACKUP_DIR:=/tmp/$(PKG_NAME).policy-lists.bak
 MIHOWRT_LISTS:=always_proxy_dst always_proxy_src direct_dst direct_src
 
 LUCI_TITLE:=LuCI Support for MihoWRT
-LUCI_DEPENDS:=+luci-base +cgi-io +jq +nftables +kmod-nft-tproxy +curl
+LUCI_DEPENDS:=+luci-base +cgi-io +ucode +ucode-mod-fs +nftables +kmod-nft-tproxy +curl
 LUCI_PKGARCH:=all
 
 PKG_BUILD_DEPENDS:=luci-base/host
@@ -62,6 +62,7 @@ define Package/$(PKG_NAME)/install
 	$(INSTALL_DIR) $(1)/usr/bin
 	$(INSTALL_BIN) ./rootfs/usr/bin/mihowrt $(1)/usr/bin/
 	$(INSTALL_BIN) ./rootfs/usr/bin/mihowrt-read $(1)/usr/bin/
+	$(INSTALL_BIN) ./rootfs/usr/bin/mihowrt-json $(1)/usr/bin/
 
 	$(INSTALL_DIR) $(1)/usr/lib/mihowrt
 	$(CP) ./rootfs/usr/lib/mihowrt/* $(1)/usr/lib/mihowrt/

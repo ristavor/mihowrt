@@ -43,7 +43,7 @@ core_version_json() {
 	local version=""
 
 	version="$(core_version)"
-	jq -nc --arg v "$version" '{version: $v, installed: ($v != "")}'
+	mihowrt-json build version --arg v "$version"
 }
 
 core_asset_names() {
@@ -87,14 +87,14 @@ core_update() {
 	else
 		arch="$(core_arch)" || core_fail "unsupported architecture" || return 1
 		if http_fetch "$MIHOMO_RELEASES_API" "$json" "$CORE_RELEASE_JSON_MAX_BYTES" 30 0; then
-			tag="$(jq -r '.tag_name // empty' "$json")"
+			tag="$(mihowrt-json get tag_name empty "$json")"
 			[ -n "$tag" ] || core_fail "release has no tag" || return 1
 			[ "$current" != "$tag" ] || {
 				rm -rf "$CORE_TMP_DIR"
 				return 0
 			}
 			for name in $(core_asset_names "$arch" "$tag"); do
-				meta="$(jq -r --arg n "$name" '.assets[]? | select(.name == $n) | "\(.browser_download_url)\t\(.digest // "")\t\(.size // "")"' "$json")"
+				meta="$(mihowrt-json asset "$name" "$json")"
 				[ -n "$meta" ] && break
 			done
 			[ -n "$meta" ] || core_fail "no asset for $arch in $tag" || return 1
@@ -173,7 +173,6 @@ core_update_json() {
 	local rc=0
 
 	core_update "$@" || rc=$?
-	jq -nc --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED" \
-		'{updated: ($u == "1"), version: $v, error: (if $e == "" then null else $e end)}'
+	mihowrt-json build core --arg v "$CORE_VERSION" --arg e "$CORE_ERROR" --arg u "$CORE_UPDATED"
 	return "$rc"
 }

@@ -33,12 +33,10 @@ dashboard_json() {
 		is_uint "$blocks" && size=$(( $(uint_norm "$blocks") * 1024 ))
 	fi
 	[ ! -f "$API_SECRET_FILE" ] || secret_file="$API_SECRET_FILE"
-	jq -nc --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --rawfile secret "$secret_file" \
+	mihowrt-json build dashboard --arg host "$(lan_ip_detect)" --arg port "$MIHOMO_API_PORT" --rawfile secret "$secret_file" \
 		--argjson running "$(json_bool service_running)" \
 		--argjson enabled "$(json_bool test "$DASHBOARD_ENABLED" = 1)" \
-		--argjson installed "$installed" --argjson size "$size" \
-		'{host: $host, port: ($port | tonumber), secret: (($secret | split("\n")[0]) // ""), running: $running,
-		  enabled: $enabled, installed: $installed, size: $size}'
+		--argjson installed "$installed" --argjson size "$size"
 }
 
 dashboard_install() {
@@ -91,15 +89,15 @@ core_update_cmd() {
 	if ! flock -n 7; then
 		exec 7>&-
 		err "Another core update is running"
-		jq -nc --arg v "$(core_version)" \
-			'{updated: false, version: $v, error: "Another core update is running", restarted: false}'
+		mihowrt-json build object --argjson updated false --arg version "$(core_version)" \
+			--arg error "Another core update is running" --argjson restarted false
 		return 1
 	fi
 	result="$(core_update_json "$@")" || rc=$?
 	flock -u 7
 	exec 7>&-
 	# Restart outside the lock: stop waits for run-service, which needs it.
-	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | jq -r .updated)" = true ] && service_running; then
+	if [ "$rc" -eq 0 ] && [ "$(printf '%s' "$result" | mihowrt-json get updated)" = true ] && service_running; then
 		if out="$(/etc/init.d/mihowrt restart 2>&1 >/dev/null 9>&-)"; then
 			restarted=true
 		else
@@ -109,8 +107,7 @@ core_update_cmd() {
 			rc=1
 		fi
 	fi
-	printf '%s\n' "$result" | jq -c --argjson restarted "$restarted" --arg e "$restart_error" \
-		'. + {restarted: $restarted} | if $e == "" then . else .error = $e end'
+	printf '%s\n' "$result" | mihowrt-json merge restart --argjson restarted "$restarted" --arg e "$restart_error"
 	return "$rc"
 }
 

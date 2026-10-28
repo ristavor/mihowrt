@@ -53,12 +53,11 @@ service_state_json() {
 	local running=false
 
 	service_running && running=true
-	jq -nc --argjson running "$running" \
+	mihowrt-json build service --argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
 		--arg state "$(service_state "$running")" \
 		--argjson dns_ok "$(health_json)" \
-		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")" \
-		'{running: $running, enabled: $enabled, state: $state, dns_ok: $dns_ok, last_error: $last_error}'
+		--arg last_error "$(status_file_read "$LAST_ERROR_FILE")"
 }
 
 # Plain upstream servers in dnsmasq bypass Mihomo; domain-scoped ones are fine.
@@ -98,7 +97,7 @@ status_json() {
 	[ "$config_valid" = false ] && config_error="$(status_file_read "$CONFIG_ERR_FILE")"
 	route_state_read 2>/dev/null
 
-	jq -nc \
+	mihowrt-json build status \
 		--argjson running "$running" \
 		--argjson enabled "$(json_bool service_enabled)" \
 		--argjson dns_ok "$(health_json)" \
@@ -121,17 +120,7 @@ status_json() {
 		--arg interfaces "${SOURCE_INTERFACES:-}" \
 		--arg dst "$(lists_count dst)" --arg src "$(lists_count src)" --arg direct "$(lists_count direct)" \
 		--arg direct_src "$(lists_count direct_src)" \
-		--arg errors "$errors" '
-		def words: split(" ") | map(select(length > 0));
-		{running: $running, enabled: $enabled, state: $state, last_error: $last_error, version: $version, core: $core,
-		 dashboard_installed: $dashboard_installed, core_installed: ($core != ""), subscription_configured: ($url != ""),
-		 subscription_insecure: ($url | ascii_downcase | startswith("http://")),
-		 config_valid: $config_valid, config_backup: $config_backup, config_error: $config_error, dns_mode: $dns_mode, dns_ok: $dns_ok, policy_active: $policy,
-		 mode: $mode, block_client_ipv6: ($block_client_ipv6 == "1"), interfaces: ($interfaces | words),
-		 custom_dns_servers: ($custom | words),
-		 lists: {dst: ($dst | tonumber), src: ($src | tonumber), direct: ($direct | tonumber), direct_src: ($direct_src | tonumber)},
-		 route: {table: $table, priority: $priority},
-		 errors: ([$errors] | map(select(length > 0)))}'
+		--arg errors "$errors"
 }
 
 # Provider profile for the Traffic page: mode, DNS, provider settings,
@@ -141,7 +130,7 @@ profile_json() {
 
 	[ ! -f "$CLASH_DIR/ui/index.html" ] || dashboard_installed=true
 	settings_load || return 1
-	jq -nc \
+	mihowrt-json build profile \
 		--argjson dashboard_installed "$dashboard_installed" \
 		--arg mode "$POLICY_MODE" --arg dns "$DNS_MODE" \
 		--arg provider "$(profile_entries set)" \
@@ -151,14 +140,7 @@ profile_json() {
 		--arg dst_own "$(lists_own_count dst)" --arg dst_source "$DST_LIST_SOURCE" \
 		--argjson direct_provided "$(json_bool lists_provided direct)" \
 		--arg direct_provider "$(lists_provider_entries direct | wc -l | tr -d ' ')" \
-		--arg direct_own "$(lists_own_count direct)" --arg direct_source "$DIRECT_LIST_SOURCE" '
-		def words: split(" ") | map(select(length > 0));
-		def list($p; $n; $o; $s): {provided: $p, provider_count: ($n | tonumber), own_count: ($o | tonumber), source: $s};
-		{dashboard_installed: $dashboard_installed, mode: $mode, dns: $dns,
-		 provider: ($provider | split("\n") | map(select(length > 0) | split(" ") | {(.[0]): .[1]}) | add // {}),
-		 overrides: ($overrides | words),
-		 lists: {dst: list($dst_provided; $dst_provider; $dst_own; $dst_source),
-		         direct: list($direct_provided; $direct_provider; $direct_own; $direct_source)}}'
+		--arg direct_own "$(lists_own_count direct)" --arg direct_source "$DIRECT_LIST_SOURCE"
 }
 
 diagnostics_json() {
@@ -243,13 +225,8 @@ $package
 		}
 AWK
 )"
-	jq -nc --arg conflicts "$conflicts" --arg flash "$flash" --arg ram "$ram" \
-		--arg rss "$rss" --arg ports "$ports" --arg tmp_clash "$tmp_clash" --arg tmp_free "$tmp_free" '
-		def lines: split("\n") | map(select(length > 0));
-		{conflicts: ($conflicts | lines), flash_free_kb: ($flash | tonumber? // null),
-		 tmp_clash_kb: ($tmp_clash | tonumber? // null), tmp_free_kb: ($tmp_free | tonumber? // null),
-		 ram_available_kb: ($ram | tonumber? // null), mihomo_rss_kb: ($rss | tonumber? // null),
-		 open_proxy_ports: ($ports | lines | map(tonumber))}'
+	mihowrt-json build diagnostics --arg conflicts "$conflicts" --arg flash "$flash" --arg ram "$ram" \
+		--arg rss "$rss" --arg ports "$ports" --arg tmp_clash "$tmp_clash" --arg tmp_free "$tmp_free"
 }
 
 logs_json() {
@@ -258,9 +235,9 @@ logs_json() {
 	is_uint "$limit" && [ "$limit" -ge 1 ] || limit=200
 	[ "$limit" -le 1000 ] || limit=1000
 	have_command logread || {
-		jq -nc '{available: false, lines: []}'
+		mihowrt-json build logs --argjson available false
 		return 0
 	}
 	lines="$(logread 2>/dev/null | grep -iE 'mihowrt|mihomo|clash' | tail -n "$limit")"
-	jq -nc --arg l "$lines" '{available: true, lines: ($l | split("\n") | map(select(length > 0)))}'
+	mihowrt-json build logs --arg l "$lines"
 }

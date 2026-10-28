@@ -406,7 +406,7 @@ Architecture & Volume Notes:
   - This script extracts and builds the SDK inside a persistent named Docker volume
     ('${DOCKER_VOLUME}' mounted at /sdk), providing native case-sensitive Linux filesystem semantics.
   - Feeds and host prerequisite isolation: For noarch packages, only luci-base/host
-    is compiled (providing po2lmo). Runtime dependencies (curl, jq, nftables) remain in
+    is compiled (providing po2lmo). Runtime dependencies (curl, ucode, ucode-mod-fs, nftables) remain in
     package metadata without installing feed directories, preventing Kconfig dependency loops.
   - Direct package compile: Compiles directly via 'make -C package/luci-app-mihowrt' after
     validating host target tools, avoiding unnecessary target C cross-compilation.

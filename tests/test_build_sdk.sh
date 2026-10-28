@@ -93,6 +93,7 @@ if [[ -f "$DOCKERFILE_TEST" ]]; then
 	assert_contains "Dockerfile.test uses alpine" "alpine" "$test_dockerfile_content"
 	assert_contains "Dockerfile.test installs bash" "bash" "$test_dockerfile_content"
 	assert_contains "Dockerfile.test installs jq" "jq" "$test_dockerfile_content"
+	assert_contains "Dockerfile.test installs ucode" "ucode" "$test_dockerfile_content"
 	assert_contains "Dockerfile.test installs nodejs" "nodejs" "$test_dockerfile_content"
 	assert_contains "Dockerfile.test installs shellcheck" "shellcheck" "$test_dockerfile_content"
 	assert_contains "Dockerfile.test installs coreutils" "coreutils" "$test_dockerfile_content"

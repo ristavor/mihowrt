@@ -51,6 +51,10 @@ run_all_tests() {
 	done
 	printf 'ok - shell syntax\n'
 
+	printf '==> ucode syntax\n'
+	ucode -c -o /dev/null "$ROOT_DIR/rootfs/usr/bin/mihowrt-json"
+	printf 'ok - ucode syntax\n'
+
 	printf '==> awk syntax\n'
 	awk -v profile=/dev/null -v warnfile=/dev/null -f "$ROOT_DIR/rootfs/usr/lib/mihowrt/yaml-lex.awk" -f "$ROOT_DIR/rootfs/usr/lib/mihowrt/mihomo-config.awk" </dev/null >/dev/null
 	printf 'ok - awk syntax\n'

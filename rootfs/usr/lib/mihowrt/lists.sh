@@ -260,7 +260,7 @@ lists_cache_gc() {
 	done
 }
 
-# --rawfile preserves UTF-8, escaping and trailing newlines without shell
+# File arguments preserve UTF-8, escaping and trailing newlines without shell
 # argument-size limits; a missing file has the same contents as /dev/null.
 lists_json() {
 	local kind="" file=""
@@ -271,7 +271,7 @@ lists_json() {
 		[ -f "$file" ] || file=/dev/null
 		set -- "$@" --rawfile "$kind" "$file"
 	done
-	jq -nc "$@" '{dst: $dst, src: $src, direct: $direct, direct_src: $direct_src}'
+	mihowrt-json build object "$@"
 }
 
 # Optional fourth argument receives device MACs, separately from IP families.
@@ -513,7 +513,7 @@ lists_apply() {
 		lists_update_remote 0 >/dev/null || warn "Some remote lists could not be fetched"
 		with_lock nft_apply_if_ready || return 1
 	fi
-	jq -nc --arg c "$changed" '{changed: ($c == "1")}'
+	mihowrt-json build changed --arg c "$changed"
 }
 
 lists_refresh() {
@@ -523,5 +523,5 @@ lists_refresh() {
 	result="$(lists_update_remote 1)" || rc=1
 	[ "$result" = changed ] && { with_lock nft_apply_if_ready || return 1; }
 	[ "$rc" -eq 0 ] || return 1
-	jq -nc --arg r "$result" '{changed: ($r == "changed")}'
+	mihowrt-json build changed --arg r "$result"
 }

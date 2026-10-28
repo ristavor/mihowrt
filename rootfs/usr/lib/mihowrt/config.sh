@@ -16,9 +16,9 @@ config_read_json() {
 	}
 	if [ -r "$path" ]; then
 		# shellcheck disable=SC2094 # $path is only read
-		jq -Rs --arg p "$path" '{path: $p, content: .}' <"$path"
+		mihowrt-json build config --arg p "$path" <"$path"
 	else
-		jq -nc --arg p "$path" '{path: $p, content: ""}'
+		mihowrt-json build object --arg path "$path" --arg content ""
 	fi
 }
 
@@ -29,14 +29,14 @@ runtime_config_json() {
 	local scratch="" rc=0 MIHOWRT_QUIET=1
 
 	if [ -r "$RUNTIME_CONFIG" ]; then
-		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$RUNTIME_CONFIG" | jq -Rs '{content: ., generated: false}'
+		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$RUNTIME_CONFIG" | mihowrt-json build runtime --argjson generated false
 		return
 	fi
 	settings_load || return 1
 	ensure_dir "$PKG_TMP_DIR" || return 1
 	scratch="$(mktemp "$PKG_TMP_DIR/runtime-preview.XXXXXX")" || return 1
 	if mihomo_config_generate "$CLASH_CONFIG" "$scratch"; then
-		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$scratch" | jq -Rs '{content: ., generated: true}' || rc=1
+		sed 's/^secret: ".*"$/secret: "(hidden)"/' "$scratch" | mihowrt-json build runtime --argjson generated true || rc=1
 	else
 		rc=1
 	fi

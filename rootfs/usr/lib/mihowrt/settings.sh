@@ -87,7 +87,7 @@ settings_subscription_interval() {
 		echo 0
 		return 0
 	}
-	header="$(jq -r '.header_interval // empty' "${SUBSCRIPTION_META_FILE:-/etc/mihowrt/subscription.json}" 2>/dev/null)"
+	header="$(mihowrt-json get header_interval empty "${SUBSCRIPTION_META_FILE:-/etc/mihowrt/subscription.json}" 2>/dev/null)"
 	if is_uint "$header" && [ "$header" -gt 0 ] && [ "$header" -le 8760 ]; then
 		uint_norm "$header"
 	else

@@ -33,7 +33,7 @@ eval "$(declare -f lists_urls | sed '1s/lists_urls/original_lists_urls/')"
 lists_urls() { echo call >>"$tmpdir/url-calls"; original_lists_urls; }
 http_fetch() { echo fetch >>"$tmpdir/fetches"; printf '9.9.9.9\n' >"$2"; }
 with_lock() { "$@"; }
-nft_apply_if_ready() { echo apply >>"$tmpdir/applied"; }
+auto_update_policy() { echo apply >>"$tmpdir/applied"; }
 printf 'https://one.example/list\nhttps://one.example/list;443\n' >"$DST_LIST_FILE"
 printf 'https://two.example/list\n' >"$SRC_LIST_FILE"
 mkdir -p "$POLICY_CACHE_DIR"

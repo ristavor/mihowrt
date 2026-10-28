@@ -135,3 +135,21 @@ assert_true 'due tick spawns job-run' test -f "$tmpdir/spawns"
 rm "$tmpdir/hold"
 wait_finished
 pass 'auto-update remote lists tick creates a job'
+
+# Exercise the real auto_update through the detached job boundary.
+sed -n '/^auto_update()/,/^}/p' "$ROOT_DIR/rootfs/usr/lib/mihowrt/service.sh" >>"$tmpdir/lib/service.sh"
+cat >>"$tmpdir/lib/service.sh" <<'SERVICE'
+settings_load() { LISTS_INTERVAL=0; }
+subscription_due() { return 0; }
+subscription_update() { err 'subscription failed'; return 1; }
+SERVICE
+id="$(cli job-start auto-update | jq -r .id)"
+for _ in {1..200}; do
+ status="$(cli job-status "$id")"
+ [ "$(jq -r .state <<<"$status")" = running ] || break
+ sleep 0.02
+done
+assert_eq error "$(jq -r .state <<<"$status")" 'failed subscription makes auto-update job error'
+assert_eq 'subscription failed' "$(jq -r .error <<<"$status")" 'auto-update job preserves failure'
+assert_false 'failed auto-update job releases slot' test -L "$tmpdir/run/jobs/active"
+pass 'failed auto-update is an error job'

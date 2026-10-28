@@ -434,16 +434,25 @@ service_reload() {
 }
 
 # Hourly cron entry: downloads run unlocked, applying takes the runtime lock.
+# A stopped core applies updated lists on its next start; only live apply can fail.
+auto_update_policy() {
+	service_ready || return 0
+	nft_apply
+}
+
 auto_update() {
-	local urls=""
+	local urls="" result="" rc=0
 
 	settings_load || return 1
-	subscription_due && subscription_update
+	if subscription_due; then
+		subscription_update || rc=1
+	fi
 	if [ "$LISTS_INTERVAL" -gt 0 ]; then
 		urls="$(lists_urls)"
-		if [ -n "$urls" ] && [ "$(lists_update_remote 0 "$urls")" = changed ]; then
-			with_lock nft_apply_if_ready
+		if [ -n "$urls" ]; then
+			result="$(lists_update_remote 0 "$urls")" || rc=1
+			[ "$result" != changed ] || with_lock auto_update_policy || rc=1
 		fi
 	fi
-	return 0
+	return "$rc"
 }

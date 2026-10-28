@@ -79,6 +79,7 @@ auto_update_ready|lists_refresh_ready)
 	settings_load() { LISTS_INTERVAL=1; }
 	subscription_due() { return 1; }
 	lists_update_remote() { echo changed; }
+	lists_urls() { echo https://lists.example/list; }
 	with_lock() { "$@"; }
 	nft_apply() { echo nft >>"$events"; }
 	command_name="${name%_ready}"

@@ -920,3 +920,24 @@ done
  done
 )
 pass 'reload rollback'
+
+(
+ settings_load() { LISTS_INTERVAL=0; }
+ subscription_due() { return 0; }
+ subscription_update() { err 'subscription failed'; return 1; }
+ assert_false 'auto-update reports subscription failure' auto_update 2>"$tmpdir/auto.err"
+ subscription_due() { return 1; }
+ settings_load() { LISTS_INTERVAL=1; }
+ lists_urls() { echo https://list.example/x; }
+ lists_update_remote() { echo changed; return 1; }
+ service_ready() { return 0; }
+ nft_apply() { echo applied >"$tmpdir/auto-applied"; }
+ assert_false 'auto-update reports partial list failure' auto_update
+ assert_true 'partial changed lists still applied' test -f "$tmpdir/auto-applied"
+ lists_update_remote() { echo changed; }
+ nft_apply() { return 1; }
+ assert_false 'auto-update reports policy failure' auto_update
+ service_ready() { return 1; }
+ auto_update || fail 'stopped service is not an automatic update failure'
+)
+pass 'auto-update accumulates update and apply failures'

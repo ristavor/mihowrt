@@ -243,7 +243,7 @@ service_error() {
 
 # procd payload. Exit 0 = stopped on request; exit 1 = failure, procd respawns.
 run_service() {
-	local pid="" fails=0 stop=0 rc=1 memlimit="" degraded=0 error="" health=""
+	local pid="" fails=0 oks=0 stop=0 rc=1 memlimit="" degraded=0 error="" health=""
 
 	# A long-lived supervisor must never retain its caller's lock.
 	exec 9>&-
@@ -287,6 +287,8 @@ run_service() {
 				[ "$health" = ok ] || atomic_write "$HEALTH_FILE" ok
 				fails=0
 				[ "$degraded" -eq 1 ] || continue
+				oks=$((oks + 1))
+				[ "$oks" -ge 3 ] || continue
 				if with_lock policy_reapply_ready; then
 					degraded=0
 					rm -f "$DEGRADED_FILE"
@@ -294,6 +296,7 @@ run_service() {
 				fi
 				continue
 			fi
+			oks=0
 			[ "$health" = fail ] || atomic_write "$HEALTH_FILE" fail
 			[ "$degraded" -eq 1 ] && ! api_alive && {
 				service_error "watchdog: Mihomo does not answer; restarting"

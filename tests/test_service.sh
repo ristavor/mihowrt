@@ -630,8 +630,8 @@ load_modules service.sh
 WATCHDOG_FAILS=3
 WATCHDOG_INTERVAL=0.01
 probe_count=0
-probe_script=0001000
-api_alive() { [ "$probe_count" -le 3 ]; }
+probe_script=00010111000
+api_alive() { [ "$probe_count" -le 8 ]; }
 wait_for_ready() { :; }
 settings_load() { :; }
 policy_cleanup() {
@@ -655,6 +655,14 @@ api_dns_probe() {
   assert_eq fail "$(cat <&8)" 'health publication replaces inode'
   exec 8<&-
   assert_eq ok "$(cat "$HEALTH_FILE")" "successful probe written"
+  assert_true 'one good probe leaves degraded policy' test -f "$DEGRADED_FILE"
+  assert_eq $'apply\ncleanup:no' "$(cat "$events")" 'f,f,f,ok,f does not reapply'
+ fi
+ if [ "$probe_count" = 8 ]; then
+  assert_true 'two consecutive good probes leave degraded policy' test -f "$DEGRADED_FILE"
+  assert_eq $'apply\ncleanup:no' "$(cat "$events")" 'failure resets recovery counter'
+ fi
+ if [ "$probe_count" = 9 ]; then
   assert_false "recovery clears degraded file" test -e "$DEGRADED_FILE"
   assert_false "ready clears last error" test -e "$LAST_ERROR_FILE"
   assert_true "recovery restores marker" test -e "$RUNNING_MARKER"
@@ -665,7 +673,7 @@ reset_events
 rc=0
 run_service 2>"$tmpdir/watchdog.err" || rc=$?
 assert_eq 1 "$rc" "hung core still exits for respawn"
-assert_eq 7 "$probe_count" "loop continues after degrade and recover"
+assert_eq 11 "$probe_count" "loop continues after three consecutive good probes"
 assert_false "exit removes health" test -e "$HEALTH_FILE"
 assert_false "exit removes degraded" test -e "$DEGRADED_FILE"
 assert_eq "watchdog: Mihomo does not answer; restarting" "$(cat "$LAST_ERROR_FILE")" "watchdog error recorded"

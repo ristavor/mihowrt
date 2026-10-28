@@ -53,15 +53,14 @@ startup_settings|watchdog_settings)
 	WATCHDOG_INTERVAL=0.01
 	WATCHDOG_FAILS=1
 	probe_count=0
-	api_alive() { [ "$probe_count" -le 2 ]; }
+	api_alive() { [ "$probe_count" -le 4 ]; }
 	api_dns_probe() {
 		probe_count=$((probe_count + 1))
 		if [ "$probe_count" = 2 ]; then
 			assert_false "$name: marker absent while degraded" test -e "$RUNNING_MARKER"
 			echo proxy-first >"$tmpdir/mode"
-			return 0
 		fi
-		return 1
+		[ "$probe_count" -ge 2 ] && [ "$probe_count" -le 4 ]
 	}
 	rc=0
 	run_service || rc=$?

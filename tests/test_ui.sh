@@ -509,6 +509,10 @@ seq(async () => {
   h.assertEq(calls.at(-1)[0], 'proxies-json', 'refresh groups after test');
   h.assertEq(s.value, 'A', 'fresh fixed server selected');
   h.assert(texts(s).some(t => t.includes('12 ms')), 'options rebuilt after test');
+  const live = nodes.find(n => n.attrs.class === 'mw-sr' && n.attrs['aria-live'] === 'polite');
+  h.assert(live.textContent.startsWith('G: A — '), 'latency test announces group, server and result');
+  s.value = 'B'; s.listeners.change(); await groupClock.flush();
+  h.assertEq(live.textContent, 'G: B selected', 'successful selection announces chosen server');
  }
  const pinned = groupsView.render([Object.assign({}, base, { subscription_configured: true, running: true }), {}, [{ name: 'G', type: 'URLTest', now: 'B', fixed: 'A', all: ['A','B'] }]]);
  h.assertEq(collect(pinned).find(n => n.tag === 'select').value, 'A', 'initial fixed node selected');
@@ -952,11 +956,12 @@ seq(async () => {
 
 // R41/R48: both modal decisions reach the shared helper, never native confirm.
 seq(async () => {
- const jobs = [];
+ const jobs = [], notices = [];
+ let restarted = true;
  const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
   E, poll: { add() {} }, view: { extend: v => v },
-  api: { ...api, busy: async (button, fn) => fn(), job: async op => { jobs.push(op); return { updated: true, version: 'v2' }; },
-   write: async () => ({ installed: true }), notify() {} }
+  api: { ...api, busy: async (button, fn) => fn(), job: async op => { jobs.push(op); return { updated: true, version: 'v2', restarted }; },
+   write: async () => ({ installed: true }), notify: message => notices.push(message) }
  }).module;
  for (const [label, op, danger] of [['Update Mihomo core', 'core-update', false], ['Install dashboard', 'dashboard-install', false], ['Remove dashboard', 'dashboard-remove', true]]) {
   for (const accept of [false, true]) {
@@ -964,6 +969,10 @@ seq(async () => {
    const page = ov.render([{ ...base, running: true, dashboard_installed: op === 'dashboard-remove' }, {}, []]);
    await findButton(page, label).listeners.click();
    h.assertEq(jobs.join(','), accept ? op : '', label + (accept ? ' confirmed' : ' cancelled'));
+   if (accept && op === 'core-update')
+    h.assertEq(notices.at(-1), 'Mihomo core updated to v2; MihoWRT restarted.', 'core-update success explains restart');
+   if (op === 'dashboard-remove')
+    h.assertEq(texts(ui.modalCalls.at(-1).children)[0], 'Remove the Mihomo dashboard?', 'remove copy avoids incorrect reinstall and outage claims');
    const modal = ui.modalCalls.at(-1);
    h.assertEq(modal.title, label, 'modal title');
    const ok = collect(modal.children).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
@@ -971,6 +980,12 @@ seq(async () => {
   }
  }
  ui.autoConfirm = true;
+ for (const wasRestarted of [false, true]) {
+  restarted = wasRestarted;
+  const page = ov.render([{ ...base, running: wasRestarted }, {}, []]);
+  await findButton(page, 'Update Mihomo core').listeners.click();
+  h.assertEq(notices.at(-1), wasRestarted ? 'Mihomo core updated to v2; MihoWRT restarted.' : 'Mihomo core updated to v2.', 'core success only claims an actual restart');
+ }
  console.log('ok - overview maintenance modal confirm and cancel paths');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
@@ -1009,9 +1024,19 @@ seq(async () => {
 seq(async () => {
  const ov = overview;
  const p = ov.render([{ ...base, running: true, subscription_configured: true, dashboard_installed: true }, {}, []]);
- h.assert(findButton(p, 'Show maintenance'), 'Show maintenance toggle button present');
- h.assert(findButton(p, 'Update Mihomo core'), 'core update in maintenance');
- h.assert(findButton(p, 'Remove dashboard'), 'remove dashboard in maintenance');
+ h.assert(collect(p).some(n => n.tag === 'h3' && texts(n).includes('Maintenance')), 'Maintenance heading');
+ const show = findButton(p, 'Show');
+ h.assert(show, 'Show maintenance toggle button present');
+ const toggle = toggleOf(p, show), content = toggle.children[1];
+ h.assert(content.hidden && show.attrs['aria-expanded'] === 'false', 'maintenance starts collapsed');
+ h.assert(findButton(content, 'Update Mihomo core'), 'core update inside collapsed maintenance');
+ h.assert(findButton(content, 'Remove dashboard'), 'remove dashboard inside collapsed maintenance');
+ show.listeners.click();
+ h.assert(!content.hidden && texts(show).includes('Hide'), 'maintenance opens with Hide label');
+ show.listeners.click();
+ h.assert(content.hidden && texts(show).includes('Show'), 'maintenance collapses again');
+ const source = h.readSource('rootfs/www/luci-static/resources/view/mihowrt/overview.js');
+ h.assert(source.includes("_('Download the Mihomo dashboard (about %s MB)? MihoWRT restarts; the internet drops for a few seconds.').format(DASHBOARD_DOWNLOAD_MB)"), 'dashboard modal uses shared download size');
 
  console.log('ok - overview R47 maintenance');
 }).catch(err => { console.error(err); process.exitCode = 1; });
@@ -1828,6 +1853,8 @@ seq(async () => {
   h.assertEq(!!findButton(missingCore, 'Install Mihomo core'), !readOnly, 'install core shown=' + !readOnly);
   const firstRun = ov.render([{ ...base, subscription_configured: false, running: false }, {}, []]);
   h.assertEq(!!findButton(firstRun, 'Connect'), !readOnly, 'connect shown=' + !readOnly);
+  const noSubNote = collect(firstRun).find(n => texts(n).includes('Without a subscription MihoWRT starts with the current configuration; by default all traffic goes direct.') && n.attrs.class === 'mw-muted');
+  h.assertEq(noSubNote.hidden, readOnly, 'no-subscription Start explanation hidden in read-only mode');
   const proxies = ov.render([{ ...base, subscription_configured: true, running: true }, {}, [
    { name: 'Proxy', type: 'Selector', now: 'one', all: ['one', 'two'] }
   ]]);

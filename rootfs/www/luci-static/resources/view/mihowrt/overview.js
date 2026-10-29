@@ -167,7 +167,7 @@ function statusSection(status) {
 		boot.textContent = status.enabled ? _('Starts automatically when the router boots') : _('Does not start when the router boots');
 		toggle.textContent = status.running ? _('Stop') : _('Start');
 		const noSub = !status.subscription_configured && !status.running;
-		noSubNote.hidden = !noSub;
+		noSubNote.hidden = api.readOnly() || !noSub;
 		restart.hidden = !status.running;
 		toggle.setAttribute('class', 'cbi-button' + (status.running ? ' cbi-button-reset' : (!status.subscription_configured ? '' : ' cbi-button-action')));
 	};
@@ -450,7 +450,7 @@ function toolsSection(status) {
 	}));
 
 	installDashboard.addEventListener('click', async () => {
-		const ok = await api.confirm(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'));
+		const ok = await api.confirm(_('Install dashboard'), _('Download the Mihomo dashboard (about %s MB)? MihoWRT restarts; the internet drops for a few seconds.').format(DASHBOARD_DOWNLOAD_MB), _('Install'));
 		if (!ok)
 			return;
 		return api.busy(installDashboard, async () => {
@@ -461,7 +461,7 @@ function toolsSection(status) {
 	});
 
 	removeDashboard.addEventListener('click', async () => {
-		const ok = await api.confirm(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), { danger: true });
+		const ok = await api.confirm(_('Remove dashboard'), _('Remove the Mihomo dashboard?'), _('Remove'), { danger: true });
 		if (!ok)
 			return;
 		return api.busy(removeDashboard, async () => {
@@ -477,7 +477,9 @@ function toolsSection(status) {
 			return;
 		return api.busy(core, async () => {
 			const res = await api.job('core-update');
-			api.notify((res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version)) + (res.updated && res.verified === false ? ' ' + _('checksum not verified') : ''));
+			const message = !res.updated ? _('Mihomo core %s is up to date.')
+				: res.restarted ? _('Mihomo core updated to %s; MihoWRT restarted.') : _('Mihomo core updated to %s.');
+			api.notify(message.format(res.version) + (res.updated && res.verified === false ? ' ' + _('checksum not verified') : ''));
 		});
 	});
 
@@ -490,7 +492,10 @@ function toolsSection(status) {
 
 	return E('div', { class: 'cbi-section' }, [
 		openRow,
-		!api.readOnly() ? api.toggle(_('Show maintenance'), _('Hide maintenance'), maintenanceContent) : ''
+		!api.readOnly() ? E('div', [
+			E('h3', text(_('Maintenance'))),
+			api.toggle(_('Show'), _('Hide'), maintenanceContent)
+		]) : ''
 	]);
 }
 

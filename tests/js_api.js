@@ -60,6 +60,20 @@ for (const outcome of ['ok', 'error', 'start-error']) test('job clears old notic
  await pending;
  assert.equal(notice.children.length, 0, 'no stale running notice after completion');
 });
+for (const accepted of [false, true]) test('confirm modal resolves once for confirm or cancel: ' + accepted, async () => {
+ let modal, hides = 0;
+ const { api } = setup({ ui: { showModal: (title, children) => { modal = { title, children }; }, hideModal: () => { hides++; } } });
+ const pending = api.confirm('Restore YAML', 'Replace the current YAML?', 'Restore', { danger: true });
+ assert.equal(modal.title, 'Restore YAML');
+ assert.equal(modal.children[0].children.join(''), 'Replace the current YAML?');
+ const buttons = modal.children[1].children.filter(n => n.tag === 'button');
+ assert.equal(buttons[0].children[0], 'Cancel');
+ assert(buttons[1].attrs.class.includes('cbi-button-negative'));
+ buttons[accepted ? 1 : 0].click();
+ buttons[accepted ? 0 : 1].click();
+ assert.equal(await pending, accepted);
+ assert.equal(hides, 1, 'only the first choice closes the modal');
+});
 test('jobLabel reuses known labels and falls back to operation', () => {
  const { api } = setup();
  assert.equal(api.jobLabel('apply-lists'), 'Applying lists and settings');

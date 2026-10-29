@@ -73,21 +73,10 @@ return view.extend({
 				window.removeEventListener('beforeunload', onBeforeUnload);
 		};
 
-		const confirmDisable = () => new Promise(resolve => {
-			const cancel = E('button', { class: 'cbi-button' }, text(_('Cancel')));
-			cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
-			const disable = E('button', { class: 'cbi-button cbi-button-negative' }, text(_('Disable')));
-			disable.addEventListener('click', () => { ui.hideModal(); resolve(true); });
-			ui.showModal(_('Stop using the subscription?'), [
-				E('p', text(_('MihoWRT keeps the current YAML, but it will no longer be updated.'))),
-				E('div', { class: 'btn-row' }, [ cancel, ' ', disable ])
-			]);
-		});
-
 		const saveSettings = () => api.write('set-subscription', url.value.trim(), auto.checked ? '1' : '0');
 
 		const updateSubscription = async link => {
-			if (yaml && yaml.value !== original && !confirm(_('Updating replaces your unsaved YAML edits. Continue?')))
+			if (yaml && yaml.value !== original && !await api.confirm(_('Subscription update'), _('Updating replaces your unsaved YAML edits. Continue?'), _('Update')))
 				return;
 			const changed = link !== (sub.url || '');
 			let res;
@@ -109,7 +98,7 @@ return view.extend({
 		save.addEventListener('click', () => api.busy(save, async () => {
 			const link = url.value.trim();
 			if (!link && sub.url) {
-				const ok = await confirmDisable();
+				const ok = await api.confirm(_('Stop using the subscription?'), _('MihoWRT keeps the current YAML, but it will no longer be updated.'), _('Disable'), { danger: true });
 				if (!ok)
 					return;
 			}
@@ -137,7 +126,7 @@ return view.extend({
 		const restore = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null,
 			class: 'cbi-button cbi-button-reset' }, text(_('Restore the previous YAML')));
 		restore.addEventListener('click', () => api.busy(restore, async () => {
-			if (!confirm(_('Replace the current YAML with the previous one?')))
+			if (!await api.confirm(_('Restore the previous YAML'), _('Replace the current YAML with the previous one?'), _('Restore the previous YAML'), { danger: true }))
 				return;
 			const res = await api.job('restore-config');
 			dropGuard();

@@ -48,10 +48,14 @@ let lastModal = null;
 const ui = {
  addNotification() {},
  activeModal: null,
+ autoConfirm: true,
+ modalCalls: [],
  showModal(title, children) {
   const modal = lastModal = this.activeModal = { title, children };
-  const confirm = collect(E('div', {}, children)).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
-  if (confirm?.listeners?.click) setTimeout(() => { if (this.activeModal === modal) confirm.listeners.click(); }, 0);
+  this.modalCalls.push(modal);
+  const buttons = collect(E('div', {}, children)).filter(n => n.tag === 'button');
+  const choice = buttons.find(n => texts(n).includes('Cancel') === !this.autoConfirm);
+  if (this.autoConfirm !== null && choice?.listeners?.click) setTimeout(() => { if (this.activeModal === modal) choice.listeners.click(); }, 0);
  },
  hideModal() { lastModal = this.activeModal = null; },
  Textarea: class {
@@ -438,11 +442,9 @@ seq(async () => {
   h.assert(texts(p).includes('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden.'), 'Advanced technical note');
  }
  // Exercise the widget contract and handlers using the actual returned textarea.
- const yamlUploads = [], confirmations = [];
- let allowUpdate = false;
+ const yamlUploads = [];
  const yamlView = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
-  confirm: message => { confirmations.push(message); return allowUpdate; },
   api: { ...api, ...readStubs, busy: async (el, fn) => fn(), upload: async (...args) => { yamlUploads.push(args); return '/tmp/yaml'; },
    write: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, job: async (...args) => { subCalls.push(args); return { action: 'unchanged' }; }, notify: message => notices.push(message), reloadWithNotice: message => notices.push(message) }
  }).module;
@@ -463,10 +465,11 @@ seq(async () => {
  h.assertEq(notices.at(-1), 'Configuration is unchanged.', 'unchanged apply notice');
  subCalls.length = 0;
  const updateYaml = yamlNodes.find(n => n.tag === 'button' && texts(n).includes('Update now'));
+ ui.autoConfirm = false;
  await updateYaml.listeners.click();
- h.assertEq(confirmations.at(-1), 'Updating replaces your unsaved YAML edits. Continue?', 'Update now detects unsaved YAML');
+ h.assert(texts(ui.modalCalls.at(-1).children).includes('Updating replaces your unsaved YAML edits. Continue?'), 'Update now detects unsaved YAML');
  h.assertEq(subCalls.length, 0, 'cancel leaves YAML edits intact');
- allowUpdate = true; await updateYaml.listeners.click();
+ ui.autoConfirm = true; await updateYaml.listeners.click();
  h.assert(subCalls.some(c => c[0] === 'update-subscription'), 'confirmed update proceeds');
  for (const [action, msg] of [['unchanged', 'Subscription is up to date.'], ['hot_reloaded', 'Subscription updated and applied.'], ['saved', 'Subscription updated.']]) {
   notices.length = 0;
@@ -947,6 +950,30 @@ seq(async () => {
  console.log('ok - overview R41 R42 R48');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// R41/R48: both modal decisions reach the shared helper, never native confirm.
+seq(async () => {
+ const jobs = [];
+ const ov = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/overview.js', {
+  E, poll: { add() {} }, view: { extend: v => v },
+  api: { ...api, busy: async (button, fn) => fn(), job: async op => { jobs.push(op); return { updated: true, version: 'v2' }; },
+   write: async () => ({ installed: true }), notify() {} }
+ }).module;
+ for (const [label, op, danger] of [['Update Mihomo core', 'core-update', false], ['Install dashboard', 'dashboard-install', false], ['Remove dashboard', 'dashboard-remove', true]]) {
+  for (const accept of [false, true]) {
+   ui.autoConfirm = accept; jobs.length = 0;
+   const page = ov.render([{ ...base, running: true, dashboard_installed: op === 'dashboard-remove' }, {}, []]);
+   await findButton(page, label).listeners.click();
+   h.assertEq(jobs.join(','), accept ? op : '', label + (accept ? ' confirmed' : ' cancelled'));
+   const modal = ui.modalCalls.at(-1);
+   h.assertEq(modal.title, label, 'modal title');
+   const ok = collect(modal.children).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
+   h.assertEq(ok.attrs.class.includes('cbi-button-negative'), danger, 'destructive modal styling');
+  }
+ }
+ ui.autoConfirm = true;
+ console.log('ok - overview maintenance modal confirm and cancel paths');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Lane F2: R43 + R44 + R46
 seq(async () => {
  const ov = overview;
@@ -989,6 +1016,45 @@ seq(async () => {
  console.log('ok - overview R47 maintenance');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+seq(async () => {
+ const events = {}, removed = [], calls = [];
+ const win = { addEventListener: (name, fn) => { events[name] = fn; }, removeEventListener: (name, fn) => { removed.push(fn); delete events[name]; } };
+ const dom = (tag, attrs, children) => { const node = E(tag, attrs, children); node.value = node.attrs.value || ''; node.checked = node.attrs.checked != null; return node; };
+ const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: dom, ui, Blob, window: win, view: { extend: v => v },
+  api: { ...api, ...readStubs, busy: async (button, fn) => fn(),
+   write: async (...args) => { calls.push(args); return {}; }, job: async (...args) => { calls.push(args); return { action: 'saved' }; },
+   upload: async () => '/tmp/yaml', reloadWithNotice() {}, notify() {} }
+ }).module;
+ const page = await mountSubscription(sv, { url: 'https://p.example/sub', config_backup: true });
+ const form = collect(page).find(n => n.tag === 'form'), input = collect(page).find(n => n.attrs.id === 'mw-url');
+ form.listeners.submit({ preventDefault() {} }); await settle();
+ h.assert(calls.some(c => c[0] === 'update-subscription'), 'Enter with URL updates subscription');
+ calls.length = 0; input.value = ''; ui.autoConfirm = false;
+ await findButton(page, 'Save').listeners.click();
+ h.assertEq(calls.length, 0, 'cancel disable keeps subscription settings');
+ ui.autoConfirm = true;
+ form.listeners.submit({ preventDefault() {} });
+ await new Promise(resolve => setTimeout(resolve, 10)); await settle();
+ h.assertEq(calls.at(-1).join(','), 'set-subscription,,1', 'Enter without URL saves settings after confirmation');
+ // A fresh page registers a guard after the successful update removed the first one.
+ const guarded = await mountSubscription(sv, { url: 'https://p.example/sub', config_backup: true });
+ await openToggle(guarded, 'Show the YAML editor');
+ collect(guarded).find(n => n.tag === 'textarea').value += '# edit';
+ const guard = events.beforeunload;
+ const event = { preventDefault() { this.prevented = true; } }; guard(event);
+ h.assert(event.prevented && event.returnValue === '', 'beforeunload blocks navigation with YAML edits');
+ ui.autoConfirm = false;
+ await findButton(guarded, 'Restore the previous YAML').listeners.click();
+ h.assertEq(events.beforeunload, guard, 'cancel restore retains edit guard');
+ const restoreOk = collect(ui.modalCalls.at(-1).children).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
+ h.assert(restoreOk.attrs.class.includes('cbi-button-negative'), 'YAML restore uses destructive modal button');
+ await findButton(guarded, 'Check and apply').listeners.click();
+ h.assert(!events.beforeunload && removed.includes(guard), 'successful YAML save removes beforeunload guard');
+ ui.autoConfirm = true;
+ console.log('ok - subscription modal cancellation, Enter and dirty-navigation guard');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 18: safe editor, large uploads, restore and shared job controls.
 seq(async () => {
  function DOM(tag, attrs, children) {
@@ -998,7 +1064,7 @@ seq(async () => {
   try { await fn(); console.log('ok - subscription ' + name); }
   catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
  }
- const restoreNotices = []; let calls = [], allow = false, reloads = 0, noticeCalls = 0, applyEvents = [];
+ const restoreNotices = []; let calls = [], reloads = 0, noticeCalls = 0, applyEvents = [];
  const bridge = { ...api, ...readStubs, jobRunning: false,
   busy: (b, fn) => fn(),
   upload: async (...args) => { calls.push(['upload', ...args]); return '/tmp/mihowrt-config.test'; },
@@ -1009,7 +1075,6 @@ seq(async () => {
  };
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, api: bridge, view: { extend: v => v },
-  confirm: message => { h.assertEq(message, 'Replace the current YAML with the previous one?', 'restore question'); return allow; },
   location: { reload: () => { reloads++; applyEvents.push('reload'); } }
  }).module;
  const render = async (backup = true, auto = true) => {
@@ -1082,8 +1147,8 @@ seq(async () => {
   reloads = 0;
   const p = await render(); const restore = button(p, 'Restore the previous YAML'); h.assert(restore, 'backup restore button');
   h.assert(texts(p).includes('Automatic updates replace it again with the subscription.'), 'automatic update warning');
-  calls = []; allow = false; await restore.listeners.click(); h.assertEq(calls.length, 0, 'cancel restore');
-  allow = true; await restore.listeners.click(); h.assertEq(calls[0].join(','), 'job,restore-config', 'restore job'); h.assertEq(reloads, 1, 'reload after restore');
+  calls = []; ui.autoConfirm = false; await restore.listeners.click(); h.assertEq(calls.length, 0, 'cancel restore');
+  ui.autoConfirm = true; await restore.listeners.click(); h.assertEq(calls[0].join(','), 'job,restore-config', 'restore job'); h.assertEq(reloads, 1, 'reload after restore');
   for (const [action, msg] of [['unchanged', 'Configuration is unchanged.'], ['hot_reloaded', 'Configuration checked and applied.'], ['saved', 'Configuration checked and saved.']]) {
    bridge.job = async () => ({ action }); restoreNotices.length = 0; await restore.listeners.click();
    h.assertEq(restoreNotices[0], msg, 'restore notice ' + action);
@@ -1196,10 +1261,9 @@ seq(async () => {
   try { await fn(); console.log('ok - subscription ' + name); }
   catch (e) { console.error('not ok - subscription ' + name, e); process.exitCode = 1; }
  }
- const confirmations = [], jobs = [];
+ const jobs = [];
  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
   E: DOM, ui, Blob, view: { extend: v => v }, location: { reload() {} },
-  confirm: message => { confirmations.push(message); return true; },
   api: { ...api, ...readStubs, busy: async (el, fn) => fn(), upload: async () => '/tmp/yaml', write: async () => ({}),
    job: async (...args) => { jobs.push(args); return { action: 'unchanged' }; }, notify() {}, reloadWithNotice() {} }
  }).module;
@@ -1237,14 +1301,14 @@ seq(async () => {
  });
  await check('update confirm only when edited', async () => {
   const p = await mountSubscription(sv, { url: 'https://p.example/sub' });
-  confirmations.length = 0; jobs.length = 0;
+  ui.modalCalls.length = 0; jobs.length = 0;
   await findButton(p, 'Update now').listeners.click();
-  h.assertEq(confirmations.length, 0, 'editor never opened: no confirm');
+  h.assertEq(ui.modalCalls.length, 0, 'editor never opened: no confirm');
   h.assert(jobs.some(j => j[0] === 'update-subscription'), 'update ran');
   await openToggle(p, editorLabel);
   jobs.length = 0;
   await findButton(p, 'Update now').listeners.click();
-  h.assertEq(confirmations.length, 0, 'editor opened but not edited: no confirm');
+  h.assertEq(ui.modalCalls.length, 0, 'editor opened but not edited: no confirm');
   h.assert(jobs.some(j => j[0] === 'update-subscription'), 'update ran after an unedited opening');
  });
  await check('effective yaml', async () => {
@@ -1976,10 +2040,11 @@ seq(async () => {
 
   urlInput.value = '';
   ui.activeModal = null;
-  collect(page).find(n => n.tag === 'button' && texts(n).includes('Save')).listeners.click();
+  const disablePending = findButton(page, 'Save').listeners.click();
   h.assert(ui.activeModal && ui.activeModal.title === 'Stop using the subscription?', 'modal shown on empty URL save');
   h.assert(texts(ui.activeModal.children).includes('MihoWRT keeps the current YAML, but it will no longer be updated.'), 'modal description');
 
+  await disablePending;
   h.assert(windowListeners.beforeunload, 'beforeunload listener registered');
   const fakeEvent = { preventDefault() { this.defaultPrevented = true; } };
   windowListeners.beforeunload(fakeEvent);

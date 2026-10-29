@@ -366,6 +366,27 @@ function toggle(showLabel, hideLabel, content, onOpen) {
 	return E('div', { class: 'mw-toggle' }, [ E('div', { class: 'mw-row' }, [ button ]), content ]);
 }
 
+function confirm(title, body, okLabel, { danger = false } = {}) {
+	return new Promise(resolve => {
+		let settled = false;
+		const finish = value => {
+			if (settled)
+				return;
+			settled = true;
+			ui.hideModal();
+			resolve(value);
+		};
+		const cancel = E('button', { class: 'cbi-button', type: 'button' }, text(_('Cancel')));
+		const ok = E('button', { class: 'cbi-button ' + (danger ? 'cbi-button-negative' : 'cbi-button-action'), type: 'button' }, text(okLabel));
+		cancel.addEventListener('click', () => finish(false));
+		ok.addEventListener('click', () => finish(true));
+		ui.showModal(title, [
+			E('p', text(body)),
+			E('div', { class: 'mw-row right', style: 'justify-content: flex-end;' }, [ cancel, ' ', ok ])
+		]);
+	});
+}
+
 // Disable a button while an async action runs; report failures.
 async function busy(button, action) {
 	const startsJob = button?.hasAttribute('data-mw-job');
@@ -596,6 +617,7 @@ return baseclass.extend({
 	linkButton,
 	infoGrid,
 	actionNotice,
+	confirm,
 	errorText,
 	coreError,
 	text,

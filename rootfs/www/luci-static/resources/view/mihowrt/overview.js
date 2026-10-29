@@ -1,22 +1,7 @@
 'use strict';
 'require view';
-'require ui';
 'require poll';
 'require mihowrt.api as api';
-
-function confirmModal(title, message, confirmLabel, destructive) {
-	return new Promise(resolve => {
-		const btnClass = 'cbi-button ' + (destructive ? 'cbi-button-negative' : 'cbi-button-action');
-		const cancel = E('button', { class: 'cbi-button', type: 'button' }, [ _('Cancel') ]);
-		const confirm = E('button', { class: btnClass, type: 'button' }, [ confirmLabel ]);
-		cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
-		confirm.addEventListener('click', () => { ui.hideModal(); resolve(true); });
-		ui.showModal(title, [
-			E('p', {}, [ message ]),
-			E('div', { class: 'mw-row right', style: 'justify-content: flex-end;' }, [ cancel, ' ', confirm ])
-		]);
-	});
-}
 
 function firstRunCard() {
 	const url = E('input', {
@@ -465,7 +450,7 @@ function toolsSection(status) {
 	}));
 
 	installDashboard.addEventListener('click', async () => {
-		const ok = await confirmModal(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'), false);
+		const ok = await api.confirm(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'));
 		if (!ok)
 			return;
 		return api.busy(installDashboard, async () => {
@@ -476,7 +461,7 @@ function toolsSection(status) {
 	});
 
 	removeDashboard.addEventListener('click', async () => {
-		const ok = await confirmModal(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), true);
+		const ok = await api.confirm(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), { danger: true });
 		if (!ok)
 			return;
 		return api.busy(removeDashboard, async () => {
@@ -487,7 +472,7 @@ function toolsSection(status) {
 	});
 
 	core.addEventListener('click', async () => {
-		const ok = await confirmModal(_('Update Mihomo core'), _('MihoWRT restarts after the update; the internet drops for a few seconds.'), _('Update'), false);
+		const ok = await api.confirm(_('Update Mihomo core'), _('MihoWRT restarts after the update; the internet drops for a few seconds.'), _('Update'));
 		if (!ok)
 			return;
 		return api.busy(core, async () => {

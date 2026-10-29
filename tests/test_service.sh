@@ -770,15 +770,17 @@ stop_service
 assert_true "Stop creates sticky flag" test -f "$USER_STOP_FILE"
 start_service
 assert_false "Start clears sticky flag" test -f "$USER_STOP_FILE"
-(
- umask 022
- for action in stop_service start_service; do
-  PKG_STATE_DIR="$tmpdir/init-state-$action"
-  USER_STOP_FILE="$PKG_STATE_DIR/stopped"
-  "$action"
-  assert_eq 700 "$(stat -c %a "$PKG_STATE_DIR")" "init $action creates the state directory private"
- done
-)
+old_umask="$(umask)"
+umask 022
+for action in stop_service start_service; do
+ PKG_STATE_DIR="$tmpdir/init-state-$action"
+ USER_STOP_FILE="$PKG_STATE_DIR/stopped"
+ "$action"
+ assert_eq 700 "$(stat -c %a "$PKG_STATE_DIR")" "init $action creates the state directory private"
+done
+umask "$old_umask"
+PKG_STATE_DIR="$tmpdir/run"
+USER_STOP_FILE="$tmpdir/stopped"
 printf '#!/bin/sh\necho "Error: Invalid lists_interval: x" >&2\necho "Invalid lists_interval: x" >"%s"\nexit 1\n' "$LAST_ERROR_FILE" >"$MIHOWRT"
 logger() { printf '%s\n' "$*" >>"$tmpdir/prepare.log"; }
 if start_service 2>"$tmpdir/prepare.err"; then fail 'invalid prepare must fail'; fi

@@ -547,6 +547,7 @@ service_pid() { return 1; }
 nft_cleanup() { :; }
 route_cleanup() { :; }
 fw4() { echo "fw4:$*" >>"$CLASH_DIR/../../actions"; }
+nft() { [ "$*" = 'list table inet fw4' ]; }
 EOF
 cat >"$uninstall_root/etc/init.d/mihowrt" <<EOF
 #!/bin/ash

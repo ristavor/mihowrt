@@ -46,6 +46,7 @@ ip() { :; }
 route_ipv6_enabled() { return 0; }
 nft_active() { [ ! -e "$test_root/missing" ]; }
 nft() {
+ [ "$1" != list ] || return 1
  [ "$1" != delete ] || { touch "$test_root/missing"; return 0; }
  [ "$1" = -f ] || exit 91
  echo apply >>"$test_root/applies"

@@ -364,6 +364,24 @@ seq(async () => {
  h.assertEq(proxyFirstOpts._mode.description, 'Everything goes via proxy except the addresses and devices below. ' + modeTail, 'proxy-first mode meaning first, then where it comes from');
  h.assertEq(proxyFirstOpts.block_client_ipv6.description, 'No effect in the current mode.', 'client IPv6 flag note in proxy-first');
  h.assertEq(proxyFirstOpts.block_client_ipv6.readonly, true, 'client IPv6 readonly in proxy-first');
+ const listWidget = proxyFirstOpts._direct.renderWidget();
+ const entryButton = findButton(listWidget, 'Entry format');
+ h.assert(entryButton, 'IP list has Entry format toggle');
+ const entryToggle = collect(listWidget).find(n => n.attrs.class === 'mw-toggle');
+ const entryHelp = entryToggle.children[1];
+ h.assertEq(entryHelp.hidden, true, 'entry syntax starts hidden');
+ h.assertEq(entryButton.attrs['aria-controls'], entryHelp.attrs.id, 'toggle controls syntax help');
+ entryButton.click();
+ h.assertEq(entryHelp.hidden, false, 'Entry format opens syntax');
+ h.assertEq(entryButton.attrs['aria-expanded'], 'true', 'open state accessible');
+ h.assertEq(entryButton.textContent, 'Hide entry format', 'open toggle label');
+ h.assert(texts(entryHelp).some(t => t.includes('Port syntax')), 'port syntax remains reachable');
+ h.assert(texts(entryHelp).some(t => t.includes('Site names')), 'site name restriction remains reachable');
+ entryButton.click();
+ h.assertEq(entryHelp.hidden, true, 'Hide entry format closes syntax');
+ h.assertEq(entryButton.attrs['aria-expanded'], 'false', 'closed state accessible');
+ h.assert(texts(api.style()).join('').includes('.mw-toggle > [hidden], .mw-page [hidden] { display: none; }'), 'toggle hiding works outside mw-page');
+
  h.assert((await renderTraffic({ dns: 'redir-host', provider: {}, lists: {} }))._mode.description === modeTail, 'unknown mode: only the origin note');
  opts = await renderTraffic(directFirstProfile);
  // Own msgid: LuCI's base catalog translates plain "Mode" as "Режим работы".

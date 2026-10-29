@@ -8,7 +8,7 @@
 |---|---|
 | Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
 | Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MiB) and *Restore the previous YAML* |
-| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, *Block external IPv6 from clients*, NTP and subscription DNS bypass, NetBird and *Mihomo dashboard*. One *Save & Apply* button applies lists and settings together |
+| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, *Block external IPv6 from clients*, NTP and subscription DNS bypass, NetBird, *Mihomo log level*, and *Mihomo dashboard*. One *Save & Apply* button applies lists and settings together |
 | Diagnostics | Checklist with fixes (core, config, service state and last error, DNS answers, rules, conflicting dnsmasq servers, conflicting proxy packages, free flash and RAM, open proxy ports), details (including Mihomo memory) and log |
 
 ### Dashboard
@@ -87,6 +87,10 @@ The mode follows the DNS settings of your YAML; there is no switch:
   The `IN-NAME` rule applies only in Mihomo `mode: rule`; `global` and `direct`
   modes ignore rules.
 
+In *All traffic via proxy except exclusions*, traffic originated by the router itself (such as WireGuard client tunnels, DDNS updates with `ip_source=web` which would register the proxy's IP, and Tailscale connections) is also intercepted and routed through Mihomo. To keep these direct, add their remote endpoints and server addresses to *Addresses always direct* (`direct_dst`).
+
+With fake-IP DNS, client queries receive synthetic `198.18.x.x` addresses. If your Mihomo rules send private ranges `DIRECT` (for example `GEOIP,private,DIRECT` or `IP-CIDR,192.168.0.0/16,DIRECT`), Mihomo resolves the hostname internally and connects from the router via local output. This bypasses dnsmasq DNS rebind protection and firewall guest→LAN isolation for those queries.
+
 Apart from the dedicated fake-IP direct-device inbound, Mihomo's own rules
 decide the outbound (proxy group or DIRECT). Domain filtering remains the
 provider's job; MihoWRT does not add vendor/private domains to `fake-ip-filter`.
@@ -141,3 +145,12 @@ A failed refresh reports an error even if some lists updated successfully; old c
 
 Provider list entries are validated the same way; invalid ones are dropped
 with a warning.
+
+## If internet is lost
+
+1. Open LuCI at your router address (usually `http://192.168.1.1`) — LuCI remains accessible without an internet connection.
+2. Go to **Services → MihoWRT → Overview** and press **Stop**, or run `service mihowrt stop` over SSH.
+3. Stopping cleanly removes MihoWRT DNS redirection and policy routing rules, restoring direct internet access immediately.
+4. If connectivity is restored, the issue is in your subscription, rules or nodes: check **Diagnostics** or read the journal with `logread -e mihowrt` (in LuCI: **Status → System Log**).
+5. "Stop" persists until reboot. To disable autostart across reboots, run `service mihowrt disable` over SSH.
+

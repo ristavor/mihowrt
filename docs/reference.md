@@ -50,6 +50,7 @@ allow-lan: true          # needed for the IPv6 TPROXY socket
 bind-address: "*"
 tun:
   enable: false
+log-level: <error|silent|warning|info|debug> # owned by UCI mihomo_log_level, default error
 profile:                 # selected servers and fake-ip mappings survive restarts
   store-selected: true
   store-fake-ip: true
@@ -75,6 +76,8 @@ style (`dns: {…}`, `x-mihowrt: {…}`) is rejected with an error. Changed runt
 own error message is shown in LuCI. The result is remembered in
 `/var/run/mihowrt/config.ok|config.err` for Diagnostics, so status never runs
 the core.
+
+MihoWRT manages `log-level` in `/tmp/mihowrt/config.yaml` based on UCI option `mihomo_log_level` (`silent`, `error`, `warning`, `info`, `debug`, default `error`). Using `error` avoids logging every TCP connection to syslog, protecting logd and diagnostics from CPU and memory exhaustion. Mihomo's external API (`/logs`) and the web dashboard still stream all log levels regardless of this setting.
 
 Geodata (GeoIP, GeoSite, ASN) follows your YAML: `geo-auto-update`,
 `geo-update-interval` and `geox-url` are not changed by MihoWRT. The files stay
@@ -151,6 +154,10 @@ zones; WAN link subnets keep their normal handling. Incoming NetBird traffic is 
 NetBird transport is captured only with *Route outbound NetBird through Mihomo*.
 
 The direct mark is `0x04000000`; the intercept mark is `0x08000000`. The NetBird mark must not overlap either. Network refreshes skip unchanged connected-prefix/DNS inputs; the applied nft ruleset is compared by hash. Hotplug events are coalesced rather than queued independently.
+
+In *All traffic via proxy* (proxy-first), router-originated traffic is also routed to Mihomo through the `mangle_output` catch-all. This includes WireGuard client tunnels, DDNS scripts (where `ip_source=web` resolves to the proxy IP), and Tailscale traffic. To keep such services direct, add their endpoints to `direct_dst` (*Addresses always direct*).
+
+Client interfaces with fw4 input policy set to `REJECT` (such as isolated guest or IoT zones) would normally reject redirected DNS (port 7874) and intercepted TPROXY traffic at the fw4 input chain before it reaches Mihomo. To maintain connectivity for these zones, `nft_apply` writes `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft` to accept packets matching the intercept mark or redirected DNS port before zone rules drop them. The file is written only when content changes (preventing flash wear), reloads fw4 on change, and is removed on service stop, disable, and uninstall.
 
 ### Hardware/software flow offloading
 
@@ -245,6 +252,7 @@ Other architecture names are not automatically supported. A local `--file` bypas
 | `/opt/clash/ui/` | Optional dashboard on flash |
 | `/tmp/clash/` | Runtime rulesets, providers, cache.db and controller socket |
 | `/var/run/mihowrt/` | Health, job state, locks, network fingerprint and config test stamp (tmpfs) |
+| `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft` | fw4 input include admitting intercepted TPROXY and redirected DNS from guest/isolated zones |
 | `/tmp/mihowrt/config.yaml` | Generated runtime config (`.profile`: mode and provider settings) |
 
 ## Known limits
@@ -260,6 +268,8 @@ Other architecture names are not automatically supported. A local `--file` bypas
   /16 (IPv4) or /32 (IPv6) are treated as local and go direct through the tunnel.
 - IPv6 fake-IP is not used. IPv6 destinations are handled by the lists and by
   the *All traffic* mode.
+- Proxy-first mode captures router-originated traffic: WireGuard clients, DDNS with `ip_source=web` (which registers the proxy IP), and Tailscale are routed through Mihomo unless their server and endpoint IPs/domains are explicitly placed in *Addresses always direct* (`direct_dst`).
+- Fake-IP bypass of rebind protection and guest isolation: With fake-IP DNS, clients receive synthetic addresses from `198.18.0.0/16`. If Mihomo routing rules send private subnets `DIRECT` (e.g. `GEOIP,private,DIRECT` or `IP-CIDR,192.168.0.0/16,DIRECT`), Mihomo resolves the target hostname itself and connects from the router via local output (`OUTPUT` chain), bypassing dnsmasq DNS rebind protection and fw4 guest-to-LAN forward isolation.
 - Clients using DoH/DoT (browser DoH, Android Private DNS) bypass Mihomo DNS,
   so fake-IP based routing does not apply to them.
 - The QEMU VM cannot test hardware offloading or real NetBird peers.

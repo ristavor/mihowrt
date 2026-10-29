@@ -92,6 +92,14 @@ rm /tmp/mihomo.gz /tmp/luci-app-mihowrt.apk  # use .ipk on 24.10
 
 For Russian, also run `apk add luci-i18n-base-ru` and `apk add --allow-untrusted ./luci-i18n-mihowrt-ru.apk`, or `opkg install luci-i18n-base-ru ./luci-i18n-mihowrt-ru.ipk`; remove that transferred file afterwards. Then follow steps 2–3 above. With no feed access, also bring all missing architecture/kernel-matched dependencies from the OpenWrt feeds. Local core installation skips the release digest check (logged), but still tests the core before replacing it. Packages are not signed; `SHA256SUMS` detects corruption, not a compromised release.
 
+## If internet is lost
+
+1. Open LuCI at your router address (usually `http://192.168.1.1`) — LuCI works without an internet connection.
+2. Go to **Services → MihoWRT → Overview** and press **Stop** (or run `service mihowrt stop` over SSH).
+3. Stopping removes MihoWRT DNS redirection and routing rules, restoring direct internet access.
+4. If internet returns, check **Diagnostics** or read the journal with `logread -e mihowrt` (or in LuCI: **Status → System Log**).
+5. "Stop" lasts until reboot. To prevent MihoWRT from starting on boot, run `service mihowrt disable` over SSH.
+
 ## FAQ
 
 - **Where is the mode switch?** There is none: the YAML DNS settings select *Only selected traffic via proxy* or *All traffic via proxy except exclusions*. See [modes](docs/user-guide.md#modes).

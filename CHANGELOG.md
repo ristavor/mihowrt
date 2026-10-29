@@ -10,6 +10,9 @@ Added
 - Provider-controlled blocking of client IPv6 that would bypass Mihomo, with local IPv6 and router/Mihomo traffic preserved. It is off by default, works only in *Only selected traffic via proxy* mode, and can be set by the provider (`x-mihowrt.block-client-ipv6`) or switched on the *Traffic* page (*Use my own value*).
 - *Devices always direct* now also works in *All traffic via proxy* with fake-IP DNS: connections of those devices to fake addresses go through a dedicated Mihomo listener (`mihowrt-direct`, port 7895) and are sent DIRECT. If the provider YAML cannot be extended safely (for example non-empty flow-style `listeners` or `rules`), the subscription still applies, a warning is logged and the devices follow the normal policy, as in 0.10.
 - Diagnostics warn about a plain-http subscription link and report proxy listeners that are open without a password, including the ones defined under `listeners:`.
+- Dependencies replaced `jq` with `ucode` (`mihowrt-json`) and added `cgi-io` for streaming backend JSON without extra fork/memory overhead.
+- Mihomo log level ownership (R4): managed via UCI `mihomo_log_level` (default `error` to prevent syslog/logd saturation from connection-level logging; the web dashboard continues streaming all levels).
+- Guest and isolated zones with fw4 `input REJECT` are admitted for redirected DNS and TPROXY via fw4 include `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft` (R3).
 
 Fixes
 - Replies to inbound connections (port forwards and router WAN services) are no longer intercepted. Routing rules use priorities 50–99 ahead of typical NetBird/mwan3 rules, and reject overlapping NetBird marks. Kernel-disabled IPv6 permits IPv4-only startup.
@@ -32,6 +35,10 @@ Fixes
 - Cached lists are kept when the provider profile cannot be read.
 - Core downloads use stall limits and retries instead of a fixed five-minute deadline; compressed downloads and test files are cleaned up earlier. Installed-core validation uses the running-core memory budget, while candidate-core validation keeps a smaller budget. Core updates worked in the 128 MiB VM with ≈6–8 MiB minimum MemAvailable; large YAML still needs more RAM.
 - The YAML renderer streams the source instead of storing the whole output; list resolution classifies entries in one pass, light status/job reads load fewer modules, and diagnostics read the package database once. These reduce transient work without adding a resident process.
+- Sysupgrade backup trims unneeded cache files to avoid backup bloat (R26): only `/etc/mihowrt/api_secret`, `/etc/mihowrt/hwid`, and `/etc/mihowrt/subscription.json` are retained. Lists re-download on first update after sysupgrade, and proxy-group selections stored in `cache.db` reset after sysupgrade.
+- Default provider cache directories `/opt/clash/proxies` and `/opt/clash/rules` are linked to tmpfs to eliminate flash wear on scheduled updates (R11); user-authored `type: file` providers must not live there.
+- Named routing tables in `/etc/iproute2/rt_tables` are reserved by the table allocator, and routing policy rules are added idempotently without failing on existing rules (R12).
+- Packaged entrypoints are hardened against environment seam overrides (`MIHOWRT_BACKEND`, `MIHOWRT_LIB_DIR`, etc.) via build-time variable binding and environment unsetting (R10).
 
 Project
 - User-focused English and Russian quick starts; separate user guide, technical reference and development/release instructions, including low-memory and dumb-AP limits.

@@ -138,7 +138,8 @@ for stop_lock in available busy; do
    assert_eq "$before" "$(stat -c '%i:%Y' "$FW4_INPUT_INCLUDE")" 'watchdog does not rewrite include'
    assert_eq write "$(cat "$cycle/include.writes")" 'watchdog performs no extra include write'
    assert_eq reload "$(cat "$cycle/fw4.calls")" 'watchdog performs no extra fw4 reload'
-   if [ "$probe_count" -eq 2 ]; then
+   # Recovery needs three good probes (2-4); probe 5 sees the recovered state.
+   if [ "$probe_count" -le 4 ]; then
     assert_true 'watchdog degraded before recovery' test -f "$DEGRADED_FILE"
     assert_false 'degradation deletes our table' test -e "$cycle/table"
    else
@@ -149,7 +150,7 @@ for stop_lock in available busy; do
    return 0
   }
   run_service || fail 'watchdog cycle must stop normally'
-  assert_eq 3 "$probe_count" 'test runs both degradation and recovery'
+  assert_eq 5 "$probe_count" 'test runs both degradation and recovery'
   assert_false 'final stop removes include' test -e "$FW4_INPUT_INCLUDE"
   assert_eq $'reload\nreload' "$(cat "$cycle/fw4.calls")" 'only startup and final stop reload fw4'
  )

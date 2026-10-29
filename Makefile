@@ -66,7 +66,7 @@ define Package/$(PKG_NAME)/install
 
 	$(INSTALL_DIR) $(1)/usr/lib/mihowrt
 	$(CP) ./rootfs/usr/lib/mihowrt/* $(1)/usr/lib/mihowrt/
-	sed -i -f ./tools/harden.sed $(1)/usr/bin/mihowrt $(1)/usr/bin/mihowrt-read $(1)/usr/lib/mihowrt/helpers.sh
+	sed -i -f ./tools/harden.sed $(1)/usr/bin/mihowrt $(1)/usr/bin/mihowrt-read $(1)/usr/lib/mihowrt/helpers.sh $(1)/etc/init.d/mihowrt
 	sed -i 's/^PKG_VERSION=.*/PKG_VERSION="$(PKG_VERSION)"/' $(1)/usr/lib/mihowrt/constants.sh
 
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d

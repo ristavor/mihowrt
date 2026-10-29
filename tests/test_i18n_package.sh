@@ -28,6 +28,9 @@ assert_file_contains "$tmpdir/root/usr/lib/mihowrt/constants.sh" 'PKG_VERSION="9
 # Exercise the installed bootstrap before any module load or command dispatch.
 read -r -a seams <<<"$(sed -n 's/^unset \(.*\)\\$/\1/p' "$ROOT_DIR/tools/harden.sed")"
 [[ ${#seams[@]} -gt 0 ]] || fail 'package hardening must unset environment seams'
+for name in https_proxy HTTPS_PROXY http_proxy HTTP_PROXY ALL_PROXY all_proxy no_proxy NO_PROXY CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR CURL_HOME; do
+ [[ " ${seams[*]} " == *" $name "* ]] || fail "package hardening must unset $name"
+done
 mapfile -t defaults < <(find "$ROOT_DIR/rootfs/usr" -type f \( -name '*.sh' -o -path "$ROOT_DIR/rootfs/usr/bin/*" \) \
  -exec grep -ohE '\$\{[a-zA-Z_][a-zA-Z0-9_]*:-' {} + | sed 's/^${//; s/:-$//' | sort -u)
 [[ ${#defaults[@]} -gt 0 ]] || fail 'shell environment defaults must be discovered'
@@ -66,6 +69,12 @@ for entry in mihowrt mihowrt-read; do
  done
  assert_true "$entry sets a trusted PATH" grep -qxF 'PATH=/usr/sbin:/usr/bin:/sbin:/bin' "$tmpdir/environment"
 done
+# The init script runs with the caller's environment under an rpcd write ACL: fix its PATH.
+init_installed="$tmpdir/root/etc/init.d/mihowrt"
+assert_file_not_contains "$init_installed" 'MIHOWRT_PACKAGE_HARDEN' 'installed init script has no hardening marker'
+assert_eq 'PATH=/usr/sbin:/usr/bin:/sbin:/bin' "$(sed -n '2p' "$init_installed")" 'init script fixes PATH right after the shebang'
+assert_file_contains "$ROOT_DIR/rootfs/etc/init.d/mihowrt" '# MIHOWRT_PACKAGE_HARDEN_PATH' 'source init script keeps its marker'
+sh -n "$init_installed"
 assert_file_contains "$tmpdir/root/usr/bin/mihowrt" 'LIB=/usr/lib/mihowrt' 'installed CLI fixes library path'
 assert_file_contains "$tmpdir/root/usr/bin/mihowrt-read" 'BACKEND=/usr/bin/mihowrt' 'installed read wrapper fixes backend'
 assert_eq /usr/lib/mihowrt "$(MIHOWRT_LIB_DIR=/tmp/hostile ash -c '. "$1"; mihowrt_lib_dir' sh "$tmpdir/root/usr/lib/mihowrt/helpers.sh")" 'installed helpers ignore library override'

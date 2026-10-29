@@ -257,6 +257,10 @@ Other architecture names are not automatically supported. A local `--file` bypas
 | `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft` | fw4 input include admitting intercepted TPROXY and redirected DNS from guest/isolated zones |
 | `/tmp/mihowrt/config.yaml` | Generated runtime config (`.profile`: mode and provider settings) |
 
+## Security notes
+
+Packaged entrypoints ignore test-seam variables, proxy and curl environment variables (`https_proxy`, `CURL_CA_BUNDLE`, `SSL_CERT_*` and similar) and use a fixed `PATH`. `LD_PRELOAD` set by a holder of the rpcd write ACL is out of scope: that ACL is root-equivalent on the router, as for every LuCI app.
+
 ## Known limits
 
 - Dumb AP mode: if the default route is via the LAN bridge, MihoWRT treats that bridge as WAN and does not exclude its non-RFC1918 connected subnets. This follows the connected-network algorithm; do not assume AP mode has the same exclusions as routed LAN mode.

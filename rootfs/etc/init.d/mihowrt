@@ -1,4 +1,5 @@
 #!/bin/sh /etc/rc.common
+# MIHOWRT_PACKAGE_HARDEN_PATH
 
 START=21
 STOP=79

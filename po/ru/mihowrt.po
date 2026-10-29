@@ -32,7 +32,7 @@ msgid "Without a subscription only the YAML you entered is used."
 msgstr "Без подписки используется только введённый вами YAML."
 
 msgid "Service is running"
-msgstr "Сервис запущен"
+msgstr "Служба MihoWRT работает"
 
 msgid "Press Start on Overview. If it stops again, check the log below."
 msgstr "Нажмите «Запустить» на странице «Обзор». Если сервис снова остановится, посмотрите журнал ниже."
@@ -851,7 +851,7 @@ msgid "Free temporary storage"
 msgstr "Свободно во временном хранилище"
 
 msgid "Install dashboard"
-msgstr "Установить панель"
+msgstr "Установить панель Mihomo"
 
 msgid "Downloads the Mihomo web panel (about %s MB) to the router."
 msgstr "Скачает веб-панель Mihomo (около %s МБ) на роутер."
@@ -877,11 +877,8 @@ msgstr "Отмена"
 msgid "Update"
 msgstr "Обновить"
 
-msgid "Install dashboard"
-msgstr "Установить панель"
-
 msgid "Remove dashboard"
-msgstr "Удалить панель"
+msgstr "Удалить панель Mihomo"
 
 msgid "MihoWRT restarts after the update; the internet drops for a few seconds."
 msgstr "После обновления MihoWRT перезапустится — интернет пропадёт на несколько секунд."
@@ -985,8 +982,8 @@ msgstr "Настройки MihoWRT повреждены. Сохраните ст
 msgid "Mihomo configuration file not found: %s"
 msgstr "Файл конфигурации Mihomo не найден: %s"
 
-msgid "Failed to apply nftables policy: see %s"
-msgstr "Не удалось применить правила nftables: см. %s"
+msgid "Failed to apply nftables policy: see %s. Restart MihoWRT; if it happens again, see the log on Diagnostics."
+msgstr "Не удалось применить правила nftables: см. %s. Перезапустите MihoWRT; если повторится — см. журнал в «Диагностике»."
 
 msgid "Install the Mihomo core first (Overview page)."
 msgstr "Сначала установите ядро Mihomo на странице «Обзор»."
@@ -1026,9 +1023,6 @@ msgstr "Отключить подписку?"
 
 msgid "MihoWRT keeps the current YAML, but it will no longer be updated."
 msgstr "MihoWRT продолжит работать с текущим YAML, но он больше не будет обновляться."
-
-msgid "Cancel"
-msgstr "Отмена"
 
 msgid "Disable"
 msgstr "Отключить"

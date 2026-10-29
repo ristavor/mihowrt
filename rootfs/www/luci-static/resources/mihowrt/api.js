@@ -141,7 +141,7 @@ function backendErrorText(message) {
 	if ((m = /^Mihomo config not found: (\S+)$/.exec(raw)))
 		return _('Mihomo configuration file not found: %s').format(m[1]);
 	if ((m = /^Failed to apply nftables policy \(see (\S+)\)$/.exec(raw)))
-		return _('Failed to apply nftables policy: see %s').format(m[1]);
+		return _('Failed to apply nftables policy: see %s. Restart MihoWRT; if it happens again, see the log on Diagnostics.').format(m[1]);
 	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
 		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
 	if (raw === 'Start MihoWRT before installing the dashboard.')

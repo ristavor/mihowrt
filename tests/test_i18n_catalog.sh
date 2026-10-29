@@ -18,12 +18,21 @@ const po = fs.readFileSync(path.join(root, 'po/ru/mihowrt.po'), 'utf8');
 const catalog = new Set();
 for (const m of po.matchAll(/^msgid(?:_plural)? (".*")(?:\n".*")*/gm)) {
  const value = m[0].replace(/^msgid(?:_plural)? /, '').split('\n').map(s => JSON.parse(s)).join('');
- if (value) catalog.add(value);
+ if (value) {
+  assert(!catalog.has(value), 'duplicate msgid: ' + value);
+  catalog.add(value);
+ }
 }
 const missing = [...strings].filter(s => !catalog.has(s));
 const obsolete = [...catalog].filter(s => !strings.has(s) && !['Overview'].includes(s));
 assert.deepStrictEqual(missing, [], 'missing translations');
 assert.deepStrictEqual(obsolete, [], 'obsolete translations');
 assert(po.includes('Plural-Forms: nplurals=3;'), 'Russian plural header');
+for (const [id, translated] of [
+ ['Service is running', 'Служба MihoWRT работает'],
+ ['Install dashboard', 'Установить панель Mihomo'],
+ ['Remove dashboard', 'Удалить панель Mihomo']
+]) assert(po.includes('msgid ' + JSON.stringify(id) + '\nmsgstr ' + JSON.stringify(translated)), 'glossary: ' + id);
+
 console.log('ok - exact JS translation catalog including plurals');
 NODE

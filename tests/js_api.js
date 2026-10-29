@@ -268,7 +268,7 @@ const BACKEND_ERRORS = [
 	['MihoWRT could not start. See the system log.', 'MihoWRT could not start. See the log on the Diagnostics page.'],
 	['Invalid MihoWRT settings', 'MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.'],
 	['Mihomo config not found: /etc/mihowrt/clash.yaml', 'Mihomo configuration file not found: /etc/mihowrt/clash.yaml'],
-	['Failed to apply nftables policy (see /tmp/ruleset.nft)', 'Failed to apply nftables policy: see /tmp/ruleset.nft']
+	['Failed to apply nftables policy (see /tmp/ruleset.nft)', 'Failed to apply nftables policy: see /tmp/ruleset.nft. Restart MihoWRT; if it happens again, see the log on Diagnostics.']
 ];
 test('errorText maps backend errors to plain words and is idempotent', () => {
 	const { api } = setup();

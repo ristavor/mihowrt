@@ -394,6 +394,9 @@ msgstr "неизвестно"
 msgid "\"%s\" has invalid lines: %s"
 msgstr "В поле «%s» неверные строки: %s"
 
+msgid "\"%s\" has invalid lines: %s. Only IP addresses, subnets and list links are allowed here — not site names."
+msgstr "В поле «%s» неверные строки: %s. Здесь можно указывать только IP-адреса, подсети и ссылки на списки, но не названия сайтов."
+
 msgid "Overview"
 msgstr "Обзор"
 

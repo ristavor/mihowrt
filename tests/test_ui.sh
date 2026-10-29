@@ -210,7 +210,7 @@ seq(async () => {
 	h.assertEq(tv.saving, false, 'invalid list is handled without rejecting the footer action');
 	h.assertEq(tv.edited.dst, 'abc', 'invalid list edit retained');
 	h.assertEq(tv.lists.dst, '', 'installed list unchanged');
-	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc', 'lists applied before map.save; error shown');
+	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc. Only IP addresses, subnets and list links are allowed here — not site names.', 'lists applied before map.save; error shown');
 	console.log('ok - traffic save order');
 });
 

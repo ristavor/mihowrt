@@ -137,6 +137,20 @@ function backendErrorText(message) {
 		return _('MihoWRT could not start. See the log on the Diagnostics page.');
 	if (lastLine === 'Invalid MihoWRT settings')
 		return _('MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.');
+	if ((m = match(/^Invalid (dst|direct) entries: (.*)$/))) {
+		const titles = {
+			dst: _('Addresses via proxy'),
+			direct: _('Addresses always direct')
+		};
+		return _('"%s" has invalid lines: %s. Only IP addresses, subnets and list links are allowed here — not site names.').format(titles[m[1]] || m[1], m[2]);
+	}
+	if ((m = match(/^Invalid (src|direct_src) entries: (.*)$/))) {
+		const titles = {
+			src: _('Devices via proxy'),
+			direct_src: _('Devices always direct')
+		};
+		return _('"%s" has invalid lines: %s').format(titles[m[1]] || m[1], m[2]);
+	}
 	if ((m = match(/^Mihomo config not found: (\S+)$/)))
 		return _('Mihomo configuration file not found: %s').format(m[1]);
 	if ((m = match(/^Failed to apply nftables policy \(see (\S+)\)$/)))

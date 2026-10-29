@@ -267,6 +267,9 @@ const BACKEND_ERRORS = [
 	['Mihomo hot reload failed', 'Mihomo could not apply the new configuration; the previous one is kept.'],
 	['MihoWRT could not start. See the system log.', 'MihoWRT could not start. See the log on the Diagnostics page.'],
 	['Invalid MihoWRT settings', 'MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.'],
+	['Invalid dst entries: youtube.com (1 total)', '"Addresses via proxy" has invalid lines: youtube.com (1 total). Only IP addresses, subnets and list links are allowed here — not site names.'],
+	['Invalid direct entries: bad.com', '"Addresses always direct" has invalid lines: bad.com. Only IP addresses, subnets and list links are allowed here — not site names.'],
+	['Invalid src entries: 1.1.1.1', '"Devices via proxy" has invalid lines: 1.1.1.1'],
 	['Mihomo config not found: /etc/mihowrt/clash.yaml', 'Mihomo configuration file not found: /etc/mihowrt/clash.yaml'],
 	['Failed to apply nftables policy (see /tmp/ruleset.nft)', 'Failed to apply nftables policy: see /tmp/ruleset.nft. Restart MihoWRT; if it happens again, see the log on Diagnostics.']
 ];

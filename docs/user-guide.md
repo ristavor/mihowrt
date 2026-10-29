@@ -146,6 +146,8 @@ A failed refresh reports an error even if some lists updated successfully; old c
 Provider list entries are validated the same way; invalid ones are dropped
 with a warning.
 
+**Can I add a site like youtube.com?** Not in these lists: they take IP addresses only. Which sites use the proxy is decided by your subscription's rules; ask your provider, or edit `rules` in the YAML (advanced).
+
 ## If internet is lost
 
 1. Open LuCI at your router address (usually `http://192.168.1.1`) — LuCI remains accessible without an internet connection.

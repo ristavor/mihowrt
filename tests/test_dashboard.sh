@@ -66,7 +66,7 @@ printf '%s\n' "\$*" >>"$tmpdir/init-calls"
 if [ "\$(uci -q get mihowrt.settings.dashboard)" = 0 ] && [ -d "$CLASH_DIR/ui" ]; then
  printf '%s\n' "\$*" >"$tmpdir/rollback-before-cleanup"
 fi
-[ "\$RESTART_FAIL" = 0 ] || exit 1
+[ "\$RESTART_FAIL" = 0 ] || [ "\$(uci -q get mihowrt.settings.dashboard)" = 0 ] || exit 1
 if [ "\$DOWNLOAD" = 1 ]; then
  mkdir -p "$CLASH_DIR/ui"; printf panel >"$CLASH_DIR/ui/index.html"
 fi
@@ -114,6 +114,8 @@ RESTART_FAIL=1
 if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'restart failure must fail'; fi
 assert_eq 0 "$(uci_get dashboard)" 'restart failure resets flag'
 assert_file_contains "$tmpdir/error" 'Could not download the dashboard. Check that GitHub is reachable from the router.' 'restart failure exact error'
+assert_eq 2 "$reloads" 'restart failure rollback must not use a no-op service_reload'
+assert_eq 4 "$(wc -l <"$tmpdir/init-calls")" 'restart failure retries restart with dashboard disabled'
 RESTART_FAIL=0
 pass 'dashboard install timeout and restart failure roll back'
 

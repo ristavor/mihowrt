@@ -151,7 +151,8 @@ NTP are never intercepted. Networks connected to the router (routes without
 `via` in the main table: LAN, guest, IoT, delegated IPv6 prefixes) are never
 intercepted either, so they cannot be sent into TPROXY or bypass the firewall
 zones; WAN link subnets keep their normal handling. Incoming NetBird traffic is never touched; outbound
-NetBird transport is captured only with *Route outbound NetBird through Mihomo*.
+NetBird transport is captured only with *Route outbound NetBird through proxy*.
+Management, signal, relay, ICE and WireGuard transport then follow your Mihomo rules (they may still go DIRECT); data-plane traffic stays direct.
 
 The direct mark is `0x04000000`; the intercept mark is `0x08000000`. The NetBird mark must not overlap either. Network refreshes skip unchanged connected-prefix/DNS inputs; the applied nft ruleset is compared by hash. Hotplug events are coalesced rather than queued independently.
 

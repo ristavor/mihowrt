@@ -23,7 +23,7 @@ msgid "Configuration is valid"
 msgstr "Конфигурация корректна"
 
 msgid "Update the subscription or fix the YAML on the Subscription page."
-msgstr "Обновите подписку или исправьте YAML на странице «Подписка»."
+msgstr "Обновите подписку или исправьте конфигурацию (раздел «Дополнительно» на странице «Подписка»)."
 
 msgid "Subscription configured"
 msgstr "Подписка настроена"
@@ -41,7 +41,7 @@ msgid "Mihomo answers DNS queries"
 msgstr "Mihomo отвечает на DNS-запросы"
 
 msgid "Mihomo cannot resolve names: check that the proxy servers and DNS servers in the config are reachable."
-msgstr "Mihomo не может разрешать имена: проверьте, что прокси-серверы и DNS-серверы из конфигурации доступны."
+msgstr "Mihomo не может разрешать имена: проверьте, что серверы и DNS-серверы из конфигурации доступны."
 
 msgid "Traffic rules are active"
 msgstr "Правила трафика активны"
@@ -355,8 +355,8 @@ msgstr "В текущем режиме не действует."
 msgid "Redirect client DNS to Mihomo"
 msgstr "Перенаправлять DNS клиентов в Mihomo"
 
-msgid "Devices with their own DNS still work via proxy."
-msgstr "Устройства с собственным DNS тоже будут работать через прокси."
+msgid "Plain-DNS requests to a DNS server set on the device are still answered by Mihomo. Encrypted DNS (DoH/DoT) is not intercepted."
+msgstr "Запросы к DNS-серверу, заданному на самом устройстве, всё равно обрабатывает Mihomo. Шифрованный DNS (DoH/DoT) не перехватывается."
 
 msgid "Block QUIC for proxied traffic"
 msgstr "Блокировать QUIC для трафика через прокси"
@@ -367,8 +367,8 @@ msgstr "Отключает HTTP/3, чтобы сайты через прокси
 msgid "Time sync without Mihomo"
 msgstr "Синхронизация времени без Mihomo"
 
-msgid "Router clock stays synced even if the proxy is not working."
-msgstr "Часы роутера синхронизируются, даже если прокси не работает."
+msgid "Time sync (NTP) keeps working even if the proxy is not working."
+msgstr "Синхронизация времени (NTP) работает, даже если прокси не работает."
 
 msgid "Subscription server without Mihomo"
 msgstr "Сервер подписки без Mihomo"
@@ -379,8 +379,8 @@ msgstr "Подписка скачивается напрямую, даже ес�
 msgid "Route outbound NetBird through proxy"
 msgstr "Пускать исходящий NetBird через прокси"
 
-msgid "Outbound NetBird traffic goes via proxy."
-msgstr "Исходящий трафик NetBird идёт через прокси."
+msgid "Outbound NetBird connections are handed to the proxy, which applies your rules."
+msgstr "Исходящие соединения NetBird передаются прокси, дальше действуют ваши правила."
 
 msgid "Remote lists"
 msgstr "Списки по ссылкам"
@@ -569,7 +569,7 @@ msgid "Open Diagnostics"
 msgstr "Открыть «Диагностику»"
 
 msgid "Test servers of %s"
-msgstr "Замерить серверы группы %s"
+msgstr "Проверить отклик серверов группы %s"
 
 msgid "The previous link is kept."
 msgstr "Прежняя ссылка сохранена."
@@ -787,8 +787,8 @@ msgstr "IP-адрес"
 msgid "%s (%s, private MAC)"
 msgstr "%s (%s, частный MAC)"
 
-msgid "If a device uses a private Wi-Fi address, make it static for this network."
-msgstr "Если у устройства частный адрес Wi-Fi, сделайте его постоянным для этой сети."
+msgid "If a device uses a private Wi-Fi address, make it fixed for this network, or the entry stops matching."
+msgstr "Если у устройства частный адрес Wi-Fi, сделайте его постоянным для этой сети, иначе запись перестанет совпадать."
 
 msgid "Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again."
 msgstr "Списки применены, но сохранить настройки не удалось: %s. Проверьте настройки и снова нажмите «Сохранить и применить»."

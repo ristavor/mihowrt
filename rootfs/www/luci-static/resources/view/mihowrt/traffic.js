@@ -218,11 +218,11 @@ return view.extend({
 		const ipv6Flag = flag('block_client_ipv6', _('Block external IPv6 from clients'), ipv6Desc, '0');
 		if (proxyFirst)
 			ipv6Flag.readonly = true;
-		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with their own DNS still work via proxy.'));
+		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Plain-DNS requests to a DNS server set on the device are still answered by Mihomo. Encrypted DNS (DoH/DoT) is not intercepted.'));
 		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Disables HTTP/3 so sites work more reliably through the proxy.'));
-		flag('bypass_ntp', _('Time sync without Mihomo'), _('Router clock stays synced even if the proxy is not working.'));
+		flag('bypass_ntp', _('Time sync without Mihomo'), _('Time sync (NTP) keeps working even if the proxy is not working.'));
 		flag('bypass_subscription_dns', _('Subscription server without Mihomo'), _('Subscription downloads directly even if the proxy is not working.'));
-		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through proxy'), _('Outbound NetBird traffic goes via proxy.'));
+		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through proxy'), _('Outbound NetBird connections are handed to the proxy, which applies your rules.'));
 		o.default = '0';
 		o.rmempty = false;
 
@@ -326,7 +326,7 @@ return view.extend({
 			: E('div', { class: 'cbi-value-description' }, text(_('No devices in the DHCP list yet. Type a MAC address by hand, e.g. aa:bb:cc:dd:ee:ff.')));
 		return E('div', {}, [ node, pickerRow,
 			description ? E('div', { class: 'cbi-value-description' }, text(description + (all.some(isPrivate)
-				? ' ' + _('If a device uses a private Wi-Fi address, make it static for this network.') : ''))) : '', missing ]);
+				? ' ' + _('If a device uses a private Wi-Fi address, make it fixed for this network, or the entry stops matching.') : ''))) : '', missing ]);
 	},
 
 	handleSave: null,

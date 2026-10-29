@@ -42,10 +42,12 @@ for (const [id, translated] of [
 ]) assert(po.includes('msgid ' + JSON.stringify(id) + '\nmsgstr ' + JSON.stringify(translated)), 'glossary: ' + id);
 
 const msgstrs = [...po.matchAll(/msgstr(?:\[\d+\])?\s+(".*"(?:\s*\n".*")*)/g)].map(m => m[1]);
+msgstrs.push(JSON.stringify(fs.readFileSync(path.join(root, 'README.ru.md'), 'utf8')));
 for (const str of msgstrs) {
  const text = JSON.parse('[' + str.replace(/\n/g, ',') + ']').join('');
- assert(!/(?:GiB|MiB|KiB)/.test(text), 'forbidden GiB/MiB/KiB in Russian translation: ' + text);
+ assert(!/(?:GiB|MiB|KiB|ГиБ|МиБ|КиБ)/.test(text), 'forbidden GiB/MiB/KiB in Russian translation: ' + text);
  assert(!/удалённ\S*\s+списк/i.test(text), 'forbidden удалённые списки in Russian translation: ' + text);
+ assert(!/(?:профил|провайдер|прокси-сервер|Обновить сейчас|веб-панел|системный журнал)/i.test(text), 'forbidden glossary term: ' + text);
  const serviceMatches = [...text.matchAll(/(?<!VPN-)[Сс]ервис\S*/gi)];
  assert.strictEqual(serviceMatches.length, 0, 'forbidden сервис (as MihoWRT) in Russian translation: ' + text);
 }

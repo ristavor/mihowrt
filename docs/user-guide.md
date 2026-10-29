@@ -69,6 +69,8 @@ Phones and laptops use a private (random) Wi-Fi address per network:
 
 ### Modes
 
+The client DNS redirect handles plain DNS on port 53; encrypted DNS (DoH/DoT) is not intercepted.
+
 The mode follows the DNS settings of your YAML; there is no switch:
 
 - **Only selected traffic via proxy**: only when `dns.enhanced-mode` is

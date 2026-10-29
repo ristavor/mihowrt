@@ -352,6 +352,10 @@ seq(async () => {
  };
  const directFirstProfile = { mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } };
  let opts = await renderTraffic(directFirstProfile);
+ h.assertEq(opts.dns_hijack.description, 'Plain-DNS requests to a DNS server set on the device are still answered by Mihomo. Encrypted DNS (DoH/DoT) is not intercepted.', 'DNS caveat is explicit');
+ h.assertEq(opts.netbird_proxy.description, 'Outbound NetBird connections are handed to the proxy, which applies your rules.', 'NetBird follows rules');
+ h.assertEq(opts.bypass_ntp.description, 'Time sync (NTP) keeps working even if the proxy is not working.', 'NTP includes clients');
+
  h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'mode value is only the label and its reason');
  const modeTail = 'Your subscription chooses the mode; it cannot be changed here.';
  h.assertEq(opts._mode.description, 'Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct. ' + modeTail, 'direct-first mode meaning first, then where it comes from');
@@ -1750,7 +1754,7 @@ seq(async () => {
   }
  });
  await check('private mac marked, no notification', async () => {
-  const help = 'If a device uses a private Wi-Fi address, make it static for this network.';
+  const help = 'If a device uses a private Wi-Fi address, make it fixed for this network, or the entry stops matching.';
   const t = setup(), p = picker(t, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01', ipaddr: '192.168.1.7' }, { macaddr: 'DA:A1:19:00:00:02' }, { hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] }, '', 'Devices text.');
   h.assertEq(texts(p.select.children[1]).join(''), 'phone (192.168.1.7, private MAC)', 'private MAC marked in the option');
   h.assertEq(texts(p.select.children[2]).join(''), 'unknown (DA:A1:19:00:00:02, private MAC)', 'private MAC without host or IP');

@@ -23,7 +23,7 @@ start_service() {
 		rm -f "$SKIP_START_FILE"
 		[ -n "$skip" ] && return 0
 	fi
-	mkdir -p "$PKG_STATE_DIR" || return 1
+	(umask 077 && mkdir -p "$PKG_STATE_DIR") || return 1
 	rm -f "$USER_STOP_FILE" "$LAST_ERROR_FILE" "$HEALTH_FILE" "$DEGRADED_FILE" "$CONFIG_INVALID_FILE"
 	# prepare records its error in LAST_ERROR_FILE; warnings stay quiet.
 	"$MIHOWRT" prepare 2>/dev/null || {
@@ -46,7 +46,7 @@ start_service() {
 }
 
 stop_service() {
-	mkdir -p "${USER_STOP_FILE%/*}" && : >"$USER_STOP_FILE"
+	(umask 077 && mkdir -p "${USER_STOP_FILE%/*}") && : >"$USER_STOP_FILE"
 }
 
 # Make stop synchronous and clear leftovers if run-service was killed.

@@ -27,6 +27,8 @@ function E(tag, attrs, children) {
 	if (Array.isArray(children) && children.some(c => c === null))
   throw new Error(`E('${tag}') would render literal null text`);
  const n = { tag, attrs: attrs || {}, children: children || [], listeners: {}, classList: { add() {}, remove() {} } };
+ n.click = function() { return this.listeners.click?.(); };
+ n.hasAttribute = name => name in n.attrs;
  n.setAttribute = (k, v) => { n.attrs[k] = v; };
  n.addEventListener = (type, fn) => { n.listeners[type] = fn; };
  n.appendChild = c => n.children.push(c);
@@ -41,7 +43,12 @@ function E(tag, attrs, children) {
 let chain = Promise.resolve();
 const seq = fn => (chain = chain.then(fn));
 const textareaOptions = [];
-const ui = { addNotification() {}, Textarea: class {
+const ui = {
+ addNotification() {},
+ activeModal: null,
+ showModal(title, children) { this.activeModal = { title, children }; },
+ hideModal() { this.activeModal = null; },
+ Textarea: class {
  constructor(value, options) { this.value = value; this.options = options; textareaOptions.push(options); }
  render() {
   const area = E('textarea', { id: 'widget.' + this.options.id, class: 'cbi-input-textarea' }, [this.value]);
@@ -63,6 +70,10 @@ h.assertEq(api.subscriptionError, undefined, 'redundant subscription error alias
 console.log('ok - api helpers');
 
 function collect(node, out = []) {
+	if (Array.isArray(node)) {
+		node.forEach((c) => collect(c, out));
+		return out;
+	}
 	if (node && typeof node === 'object') {
 		out.push(node);
 		(node.children || []).forEach((c) => collect(c, out));
@@ -414,7 +425,8 @@ seq(async () => {
   await nodes.find(n => n.tag === 'button' && texts(n).includes('Update now')).listeners.click();
   h.assertEq(notices.at(-1), 'Subscription is up to date.', 'unchanged update notice');
   h.assert(texts(p).includes('Link to a Clash/Mihomo (YAML) subscription from your provider. Leave empty to manage the YAML yourself.'), 'Clash URL hint');
-  h.assert(texts(p).includes('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'), 'Advanced update warning');
+  h.assert(texts(p).includes('An update of the subscription (also automatic) replaces your edits.'), 'Advanced update warning');
+  h.assert(texts(p).includes('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden.'), 'Advanced technical note');
  }
  // Exercise the widget contract and handlers using the actual returned textarea.
  const yamlUploads = [], confirmations = [];
@@ -989,7 +1001,12 @@ seq(async () => {
    ['', [['write','set-subscription','','1']]]
   ]) {
    const p = await render(); collect(p).find(n => n.attrs.id === 'mw-url').value = link;
-   calls = []; restoreNotices.length = 0; await button(p, 'Save').listeners.click();
+   calls = []; restoreNotices.length = 0;
+   const savePromise = button(p, 'Save').listeners.click();
+   if (link === '' && ui.activeModal) {
+    collect(ui.activeModal.children).find(n => n.tag === 'button' && texts(n).includes('Disable'))?.listeners?.click();
+   }
+   await savePromise;
    h.assertEq(JSON.stringify(calls), JSON.stringify(expected), 'save sequence for ' + (link || 'empty link'));
    h.assertEq(restoreNotices[0], link === 'https://new.example' ? 'Subscription is up to date.' : 'Subscription settings saved.', 'save notice for ' + (link || 'empty link'));
   }
@@ -1035,7 +1052,11 @@ seq(async () => {
   h.assertEq(notices.length, 1, 'empty link refused: one notice');
   h.assertEq(notices[0].level, 'error', 'empty link refused: error notice');
   h.assertEq(texts(notices[0].node).join(''), message, 'empty link refused: explanation');
-  await findButton(p, 'Save').listeners.click();
+  const savePromise = findButton(p, 'Save').listeners.click();
+  if (ui.activeModal) {
+   collect(ui.activeModal.children).find(n => n.tag === 'button' && texts(n).includes('Disable'))?.listeners?.click();
+  }
+  await savePromise;
   h.assertEq(JSON.stringify(calls), JSON.stringify([['write', 'set-subscription', '', '1']]), 'Save still accepts an empty link');
  }
  const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
@@ -1778,6 +1799,70 @@ seq(async () => {
   h.assert(texts(item(pCoreMissing, 'MihoWRT is not running')).includes('Install the Mihomo core first (Overview page).'), 'core missing hint');
   const pConfigBad = render({ ...healthy, state: 'failed', core_installed: true, config_valid: false });
   h.assert(texts(item(pConfigBad, 'MihoWRT is not running')).includes('Fix the configuration first (see the item above), then press Start on Overview.'), 'config invalid hint');
+ });
+ await check('R40 subscription improvements', async () => {
+  const windowListeners = {}, windowRemoved = {};
+  const mockWindow = {
+   addEventListener(event, fn) { windowListeners[event] = fn; },
+   removeEventListener(event, fn) { windowRemoved[event] = fn; delete windowListeners[event]; }
+  };
+  function DOM(tag, attrs, children) {
+   const n = E(tag, attrs, children); n.value = n.attrs.value || ''; n.checked = n.attrs.checked != null;
+   n.replaceChildren = (...nodes) => { n.children = nodes; };
+   return n;
+  }
+  let reloads = 0;
+  const mockApi = {
+   ...api, ...readStubs, jobRunning: false,
+   read: async (cmd) => {
+    if (cmd === 'subscription-json') throw new Error('sub read failed');
+    return {};
+   },
+   readLarge: async () => ({ content: 'yaml: test' }),
+   upload: async () => '/tmp/cfg',
+   job: async () => ({ action: 'saved' }),
+   reloadWithNotice: () => { reloads++; }
+  };
+  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E: DOM, ui, Blob, api: mockApi, view: { extend: v => v }, window: mockWindow,
+   location: { reload: () => { reloads++; } }
+  }).module;
+
+  const errData = await sv.load();
+  const errPage = sv.render(errData);
+  h.assert(texts(errPage).some(t => t.includes('Cannot load subscription settings: sub read failed')), 'load error shows alert');
+  const retryBtn = collect(errPage).find(n => n.tag === 'button' && texts(n).includes('Try again'));
+  h.assert(retryBtn, 'load error has retry button');
+  retryBtn.listeners.click();
+  h.assertEq(reloads, 1, 'retry button reloads');
+
+  const svOk = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E: DOM, ui, Blob, view: { extend: v => v }, window: mockWindow,
+   api: { ...mockApi, read: async () => ({ url: 'https://sub.example', auto_update: true }) },
+   location: { reload: () => { reloads++; } }
+  }).module;
+  const page = svOk.render(await svOk.load());
+
+  h.assert(collect(page).some(n => n.attrs.class === 'alert-message warning' && texts(n).includes('An update of the subscription (also automatic) replaces your edits.')), 'overwrite note is alert-message warning');
+
+  const formNode = collect(page).find(n => n.tag === 'form');
+  h.assert(formNode, 'form wraps URL input');
+  const urlInput = collect(formNode).find(n => n.attrs.id === 'mw-url');
+  h.assert(urlInput, 'url input is inside form');
+  let prevented = false;
+  formNode.listeners.submit({ preventDefault: () => { prevented = true; } });
+  h.assert(prevented, 'form submit calls preventDefault');
+
+  urlInput.value = '';
+  ui.activeModal = null;
+  collect(page).find(n => n.tag === 'button' && texts(n).includes('Save')).listeners.click();
+  h.assert(ui.activeModal && ui.activeModal.title === 'Stop using the subscription?', 'modal shown on empty URL save');
+  h.assert(texts(ui.activeModal.children).includes('MihoWRT keeps the current YAML, but it will no longer be updated.'), 'modal description');
+
+  h.assert(windowListeners.beforeunload, 'beforeunload listener registered');
+  const fakeEvent = { preventDefault() { this.defaultPrevented = true; } };
+  windowListeners.beforeunload(fakeEvent);
+  h.assert(!fakeEvent.defaultPrevented, 'no beforeunload block without edits');
  });
 }).catch(err => { console.error(err); process.exitCode = 1; });
 

@@ -400,8 +400,8 @@ msgstr "Включено"
 msgid "Link to a Clash/Mihomo (YAML) subscription from your provider. Leave empty to manage the YAML yourself."
 msgstr "Ссылка на подписку Clash/Mihomo (YAML) от VPN-сервиса. Оставьте пустой, чтобы вести YAML самостоятельно."
 
-msgid "MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file."
-msgstr "MihoWRT сам управляет портами, меткой маршрутизации, TUN, контроллером и панелью; эти ключи переопределяются. Обновление подписки, в том числе автоматическое, заменяет этот файл."
+msgid "MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden."
+msgstr "MihoWRT сам управляет портами, меткой маршрутизации, TUN, контроллером и панелью; эти ключи переопределяются."
 
 msgid "Mihomo says: %s"
 msgstr "Ответ Mihomo: %s"
@@ -951,5 +951,24 @@ msgid_plural "%d problems found. Start with the first one."
 msgstr[0] "Найдена %d проблема. Начните с первой."
 msgstr[1] "Найдено %d проблемы. Начните с первой."
 msgstr[2] "Найдено %d проблем. Начните с первой."
+
+msgid "Cannot load subscription settings: %s"
+msgstr "Не удалось загрузить настройки подписки: %s"
+
+msgid "An update of the subscription (also automatic) replaces your edits."
+msgstr "Обновление подписки, в том числе автоматическое, заменит ваши правки."
+
+msgid "Stop using the subscription?"
+msgstr "Отключить подписку?"
+
+msgid "MihoWRT keeps the current YAML, but it will no longer be updated."
+msgstr "MihoWRT продолжит работать с текущим YAML, но он больше не будет обновляться."
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Disable"
+msgstr "Отключить"
+
 
 

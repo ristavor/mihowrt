@@ -9,14 +9,32 @@ const configNotice = action => action === 'unchanged' ? _('Configuration is unch
 	: action === 'hot_reloaded' ? _('Configuration checked and applied.') : _('Configuration checked and saved.');
 
 return view.extend({
-	load: () => api.read('subscription-json').catch(() => ({})),
+	load: () => api.read('subscription-json').catch(e => ({ error: e })),
 
 	render: function(sub) {
+		if (sub?.error) {
+			const again = E('button', { class: 'cbi-button', type: 'button' }, text(_('Try again')));
+			again.addEventListener('click', () => api.reloadWithNotice(''));
+			return E('div', { class: 'mw-page' }, [
+				api.style(),
+				E('h2', text(_('Subscription'))),
+				api.jobNotice(),
+				E('div', { class: 'alert-message error', role: 'alert' }, [
+					E('p', text(_('Cannot load subscription settings: %s').format(api.errorText(sub.error)))),
+					again
+				])
+			]);
+		}
 		const readOnly = api.readOnly();
 		// type=text: some themes (openwrt-2020) style only text inputs.
 		const url = E('input', { id: 'mw-url', type: 'text', inputmode: 'url', autocomplete: 'off', spellcheck: 'false',
 			class: 'cbi-input-text', style: 'width: 100%',
 			value: sub.url || '', placeholder: 'https://provider.example/sub/…' });
+		const urlForm = E('form', { action: '', style: 'width: 100%' }, [ url ]);
+		urlForm.addEventListener('submit', e => {
+			e.preventDefault();
+			(url.value.trim() ? update : save).click();
+		});
 		const auto = E('input', { id: 'mw-auto', type: 'checkbox', checked: sub.auto_update !== false ? '' : null });
 		const autoHint = E('div', { class: 'cbi-value-description' });
 		// The header period also counts while auto-update is still off.
@@ -36,10 +54,35 @@ return view.extend({
 		// The YAML (up to 8 MiB) loads on the first opening of the editor.
 		const editorBody = E('div', {});
 		const editor = E('div', {}, [
-			E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden. Updating the subscription, including automatic updates, replaces this file.'))),
+			sub.url ? E('div', { class: 'alert-message warning' }, text(_('An update of the subscription (also automatic) replaces your edits.'))) : '',
+			E('p', { class: 'mw-muted' }, text(_('MihoWRT manages ports, routing mark, TUN, the controller and the dashboard itself; those keys are overridden.'))),
 			editorBody
 		]);
 		let yaml = null, original = null, loading = null;
+
+		const onBeforeUnload = e => {
+			if (yaml && yaml.value !== original) {
+				e.preventDefault();
+				e.returnValue = '';
+			}
+		};
+		if (typeof window !== 'undefined' && window.addEventListener)
+			window.addEventListener('beforeunload', onBeforeUnload);
+		const dropGuard = () => {
+			if (typeof window !== 'undefined' && window.removeEventListener)
+				window.removeEventListener('beforeunload', onBeforeUnload);
+		};
+
+		const confirmDisable = () => new Promise(resolve => {
+			const cancel = E('button', { class: 'cbi-button' }, text(_('Cancel')));
+			cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
+			const disable = E('button', { class: 'cbi-button cbi-button-negative' }, text(_('Disable')));
+			disable.addEventListener('click', () => { ui.hideModal(); resolve(true); });
+			ui.showModal(_('Stop using the subscription?'), [
+				E('p', text(_('MihoWRT keeps the current YAML, but it will no longer be updated.'))),
+				E('div', { class: 'btn-row' }, [ cancel, ' ', disable ])
+			]);
+		});
 
 		const saveSettings = () => api.write('set-subscription', url.value.trim(), auto.checked ? '1' : '0');
 
@@ -59,14 +102,21 @@ return view.extend({
 			}
 			if (changed)
 				await saveSettings();
+			dropGuard();
 			api.reloadWithNotice(api.actionNotice(res.action));
 		};
 
 		save.addEventListener('click', () => api.busy(save, async () => {
 			const link = url.value.trim();
+			if (!link && sub.url) {
+				const ok = await confirmDisable();
+				if (!ok)
+					return;
+			}
 			if (link && link !== (sub.url || ''))
 				return updateSubscription(link);
 			await saveSettings();
+			sub.url = link;
 			api.notify(_('Subscription settings saved.'));
 		}));
 		update.addEventListener('click', () => api.busy(update, async () => {
@@ -80,6 +130,7 @@ return view.extend({
 				throw new Error(_('The YAML is larger than 8 MiB.'));
 			const path = await api.upload('mihowrt-config', yaml.value);
 			const res = await api.job('save-config', path);
+			dropGuard();
 			api.reloadWithNotice(configNotice(res.action));
 		}));
 
@@ -89,6 +140,7 @@ return view.extend({
 			if (!confirm(_('Replace the current YAML with the previous one?')))
 				return;
 			const res = await api.job('restore-config');
+			dropGuard();
 			api.reloadWithNotice(configNotice(res.action));
 		}));
 		const restoreNote = E('div', { class: 'cbi-value-description' },
@@ -172,7 +224,7 @@ return view.extend({
 			E('div', { class: 'cbi-section' }, [
 				E('div', { class: 'cbi-value' }, [
 					E('label', { class: 'cbi-value-title', for: 'mw-url' }, text(_('Subscription URL'))),
-					E('div', { class: 'cbi-value-field' }, [ url,
+					E('div', { class: 'cbi-value-field' }, [ urlForm,
 						E('div', { class: 'cbi-value-description' }, text(_('Link to a Clash/Mihomo (YAML) subscription from your provider. Leave empty to manage the YAML yourself.'))) ])
 				]),
 				E('div', { class: 'cbi-value' }, [

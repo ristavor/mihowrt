@@ -1062,3 +1062,6 @@ msgstr "Отключить"
 
 
 
+
+msgid "(%d in total)"
+msgstr "(всего %d)"

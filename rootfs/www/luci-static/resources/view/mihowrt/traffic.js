@@ -372,16 +372,7 @@ return view.extend({
 			api.notify(_('Changes applied.'));
 		}
 		catch (e) {
-			const bad = /^Invalid (direct_src|dst|src|direct) entries: (.*)$/.exec(e.message);
-			if (bad) {
-				const isIp = bad[1] === 'dst' || bad[1] === 'direct';
-				api.notify(isIp
-					? _('"%s" has invalid lines: %s. Only IP addresses, subnets and list links are allowed here — not site names.').format(this.titles[bad[1]], bad[2])
-					: _('"%s" has invalid lines: %s').format(this.titles[bad[1]], bad[2]), 'error');
-			}
-			else {
-				api.notify(api.errorText(e), 'error');
-			}
+			api.notify(api.errorText(e), 'error');
 		}
 		finally {
 			this.saving = false;

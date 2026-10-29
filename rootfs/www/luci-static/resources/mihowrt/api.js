@@ -127,6 +127,7 @@ function backendErrorText(message) {
 			direct: _('Addresses always direct'),
 			direct_src: _('Devices always direct')
 		};
+		m[2] = m[2].replace(/\((\d+) total\)$/, (suffix, n) => _('(%d in total)').format(n));
 		return _('The "%s" list is larger than 1 MiB.').format(titles[m[1]] || m[1]);
 	}
 	if (match(/^Runtime is busy \(process \d+\)$/))
@@ -142,6 +143,7 @@ function backendErrorText(message) {
 			dst: _('Addresses via proxy'),
 			direct: _('Addresses always direct')
 		};
+		m[2] = m[2].replace(/\((\d+) total\)$/, (suffix, n) => _('(%d in total)').format(n));
 		return _('"%s" has invalid lines: %s. Only IP addresses, subnets and list links are allowed here — not site names.').format(titles[m[1]] || m[1], m[2]);
 	}
 	if ((m = match(/^Invalid (src|direct_src) entries: (.*)$/))) {
@@ -149,6 +151,7 @@ function backendErrorText(message) {
 			src: _('Devices via proxy'),
 			direct_src: _('Devices always direct')
 		};
+		m[2] = m[2].replace(/\((\d+) total\)$/, (suffix, n) => _('(%d in total)').format(n));
 		return _('"%s" has invalid lines: %s').format(titles[m[1]] || m[1], m[2]);
 	}
 	if ((m = match(/^Mihomo config not found: (\S+)$/)))

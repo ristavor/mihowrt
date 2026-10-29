@@ -207,6 +207,7 @@ seq(async () => {
 		api: Object.assign({}, api, {
 			upload: async (prefix, c) => { calls.push('upload'); return '/tmp/x'; },
 			job: async () => { calls.push('apply'); throw new Error('Invalid dst entries: abc'); },
+			errorText: e => { calls.push('map-error'); return api.errorText(e); },
 			notify: (msg, level) => calls.push('notify:' + level + ':' + msg)
 		})
 	}).module;
@@ -217,7 +218,7 @@ seq(async () => {
 	h.assertEq(tv.saving, false, 'invalid list is handled without rejecting the footer action');
 	h.assertEq(tv.edited.dst, 'abc', 'invalid list edit retained');
 	h.assertEq(tv.lists.dst, '', 'installed list unchanged');
-	h.assertEq(calls.join(','), 'parse,upload,apply,notify:error:"Addresses via proxy" has invalid lines: abc. Only IP addresses, subnets and list links are allowed here — not site names.', 'lists applied before map.save; error shown');
+	h.assertEq(calls.join(','), 'parse,upload,apply,map-error,notify:error:"Addresses via proxy" has invalid lines: abc. Only IP addresses, subnets and list links are allowed here — not site names.', 'lists applied before map.save; error shown');
 	console.log('ok - traffic save order');
 });
 
@@ -1646,7 +1647,7 @@ seq(async () => {
   await t.tv.handleSaveApply(null, '0'); h.assert(!t.calls.some(c => c[0] === 'apply'), 'empty change arrays do not apply');
  });
  await check('rejected list', async () => {
-  const t = setup({ job: async () => { throw Object.assign(Error('Invalid src entries: x'), { name: 'JobError' }); } }); await t.render(); t.saving(); t.edits.src = 'x';
+  const t = setup({ job: async () => { throw Object.assign(Error(api.errorText(Error('Invalid src entries: x'))), { name: 'JobError' }); } }); await t.render(); t.saving(); t.edits.src = 'x';
   await t.tv.handleSaveApply(null, '0');
   h.assertEq(t.tv.saving, false, 'save guard released after rejection');
   h.assertEq(t.notices.at(-1)[0], '"Devices via proxy" has invalid lines: x', 'list title in notice');

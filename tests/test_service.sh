@@ -174,6 +174,7 @@ for stop_lock in available busy; do
    case "$1" in
     -f) touch "$cycle/table" ;;
     delete) rm -f "$cycle/table" ;;
+    list) [ "$*" = 'list table inet fw4' ] || fail "unexpected nft call: $*" ;;
     *) fail "unexpected nft call: $*" ;;
    esac
   }
@@ -539,6 +540,7 @@ pass 'failed nft transaction preserves live policy'
  dns_apply() { echo dns >>"$events"; }
  ip() { return 0; }
  nft() {
+  [ "$1" != list ] || return 1
   assert_eq -f "$1" 'policy-only apply uses nft transaction'
   cp "$2" "$tmpdir/policy-only.nft"
   echo "nft:$BLOCK_CLIENT_IPV6" >>"$events"
@@ -671,6 +673,7 @@ pass "apply-lists loads settings"
  ip() { return 0; }
  nft_active() { return 0; }
  nft() {
+  [ "$1" != list ] || return 1
   printf '%s\n' "$*" >>"$tmpdir/partial-lists/nft.calls"
   assert_eq -f "$1" 'partial list apply uses one nft transaction'
   cp "$2" "$tmpdir/partial-lists/applied.nft"
@@ -847,7 +850,7 @@ pass 'hotplug'
  printf '2001:db8:1::/64 dev br-lan\n' >"$routes"
  ip() { [ "$*" != '-6 route show table main' ] || cat "$routes"; return 0; }
  nft_active() { return 0; }
- nft() { echo "$*" >>"$tmpdir/refresh/nft.calls"; }
+ nft() { [ "$1" != list ] || return 1; echo "$*" >>"$tmpdir/refresh/nft.calls"; }
  dns_restart_dnsmasq() { echo restart >>"$tmpdir/refresh/restarts"; }
  route_setup() { :; }
  # Observe settings reload under the runtime lock, without replacing apply.

@@ -35,7 +35,7 @@ msgid "Service is running"
 msgstr "Служба MihoWRT работает"
 
 msgid "Press Start on Overview. If it stops again, check the log below."
-msgstr "Нажмите «Запустить» на странице «Обзор». Если сервис снова остановится, посмотрите журнал ниже."
+msgstr "Нажмите «Запустить» на странице «Обзор». Если служба снова остановится, посмотрите журнал ниже."
 
 msgid "Mihomo answers DNS queries"
 msgstr "Mihomo отвечает на DNS-запросы"
@@ -47,7 +47,7 @@ msgid "Traffic rules are active"
 msgstr "Правила трафика активны"
 
 msgid "Restart the service; if it persists, see the log."
-msgstr "Перезапустите сервис; если не поможет, посмотрите журнал."
+msgstr "Перезапустите службу; если не поможет, посмотрите журнал."
 
 msgid "dnsmasq has its own upstream servers: %s"
 msgstr "У dnsmasq заданы собственные DNS-серверы: %s"
@@ -260,7 +260,7 @@ msgid "Update Mihomo core"
 msgstr "Обновить ядро Mihomo"
 
 msgid "Start MihoWRT to use the dashboard."
-msgstr "Запустите MihoWRT, чтобы открыть панель."
+msgstr "Запустите MihoWRT, чтобы открыть панель Mihomo."
 
 msgid "Mihomo core updated to %s."
 msgstr "Ядро Mihomo обновлено до %s."
@@ -902,10 +902,10 @@ msgid "Remove Mihomo dashboard"
 msgstr "Удаление панели Mihomo"
 
 msgid "Could not download the dashboard. Check that GitHub is reachable from the router."
-msgstr "Не удалось скачать панель. Проверьте, что GitHub доступен с роутера."
+msgstr "Не удалось скачать панель Mihomo. Проверьте, что GitHub доступен с роутера."
 
 msgid "Start MihoWRT before installing the dashboard."
-msgstr "Запустите MihoWRT перед установкой панели."
+msgstr "Запустите MihoWRT перед установкой панели Mihomo."
 
 msgid "Mihomo rejected the configuration."
 msgstr "Mihomo отклонил конфигурацию."
@@ -920,7 +920,7 @@ msgid "The dashboard still shows all log levels."
 msgstr "Панель Mihomo по-прежнему показывает все уровни журнала."
 
 msgid "No LAN IPv4 address found. Check the LAN interface settings to open the dashboard."
-msgstr "IPv4-адрес локальной сети не найден. Чтобы открыть панель, проверьте настройки интерфейса локальной сети."
+msgstr "IPv4-адрес локальной сети не найден. Чтобы открыть панель Mihomo, проверьте настройки интерфейса локальной сети."
 
 msgid "checksum not verified"
 msgstr "Контрольная сумма не проверена"

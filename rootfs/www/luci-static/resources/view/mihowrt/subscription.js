@@ -77,9 +77,11 @@ return view.extend({
 
 		const saveSettings = () => api.write('set-subscription', url.value.trim(), auto.checked ? '1' : '0');
 
+		// Confirms run before api.busy: a modal dismissed from outside must not leave job buttons locked.
+		const confirmOverwrite = async () => !(yaml && yaml.value !== original)
+			|| api.confirm(_('Subscription update'), _('Updating replaces your unsaved YAML edits. Continue?'), _('Update'));
+
 		const updateSubscription = async link => {
-			if (yaml && yaml.value !== original && !await api.confirm(_('Subscription update'), _('Updating replaces your unsaved YAML edits. Continue?'), _('Update')))
-				return;
 			const changed = link !== (sub.url || '');
 			let res;
 			if (!changed)
@@ -97,25 +99,35 @@ return view.extend({
 			api.reloadWithNotice(api.actionNotice(res.action));
 		};
 
-		save.addEventListener('click', () => api.busy(save, async () => {
+		save.addEventListener('click', async () => {
+			if (save.disabled || api.jobRunning)
+				return;
 			const link = url.value.trim();
-			if (!link && sub.url) {
-				const ok = await api.confirm(_('Stop using the subscription?'), _('MihoWRT keeps the current YAML, but it will no longer be updated.'), _('Disable'), { danger: true });
-				if (!ok)
-					return;
-			}
-			if (link && link !== (sub.url || ''))
+			const changed = link && link !== (sub.url || '');
+			if (!link && sub.url && !await api.confirm(_('Stop using the subscription?'), _('MihoWRT keeps the current YAML, but it will no longer be updated.'), _('Disable'), { danger: true }))
+				return;
+			if (changed && !await confirmOverwrite())
+				return;
+			return api.busy(save, async () => {
+				if (changed)
+					return updateSubscription(link);
+				await saveSettings();
+				sub.url = link;
+				api.notify(_('Subscription settings saved.'));
+			});
+		});
+		update.addEventListener('click', async () => {
+			if (update.disabled || api.jobRunning)
+				return;
+			const link = url.value.trim();
+			if (link && !await confirmOverwrite())
+				return;
+			return api.busy(update, async () => {
+				if (!link)
+					throw new Error(_('Enter the subscription link, or press Save to stop using a subscription.'));
 				return updateSubscription(link);
-			await saveSettings();
-			sub.url = link;
-			api.notify(_('Subscription settings saved.'));
-		}));
-		update.addEventListener('click', () => api.busy(update, async () => {
-			const link = url.value.trim();
-			if (!link)
-				throw new Error(_('Enter the subscription link, or press Save to stop using a subscription.'));
-			return updateSubscription(link);
-		}));
+			});
+		});
 		apply.addEventListener('click', () => api.busy(apply, async () => {
 			if (new Blob([yaml.value]).size > 8388608)
 				throw new Error(_('The YAML is larger than 8 MiB.'));
@@ -127,13 +139,17 @@ return view.extend({
 
 		const restore = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null,
 			class: 'cbi-button cbi-button-reset' }, text(_('Restore the previous YAML')));
-		restore.addEventListener('click', () => api.busy(restore, async () => {
+		restore.addEventListener('click', async () => {
+			if (restore.disabled || api.jobRunning)
+				return;
 			if (!await api.confirm(_('Restore the previous YAML'), _('Replace the current YAML with the previous one?'), _('Restore the previous YAML'), { danger: true }))
 				return;
-			const res = await api.job('restore-config');
-			dropGuard();
-			api.reloadWithNotice(configNotice(res.action));
-		}));
+			return api.busy(restore, async () => {
+				const res = await api.job('restore-config');
+				dropGuard();
+				api.reloadWithNotice(configNotice(res.action));
+			});
+		});
 		const restoreNote = E('div', { class: 'cbi-value-description' },
 			text(_('Automatic updates replace it again with the subscription.')));
 		restoreNote.hidden = !auto.checked;

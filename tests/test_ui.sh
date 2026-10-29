@@ -1077,6 +1077,26 @@ seq(async () => {
  await findButton(guarded, 'Check and apply').listeners.click();
  h.assert(!events.beforeunload && removed.includes(guard), 'successful YAML save removes beforeunload guard');
  ui.autoConfirm = true;
+ // A modal closed from outside never resolves: it must not have locked the job buttons first.
+ const busyCalls = [];
+ const sv2 = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+  E: dom, ui, Blob, window: win, view: { extend: v => v },
+  api: { ...api, ...readStubs, busy: async (button, fn) => { busyCalls.push(button); return fn(); },
+   write: async () => ({}), job: async () => ({ action: 'saved' }), upload: async () => '/tmp/yaml', reloadWithNotice() {}, notify() {} }
+ }).module;
+ const pending = await mountSubscription(sv2, { url: 'https://p.example/sub', config_backup: true });
+ await openToggle(pending, 'Show the YAML editor');
+ collect(pending).find(n => n.tag === 'textarea').value += '# edit';
+ const pendingUrl = collect(pending).find(n => n.attrs.id === 'mw-url');
+ ui.autoConfirm = null;
+ findButton(pending, 'Restore the previous YAML').listeners.click();
+ pendingUrl.value = '';
+ findButton(pending, 'Save').listeners.click();
+ pendingUrl.value = 'https://p.example/new';
+ findButton(pending, 'Update now').listeners.click();
+ await settle();
+ h.assertEq(busyCalls.length, 0, 'open confirm modals do not lock job buttons');
+ ui.hideModal(); ui.autoConfirm = true;
  console.log('ok - subscription modal cancellation, Enter and dirty-navigation guard');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 

@@ -316,7 +316,7 @@ for (const op of ['save-config', 'restore-config', 'connect', 'update-subscripti
   const configInstall = !['service', 'core-update'].includes(op);
   api.read = async () => ({ state: 'error', error: 'Mihomo rejected the configuration' });
   const rejected = assert.rejects(api.job(op), { name: 'JobError', message: 'Mihomo rejected the configuration.' +
-   (configInstall ? ' Nothing was changed, the previous configuration is still running.' : '') });
+   (configInstall ? '\n' + 'Nothing was changed, the previous configuration is still running.' : '') });
   await tick(timers); await rejected;
   let shown;
   const status = async () => ({ state: 'error', id: 'config-1', op, finished: 1000, now: 1001, error: 'Mihomo rejected the configuration' });

@@ -185,7 +185,7 @@ function jobErrorText(op, message) {
 	const mapped = backendErrorText(message);
 	return ['save-config', 'restore-config', 'connect', 'update-subscription', 'auto-update'].includes(op)
 		&& /(?:^|\n)Mihomo rejected the configuration$/.test(String(message).trim())
-		? mapped + ' ' + _('Nothing was changed, the previous configuration is still running.') : mapped;
+		? mapped + '\n' + _('Nothing was changed, the previous configuration is still running.') : mapped;
 }
 
 function errorText(res) {

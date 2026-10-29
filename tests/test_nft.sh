@@ -31,7 +31,8 @@ pass 'nft active check omits set elements'
  nft_input_hash() { printf '%s\n' "$content" | busybox sha256sum; }
  nft_render() { printf '%s\n' "$content" >"$1"; }
  nft_active() { return 0; }
- nft() { printf '%s\n' "$*" >>"$tmpdir/hash.calls"; }
+ nft() { [ "$*" = 'list table inet fw4' ] || printf '%s\n' "$*" >>"$tmpdir/hash.calls"; }
+ fw4() { :; }
  expected_hash() { printf '%s\n' "$content" | busybox sha256sum | cut -d ' ' -f1; }
  nft_apply
  assert_eq "$(expected_hash)" "$(cat "$NFT_APPLIED_FILE")" 'applied cache stores only SHA-256'
@@ -442,7 +443,8 @@ DNS_MODE=fake-ip
 DIRECT_LISTENER=1
 render
 assert_file_contains "$out" 'ip saddr @direct_src goto direct_device_policy' "fake-IP sends direct devices through split policy"
-nft() { echo "$*" >>"$tmpdir/nft.calls"; }
+nft() { [ "$*" = 'list table inet fw4' ] || echo "$*" >>"$tmpdir/nft.calls"; }
+fw4() { :; }
 table_present=1
 nft_active() { [ "$table_present" = 1 ]; }
 nft_apply
@@ -643,3 +645,19 @@ pass 'fw4 input include is dynamic, change-only and nonfatal on write or reload 
  rm -f "$FW4_INPUT_INCLUDE"
 )
 pass 'fw4 include dedupes interface names'
+
+# A stopped firewall is not reloaded, but the include is still published for fw4 start.
+(
+ rm -f "$FW4_INPUT_INCLUDE" "$tmpdir/stopped-fw4.calls"
+ SOURCE_INTERFACES=br-guest
+ nft() { printf '%s\n' "$*" >>"$tmpdir/stopped-nft.calls"; return 1; }
+ fw4() { printf '%s\n' "$*" >>"$tmpdir/stopped-fw4.calls"; }
+ nft_fw4_input_apply
+ assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-guest" }' 'include is published while fw4 is stopped'
+ assert_false 'apply does not reload a stopped fw4' test -e "$tmpdir/stopped-fw4.calls"
+ assert_file_contains "$tmpdir/stopped-nft.calls" 'list table inet fw4' 'fw4 state is read from its nft table'
+ nft_fw4_input_cleanup
+ assert_false 'cleanup removes the include' test -e "$FW4_INPUT_INCLUDE"
+ assert_false 'cleanup does not reload a stopped fw4' test -e "$tmpdir/stopped-fw4.calls"
+)
+pass 'stopped fw4 is not reloaded by apply or cleanup'

@@ -365,9 +365,11 @@ nft_input_hash() {
 	} | sha256sum
 }
 
+# A stopped firewall is not ours to start: fw4 start picks the include up later.
 nft_fw4_input_reload() {
 	local error=""
 
+	nft list table inet fw4 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || return 0
 	if ! error="$(fw4 reload 6>&- 7>&- 8>&- 9>&- 2>&1 >/dev/null)"; then
 		warn "Failed to reload firewall4 input rules: ${error%%'
 '*}"

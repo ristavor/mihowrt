@@ -517,8 +517,20 @@ msgstr "Показать редактор YAML"
 msgid "Show the log"
 msgstr "Показать журнал"
 
-msgid "Stopped: the configuration has errors — see Diagnostics"
-msgstr "Остановлен: в конфигурации ошибки — см. «Диагностику»"
+msgid "Stopped: Mihomo did not accept the configuration."
+msgstr "Остановлен: Mihomo не принял конфигурацию."
+
+msgid "Stopped because of an error."
+msgstr "Остановлен из-за ошибки."
+
+msgid "What to do: update the subscription or fix the configuration."
+msgstr "Что делать: обновите подписку или исправьте конфигурацию."
+
+msgid "Details: %s"
+msgstr "Подробности: %s"
+
+msgid "Open Diagnostics"
+msgstr "Открыть «Диагностику»"
 
 msgid "Test servers of %s"
 msgstr "Замерить серверы группы %s"
@@ -651,9 +663,6 @@ msgstr "Запускается…"
 
 msgid "Mihomo DNS does not answer: traffic goes direct until it recovers"
 msgstr "DNS Mihomo не отвечает: до восстановления трафик идёт напрямую"
-
-msgid "Stopped after an error: %s"
-msgstr "Остановлен после ошибки: %s"
 
 msgid "Cannot load the proxy groups: %s"
 msgstr "Не удалось загрузить группы прокси: %s"

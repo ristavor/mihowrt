@@ -550,7 +550,7 @@ seq(async () => {
  h.assertEq(collect(missing).filter(n => n.tag === 'button').length, 1, 'missing core only install button');
  const manual = overview.render([{ ...active, subscription_configured: false }, {}, []]);
  h.assert(texts(manual).includes('No subscription: MihoWRT uses the YAML entered on the Subscription page.') && !collect(manual).some(n => n.attrs.id === 'mw-sub-url'), 'manual YAML one-line hint');
- h.assert(texts(overview.render([{ ...base, config_valid: false }, {}, []])).includes('Stopped: the configuration has errors — see Diagnostics'), 'invalid config headline');
+ h.assert(texts(overview.render([{ ...base, config_valid: false }, {}, []])).includes('Stopped: Mihomo did not accept the configuration.'), 'invalid config headline');
  for (const [sub, expected] of [
   [{ expire: 1 }, 'The subscription has expired. Renew it with your provider.'],
   [{ expire: Date.now()/1000 + 86400 }, 'The subscription expires on'],
@@ -818,9 +818,9 @@ seq(async () => {
  for (const [details, expected] of [
   [{ state: 'starting' }, 'Starting…'],
   [{ state: 'degraded', running: true }, 'Mihomo DNS does not answer: traffic goes direct until it recovers'],
-  [{ state: 'failed', last_error: 'x' }, 'Stopped after an error: x'],
+  [{ state: 'failed', last_error: 'x' }, 'Stopped because of an error.'],
   [{ state: 'failed', last_error: '' }, 'Stopped'],
-  [{ state: 'stopped', config_valid: false }, 'Stopped: the configuration has errors — see Diagnostics'],
+  [{ state: 'stopped', config_valid: false }, 'Stopped: Mihomo did not accept the configuration.'],
   [{ state: 'running', running: true, dns_ok: false }, 'Running, but DNS does not answer — see Diagnostics']
  ]) {
   const p = ov.render([{ ...base, ...details }, {}, []]);
@@ -845,7 +845,7 @@ seq(async () => {
  fresh = { ...fresh, dns_ok: false }; await polls[0].fn();
  h.assert(texts(p).includes('Running, but DNS does not answer — see Diagnostics'), 'same-state DNS change updates headline');
  fresh = { running: false, state: 'stopped', enabled: false }; await polls[0].fn();
- h.assert(texts(p).includes('Stopped: the configuration has errors — see Diagnostics'), 'poll preserves full status fields');
+ h.assert(texts(p).includes('Stopped: Mihomo did not accept the configuration.'), 'poll preserves full status fields');
  console.log('ok - overview poll');
  failGroups = true; calls.length = 0;
  const loaded = await ov.load();
@@ -867,6 +867,48 @@ seq(async () => {
   h.assert(texts(p).includes('"Update Mihomo core" is running…'), 'job notice shown on page');
  }
  console.log('ok - overview job notice');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+// Lane F2: R14 Overview failed/degraded alert, next steps, config_valid over failed
+seq(async () => {
+ const ov = overview;
+ // config_valid === false wins over state === 'failed'
+ const invalidAndFailed = ov.render([{ ...base, state: 'failed', config_valid: false, last_error: 'some error', config_error: 'bad config' }, {}, []]);
+ const invalidNodes = collect(invalidAndFailed);
+ h.assert(texts(invalidAndFailed).includes('Stopped: Mihomo did not accept the configuration.'), 'config_valid wins over failed');
+ h.assert(invalidNodes.some(n => /alert-message error/.test(n.attrs.class || '')), 'invalid config has alert-message error');
+ h.assert(texts(invalidAndFailed).includes('What to do: update the subscription or fix the configuration.'), 'invalid config next step');
+ h.assert(invalidNodes.some(n => n.tag === 'a' && n.attrs.href?.includes('diagnostics') && texts(n).includes('Open Diagnostics')), 'invalid config diagnostics link');
+ h.assert(texts(invalidAndFailed).some(t => t.includes('Details:')), 'invalid config shows details');
+
+ // state === 'failed' without config_valid === false
+ const failedOnly = ov.render([{ ...base, state: 'failed', last_error: 'service died' }, {}, []]);
+ const failedNodes = collect(failedOnly);
+ h.assert(texts(failedOnly).includes('Stopped because of an error.'), 'failed headline');
+ h.assert(failedNodes.some(n => /alert-message error/.test(n.attrs.class || '')), 'failed has alert-message error');
+ h.assert(texts(failedOnly).includes('What to do: update the subscription or fix the configuration.'), 'failed next step');
+ h.assert(failedNodes.some(n => n.tag === 'a' && n.attrs.href?.includes('diagnostics') && texts(n).includes('Open Diagnostics')), 'failed diagnostics link');
+ h.assert(texts(failedOnly).some(t => t.includes('Details:')), 'failed shows details');
+
+ // state === 'degraded'
+ const degraded = ov.render([{ ...base, state: 'degraded' }, {}, []]);
+ const degradedNodes = collect(degraded);
+ h.assert(degradedNodes.some(n => /alert-message warning/.test(n.attrs.class || '')), 'degraded has alert-message warning');
+ h.assert(degradedNodes.some(n => n.tag === 'a' && n.attrs.href?.includes('diagnostics') && texts(n).includes('Open Diagnostics')), 'degraded diagnostics link');
+
+ // running but dns_ok === false
+ const dnsBad = ov.render([{ ...base, state: 'running', running: true, dns_ok: false }, {}, []]);
+ const dnsBadNodes = collect(dnsBad);
+ h.assert(dnsBadNodes.some(n => /alert-message warning/.test(n.attrs.class || '')), 'running bad dns has alert-message warning');
+ h.assert(dnsBadNodes.some(n => n.tag === 'a' && n.attrs.href?.includes('diagnostics') && texts(n).includes('Open Diagnostics')), 'bad dns diagnostics link');
+
+ // normal stopped / normal running have no alert-message
+ const normalStopped = ov.render([{ ...base, state: 'stopped' }, {}, []]);
+ h.assert(!collect(normalStopped).some(n => /alert-message/.test(n.attrs.class || '')), 'clean stopped has no alert');
+ const normalRunning = ov.render([{ ...base, state: 'running', running: true, dns_ok: true }, {}, []]);
+ h.assert(!collect(normalRunning).some(n => /alert-message/.test(n.attrs.class || '')), 'clean running has no alert');
+
+ console.log('ok - overview R14 status alert and diagnostics link');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 18: safe editor, large uploads, restore and shared job controls.
@@ -1635,11 +1677,11 @@ seq(async () => {
  const last_error = 'Unsupported dns form: use a block mapping';
  const detail = 'The "dns" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.';
  const status = { ...base, state: 'failed', last_error };
- h.assert(texts(overview.render([status, {}, []])).includes('Stopped after an error: ' + detail), 'overview maps backend status error');
+ h.assert(texts(overview.render([status, {}, []])).some(t => t.includes(detail)), 'overview maps backend status error');
  h.assert(texts(diag.render([status, {}, {}])).some(t => t.includes('Last error: ' + detail)), 'diagnostics maps backend status error');
  const raw = 'level=info msg="noise"\nlevel=error msg="bad proxy"\nconfiguration file /tmp/mihowrt-config.1 test failed\nMihomo rejected the configuration';
  const headline = 'Mihomo rejected the configuration. bad proxy Nothing was changed, the previous configuration is still running.';
- h.assert(texts(overview.render([{ ...status, last_error: raw }, {}, []])).includes('Stopped after an error: ' + headline), 'overview summarizes core rejection');
+ h.assert(texts(overview.render([{ ...status, last_error: raw }, {}, []])).some(t => t.includes(headline)), 'overview summarizes core rejection');
  h.assert(texts(diag.render([{ ...status, last_error: raw }, {}, {}])).some(t => t.includes('Last error: ' + headline)), 'diagnostics summarizes core rejection');
  console.log('ok - status views map backend errors and core rejection');
 }).catch(err => { console.error(err); process.exitCode = 1; });

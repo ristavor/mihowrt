@@ -73,30 +73,92 @@ function statusSection(status) {
 
 	const headline = E('strong', { 'aria-live': 'polite' });
 	const boot = E('span', { class: 'mw-muted' });
+	const modeSpan = E('span', { class: 'mw-muted' });
+	const details = E('div', { class: 'mw-muted' });
+	const nextStep = E('div', {});
+	const statusBox = E('div', { class: 'mw-status' }, [
+		headline,
+		details,
+		nextStep,
+		modeSpan,
+		boot
+	]);
 	const block = E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-status' }, [
-			headline,
-			E('span', { class: 'mw-muted' }, text(api.modeLabel(status.mode))),
-			boot
-		]),
+		statusBox,
 		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : ''
 	]);
 	const update = fresh => {
 		status = Object.assign({}, status, fresh);
 		const state = status.state || (status.running ? 'running' : 'stopped');
 		let label = _('Stopped');
-		if (state === 'starting')
+		let alertClass = null;
+		let detailText = '';
+		let nextStepContent = null;
+
+		if (state === 'starting') {
 			label = _('Starting…');
-		else if (state === 'degraded')
+		}
+		else if (state === 'running') {
+			if (status.dns_ok === false) {
+				label = _('Running, but DNS does not answer — see Diagnostics');
+				alertClass = 'warning';
+				nextStepContent = [
+					E('a', { href: L.url('admin/services/mihowrt/diagnostics') }, [ _('Open Diagnostics') ])
+				];
+			}
+			else {
+				label = _('Running');
+			}
+		}
+		else if (state === 'degraded') {
 			label = _('Mihomo DNS does not answer: traffic goes direct until it recovers');
-		else if (state === 'failed')
-			label = status.last_error ? _('Stopped after an error: %s').format(api.errorText(status.last_error)) : _('Stopped');
-		else if (state === 'running')
-			label = status.dns_ok === false ? _('Running, but DNS does not answer — see Diagnostics') : _('Running');
-		else if (status.config_valid === false)
-			label = _('Stopped: the configuration has errors — see Diagnostics');
+			alertClass = 'warning';
+			nextStepContent = [
+				E('a', { href: L.url('admin/services/mihowrt/diagnostics') }, [ _('Open Diagnostics') ])
+			];
+		}
+		else if (status.config_valid === false) {
+			label = _('Stopped: Mihomo did not accept the configuration.');
+			alertClass = 'error';
+			detailText = status.config_error || status.last_error || '';
+			nextStepContent = [
+				_('What to do: update the subscription or fix the configuration.'), ' ',
+				E('a', { href: L.url('admin/services/mihowrt/diagnostics') }, [ _('Open Diagnostics') ])
+			];
+		}
+		else if (state === 'failed') {
+			label = status.last_error ? _('Stopped because of an error.') : _('Stopped');
+			alertClass = 'error';
+			detailText = status.last_error || '';
+			nextStepContent = [
+				_('What to do: update the subscription or fix the configuration.'), ' ',
+				E('a', { href: L.url('admin/services/mihowrt/diagnostics') }, [ _('Open Diagnostics') ])
+			];
+		}
+
 		if (headline.textContent !== label)
 			headline.textContent = label;
+
+		if (detailText) {
+			details.textContent = _('Details: %s').format(api.errorText(detailText));
+			details.hidden = false;
+		}
+		else {
+			details.textContent = '';
+			details.hidden = true;
+		}
+
+		if (nextStepContent) {
+			nextStep.replaceChildren(...nextStepContent);
+			nextStep.hidden = false;
+		}
+		else {
+			nextStep.replaceChildren();
+			nextStep.hidden = true;
+		}
+
+		statusBox.setAttribute('class', 'mw-status' + (alertClass ? ' alert-message ' + alertClass : ''));
+		modeSpan.textContent = api.modeLabel(status.mode);
 		boot.textContent = status.enabled ? _('Starts at boot') : _('Does not start at boot');
 		toggle.textContent = status.running ? _('Stop') : _('Start');
 		toggle.setAttribute('class', 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action'));

@@ -300,6 +300,11 @@ test('core restart errors take priority over nested rejection', () => {
  assert.equal(api.errorText('Mihomo core updated, but the service restart failed: Mihomo rejected the configuration'),
   'The Mihomo core was updated, but MihoWRT could not restart: Mihomo rejected the configuration. Press Start on Overview.');
 });
+test('unmapped multi-line backend output stays intact', () => {
+ const { api } = setup();
+ const raw = 'first diagnostic line\nsecond diagnostic line';
+ assert.equal(api.errorText(raw), raw);
+});
 test('one-line backend errors map the last non-empty line of job stderr', () => {
  const { api } = setup();
  for (const [raw, plain] of BACKEND_ERRORS)

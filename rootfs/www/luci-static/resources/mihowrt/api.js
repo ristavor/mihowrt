@@ -66,28 +66,27 @@ function jobLabel(op) {
 function backendErrorText(message) {
 	const raw = String(message ?? '');
 	const lastLine = raw.trim().split('\n').pop() || '';
+	const match = pattern => pattern.exec(raw) || pattern.exec(lastLine);
 	const inner = value => backendErrorText(value).replace(/\.$/, '');
 	let m;
 
-	if ((m = /^Failed to apply the new subscription settings: ([\s\S]*?); restoring the previous config failed: ([\s\S]*); the previous config is saved in (\S+)$/.exec(raw)))
+	if ((m = match(/^Failed to apply the new subscription settings: ([\s\S]*?); restoring the previous config failed: ([\s\S]*); the previous config is saved in (\S+)$/)))
 		return _('The new subscription settings could not be applied: %s. Returning to the previous configuration also failed: %s. The previous configuration is saved in %s.').format(inner(m[1]), inner(m[2]), m[3]);
-	if ((m = /^Failed to apply the new subscription settings: ([\s\S]*); the previous config is restored$/.exec(raw)))
+	if ((m = match(/^Failed to apply the new subscription settings: ([\s\S]*); the previous config is restored$/)))
 		return _('The new subscription settings could not be applied: %s. The previous configuration is back in use.').format(inner(m[1]));
-	if ((m = /^Failed to apply routing rules: ([\s\S]*)$/.exec(raw)))
+	if ((m = match(/^Failed to apply routing rules: ([\s\S]*)$/)))
 		return _('Mihomo started, but the routing rules could not be applied: %s').format(backendErrorText(m[1]));
-	if ((m = /^Failed to update (\d+) of (\d+) remote lists: ([\s\S]*)$/.exec(raw)))
+	if ((m = match(/^Failed to update (\d+) of (\d+) remote lists: ([\s\S]*)$/)))
 		return N_(Number(m[2]), 'Could not update %d of %d remote list: %s', 'Could not update %d of %d remote lists: %s').format(m[1], m[2], backendErrorText(m[3]));
-	if (raw !== lastLine && lastLine !== 'Mihomo rejected the configuration')
-		return backendErrorText(lastLine);
-	if ((m = /^Another operation is running: ([\w-]+)$/.exec(raw)))
+	if ((m = match(/^Another operation is running: ([\w-]+)$/)))
 		return _('Another operation is running: "%s". Wait until it finishes.').format(jobLabel(m[1]));
-	if ((m = /^Unsupported (\S+) form: use a block mapping$/.exec(raw)))
+	if ((m = match(/^Unsupported (\S+) form: use a block mapping$/)))
 		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
-	if ((m = /^Mihomo core updated, but the service restart failed: (.*)$/.exec(raw)))
+	if ((m = match(/^Mihomo core updated, but the service restart failed: (.*)$/)))
 		return _('The Mihomo core was updated, but MihoWRT could not restart: %s. Press Start on Overview.').format(inner(m[1]));
 	if (lastLine === 'Mihomo core updated, but the service restart failed')
 		return _('The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview.');
-	if (/Mihomo rejected the configuration$/.test(raw)) {
+	if (match(/Mihomo rejected the configuration$/)) {
 		const headline = _('Mihomo rejected the configuration.');
 		const messages = [ ...raw.matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ]
 			.map(m => {
@@ -101,27 +100,27 @@ function backendErrorText(message) {
 			});
 		return messages.length ? headline + ' ' + messages.join('\n') : headline;
 	}
-	if (/^Core update: (?:cannot reach GitHub|download failed|no downloadable asset|no asset for)/.test(raw))
+	if (match(/^Core update: (?:cannot reach GitHub|download failed|no downloadable asset|no asset for)/))
 		return _('Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").');
-	if ((m = /^Core update: not enough flash: need (\d+) MiB, free (\d+) MiB/.exec(raw)))
+	if ((m = match(/^Core update: not enough flash: need (\d+) MiB, free (\d+) MiB/)))
 		return _('Not enough free flash for the Mihomo core: %s MiB needed, %s MiB free.').format(m[1], m[2]);
-	if (/^Core update: not enough flash/.test(raw))
+	if (match(/^Core update: not enough flash/))
 		return _('Not enough free flash for the Mihomo core. The current core is kept.');
-	if (/^Core update: unsupported architecture/.test(raw))
+	if (match(/^Core update: unsupported architecture/))
 		return _('This router\'s CPU is not supported by the Mihomo core.');
-	if (/^Core update: new binary does not run on this router/.test(raw))
+	if (match(/^Core update: new binary does not run on this router/))
 		return _('The downloaded core does not run on this router. The current core is kept.');
-	if (/^Core update: new core rejects the current config/.test(raw))
+	if (match(/^Core update: new core rejects the current config/))
 		return _('The new core does not accept your current configuration; the core was not updated.');
-	if (/^Core update: (?:sha256 mismatch|downloaded size does not match release)/.test(raw))
+	if (match(/^Core update: (?:sha256 mismatch|downloaded size does not match release)/))
 		return _('The downloaded core file is damaged. Try again.');
-	if (raw === 'Another core update is running')
+	if (lastLine === 'Another core update is running')
 		return _('The core is already being updated.');
-	if (raw === 'The YAML is empty: nothing was changed.')
+	if (lastLine === 'The YAML is empty: nothing was changed.')
 		return _('The YAML is empty: nothing was changed.');
-	if (raw === 'There is no previous configuration.')
+	if (lastLine === 'There is no previous configuration.')
 		return _('There is no previous configuration.');
-	if ((m = /^List (\S+) is larger than 1 MiB\.$/.exec(raw))) {
+	if ((m = match(/^List (\S+) is larger than 1 MiB\.$/))) {
 		const titles = {
 			dst: _('Addresses via proxy'),
 			src: _('Devices via proxy'),
@@ -130,35 +129,35 @@ function backendErrorText(message) {
 		};
 		return _('The "%s" list is larger than 1 MiB.').format(titles[m[1]] || m[1]);
 	}
-	if (/^Runtime is busy \(process \d+\)$/.test(raw))
+	if (match(/^Runtime is busy \(process \d+\)$/))
 		return _('The router is busy with another task. Try again in a minute.');
-	if (raw === 'Mihomo hot reload failed')
+	if (lastLine === 'Mihomo hot reload failed')
 		return _('Mihomo could not apply the new configuration; the previous one is kept.');
-	if (raw === 'MihoWRT could not start. See the system log.')
+	if (lastLine === 'MihoWRT could not start. See the system log.')
 		return _('MihoWRT could not start. See the log on the Diagnostics page.');
-	if (raw === 'Invalid MihoWRT settings')
+	if (lastLine === 'Invalid MihoWRT settings')
 		return _('MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.');
-	if ((m = /^Mihomo config not found: (\S+)$/.exec(raw)))
+	if ((m = match(/^Mihomo config not found: (\S+)$/)))
 		return _('Mihomo configuration file not found: %s').format(m[1]);
-	if ((m = /^Failed to apply nftables policy \(see (\S+)\)$/.exec(raw)))
+	if ((m = match(/^Failed to apply nftables policy \(see (\S+)\)$/)))
 		return _('Failed to apply nftables policy: see %s. Restart MihoWRT; if it happens again, see the log on Diagnostics.').format(m[1]);
-	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
+	if (lastLine === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
 		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
-	if (raw === 'Start MihoWRT before installing the dashboard.')
+	if (lastLine === 'Start MihoWRT before installing the dashboard.')
 		return _('Start MihoWRT before installing the dashboard.');
-	if (/^Interrupted:/.test(raw))
+	if (match(/^Interrupted:/))
 		return _('The operation was interrupted (for example, by a router reboot). You can run it again.');
-	if (/not a Clash\/Mihomo config/.test(raw))
+	if (match(/not a Clash\/Mihomo config/))
 		return _('The link does not give a Clash/Mihomo config (it looks like V2Ray links, base64, sing-box JSON or a web page). Take the Clash/Mihomo link from your provider\'s account.');
-	if (/^Subscription returned an empty config/.test(raw))
+	if (match(/^Subscription returned an empty config/))
 		return _('The subscription returned an empty configuration.');
-	if (/must start with http/.test(raw))
+	if (match(/must start with http/))
 		return _('Enter the subscription link that starts with https://');
-	if (/Remote lists exceed 8 MiB in total/.test(raw))
+	if (match(/Remote lists exceed 8 MiB in total/))
 		return _('The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.');
 
 	// Subscription download errors ("... failed: http_404").
-	if (!(m = /Subscription download failed: (\S+)/.exec(raw)))
+	if (!(m = match(/Subscription download failed: (\S+)/)))
 		return raw;
 	const code = m[1];
 	const http = /^http_(\d+)$/.exec(code);

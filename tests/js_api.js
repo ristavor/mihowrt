@@ -45,6 +45,21 @@ test('job buttons lock together through busy preparation and job completion', as
  await tick(timers); await direct;
  assert.deepEqual(buttons.map(b => b.disabled), [false, false, true]);
 });
+for (const outcome of ['ok', 'error', 'start-error']) test('job clears old notices on start and running notice on completion: ' + outcome, async () => {
+ const notice = { children: ['stale error'], replaceChildren(...children) { this.children = children; } };
+ const { api, timers } = setup({ document: { querySelectorAll: selector => selector === '.mw-job' ? [notice] : [] } });
+ api.write = async () => {
+  assert(!notice.children.includes('stale error'), 'stale notice cleared before job-start');
+  assert(notice.children[0].children[0].includes('is running'), 'running notice shown');
+  if (outcome === 'start-error') throw Error('start failed');
+  return { id: '1' };
+ };
+ api.read = async () => outcome === 'ok' ? { state: 'ok' } : { state: 'error', error: 'failed' };
+ const pending = outcome === 'ok' ? api.job('update-lists') : assert.rejects(api.job('update-lists'));
+ if (outcome !== 'start-error') await tick(timers);
+ await pending;
+ assert.equal(notice.children.length, 0, 'no stale running notice after completion');
+});
 test('jobLabel reuses known labels and falls back to operation', () => {
  const { api } = setup();
  assert.equal(api.jobLabel('apply-lists'), 'Applying lists and settings');

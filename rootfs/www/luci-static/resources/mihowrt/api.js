@@ -478,6 +478,8 @@ return baseclass.extend({
 			return result;
 		}
 		finally {
+			for (const el of document.querySelectorAll?.('.mw-job') || [])
+				el.replaceChildren ? el.replaceChildren() : (el.innerHTML = '');
 			this.jobRunning = --waitingJobs > 0;
 			unlockJobButtons();
 		}

@@ -184,7 +184,7 @@ return view.extend({
 				yaml.setAttribute('spellcheck', 'false');
 				original = config.content;
 				editorBody.replaceChildren(
-					E('label', { class: 'cbi-value-title', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
+					E('label', { class: 'cbi-value-title mw-label', for: 'widget.mw-yaml' }, text(_('Mihomo YAML'))),
 					widget,
 					...(readOnly ? [] : [ E('div', { class: 'mw-row' }, sub.config_backup ? [ apply, restore ] : [ apply ]) ]),
 					...(sub.config_backup && !readOnly ? [ restoreNote ] : []));

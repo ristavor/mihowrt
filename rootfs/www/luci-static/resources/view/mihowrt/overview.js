@@ -492,7 +492,7 @@ function toolsSection(status) {
 
 	return E('div', { class: 'cbi-section' }, [
 		openRow,
-		!api.readOnly() ? E('div', [
+		!api.readOnly() ? E('div', { class: 'mw-maint' }, [
 			E('h3', text(_('Maintenance'))),
 			api.toggle(_('Show'), _('Hide'), maintenanceContent)
 		]) : ''

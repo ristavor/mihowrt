@@ -17,7 +17,9 @@ const CSS = `
 .mw-toggle > [hidden], .mw-page [hidden] { display: none; }
 .mw-page > h2 { margin-bottom: 0; }
 .mw-page > .cbi-section { margin: 0; }
-.mw-page h3 { margin-top: 0; }
+.mw-page h3 { margin: 0 0 8px; }
+.mw-maint { margin-top: 16px; }
+.mw-label { display: block; margin-bottom: 6px; }
 .mw-status { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; margin: 0; }
 .mw-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .mw-row:first-child, .mw-grid .mw-row { margin-top: 0; }

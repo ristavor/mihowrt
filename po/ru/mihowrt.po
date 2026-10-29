@@ -304,8 +304,20 @@ msgstr "Конфигурация проверена и сохранена."
 msgid "Advanced: edit the Mihomo YAML"
 msgstr "Дополнительно: редактировать YAML Mihomo"
 
-msgid "One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments."
-msgstr "По одной записи в строке: IPv4- или IPv6-адрес либо подсеть, при необходимости с портами (1.1.1.1;443, 2001:db8::/32). Строка со ссылкой (https://…) подключает удалённый список. Строки с # — комментарии."
+msgid "One IP address or subnet per line, or a link to a list."
+msgstr "По одному IP-адресу или подсети в строке либо ссылка на список."
+
+msgid "Entry format"
+msgstr "Формат записей"
+
+msgid "Hide entry format"
+msgstr "Скрыть формат записей"
+
+msgid "Port syntax (1.1.1.1;443), IPv6 subnets (2001:db8::/32) and comments (# text) are supported."
+msgstr "Поддерживаются синтаксис портов (1.1.1.1;443), IPv6-подсети (2001:db8::/32) и комментарии (# текст)."
+
+msgid "Site names (example.com) are not supported here — which sites go via proxy is decided by your subscription."
+msgstr "Названия сайтов (example.com) здесь не поддерживаются — какие сайты идут через прокси, решает подписка."
 
 msgid "Basic"
 msgstr "Основное"
@@ -334,8 +346,8 @@ msgstr "Обрабатывается трафик с этих интерфейс
 msgid "Block external IPv6 from clients"
 msgstr "Блокировать внешний IPv6 клиентов"
 
-msgid "Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the \"Only selected traffic via proxy\" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire."
-msgstr "Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Уже установленные соединения с аппаратным/программным ускорением (offloading) могут продолжаться до своего завершения."
+msgid "Keep external IPv6 of client devices from reaching the internet without the proxy."
+msgstr "Не пускать IPv6 устройств в интернет мимо прокси."
 
 msgid "No effect in the current mode."
 msgstr "В текущем режиме не действует."
@@ -343,32 +355,32 @@ msgstr "В текущем режиме не действует."
 msgid "Redirect client DNS to Mihomo"
 msgstr "Перенаправлять DNS клиентов в Mihomo"
 
-msgid "Devices with a hard-coded DNS server (port 53) still get Mihomo answers."
-msgstr "Устройства с жёстко заданным DNS-сервером (порт 53) всё равно получают ответы Mihomo."
+msgid "Devices with their own DNS still work via proxy."
+msgstr "Устройства с собственным DNS тоже будут работать через прокси."
 
 msgid "Block QUIC for proxied traffic"
 msgstr "Блокировать QUIC для трафика через прокси"
 
-msgid "Forces browsers to use TCP, which proxies handle better."
-msgstr "Браузеры переходят на TCP, с которым прокси работают лучше."
+msgid "Disables HTTP/3 so sites work more reliably through the proxy."
+msgstr "Отключает HTTP/3, чтобы сайты через прокси работали стабильнее."
 
 msgid "Time sync without Mihomo"
 msgstr "Синхронизация времени без Mihomo"
 
-msgid "NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails."
-msgstr "NTP-серверы определяются через DNS интерфейсов (WAN), а UDP/123 идёт мимо Mihomo, поэтому время синхронизируется даже при сбое Mihomo."
+msgid "Router clock stays synced even if the proxy is not working."
+msgstr "Часы роутера синхронизируются, даже если прокси не работает."
 
 msgid "Subscription server without Mihomo"
 msgstr "Сервер подписки без Mihomo"
 
-msgid "While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected."
-msgstr "Во время обновления подписки её адрес определяется через DNS интерфейсов (WAN) и скачивается напрямую. Остальной трафик к тем же адресам не затрагивается."
+msgid "Subscription downloads directly even if the proxy is not working."
+msgstr "Подписка скачивается напрямую, даже если прокси не работает."
 
-msgid "Route outbound NetBird through Mihomo"
-msgstr "Пускать исходящий NetBird через Mihomo"
+msgid "Route outbound NetBird through proxy"
+msgstr "Пускать исходящий NetBird через прокси"
 
-msgid "NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched."
-msgstr "Управляющий, relay- и peer-трафик NetBird идёт по правилам Mihomo. Входящий трафик NetBird не затрагивается."
+msgid "Outbound NetBird traffic goes via proxy."
+msgstr "Исходящий трафик NetBird идёт через прокси."
 
 msgid "Remote lists"
 msgstr "Удалённые списки"
@@ -751,11 +763,8 @@ msgstr[0] "%s: сохранена %d запись для другого режи
 msgstr[1] "%s: сохранено %d записи для другого режима."
 msgstr[2] "%s: сохранено %d записей для другого режима."
 
-msgid "These devices go direct. With fake-IP DNS, Mihomo resolves fake addresses and sends their connections DIRECT. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
-msgstr "Эти устройства выходят напрямую. При DNS fake-IP Mihomo определяет реальные адреса и отправляет соединения к ним через DIRECT. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
-
-msgid "All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address."
-msgstr "Весь трафик этих устройств идёт через Mihomo. Используйте MAC-адрес для IPv4 и IPv6 одновременно или IP-адрес."
+msgid "Use a MAC address: it covers IPv4 and IPv6."
+msgstr "Лучше указывать MAC-адрес — он действует и для IPv4, и для IPv6."
 
 msgid "Cannot load the lists: %s"
 msgstr "Не удалось загрузить списки: %s"
@@ -778,8 +787,8 @@ msgstr "IP-адрес"
 msgid "%s (%s, private MAC)"
 msgstr "%s (%s, частный MAC)"
 
-msgid "A device with a private Wi-Fi address must keep it for your network: choose \"Fixed\" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching."
-msgstr "Устройство с частным адресом Wi-Fi должно сохранять его для вашей сети: выберите для этой сети «Фиксированный» (iPhone, iPad, Mac) или случайный MAC для этой сети (Android), а не меняющийся, иначе запись перестанет срабатывать."
+msgid "If a device uses a private Wi-Fi address, make it static for this network."
+msgstr "Если у устройства частный адрес Wi-Fi, сделайте его постоянным для этой сети."
 
 msgid "Lists were applied, but settings could not be saved: %s. Review the settings and try Save & Apply again."
 msgstr "Списки применены, но сохранить настройки не удалось: %s. Проверьте настройки и снова нажмите «Сохранить и применить»."

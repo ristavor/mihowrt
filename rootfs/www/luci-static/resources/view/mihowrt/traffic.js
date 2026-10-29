@@ -12,7 +12,7 @@ const LIST_KINDS = [ 'dst', 'src', 'direct', 'direct_src' ];
 
 const callLeases = rpc.declare({ object: 'luci-rpc', method: 'getDHCPLeases', expect: { '': {} } });
 
-const LIST_HELP = _('One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments.');
+const LIST_HELP = _('One IP address or subnet per line, or a link to a list.');
 
 return view.extend({
 	lists: {},
@@ -46,6 +46,15 @@ return view.extend({
 			if (!this.listsError && o.isActive(sid))
 				this.edited[kind] = '';
 		};
+		if (!description) {
+			this.extendWidget(o, (node) => {
+				const format = E('div', { class: 'cbi-value-description' }, [
+					E('p', text(_('Port syntax (1.1.1.1;443), IPv6 subnets (2001:db8::/32) and comments (# text) are supported.'))),
+					E('p', text(_('Site names (example.com) are not supported here — which sites go via proxy is decided by your subscription.')))
+				]);
+				return E('div', {}, [ node, api.toggle(_('Entry format'), _('Hide entry format'), format) ]);
+			});
+		}
 		return o;
 	},
 
@@ -157,11 +166,11 @@ return view.extend({
 		// Only the lists of the active mode: the others keep their files.
 		if (proxyFirst) {
 			this.providerList(s, 'basic', 'direct', this.titles.direct);
-			this.devicesOption(s, 'direct_src', _('These devices go direct. With fake-IP DNS, Mihomo resolves fake addresses and sends their connections DIRECT. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
+			this.devicesOption(s, 'direct_src', _('Use a MAC address: it covers IPv4 and IPv6.'), leases);
 		}
 		else {
 			this.providerList(s, 'basic', 'dst', this.titles.dst);
-			this.devicesOption(s, 'src', _('All traffic of these devices goes through Mihomo. Use a MAC address to cover both IPv4 and IPv6, or an IP address.'), leases);
+			this.devicesOption(s, 'src', _('Use a MAC address: it covers IPv4 and IPv6.'), leases);
 		}
 
 		// Button next to the field; its own row only when the provider may own the interval.
@@ -205,15 +214,15 @@ return view.extend({
 			return f;
 		});
 		const ipv6Desc = proxyFirst ? _('No effect in the current mode.')
-			: _('Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.');
+			: _('Keep external IPv6 of client devices from reaching the internet without the proxy.');
 		const ipv6Flag = flag('block_client_ipv6', _('Block external IPv6 from clients'), ipv6Desc, '0');
 		if (proxyFirst)
 			ipv6Flag.readonly = true;
-		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
-		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
-		flag('bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
-		flag('bypass_subscription_dns', _('Subscription server without Mihomo'), _('While the subscription updates, its server is resolved through the WAN interface DNS and downloaded directly. Other traffic to the same addresses is not affected.'));
-		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through Mihomo'), _('NetBird control, relay and peer transport follow Mihomo rules. Incoming NetBird traffic is never touched.'));
+		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with their own DNS still work via proxy.'));
+		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Disables HTTP/3 so sites work more reliably through the proxy.'));
+		flag('bypass_ntp', _('Time sync without Mihomo'), _('Router clock stays synced even if the proxy is not working.'));
+		flag('bypass_subscription_dns', _('Subscription server without Mihomo'), _('Subscription downloads directly even if the proxy is not working.'));
+		o = s.taboption('advanced', form.Flag, 'netbird_proxy', _('Route outbound NetBird through proxy'), _('Outbound NetBird traffic goes via proxy.'));
 		o.default = '0';
 		o.rmempty = false;
 
@@ -317,7 +326,7 @@ return view.extend({
 			: E('div', { class: 'cbi-value-description' }, text(_('No devices in the DHCP list yet. Type a MAC address by hand, e.g. aa:bb:cc:dd:ee:ff.')));
 		return E('div', {}, [ node, pickerRow,
 			description ? E('div', { class: 'cbi-value-description' }, text(description + (all.some(isPrivate)
-				? ' ' + _('A device with a private Wi-Fi address must keep it for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching.') : ''))) : '', missing ]);
+				? ' ' + _('If a device uses a private Wi-Fi address, make it static for this network.') : ''))) : '', missing ]);
 	},
 
 	handleSave: null,

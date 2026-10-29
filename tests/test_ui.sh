@@ -1512,7 +1512,7 @@ seq(async () => {
   return o;
  };
  const ipv6Title = 'Block external IPv6 from clients';
- const ipv6Description = 'Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.';
+ const ipv6Description = 'Keep external IPv6 of client devices from reaching the internet without the proxy.';
  await check('client IPv6 off by default', async () => {
   const t = setup(); await t.render(); const o = ipv6Flag(t);
   h.assertEq(o.tab, 'advanced', 'client IPv6 is in Advanced');
@@ -1525,7 +1525,7 @@ seq(async () => {
   const catalog = require('fs').readFileSync(path.join(process.argv[2], 'po/ru/mihowrt.po'), 'utf8');
   for (const [english, russian] of [
    [ipv6Title, 'Блокировать внешний IPv6 клиентов'],
-   [ipv6Description, 'Отклонять внешний IPv6-трафик с выбранных клиентских интерфейсов, который не проходит через Mihomo. Работает только в режиме «Через прокси только выбранный трафик». Правила локального межсетевого экрана сохраняются. Трафик роутера и Mihomo не изменяется. Уже установленные соединения с аппаратным/программным ускорением (offloading) могут продолжаться до своего завершения.']
+   [ipv6Description, 'Не пускать IPv6 устройств в интернет мимо прокси.']
   ]) h.assert(catalog.includes(`msgid "${english.replace(/"/g, '\\"')}"\nmsgstr "${russian}"`), 'exact Russian translation: ' + english);
  });
  await check('provider on readonly', async () => {
@@ -1746,7 +1746,7 @@ seq(async () => {
   }
  });
  await check('private mac marked, no notification', async () => {
-  const help = 'A device with a private Wi-Fi address must keep it for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching.';
+  const help = 'If a device uses a private Wi-Fi address, make it static for this network.';
   const t = setup(), p = picker(t, { dhcp_leases: [{ hostname: 'phone', macaddr: 'DA:A1:19:00:00:01', ipaddr: '192.168.1.7' }, { macaddr: 'DA:A1:19:00:00:02' }, { hostname: 'laptop', macaddr: '00:11:22:33:44:55' }] }, '', 'Devices text.');
   h.assertEq(texts(p.select.children[1]).join(''), 'phone (192.168.1.7, private MAC)', 'private MAC marked in the option');
   h.assertEq(texts(p.select.children[2]).join(''), 'unknown (DA:A1:19:00:00:02, private MAC)', 'private MAC without host or IP');

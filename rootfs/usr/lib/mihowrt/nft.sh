@@ -365,6 +365,16 @@ nft_input_hash() {
 	} | sha256sum
 }
 
+nft_fw4_input_reload() {
+	local error=""
+
+	if ! error="$(fw4 reload 6>&- 7>&- 8>&- 9>&- 2>&1 >/dev/null)"; then
+		warn "Failed to reload firewall4 input rules: ${error%%'
+'*}"
+	fi
+	return 0
+}
+
 # fw4 input REJECT must not discard TPROXY traffic or redirected guest DNS.
 nft_fw4_input_apply() {
 	local iface="" ifaces="" content=""
@@ -372,20 +382,22 @@ nft_fw4_input_apply() {
 	for iface in $SOURCE_INTERFACES; do
 		ifaces="$ifaces${ifaces:+, }\"$iface\""
 	done
-	content="meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept
+	content="meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept"
+	[ -z "$ifaces" ] || content="$content
 iifname { $ifaces } meta l4proto {tcp,udp} th dport $MIHOMO_DNS_PORT ct status dnat accept"
-	printf '%s\n' "$content" | cmp -s - "$FW4_INPUT_INCLUDE" && return 0
-	ensure_dir "${FW4_INPUT_INCLUDE%/*}" && atomic_write "$FW4_INPUT_INCLUDE" "$content" || return 1
-	fw4 reload 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || warn "Failed to reload firewall4 input rules"
-	return 0
+	[ -f "$FW4_INPUT_INCLUDE" ] && printf '%s\n' "$content" | cmp -s - "$FW4_INPUT_INCLUDE" 2>/dev/null && return 0
+	if ! { ensure_dir "${FW4_INPUT_INCLUDE%/*}" && atomic_write "$FW4_INPUT_INCLUDE" "$content"; }; then
+		warn "Failed to write firewall4 input rules"
+		return 0
+	fi
+	nft_fw4_input_reload
 }
 
 nft_fw4_input_cleanup() {
 	[ -e "$FW4_INPUT_INCLUDE" ] || return 0
 	# Remove before reload: re-entered cleanup cannot trigger another reload.
 	rm -f "$FW4_INPUT_INCLUDE" || return 1
-	fw4 reload 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || warn "Failed to reload firewall4 input rules"
-	return 0
+	nft_fw4_input_reload
 }
 
 nft_apply() {
@@ -432,10 +444,10 @@ nft_apply_if_ready() {
 	service_ready && nft_apply
 }
 
+# Keep the harmless fw4 include across watchdog flaps; lifecycle teardown removes it.
 nft_cleanup() {
 	rm -f "$NET_FP_FILE" "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
-	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null
-	nft_fw4_input_cleanup
+	nft delete table inet "$NFT_TABLE_NAME" 2>/dev/null || :
 }
 
 nft_active() {

@@ -535,6 +535,33 @@ pass 'empty MAC lists emit no ether saddr rules'
 )
 pass 'client IPv6 toggle and failed transaction stay atomic'
 
+# A missing include must not invoke cmp (BusyBox emits errors even with -s).
+(
+ rm -f "$FW4_INPUT_INCLUDE"
+ SOURCE_INTERFACES=br-guest
+ cmp() { printf 'called\n' >>"$tmpdir/include-cmp.calls"; busybox cmp "$@"; }
+ fw4() { :; }
+ nft_fw4_input_apply 2>"$tmpdir/include-first.err"
+ assert_false 'missing include skips cmp' test -e "$tmpdir/include-cmp.calls"
+ assert_false 'first include creation has no cmp stderr' test -s "$tmpdir/include-first.err"
+ cmp() { printf 'cmp read error\n' >&2; return 1; }
+ nft_fw4_input_apply 2>"$tmpdir/include-compare.err"
+ assert_false 'include comparison suppresses cmp errors' test -s "$tmpdir/include-compare.err"
+ rm -f "$FW4_INPUT_INCLUDE"
+)
+pass 'fw4 include compares only existing files without stderr noise'
+
+# Empty source interfaces still need the mark accept, never an empty nft set.
+(
+ fw4() { :; }
+ for SOURCE_INTERFACES in '' $' \t\n '; do
+  nft_fw4_input_apply
+  assert_eq "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept" "$(cat "$FW4_INPUT_INCLUDE")" 'empty interfaces emit only the mark accept'
+ done
+ rm -f "$FW4_INPUT_INCLUDE"
+)
+pass 'fw4 include omits DNS rule for empty or whitespace-only interfaces'
+
 # fw4 input policy must admit intercepted guest traffic, without repeat writes.
 (
  settings_require() { :; }
@@ -569,16 +596,29 @@ iifname { \"br-guest\", \"br-iot\" } meta l4proto {tcp,udp} th dport $MIHOMO_DNS
  assert_eq 2 "$(wc -l <"$tmpdir/fw4.calls")" 'missing include reloads fw4 once'
  SOURCE_INTERFACES=br-new
  logger() { printf '%s\n' "$*" >>"$tmpdir/fw4.warnings"; }
- fw4() { printf '%s\n' "$*" >>"$tmpdir/fw4.calls"; return 1; }
+ fw4() {
+  printf '%s\n' "$*" >>"$tmpdir/fw4.calls"
+  printf 'ignored stdout\n'
+  printf 'reload rejected: test reason\nsecond error line\n' >&2
+  return 1
+ }
  nft_apply 2>"$tmpdir/fw4.err" || fail 'fw4 reload failure must not fail start'
  assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-new" }' 'changed interfaces update include despite reload failure'
- assert_file_contains "$tmpdir/fw4.warnings" 'Failed to reload' 'fw4 reload failure warns'
+ assert_file_contains "$tmpdir/fw4.warnings" 'Failed to reload firewall4 input rules: reload rejected: test reason' 'fw4 reload failure warns with first stderr line'
+ assert_file_not_contains "$tmpdir/fw4.warnings" 'second error line' 'reload warning omits later stderr lines'
+ assert_file_not_contains "$tmpdir/fw4.warnings" 'ignored stdout' 'reload warning omits stdout'
  SOURCE_INTERFACES=br-failed
  before="$(cat "$FW4_INPUT_INCLUDE")"
  atomic_write() { return 1; }
- if nft_apply; then fail 'failed include write must report failure'; fi
+ nft_apply || fail 'failed include write must not fail nft_apply'
+ assert_file_contains "$tmpdir/fw4.warnings" 'Failed to write firewall4 input rules' 'failed include write warns'
  assert_eq "$before" "$(cat "$FW4_INPUT_INCLUDE")" 'failed include write preserves previous include'
  assert_eq 3 "$(wc -l <"$tmpdir/fw4.calls")" 'failed include write does not reload'
- rm -f "$FW4_INPUT_INCLUDE" "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
+ : >"$tmpdir/fw4.warnings"
+ nft_fw4_input_cleanup || fail 'cleanup reload failure must remain nonfatal'
+ assert_false 'cleanup removes include despite reload failure' test -e "$FW4_INPUT_INCLUDE"
+ assert_file_contains "$tmpdir/fw4.warnings" 'Failed to reload firewall4 input rules: reload rejected: test reason' 'cleanup warning carries first stderr line'
+ assert_file_not_contains "$tmpdir/fw4.warnings" 'second error line' 'cleanup warning omits later stderr lines'
+ rm -f "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
 )
-pass 'fw4 input include is dynamic, change-only and nonfatal on reload failure'
+pass 'fw4 input include is dynamic, change-only and nonfatal on write or reload failure'

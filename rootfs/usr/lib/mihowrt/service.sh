@@ -108,6 +108,7 @@ service_recover() {
 		done
 	fi
 	policy_cleanup
+	nft_fw4_input_cleanup
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE"
 }
 
@@ -330,8 +331,8 @@ run_service() {
 
 	trap - INT TERM HUP
 	MIHOWRT_STOP=0
-	# Restore direct DNS/routing first: a hung Mihomo may need SIGKILL. The
-	# lock wait stays well below procd term_timeout (30 s).
+	# Restore direct DNS/routing first: a hung Mihomo may need SIGKILL. Bound
+	# the lock wait for procd's 30 s stop budget; reload fw4 only after core exit.
 	if RUNTIME_LOCK_TIMEOUT=10 lock_acquire; then
 		rm -f "$RUNNING_MARKER"
 		policy_cleanup
@@ -342,6 +343,7 @@ run_service() {
 		policy_cleanup
 	fi
 	stop_child "$pid"
+	nft_fw4_input_cleanup
 	cache_db_persist
 	rm -f "$SERVICE_PID_FILE" "$HEALTH_FILE" "$DEGRADED_FILE"
 	[ "$stop" -eq 1 ] && {

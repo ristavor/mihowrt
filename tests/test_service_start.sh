@@ -3,7 +3,7 @@ set -euo pipefail
 source "$(dirname "$0")/testlib.sh"
 tmpdir="$(make_temp_dir)"
 trap 'rm -rf "$tmpdir"' EXIT
-load_modules constants.sh helpers.sh validate.sh service.sh
+load_modules constants.sh helpers.sh validate.sh nft.sh service.sh
 setup_runtime_paths "$tmpdir"
 RUNTIME_LOCK_FILE="$PKG_STATE_DIR/runtime.flock"
 SERVICE_PID_FILE="$PKG_STATE_DIR/pid"

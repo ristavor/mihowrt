@@ -11,7 +11,7 @@ setup_fake_uci "$tmpdir"
 load_modules constants.sh helpers.sh validate.sh settings.sh mihomo-config.sh lists.sh nft.sh route.sh dns.sh mihomo-api.sh subscription.sh service.sh
 setup_runtime_paths "$tmpdir"
 
-# Removing the include before reload makes cleanup re-entry a no-op.
+# Full recovery removes the include; removing it before reload avoids re-entry.
 (
  mkdir -p "${FW4_INPUT_INCLUDE%/*}"
  printf 'guest input rules\n' >"$FW4_INPUT_INCLUDE"
@@ -19,17 +19,19 @@ setup_runtime_paths "$tmpdir"
  fw4() {
   assert_false 'stop removes include before fw4 reload' test -e "$FW4_INPUT_INCLUDE"
   printf '%s\n' "$*" >>"$tmpdir/stop-fw4.calls"
-  nft_cleanup
+  nft_fw4_input_cleanup
  }
  dns_cleanup() { :; }
  route_cleanup() { :; }
- policy_cleanup
- assert_false 'stop removes fw4 input include' test -e "$FW4_INPUT_INCLUDE"
- assert_eq reload "$(cat "$tmpdir/stop-fw4.calls")" 'stop reloads once without recursion'
- policy_cleanup
+ pgrep() { return 1; }
+ service_pid() { return 1; }
+ service_recover
+ assert_false 'full recovery removes fw4 input include' test -e "$FW4_INPUT_INCLUDE"
+ assert_eq reload "$(cat "$tmpdir/stop-fw4.calls")" 'full recovery reloads once without recursion'
+ service_recover
  assert_eq reload "$(cat "$tmpdir/stop-fw4.calls")" 'repeated stop does not reload'
 )
-pass 'stop removes fw4 input include without recursive reload'
+pass 'full recovery removes fw4 input include without recursive reload'
 
 # Default provider directories follow the existing tmpfs-link migration.
 (
@@ -72,6 +74,87 @@ CLASH_BIN="$tmpdir/clash"
 printf '#!/bin/sh\n[ ! -e /proc/$$/fd/9 ] || touch "%s"\nexec sleep 30\n' "$tmpdir/core-lock-leaked" >"$CLASH_BIN"
 chmod +x "$CLASH_BIN"
 echo "mode: rule" >"$RUNTIME_CONFIG"
+
+# Watchdog flaps keep the include; only final stop removes it, after the core.
+for stop_lock in available busy; do
+ (
+  cycle="$tmpdir/fw4-cycle-$stop_lock"
+  setup_runtime_paths "$cycle"
+  WATCHDOG_FAILS=1
+  WATCHDOG_INTERVAL=0.01
+  SOURCE_INTERFACES=br-guest
+  POLICY_MODE=direct-first
+  probe_count=0
+  before=''
+  settings_load() { :; }
+  settings_require() { :; }
+  wait_for_ready() { :; }
+  with_lock() { "$@"; }
+  lock_busy() { return 1; }
+  lock_acquire() { [ "$stop_lock" = available ]; }
+  lock_release() { :; }
+  route_setup() { :; }
+  route_cleanup() { :; }
+  dns_apply() { :; }
+  dns_cleanup() { :; }
+  cache_db_persist() { :; }
+  nft_input_hash() { printf 'fixed inputs\n'; }
+  nft_render() { printf 'fixed transaction\n' >"$1"; }
+  nft_active() { test -e "$cycle/table"; }
+  nft() {
+   case "$1" in
+    -f) touch "$cycle/table" ;;
+    delete) rm -f "$cycle/table" ;;
+    *) fail "unexpected nft call: $*" ;;
+   esac
+  }
+  eval "$(declare -f atomic_write | sed '1s/atomic_write/cycle_atomic_write/')"
+  atomic_write() {
+   [ "$1" != "$FW4_INPUT_INCLUDE" ] || printf 'write\n' >>"$cycle/include.writes"
+   cycle_atomic_write "$@"
+  }
+  fw4() {
+   printf '%s\n' "$*" >>"$cycle/fw4.calls"
+   if [ ! -e "$FW4_INPUT_INCLUDE" ]; then
+    assert_true 'stop reload happens after stop_child' test -e "$cycle/child-stopped"
+    assert_false 'stop reload happens after table deletion' test -e "$cycle/table"
+   fi
+  }
+  eval "$(declare -f stop_child | sed '1s/stop_child/cycle_stop_child/')"
+  stop_child() {
+   assert_false 'stop deletes table before stopping core' test -e "$cycle/table"
+   assert_true 'stop retains include until core is stopped' test -f "$FW4_INPUT_INCLUDE"
+   cycle_stop_child "$@"
+   touch "$cycle/child-stopped"
+  }
+  api_alive() { return 0; }
+  api_dns_probe() {
+   probe_count=$((probe_count + 1))
+   if [ "$probe_count" -eq 1 ]; then
+    before="$(stat -c '%i:%Y' "$FW4_INPUT_INCLUDE")"
+    return 1
+   fi
+   assert_true 'watchdog keeps include through degradation and recovery' test -f "$FW4_INPUT_INCLUDE"
+   assert_eq "$before" "$(stat -c '%i:%Y' "$FW4_INPUT_INCLUDE")" 'watchdog does not rewrite include'
+   assert_eq write "$(cat "$cycle/include.writes")" 'watchdog performs no extra include write'
+   assert_eq reload "$(cat "$cycle/fw4.calls")" 'watchdog performs no extra fw4 reload'
+   if [ "$probe_count" -eq 2 ]; then
+    assert_true 'watchdog degraded before recovery' test -f "$DEGRADED_FILE"
+    assert_false 'degradation deletes our table' test -e "$cycle/table"
+   else
+    assert_false 'watchdog recovered' test -e "$DEGRADED_FILE"
+    assert_true 'recovery restores our table' test -e "$cycle/table"
+    stop=1
+   fi
+   return 0
+  }
+  run_service || fail 'watchdog cycle must stop normally'
+  assert_eq 3 "$probe_count" 'test runs both degradation and recovery'
+  assert_false 'final stop removes include' test -e "$FW4_INPUT_INCLUDE"
+  assert_eq $'reload\nreload' "$(cat "$cycle/fw4.calls")" 'only startup and final stop reload fw4'
+ )
+done
+pass 'watchdog keeps include and stop removes it after core with either lock outcome'
 
 # polish: auto_update stamp once
 (

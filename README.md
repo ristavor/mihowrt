@@ -8,7 +8,7 @@ MihoWRT runs [Mihomo](https://github.com/MetaCubeX/mihomo) on OpenWrt with a LuC
 
 - OpenWrt **25.12 (apk)** or **24.10 (opkg)**, firewall4/nftables. See [24.10 limits](docs/reference.md#openwrt-2410).
 - **128 MiB RAM minimum, 256 MiB recommended.** Keep the YAML small on 128–256 MiB. An 8 MiB config ran out of memory on 128 MiB in every tested build, including 0.10, and on 256 MiB; it passed on 512 MiB. Sizes between were not measured.
-- **100 MiB+ free flash is a safe budget**: core ≈12 MiB compressed, up to ≈55 MiB unpacked, ×2 during update; geodata and dashboard are extra (dashboard measured 5284 KiB installed). Sizes vary by core/architecture; compressing overlays (UBIFS/JFFS2) need less space. The installer checks for 2 MiB free; core update checks free space ≥ compressed file size + 4 MiB and keeps the old core if unpacking fills flash.
+- **100 MiB+ free flash is a safe budget**: core ≈20 MB compressed, up to ≈55 MB unpacked, ×2 during update; geodata and dashboard are extra (dashboard measured 5284 KiB installed). Sizes vary by core/architecture; compressing overlays (UBIFS/JFFS2) need less space. The installer checks for 2 MiB free; core update checks free space ≥ compressed file size + 4 MiB and keeps the old core if unpacking fills flash.
 - Core updates worked on 128 MiB in the VM, with only ≈6–8 MiB MemAvailable at the low point; not a hardware guarantee.
 - Dependencies: `luci-base cgi-io ucode ucode-mod-fs nftables kmod-nft-tproxy curl` (package manager resolves them). Russian UI also needs `luci-i18n-base-ru` and `luci-i18n-mihowrt-ru`.
 

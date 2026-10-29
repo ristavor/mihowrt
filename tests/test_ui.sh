@@ -156,7 +156,7 @@ h.assertEq(firstUrl.attrs.inputmode, 'url', 'first-run URL keyboard');
 
 page = overview.render([ Object.assign({}, base, { core_installed: false }), {}, [] ]);
 h.assert(texts(page).includes('Mihomo core is not installed'), 'core card shown when core is missing');
-h.assert(texts(page).includes('MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems).'), 'core card states download and unpacked size');
+h.assert(texts(page).includes('MihoWRT works through the Mihomo program (the core). It is downloaded once from GitHub: about 20 MB, up to 55 MB on the router.'), 'core card states download and unpacked size');
 
 const evil = '<img src=x onerror=alert(1)>';
 page = overview.render([ Object.assign({}, base, { subscription_configured: true, running: true }),

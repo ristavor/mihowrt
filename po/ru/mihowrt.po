@@ -157,8 +157,8 @@ msgstr "Ядро Mihomo %s установлено."
 msgid "Mihomo core is not installed"
 msgstr "Ядро Mihomo не установлено"
 
-msgid "MihoWRT needs the Mihomo core (about 20 MB download, about 55 MB unpacked; less on compressing flash file systems)."
-msgstr "Для работы нужно ядро Mihomo (загрузка около 20 МБ, около 55 МБ в распакованном виде; на сжимающих файловых системах флеш-памяти меньше)."
+msgid "MihoWRT works through the Mihomo program (the core). It is downloaded once from GitHub: about 20 MB, up to 55 MB on the router."
+msgstr "MihoWRT работает через программу Mihomo (ядро). Её нужно один раз скачать с GitHub: около 20 МБ, на роутере займёт до 55 МБ."
 
 msgid "Stop"
 msgstr "Остановить"

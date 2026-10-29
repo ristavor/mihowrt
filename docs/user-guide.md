@@ -8,7 +8,7 @@
 |---|---|
 | Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
 | Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MiB) and *Restore the previous YAML* |
-| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, *Block external IPv6 from clients*, NTP and subscription DNS bypass, NetBird, *Mihomo log level*, and *Mihomo dashboard*. One *Save & Apply* button applies lists and settings together |
+| Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, *Block external IPv6 from clients*, NTP and subscription DNS bypass, NetBird, *Mihomo log detail* and *Mihomo dashboard*. One *Save & Apply* button applies lists and settings together |
 | Diagnostics | Checklist with fixes (core, config, service state and last error, DNS answers, rules, conflicting dnsmasq servers, conflicting proxy packages, free flash and RAM, open proxy ports), details (including Mihomo memory) and log |
 
 ### Dashboard

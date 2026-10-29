@@ -1743,6 +1743,11 @@ seq(async () => {
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
 seq(async () => {
+ const errors = texts(diag.render([{ ...base, errors: ['Invalid MihoWRT settings'] }, {}, {}]));
+ h.assert(errors.includes('MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.'), 'diagnostics maps status errors');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+seq(async () => {
  const last_error = 'Unsupported dns form: use a block mapping';
  const detail = 'The "dns" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.';
  const status = { ...base, state: 'failed', last_error };
@@ -1752,6 +1757,11 @@ seq(async () => {
  const headline = 'Mihomo rejected the configuration. bad proxy';
  h.assert(texts(overview.render([{ ...status, last_error: raw }, {}, []])).some(t => t.includes(headline)), 'overview summarizes core rejection');
  h.assert(texts(diag.render([{ ...status, last_error: raw }, {}, {}])).some(t => t.includes('Last error: ' + headline)), 'diagnostics summarizes core rejection');
+ const invalid = { ...status, config_valid: false, last_error, config_error: 'level=info msg="noise"\nlevel=error msg="raw bad config"' };
+ h.assert(texts(overview.render([invalid, {}, []])).includes('Details: ' + detail), 'overview prefers mapped last_error to raw config output');
+ const rawOnly = overview.render([{ ...invalid, last_error: '' }, {}, []]);
+ h.assert(texts(rawOnly).includes('Details: raw bad config'), 'overview extracts error message when only config_error exists');
+ h.assert(!texts(rawOnly).some(t => t.includes('level=')), 'overview hides log metadata');
  console.log('ok - status views map backend errors and core rejection');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 

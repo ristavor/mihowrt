@@ -4,13 +4,6 @@
 
 const text = api.text;
 
-// Only Mihomo's error messages, without timestamps and temp paths.
-function coreError(raw) {
-	const msgs = [ ...String(raw).matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ].map((m) => m[1].replace(/\\"/g, '"'));
-	return msgs.length ? msgs.join('\n')
-		: String(raw).split('\n').filter((l) => l && !/level=(info|debug|warning)/.test(l) && !/test failed$/.test(l)).join('\n');
-}
-
 // Each check: passed? (null = unknown), label, hint shown when it fails.
 function checks(st, diagnostics) {
 	const state = st.state || (st.running ? 'running' : 'stopped');
@@ -36,7 +29,7 @@ function checks(st, diagnostics) {
 			? [ null, _('Configuration not checked yet (it is checked at start)'), '' ]
 			: [ st.config_valid, st.config_valid ? _('Configuration is valid') : _('Configuration has errors'),
 				_('Update the subscription or fix the YAML on the Subscription page.') +
-				(st.config_error ? '\n' + _('Mihomo says: %s').format(coreError(st.config_error)) : '') ],
+				(st.config_error ? '\n' + _('Mihomo says: %s').format(api.coreError(st.config_error)) : '') ],
 		[ st.subscription_configured || null, _('Subscription configured'),
 			_('Without a subscription only the YAML you entered is used.') ],
 		state === 'starting' ? [ null, _('Starting…'), '' ] : [ up, up ? _('Service is running') : _('MihoWRT is not running'), serviceHint ]
@@ -155,7 +148,7 @@ return view.extend({
 				E('div', text(_('Cannot load diagnostics: %s').format(diagnostics.unavailable))),
 				E('div', text(_('Reload the page to try again.'))) ]) : '',
 			E('div', { class: 'cbi-section' }, [ checklist(st, diagnostics), E('div', { class: 'mw-row' }, [ refresh ]) ]),
-			(st.errors || []).length ? E('div', { class: 'alert-message warning' }, text(st.errors.join('; '))) : '',
+			(st.errors || []).length ? E('div', { class: 'alert-message warning' }, text(st.errors.map(api.errorText).join('; '))) : '',
 			E('div', { class: 'cbi-section' }, [ E('h3', text(_('Details'))),
 				api.toggle(_('Show details'), _('Hide details'), details(st, profile, diagnostics)) ]),
 			E('div', { class: 'cbi-section' }, [ E('h3', text(_('Log'))),

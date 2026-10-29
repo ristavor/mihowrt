@@ -175,6 +175,13 @@ function backendErrorText(message) {
 	return _('The router cannot reach the subscription server. Check the internet connection and the link.');
 }
 
+// Only Mihomo's error messages, without timestamps and temp paths.
+function coreError(raw) {
+	const msgs = [ ...String(raw).matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ].map((m) => m[1].replace(/\\"/g, '"'));
+	return msgs.length ? msgs.join('\n')
+		: String(raw).split('\n').filter((l) => l && !/level=(info|debug|warning)/.test(l) && !/test failed$/.test(l)).join('\n');
+}
+
 function jobErrorText(op, message) {
 	const mapped = backendErrorText(message);
 	return ['save-config', 'restore-config', 'connect', 'update-subscription', 'auto-update'].includes(op)
@@ -588,6 +595,7 @@ return baseclass.extend({
 	infoGrid,
 	actionNotice,
 	errorText,
+	coreError,
 	text,
 	formatBytes,
 	formatDate,

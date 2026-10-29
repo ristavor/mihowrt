@@ -140,7 +140,7 @@ function statusSection(status) {
 		else if (status.config_valid === false) {
 			label = _('Stopped: Mihomo did not accept the configuration.');
 			alertClass = 'error';
-			detailText = status.config_error || status.last_error || '';
+			detailText = status.last_error || api.coreError(status.config_error || '');
 			nextStepContent = [
 				_('What to do: update the subscription or fix the configuration.'), ' ',
 				E('a', { href: L.url('admin/services/mihowrt/diagnostics') }, [ _('Open Diagnostics') ])

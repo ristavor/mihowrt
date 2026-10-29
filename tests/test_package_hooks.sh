@@ -611,8 +611,11 @@ for name in proxies rules; do
 done
 MIHOWRT_LIB_DIR="$uninstall_root/lib" ash "$uninstall_root/cli" uninstall
 assert_eq $'dns\nnft\nroute' "$(cat "$uninstall_root/opt/clash/cleanup-calls" 2>/dev/null || true)" "lingering supervisor still restores DNS/nft/routes under lock"
-for marker in test-running test-pid proxies rules; do
+for marker in test-running test-pid; do
 	[[ ! -e "$uninstall_root/opt/clash/$marker" ]] || fail "uninstall explicitly removes $marker"
+done
+for name in proxies rules; do
+	assert_file_contains "$uninstall_root/opt/clash/$name/provider" 'legacy cache' "uninstall keeps a real $name directory with its files"
 done
 pass "uninstall restores router state despite lingering supervisor"
 

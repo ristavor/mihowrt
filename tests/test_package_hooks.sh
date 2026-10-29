@@ -23,6 +23,8 @@ hook_log="$tmpdir/hook.log"
 skip_start="$tmpdir/skip-start"
 was_running_marker="$tmpdir/was-running"
 fw4_include="$tmpdir/fw4/30-mihowrt.nft"
+prerm_constants="$tmpdir/prerm-constants.sh"
+printf 'FW4_INPUT_INCLUDE="%s"\n' "$fw4_include" >"$prerm_constants"
 acl_file="$ROOT_DIR/rootfs/usr/share/rpcd/acl.d/luci-app-mihowrt.json"
 keep_file="$ROOT_DIR/rootfs/lib/upgrade/keep.d/mihowrt"
 
@@ -92,6 +94,7 @@ extract_prerm() {
 			-e "s|/tmp/luci-app-mihowrt.was-running|$was_running_marker|g" \
 			-e "s|/etc/init.d/mihowrt|$tmpdir/init-mihowrt|g" \
 			-e "s|/usr/bin/mihowrt|$tmpdir/mihowrt|g" \
+			-e "s|/usr/lib/mihowrt/constants.sh|$prerm_constants|g" \
 			-e "s|/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft|$fw4_include|g"
 }
 
@@ -340,6 +343,19 @@ assert_eq 1 "$(grep -c '^fw4:reload$' "$hook_log")" 'prerm fallback reloads afte
 PATH="$tmpdir/bin:$PATH" IPKG_INSTROOT="" "$prerm_path"
 assert_eq 1 "$(grep -c '^fw4:reload$' "$hook_log")" 'prerm with no include does not reload'
 pass 'prerm removes stale fw4 input include only once'
+
+# The include path comes from constants.sh; without constants.sh the shipped path is used.
+other_include="$tmpdir/fw4/other.nft"
+printf 'FW4_INPUT_INCLUDE="%s"\n' "$other_include" >"$prerm_constants"
+printf 'guest input rules\n' | tee "$other_include" >"$fw4_include"
+PATH="$tmpdir/bin:$PATH" IPKG_INSTROOT="" "$prerm_path"
+assert_false 'prerm removes the include named by constants.sh' test -e "$other_include"
+assert_true 'prerm leaves other files alone' test -e "$fw4_include"
+rm -f "$prerm_constants"
+PATH="$tmpdir/bin:$PATH" IPKG_INSTROOT="" "$prerm_path"
+assert_false 'prerm falls back to the shipped include path without constants.sh' test -e "$fw4_include"
+printf 'FW4_INPUT_INCLUDE="%s"\n' "$fw4_include" >"$prerm_constants"
+pass 'prerm reads the fw4 include path from constants.sh with a fallback'
 
 # opkg runs the old prerm on every upgrade (apk does not): the core, UI and
 # state must survive, and the running state is recorded here because opkg runs

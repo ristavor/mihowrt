@@ -193,8 +193,9 @@ define Package/$(PKG_NAME)/prerm
 		exit 0
 	}
 	[ -x /usr/bin/mihowrt ] && /usr/bin/mihowrt uninstall >/dev/null 2>&1 || true
-	if [ -e /usr/share/nftables.d/chain-pre/input/30-mihowrt.nft ] &&
-		rm -f /usr/share/nftables.d/chain-pre/input/30-mihowrt.nft; then
+	fw4_include="$$(. /usr/lib/mihowrt/constants.sh 2>/dev/null && printf %s "$$FW4_INPUT_INCLUDE")"
+	[ -n "$$fw4_include" ] || fw4_include=/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft
+	if [ -e "$$fw4_include" ] && rm -f "$$fw4_include"; then
 		fw4 reload 6>&- 7>&- 8>&- 9>&- >/dev/null 2>&1 || true
 	fi
 	# apk deletes package-owned files on removal; park the user's copies for postrm.

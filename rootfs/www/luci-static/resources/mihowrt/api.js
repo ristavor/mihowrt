@@ -127,7 +127,6 @@ function backendErrorText(message) {
 			direct: _('Addresses always direct'),
 			direct_src: _('Devices always direct')
 		};
-		m[2] = m[2].replace(/\((\d+) total\)$/, (suffix, n) => _('(%d in total)').format(n));
 		return _('The "%s" list is larger than 1 MiB.').format(titles[m[1]] || m[1]);
 	}
 	if (match(/^Runtime is busy \(process \d+\)$/))

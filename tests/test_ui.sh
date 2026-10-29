@@ -1749,7 +1749,7 @@ seq(async () => {
  h.assert(texts(overview.render([status, {}, []])).some(t => t.includes(detail)), 'overview maps backend status error');
  h.assert(texts(diag.render([status, {}, {}])).some(t => t.includes('Last error: ' + detail)), 'diagnostics maps backend status error');
  const raw = 'level=info msg="noise"\nlevel=error msg="bad proxy"\nconfiguration file /tmp/mihowrt-config.1 test failed\nMihomo rejected the configuration';
- const headline = 'Mihomo rejected the configuration. bad proxy Nothing was changed, the previous configuration is still running.';
+ const headline = 'Mihomo rejected the configuration. bad proxy';
  h.assert(texts(overview.render([{ ...status, last_error: raw }, {}, []])).some(t => t.includes(headline)), 'overview summarizes core rejection');
  h.assert(texts(diag.render([{ ...status, last_error: raw }, {}, {}])).some(t => t.includes('Last error: ' + headline)), 'diagnostics summarizes core rejection');
  console.log('ok - status views map backend errors and core rejection');

@@ -65,6 +65,7 @@ function jobLabel(op) {
 // Mapped text never matches again, so mapping twice is harmless.
 function backendErrorText(message) {
 	const raw = String(message ?? '');
+	const lastLine = raw.trim().split('\n').pop() || '';
 	const inner = value => backendErrorText(value).replace(/\.$/, '');
 	let m;
 
@@ -76,10 +77,16 @@ function backendErrorText(message) {
 		return _('Mihomo started, but the routing rules could not be applied: %s').format(backendErrorText(m[1]));
 	if ((m = /^Failed to update (\d+) of (\d+) remote lists: ([\s\S]*)$/.exec(raw)))
 		return N_(Number(m[2]), 'Could not update %d of %d remote list: %s', 'Could not update %d of %d remote lists: %s').format(m[1], m[2], backendErrorText(m[3]));
+	if (raw !== lastLine && lastLine !== 'Mihomo rejected the configuration')
+		return backendErrorText(lastLine);
 	if ((m = /^Another operation is running: ([\w-]+)$/.exec(raw)))
 		return _('Another operation is running: "%s". Wait until it finishes.').format(jobLabel(m[1]));
 	if ((m = /^Unsupported (\S+) form: use a block mapping$/.exec(raw)))
 		return _('The "%s" section of the YAML must be a block mapping (one key per line), not {…}, […] or a single value.').format(m[1]);
+	if ((m = /^Mihomo core updated, but the service restart failed: (.*)$/.exec(raw)))
+		return _('The Mihomo core was updated, but MihoWRT could not restart: %s. Press Start on Overview.').format(inner(m[1]));
+	if (lastLine === 'Mihomo core updated, but the service restart failed')
+		return _('The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview.');
 	if (/Mihomo rejected the configuration$/.test(raw)) {
 		const headline = _('Mihomo rejected the configuration.');
 		const messages = [ ...raw.matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ]
@@ -92,8 +99,7 @@ function backendErrorText(message) {
 					return _('Group "%s" refers to a server "%s" that does not exist.').format(sub[1], sub[2]);
 				return text;
 			});
-		const note = _('Nothing was changed, the previous configuration is still running.');
-		return (messages.length ? headline + ' ' + messages.join('\n') : headline) + ' ' + note;
+		return messages.length ? headline + ' ' + messages.join('\n') : headline;
 	}
 	if (/^Core update: (?:cannot reach GitHub|download failed|no downloadable asset|no asset for)/.test(raw))
 		return _('Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").');
@@ -111,10 +117,6 @@ function backendErrorText(message) {
 		return _('The downloaded core file is damaged. Try again.');
 	if (raw === 'Another core update is running')
 		return _('The core is already being updated.');
-	if ((m = /^Mihomo core updated, but the service restart failed: (.*)$/.exec(raw)))
-		return _('The Mihomo core was updated, but MihoWRT could not restart: %s. Press Start on Overview.').format(m[1]);
-	if (raw === 'Mihomo core updated, but the service restart failed')
-		return _('The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview.');
 	if (raw === 'The YAML is empty: nothing was changed.')
 		return _('The YAML is empty: nothing was changed.');
 	if (raw === 'There is no previous configuration.')
@@ -171,6 +173,13 @@ function backendErrorText(message) {
 	if (code === 'invalid_url')
 		return _('Enter the subscription link that starts with https://');
 	return _('The router cannot reach the subscription server. Check the internet connection and the link.');
+}
+
+function jobErrorText(op, message) {
+	const mapped = backendErrorText(message);
+	return ['save-config', 'restore-config', 'connect', 'update-subscription', 'auto-update'].includes(op)
+		&& /(?:^|\n)Mihomo rejected the configuration$/.test(String(message).trim())
+		? mapped + ' ' + _('Nothing was changed, the previous configuration is still running.') : mapped;
 }
 
 function errorText(res) {
@@ -238,7 +247,7 @@ function unlockJobButtons() {
 }
 
 // Every poll forks the backend on the router: poll gently.
-async function waitJob(api, id) {
+async function waitJob(api, id, op) {
 	let failures = 0;
 	for (;;) {
 		await new Promise(resolve => setTimeout(resolve, 2000));
@@ -256,7 +265,7 @@ async function waitJob(api, id) {
 		if (status.state === 'ok')
 			return status.result;
 		if (status.state === 'error')
-			throw Object.assign(new Error(backendErrorText(status.error)), { name: 'JobError' });
+			throw Object.assign(new Error(jobErrorText(op, status.error)), { name: 'JobError' });
 	}
 }
 
@@ -451,7 +460,7 @@ return baseclass.extend({
 			const started = await this.write('job-start', op, ...args);
 			let result;
 			try {
-				result = await waitJob(this, started.id);
+				result = await waitJob(this, started.id, op);
 			}
 			catch (e) {
 				if (e.name === 'JobError')
@@ -487,7 +496,7 @@ return baseclass.extend({
 			this.jobRunning = waitingJobs > 0;
 			unlockJobButtons();
 		};
-		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), backendErrorText(error));
+		const failed = (status, error) => _('"%s" failed: %s').format(this.jobLabel(status.op), jobErrorText(status.op, error));
 		this.read('job-status').then(async status => {
 			// A job that failed while no page waited for it: show it once.
 			if (status.state === 'error' && status.id && !jobSeen(status.id)
@@ -506,7 +515,7 @@ return baseclass.extend({
 			]);
 			notice.appendChild(alert);
 			try {
-				await waitJob(this, status.id);
+				await waitJob(this, status.id, status.op);
 			}
 			catch (e) {
 				// A terminal job error still requires fresh page data. A lost

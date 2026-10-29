@@ -255,17 +255,43 @@ test('public error path maps status strings and summarizes Mihomo rejection', ()
  assert.equal(api.errorText('Unsupported dns form: use a block mapping'), plain);
  for (const level of ['error', 'fatal']) {
   const raw = `time="2026-10-27" level=info msg="noise"\ntime="2026-10-27" level=${level} msg="yaml: bad configuration /tmp/mihowrt-config.123"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration`;
-  const expected = 'Mihomo rejected the configuration. yaml: bad configuration … Nothing was changed, the previous configuration is still running.';
+  const expected = 'Mihomo rejected the configuration. yaml: bad configuration …';
   for (const value of [raw, { name: 'JobError', message: raw }, { stderr: raw }])
    assert.equal(api.errorText(value), expected);
   assert.equal(api.errorText(expected), expected, 'already mapped text stays unchanged');
  }
- assert.equal(api.errorText('Mihomo rejected the configuration'), 'Mihomo rejected the configuration. Nothing was changed, the previous configuration is still running.');
+ assert.equal(api.errorText('Mihomo rejected the configuration'), 'Mihomo rejected the configuration.');
  const yamlSyntax = 'time="2026-10-27" level=error msg="yaml: line 3: did not find expected key"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration';
- assert.equal(api.errorText(yamlSyntax), 'Mihomo rejected the configuration. YAML error on line 3: did not find expected key Nothing was changed, the previous configuration is still running.');
+ assert.equal(api.errorText(yamlSyntax), 'Mihomo rejected the configuration. YAML error on line 3: did not find expected key');
  const groupMissing = 'time="2026-10-27" level=error msg="proxy group[0]: G: \'NOPE-MISSING\' not found"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration';
- assert.equal(api.errorText(groupMissing), 'Mihomo rejected the configuration. Group "G" refers to a server "NOPE-MISSING" that does not exist. Nothing was changed, the previous configuration is still running.');
+ assert.equal(api.errorText(groupMissing), 'Mihomo rejected the configuration. Group "G" refers to a server "NOPE-MISSING" that does not exist.');
 });
+test('core restart errors take priority over nested rejection', () => {
+ const { api } = setup();
+ assert.equal(api.errorText('Mihomo core updated, but the service restart failed: Mihomo rejected the configuration'),
+  'The Mihomo core was updated, but MihoWRT could not restart: Mihomo rejected the configuration. Press Start on Overview.');
+});
+test('one-line backend errors map the last non-empty line of job stderr', () => {
+ const { api } = setup();
+ for (const [raw, plain] of BACKEND_ERRORS)
+  assert.equal(api.errorText('time="2026-10-27" level=info msg="checking"\ntime="2026-10-27" level=error msg="bad config"\n' + raw + '\n\n'), plain, raw);
+});
+for (const op of ['save-config', 'restore-config', 'connect', 'update-subscription', 'auto-update', 'service', 'core-update']) {
+ test('unchanged-config note is limited to rejected config-install jobs: ' + op, async () => {
+  const { api, timers } = setup();
+  const configInstall = !['service', 'core-update'].includes(op);
+  api.read = async () => ({ state: 'error', error: 'Mihomo rejected the configuration' });
+  const rejected = assert.rejects(api.job(op), { name: 'JobError', message: 'Mihomo rejected the configuration.' +
+   (configInstall ? ' Nothing was changed, the previous configuration is still running.' : '') });
+  await tick(timers); await rejected;
+  let shown;
+  const status = async () => ({ state: 'error', id: 'config-1', op, finished: 1000, now: 1001, error: 'Mihomo rejected the configuration' });
+  const { api: unseen } = setup({ ui: { addNotification: (a, node) => { shown = node.children.join(''); } }, sessionStorage: storage().sessionStorage });
+  unseen.read = status;
+  unseen.jobNotice(); await flush();
+  assert.equal(shown.includes('Nothing was changed'), configInstall, 'background job notice uses the same scope');
+ });
+}
 test('command errors carry the plain backend text', async () => {
 	const { api } = setup({ fs: { exec: async () => ({ code: 1, stderr: 'Error: Another operation is running: core-update\n' }) } });
 	await assert.rejects(api.job('update-lists'), { name: 'CommandError', message: 'Another operation is running: "Mihomo core update". Wait until it finishes.' });

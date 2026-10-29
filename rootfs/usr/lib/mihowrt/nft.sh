@@ -371,8 +371,8 @@ nft_fw4_input_reload() {
 	if ! error="$(fw4 reload 6>&- 7>&- 8>&- 9>&- 2>&1 >/dev/null)"; then
 		warn "Failed to reload firewall4 input rules: ${error%%'
 '*}"
+		return 1
 	fi
-	return 0
 }
 
 # fw4 input REJECT must not discard TPROXY traffic or redirected guest DNS.
@@ -380,7 +380,10 @@ nft_fw4_input_apply() {
 	local iface="" ifaces="" content=""
 
 	for iface in $SOURCE_INTERFACES; do
-		ifaces="$ifaces${ifaces:+, }\"$iface\""
+		case "$ifaces" in
+		*"\"$iface\""*) ;;
+		*) ifaces="$ifaces${ifaces:+, }\"$iface\"" ;;
+		esac
 	done
 	content="meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK accept"
 	[ -z "$ifaces" ] || content="$content
@@ -390,7 +393,9 @@ iifname { $ifaces } meta l4proto {tcp,udp} th dport $MIHOMO_DNS_PORT ct status d
 		warn "Failed to write firewall4 input rules"
 		return 0
 	fi
-	nft_fw4_input_reload
+	# A rejected include would make the next boot's `fw4 start` fail as a whole.
+	nft_fw4_input_reload || { rm -f "$FW4_INPUT_INCLUDE"; nft_fw4_input_reload; }
+	return 0
 }
 
 nft_fw4_input_cleanup() {
@@ -398,6 +403,7 @@ nft_fw4_input_cleanup() {
 	# Remove before reload: re-entered cleanup cannot trigger another reload.
 	rm -f "$FW4_INPUT_INCLUDE" || return 1
 	nft_fw4_input_reload
+	return 0
 }
 
 nft_apply() {

@@ -603,17 +603,26 @@ iifname { \"br-guest\", \"br-iot\" } meta l4proto {tcp,udp} th dport $MIHOMO_DNS
   return 1
  }
  nft_apply 2>"$tmpdir/fw4.err" || fail 'fw4 reload failure must not fail start'
- assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-new" }' 'changed interfaces update include despite reload failure'
+ assert_false 'rejected include is rolled back off flash' test -e "$FW4_INPUT_INCLUDE"
+ assert_eq 4 "$(wc -l <"$tmpdir/fw4.calls")" 'failed reload is followed by a reload without the include'
  assert_file_contains "$tmpdir/fw4.warnings" 'Failed to reload firewall4 input rules: reload rejected: test reason' 'fw4 reload failure warns with first stderr line'
  assert_file_not_contains "$tmpdir/fw4.warnings" 'second error line' 'reload warning omits later stderr lines'
  assert_file_not_contains "$tmpdir/fw4.warnings" 'ignored stdout' 'reload warning omits stdout'
+ fw4() { printf '%s\n' "$*" >>"$tmpdir/fw4.calls"; }
+ nft_apply
+ assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-new" }' 'changed interfaces update include'
+ fw4() {
+  printf '%s\n' "$*" >>"$tmpdir/fw4.calls"
+  printf 'reload rejected: test reason\nsecond error line\n' >&2
+  return 1
+ }
  SOURCE_INTERFACES=br-failed
  before="$(cat "$FW4_INPUT_INCLUDE")"
  atomic_write() { return 1; }
  nft_apply || fail 'failed include write must not fail nft_apply'
  assert_file_contains "$tmpdir/fw4.warnings" 'Failed to write firewall4 input rules' 'failed include write warns'
  assert_eq "$before" "$(cat "$FW4_INPUT_INCLUDE")" 'failed include write preserves previous include'
- assert_eq 3 "$(wc -l <"$tmpdir/fw4.calls")" 'failed include write does not reload'
+ assert_eq 5 "$(wc -l <"$tmpdir/fw4.calls")" 'failed include write does not reload'
  : >"$tmpdir/fw4.warnings"
  nft_fw4_input_cleanup || fail 'cleanup reload failure must remain nonfatal'
  assert_false 'cleanup removes include despite reload failure' test -e "$FW4_INPUT_INCLUDE"
@@ -622,3 +631,15 @@ iifname { \"br-guest\", \"br-iot\" } meta l4proto {tcp,udp} th dport $MIHOMO_DNS
  rm -f "$NFT_APPLIED_FILE" "$NFT_APPLIED_FILE.inputs"
 )
 pass 'fw4 input include is dynamic, change-only and nonfatal on write or reload failure'
+
+# Duplicate interface names must not reach the include.
+(
+ fw4() { :; }
+ nft() { :; }
+ SOURCE_INTERFACES='br-a br-b br-a'
+ rm -f "$FW4_INPUT_INCLUDE"
+ nft_fw4_input_apply
+ assert_file_contains "$FW4_INPUT_INCLUDE" 'iifname { "br-a", "br-b" }' 'include lists each interface once'
+ rm -f "$FW4_INPUT_INCLUDE"
+)
+pass 'fw4 include dedupes interface names'

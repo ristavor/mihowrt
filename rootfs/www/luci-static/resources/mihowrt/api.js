@@ -320,7 +320,7 @@ function text(value) {
 
 function formatBytes(value) {
 	let n = Number(value);
-	const units = [ 'B', 'KiB', 'MiB', 'GiB', 'TiB' ];
+	const units = [ _('B'), _('KB'), _('MB'), _('GB'), _('TB') ];
 	let i = 0;
 
 	if (!Number.isFinite(n) || n < 0)
@@ -329,7 +329,17 @@ function formatBytes(value) {
 		n /= 1024;
 		i++;
 	}
-	return '%s %s'.format(i ? n.toFixed(1) : String(n), units[i]);
+	let lang;
+	try {
+		lang = typeof document !== 'undefined' ? document.documentElement?.lang : undefined;
+	}
+	catch (e) {}
+	const formatted = i
+		? (lang && /^ru\b/i.test(lang)
+			? n.toFixed(1).replace('.', ',')
+			: n.toLocaleString(lang || undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }))
+		: String(n);
+	return '%s %s'.format(formatted, units[i]);
 }
 
 // Dates follow the LuCI language, not the browser's.

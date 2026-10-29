@@ -72,10 +72,14 @@ const ui = {
 const origEvaluate = h.evaluateLuCIModule;
 h.evaluateLuCIModule = (relPath, globals = {}) => origEvaluate(relPath, { ui, ...globals });
 const api = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {} }).module;
-h.assertEq(api.trafficSummary({ upload: 1024, download: 1024 }), '2.0 KiB / Unlimited', 'missing total is unlimited');
-h.assertEq(api.trafficSummary({ upload: 0, download: 512, total: 2048 }), '512 B / 2.0 KiB', 'usage and total');
+h.assertEq(api.trafficSummary({ upload: 1024, download: 1024 }), '2.0 KB / Unlimited', 'missing total is unlimited');
+h.assertEq(api.trafficSummary({ upload: 0, download: 512, total: 2048 }), '512 B / 2.0 KB', 'usage and total');
 h.assertEq(api.trafficSummary({}), 'Unlimited', 'no usage, no total');
-h.assertEq(api.trafficSummary({ total: 1073741824 }), '1.0 GiB', 'total only');
+h.assertEq(api.trafficSummary({ total: 1073741824 }), '1.0 GB', 'total only');
+{
+	const ruApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {}, document: { documentElement: { lang: 'ru' } } }).module;
+	h.assertEq(ruApi.formatBytes(2048), '2,0 KB', 'Russian decimal comma');
+}
 h.assert(api.safeLink('javascript:alert(1)', 'x') === null, 'non-http links are dropped');
 h.assertEq(api.safeLink('https://example.com', 'x').attrs.rel, 'noopener noreferrer', 'external links isolated');
 h.assertEq(api.subscriptionError, undefined, 'redundant subscription error alias removed');

@@ -817,6 +817,21 @@ msgstr "Добавьте авторизацию в YAML или уберите э
 msgid "Mihomo memory"
 msgstr "Память Mihomo"
 
+msgid "B"
+msgstr "Б"
+
+msgid "KB"
+msgstr "КБ"
+
+msgid "MB"
+msgstr "МБ"
+
+msgid "GB"
+msgstr "ГБ"
+
+msgid "TB"
+msgstr "ТБ"
+
 msgid "%d MiB"
 msgstr "%d МБ"
 

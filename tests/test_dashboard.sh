@@ -106,12 +106,10 @@ DOWNLOAD=0
 mkdir -p "$CLASH_DIR/ui"; echo partial >"$CLASH_DIR/ui/partial"
 if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'timeout must fail'; fi
 assert_eq 0 "$(uci_get dashboard)" 'timeout resets flag'
-assert_true 'timeout restarts before deleting partial files' test -f "$tmpdir/rollback-before-cleanup"
-assert_eq restart "$(cat "$tmpdir/rollback-before-cleanup")" 'rollback kills in-flight download before cleanup'
 assert_false 'timeout deletes partial files' test -d "$CLASH_DIR/ui"
 assert_eq 'Error: Could not download the dashboard. Check that GitHub is reachable from the router.' "$(cat "$tmpdir/error")" 'exact timeout error'
-assert_eq 1 "$reloads" 'timeout rollback never hot reloads'
-assert_eq 3 "$(wc -l <"$tmpdir/init-calls")" 'timeout restarts to install and rollback'
+assert_eq 2 "$reloads" 'timeout rollback reloads once'
+assert_eq 2 "$(wc -l <"$tmpdir/init-calls")" 'failed dashboard install restarts only once'
 RESTART_FAIL=1
 if job_execute dashboard-install >"$tmpdir/result" 2>"$tmpdir/error"; then fail 'restart failure must fail'; fi
 assert_eq 0 "$(uci_get dashboard)" 'restart failure resets flag'

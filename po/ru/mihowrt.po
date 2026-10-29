@@ -142,8 +142,11 @@ msgstr "Установить ядро Mihomo"
 msgid "MihoWRT started."
 msgstr "MihoWRT запущен."
 
-msgid "MihoWRT stopped."
-msgstr "MihoWRT остановлен."
+msgid "MihoWRT stopped: all traffic goes direct, without the proxy. It starts again after a router reboot."
+msgstr "MihoWRT остановлен: весь трафик идёт напрямую, без прокси. После перезагрузки роутера он запустится снова."
+
+msgid "MihoWRT stopped: all traffic goes direct, without the proxy."
+msgstr "MihoWRT остановлен: весь трафик идёт напрямую, без прокси."
 
 msgid "MihoWRT restarted."
 msgstr "MihoWRT перезапущен."
@@ -175,8 +178,11 @@ msgstr "Остановлен"
 msgid "Running, but DNS does not answer — see Diagnostics"
 msgstr "Работает, но DNS не отвечает — см. «Диагностику»"
 
-msgid "Does not start at boot"
-msgstr "Не запускается при загрузке"
+msgid "Starts automatically when the router boots"
+msgstr "Запускается автоматически при включении роутера"
+
+msgid "Does not start when the router boots"
+msgstr "Не запускается при включении роутера"
 
 msgid "Update subscription"
 msgstr "Обновить подписку"
@@ -832,8 +838,29 @@ msgstr "Установить"
 msgid "Not installed"
 msgstr "Не установлена"
 
-msgid "Remove the dashboard? You can install it again from the Overview page."
-msgstr "Удалить панель? Её можно снова установить на странице «Обзор»."
+msgid "Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds."
+msgstr "Удалить панель? Её можно будет снова установить на странице «Обзор». Интернет пропадёт на несколько секунд."
+
+msgid "Cancel"
+msgstr "Отмена"
+
+msgid "Update"
+msgstr "Обновить"
+
+msgid "Install dashboard"
+msgstr "Установить панель"
+
+msgid "Remove dashboard"
+msgstr "Удалить панель"
+
+msgid "MihoWRT restarts after the update; the internet drops for a few seconds."
+msgstr "После обновления MihoWRT перезапустится — интернет пропадёт на несколько секунд."
+
+msgid "Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds."
+msgstr "Скачать панель Mihomo (около 5 МБ)? MihoWRT перезапустится — интернет пропадёт на несколько секунд."
+
+msgid "Without a subscription MihoWRT starts with the current configuration; by default all traffic goes direct."
+msgstr "Без подписки MihoWRT запустится с текущей конфигурацией: по умолчанию весь трафик идёт напрямую."
 
 msgid "Web panel of Mihomo itself. Not needed for MihoWRT; it only takes space on the router."
 msgstr "Собственная веб-панель Mihomo. Для работы MihoWRT не нужна, только занимает место на роутере."

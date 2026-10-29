@@ -1,7 +1,22 @@
 'use strict';
 'require view';
+'require ui';
 'require poll';
 'require mihowrt.api as api';
+
+function confirmModal(title, message, confirmLabel, destructive) {
+	return new Promise(resolve => {
+		const btnClass = 'cbi-button ' + (destructive ? 'cbi-button-negative' : 'cbi-button-action');
+		const cancel = E('button', { class: 'cbi-button', type: 'button' }, [ _('Cancel') ]);
+		const confirm = E('button', { class: btnClass, type: 'button' }, [ confirmLabel ]);
+		cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
+		confirm.addEventListener('click', () => { ui.hideModal(); resolve(true); });
+		ui.showModal(title, [
+			E('p', {}, [ message ]),
+			E('div', { class: 'mw-row right', style: 'justify-content: flex-end;' }, [ cancel, ' ', confirm ])
+		]);
+	});
+}
 
 function firstRunCard() {
 	const url = E('input', {
@@ -56,15 +71,19 @@ function coreMissingCard() {
 }
 
 function statusSection(status) {
-	const toggle = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action') },
+	const toggle = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' },
 		text(status.running ? _('Stop') : _('Start')));
 	const restart = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Restart')));
+	const noSubNote = E('div', { class: 'mw-muted' }, text(_('Without a subscription MihoWRT starts with the current configuration; by default all traffic goes direct.')));
 
 	toggle.addEventListener('click', () => api.busy(toggle, async () => {
 		if (!status.running && !status.enabled)
 			await api.service('enable');
 		await api.job('service', status.running ? 'stop' : 'start');
-		api.reloadWithNotice(status.running ? _('MihoWRT stopped.') : _('MihoWRT started.'));
+		const stopNotice = status.enabled
+			? _('MihoWRT stopped: all traffic goes direct, without the proxy. It starts again after a router reboot.')
+			: _('MihoWRT stopped: all traffic goes direct, without the proxy.');
+		api.reloadWithNotice(status.running ? stopNotice : _('MihoWRT started.'));
 	}));
 	restart.addEventListener('click', () => api.busy(restart, async () => {
 		await api.job('service', 'restart');
@@ -85,7 +104,8 @@ function statusSection(status) {
 	]);
 	const block = E('div', { class: 'cbi-section' }, [
 		statusBox,
-		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : ''
+		!api.readOnly() ? E('div', { class: 'mw-row' }, [ toggle, restart ]) : '',
+		noSubNote
 	]);
 	const update = fresh => {
 		status = Object.assign({}, status, fresh);
@@ -159,9 +179,12 @@ function statusSection(status) {
 
 		statusBox.setAttribute('class', 'mw-status' + (alertClass ? ' alert-message ' + alertClass : ''));
 		modeSpan.textContent = api.modeLabel(status.mode);
-		boot.textContent = status.enabled ? _('Starts at boot') : _('Does not start at boot');
+		boot.textContent = status.enabled ? _('Starts automatically when the router boots') : _('Does not start when the router boots');
 		toggle.textContent = status.running ? _('Stop') : _('Start');
-		toggle.setAttribute('class', 'cbi-button ' + (status.running ? 'cbi-button-reset' : 'cbi-button-action'));
+		const noSub = !status.subscription_configured && !status.running;
+		noSubNote.hidden = !noSub;
+		restart.hidden = !status.running;
+		toggle.setAttribute('class', 'cbi-button' + (status.running ? ' cbi-button-reset' : (!status.subscription_configured ? '' : ' cbi-button-action')));
 	};
 	update(status);
 	return { block, update };
@@ -413,13 +436,17 @@ function toolsSection(status) {
 	updateDashboard();
 	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
 
-	dashboard.addEventListener('click', () => {
-		if (!dashboardState?.installed)
+	dashboard.addEventListener('click', async () => {
+		if (!dashboardState?.installed) {
+			const ok = await confirmModal(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'), false);
+			if (!ok)
+				return;
 			return api.busy(dashboard, async () => {
 				await api.job('dashboard-install');
 				dashboardState = await api.write('dashboard-json');
 				updateDashboard();
 			});
+		}
 		// Opened after the short RPC, still within the click's user activation.
 		// No pre-opened about:blank: sending it from HTTPS LuCI to the http://
 		// dashboard failed in a user's browser ("The operation is insecure").
@@ -438,10 +465,15 @@ function toolsSection(status) {
 			window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
 		});
 	});
-	core.addEventListener('click', () => api.busy(core, async () => {
-		const res = await api.job('core-update');
-		api.notify((res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version)) + (res.updated && res.verified === false ? ' ' + _('checksum not verified') : ''));
-	}));
+	core.addEventListener('click', async () => {
+		const ok = await confirmModal(_('Update Mihomo core'), _('MihoWRT restarts after the update; the internet drops for a few seconds.'), _('Update'), false);
+		if (!ok)
+			return;
+		return api.busy(core, async () => {
+			const res = await api.job('core-update');
+			api.notify((res.updated ? _('Mihomo core updated to %s.').format(res.version) : _('Mihomo core %s is up to date.').format(res.version)) + (res.updated && res.verified === false ? ' ' + _('checksum not verified') : ''));
+		});
+	});
 
 	return E('div', { class: 'cbi-section' }, [
 		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : '',

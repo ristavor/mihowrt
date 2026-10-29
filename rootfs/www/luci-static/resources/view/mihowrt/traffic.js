@@ -10,6 +10,20 @@
 const text = api.text;
 const LIST_KINDS = [ 'dst', 'src', 'direct', 'direct_src' ];
 
+function confirmModal(title, message, confirmLabel, destructive) {
+	return new Promise((resolve) => {
+		const btnClass = 'cbi-button ' + (destructive ? 'cbi-button-negative' : 'cbi-button-action');
+		const cancel = E('button', { class: 'cbi-button', type: 'button' }, [ _('Cancel') ]);
+		const confirm = E('button', { class: btnClass, type: 'button' }, [ confirmLabel ]);
+		cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
+		confirm.addEventListener('click', () => { ui.hideModal(); resolve(true); });
+		ui.showModal(title, [
+			E('p', {}, [ message ]),
+			E('div', { class: 'mw-row right', style: 'justify-content: flex-end;' }, [ cancel, ' ', confirm ])
+		]);
+	});
+}
+
 const callLeases = rpc.declare({ object: 'luci-rpc', method: 'getDHCPLeases', expect: { '': {} } });
 
 const LIST_HELP = _('One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments.');
@@ -204,8 +218,11 @@ return view.extend({
 			f.rmempty = false;
 			return f;
 		});
-		flag('block_client_ipv6', _('Block external IPv6 from clients'), _('Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.') +
-			(proxyFirst ? ' ' + _('No effect in the current mode.') : ''), '0');
+		const ipv6Desc = proxyFirst ? _('No effect in the current mode.')
+			: _('Reject external IPv6 from the selected client interfaces that does not go through Mihomo. Works only in the "Only selected traffic via proxy" mode. Local firewall rules still apply. Router and Mihomo traffic are unchanged. Existing offloaded connections may continue until they expire.');
+		const ipv6Flag = flag('block_client_ipv6', _('Block external IPv6 from clients'), ipv6Desc, '0');
+		if (proxyFirst)
+			ipv6Flag.readonly = true;
 		flag('dns_hijack', _('Redirect client DNS to Mihomo'), _('Devices with a hard-coded DNS server (port 53) still get Mihomo answers.'));
 		flag('disable_quic', _('Block QUIC for proxied traffic'), _('Forces browsers to use TCP, which proxies handle better.'));
 		flag('bypass_ntp', _('Time sync without Mihomo'), _('NTP servers resolve through the WAN interface DNS and UDP/123 bypasses Mihomo, so the clock syncs even if Mihomo fails.'));
@@ -261,15 +278,20 @@ return view.extend({
 		const row = E('div', { class: 'mw-row', 'aria-live': 'polite' });
 		const show = () => {
 			const status = E('span', {}, text(state.installed ? (state.size != null ? _('Installed, %s').format(api.formatBytes(state.size)) : _('Installed')) : _('Not installed')));
-			const action = E('button', { type: 'button', class: 'cbi-button', 'data-mw-job': '', disabled: api.jobRunning || null },
+			const action = E('button', { type: 'button', class: 'cbi-button' + (state.installed ? ' cbi-button-negative' : ''), 'data-mw-job': '', disabled: api.jobRunning || null },
 				text(state.installed ? _('Remove') : _('Install')));
-			action.addEventListener('click', () => api.busy(action, async () => {
-				if (state.installed && !window.confirm(_('Remove the dashboard? You can install it again from the Overview page.')))
-					return;
-				await api.job('dashboard-remove');
-				state = await api.write('dashboard-json');
-				show();
-			}));
+			action.addEventListener('click', async () => {
+				if (state.installed) {
+					const ok = await confirmModal(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), true);
+					if (!ok)
+						return;
+				}
+				return api.busy(action, async () => {
+					await api.job('dashboard-remove');
+					state = await api.write('dashboard-json');
+					show();
+				});
+			});
 			row.replaceChildren(status, ...(state.installed ? [ action ] : []));
 		};
 		show();

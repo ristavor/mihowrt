@@ -43,11 +43,17 @@ function E(tag, attrs, children) {
 let chain = Promise.resolve();
 const seq = fn => (chain = chain.then(fn));
 const textareaOptions = [];
+let lastModal = null;
+// Tests may click a modal button themselves; otherwise the confirm button is clicked once.
 const ui = {
  addNotification() {},
  activeModal: null,
- showModal(title, children) { this.activeModal = { title, children }; },
- hideModal() { this.activeModal = null; },
+ showModal(title, children) {
+  const modal = lastModal = this.activeModal = { title, children };
+  const confirm = collect(E('div', {}, children)).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
+  if (confirm?.listeners?.click) setTimeout(() => { if (this.activeModal === modal) confirm.listeners.click(); }, 0);
+ },
+ hideModal() { lastModal = this.activeModal = null; },
  Textarea: class {
  constructor(value, options) { this.value = value; this.options = options; textareaOptions.push(options); }
  render() {
@@ -59,6 +65,8 @@ const ui = {
   return wrapper;
  }
 } };
+const origEvaluate = h.evaluateLuCIModule;
+h.evaluateLuCIModule = (relPath, globals = {}) => origEvaluate(relPath, { ui, ...globals });
 const api = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {} }).module;
 h.assertEq(api.trafficSummary({ upload: 1024, download: 1024 }), '2.0 KiB / Unlimited', 'missing total is unlimited');
 h.assertEq(api.trafficSummary({ upload: 0, download: 512, total: 2048 }), '512 B / 2.0 KiB', 'usage and total');
@@ -338,7 +346,8 @@ seq(async () => {
  h.assertEq(opts.block_client_ipv6.description.endsWith('No effect in the current mode.'), false, 'client IPv6 flag note absent in direct-first');
  const proxyFirstOpts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
  h.assertEq(proxyFirstOpts._mode.description, 'Everything goes via proxy except the addresses and devices below. ' + modeTail, 'proxy-first mode meaning first, then where it comes from');
- h.assert(proxyFirstOpts.block_client_ipv6.description.endsWith(' No effect in the current mode.'), 'client IPv6 flag note in proxy-first');
+ h.assertEq(proxyFirstOpts.block_client_ipv6.description, 'No effect in the current mode.', 'client IPv6 flag note in proxy-first');
+ h.assertEq(proxyFirstOpts.block_client_ipv6.readonly, true, 'client IPv6 readonly in proxy-first');
  h.assert((await renderTraffic({ dns: 'redir-host', provider: {}, lists: {} }))._mode.description === modeTail, 'unknown mode: only the origin note');
  opts = await renderTraffic(directFirstProfile);
  // Own msgid: LuCI's base catalog translates plain "Mode" as "Режим работы".
@@ -799,7 +808,7 @@ seq(async () => {
   [{ ...base, subscription_configured: true }, 'Update subscription', [['job', 'update-subscription']], 'Subscription is up to date.'],
   [base, 'Start', [['service', 'enable'], ['job', 'service', 'start']], 'MihoWRT started.'],
   [{ ...base, enabled: true }, 'Start', [['job', 'service', 'start']], 'MihoWRT started.'],
-  [{ ...base, running: true }, 'Stop', [['job', 'service', 'stop']], 'MihoWRT stopped.'],
+  [{ ...base, running: true }, 'Stop', [['job', 'service', 'stop']], 'MihoWRT stopped: all traffic goes direct, without the proxy.'],
   [base, 'Restart', [['job', 'service', 'restart']], 'MihoWRT restarted.']
  ]) {
   calls.length = 0; notices.length = 0; delays.length = 0; await click(status, label);
@@ -909,6 +918,32 @@ seq(async () => {
  h.assert(!collect(normalRunning).some(n => /alert-message/.test(n.attrs.class || '')), 'clean running has no alert');
 
  console.log('ok - overview R14 status alert and diagnostics link');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+// Lane F2: R41 + R42 + R48
+seq(async () => {
+ const ov = overview;
+ // R42: Restart button hidden when stopped, visible when running
+ const stoppedPage = ov.render([{ ...base, running: false }, {}, []]);
+ const restartStopped = findButton(stoppedPage, 'Restart');
+ h.assert(restartStopped && restartStopped.hidden === true, 'Restart hidden when stopped');
+ const runningPage = ov.render([{ ...base, running: true, subscription_configured: true }, {}, []]);
+ const restartRunning = findButton(runningPage, 'Restart');
+ h.assert(restartRunning && restartRunning.hidden !== true, 'Restart visible when running');
+
+ // R42: Start button without subscription is plain cbi-button with explanation
+ const noSubPage = ov.render([{ ...base, running: false, subscription_configured: false }, {}, []]);
+ const startNoSub = findButton(noSubPage, 'Start');
+ h.assertEq(startNoSub.attrs.class, 'cbi-button', 'Start without subscription is plain button');
+ h.assert(texts(noSubPage).includes('Without a subscription MihoWRT starts with the current configuration; by default all traffic goes direct.'), 'no sub explanation note shown');
+
+ // R42: autostart wording
+ const bootEnabled = ov.render([{ ...base, enabled: true }, {}, []]);
+ h.assert(texts(bootEnabled).includes('Starts automatically when the router boots'), 'autostart enabled wording');
+ const bootDisabled = ov.render([{ ...base, enabled: false }, {}, []]);
+ h.assert(texts(bootDisabled).includes('Does not start when the router boots'), 'autostart disabled wording');
+
+ console.log('ok - overview R41 R42 R48');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 18: safe editor, large uploads, restore and shared job controls.
@@ -1273,7 +1308,15 @@ seq(async () => {
    unset: (pkg, sid, key) => { delete settings[key]; },
    changes: async () => { calls.push(['changes']); return {}; }
   };
-  const ui = { changes: { apply: checked => calls.push(['apply', checked]) } };
+  const ui = {
+   changes: { apply: checked => calls.push(['apply', checked]) },
+   showModal(title, children) {
+    calls.push(['modal', title, children]);
+    const confirm = collect(E('div', {}, children)).find(n => n.tag === 'button' && !texts(n).includes('Cancel'));
+    if (confirm?.listeners?.click) setTimeout(confirm.listeners.click, 0);
+   },
+   hideModal() {}
+  };
   const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
    E, api: bridge, form, uci, ui, Event, window: { confirm: msg => { calls.push(['confirm', msg]); return true; } }, widgets: { DeviceSelect: Option }, rpc: { declare: () => leasesRPC }, view: { extend: v => v }
   }).module;
@@ -1315,7 +1358,8 @@ seq(async () => {
   widget = t.tv.map.options._dashboard.renderWidget();
   h.assert(texts(widget).includes('Installed'), 'initial installed status needs no size RPC');
   await findButton(widget, 'Remove').listeners.click();
-  h.assertEq(t.calls.filter(c => c[0] === 'confirm').at(-1)[1], 'Remove the dashboard? You can install it again from the Overview page.', 'exact removal confirmation');
+  await new Promise(r => setTimeout(r, 0));
+  h.assertEq(t.calls.filter(c => c[0] === 'modal').at(-1)[1], 'Remove dashboard', 'exact removal modal title');
   h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-remove', 'Advanced removal job');
   h.assert(texts(widget).includes('Not installed') && !findButton(widget, 'Install'), 'removed panel stays status-only');
   h.assertEq(t.calls.filter(c => c[0] === 'write').at(-1)[1], 'dashboard-json', 'refresh only after action');

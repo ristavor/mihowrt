@@ -146,7 +146,6 @@ uninstall_cleanup() {
 	# Uninstall must restore direct routing even if run-service is still alive.
 	policy_cleanup || rc=1
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE" || rc=1
-	nft_fw4_input_cleanup || rc=1
 	cron_sync "$CRON_MARKER" 0 "" || rc=1
 	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$CACHE_DB_LINK" || rc=1
 	layout_unlink "$PROXIES_LINK" "$PROXIES_TMPFS" || rc=1

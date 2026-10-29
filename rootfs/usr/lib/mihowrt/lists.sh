@@ -461,10 +461,8 @@ lists_install() {
 		)"
 		[ -z "$bad" ] || {
 			err "Invalid $kind entries: $bad"
-			set +f
 			return 1
 		}
-		set +f
 	done
 	for kind in dst src direct direct_src; do
 		rm -f "$(lists_file "$kind").new."*

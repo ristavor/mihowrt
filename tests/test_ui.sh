@@ -349,7 +349,7 @@ seq(async () => {
  const directFirstProfile = { mode: 'direct-first', dns: 'fake-ip', provider: { disable_quic: '0' }, lists: { dst: { provided: true, provider_count: 12, own_count: 3 } } };
  let opts = await renderTraffic(directFirstProfile);
  h.assertEq(opts._mode.cfgvalue(), 'Only selected traffic via proxy (chosen by your subscription)', 'mode value is only the label and its reason');
- const modeTail = 'The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it.';
+ const modeTail = 'Your subscription chooses the mode; it cannot be changed here.';
  h.assertEq(opts._mode.description, 'Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct. ' + modeTail, 'direct-first mode meaning first, then where it comes from');
  h.assertEq(opts.block_client_ipv6.description.endsWith('No effect in the current mode.'), false, 'client IPv6 flag note absent in direct-first');
  const proxyFirstOpts = await renderTraffic({ mode: 'proxy-first', dns: 'redir-host', provider: {}, lists: {} });
@@ -392,7 +392,7 @@ seq(async () => {
  {
   // profile-json failed: no guessed mode, no list called inactive.
   const unknown = await renderTraffic({});
-  h.assertEq(unknown._mode.cfgvalue(), 'unknown (could not read the YAML profile)', 'unknown mode not guessed');
+  h.assertEq(unknown._mode.cfgvalue(), 'unknown (could not read the configuration)', 'unknown mode not guessed');
   h.assert(!Object.keys(unknown).some(k => k.endsWith('_inactive')), 'no inactive rows without a mode');
  }
  h.assert(opts._direct_src instanceof form.TextValue && !opts._direct_src_off, 'fake-IP direct devices editable');
@@ -1589,7 +1589,7 @@ seq(async () => {
  await check('buttons', async () => {
   const t = setup(); const p = await t.render();
   h.assertEq(t.tv.handleSave, null, 'no plain Save'); h.assertEq(typeof t.tv.handleSaveApply, 'function', 'Save & Apply defined');
-  h.assertEq(t.tv.map.description, 'Choose which traffic goes through Mihomo. Save & Apply applies the changes.', 'map description');
+  h.assertEq(t.tv.map.description, 'Choose which addresses and devices go via proxy and which go direct. Save & Apply applies the changes.', 'map description');
   h.assert(texts(p).includes('JOB NOTICE'), 'job notice on page');
  });
  await check('flags keep explicit values', async () => {
@@ -1672,7 +1672,7 @@ seq(async () => {
  });
  await check('mode help and inactive lists', async () => {
   const t = setup(); await t.render({ ...lists, dst: '# comment\n1.1.1.1\n\n2.2.2.2\n3.3.3.3' }, { mode: 'proxy-first' });
-  h.assertEq(t.tv.map.options._mode.description, 'Everything goes via proxy except the addresses and devices below. The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it.', 'mode help verbatim as the option description');
+  h.assertEq(t.tv.map.options._mode.description, 'Everything goes via proxy except the addresses and devices below. Your subscription chooses the mode; it cannot be changed here.', 'mode help verbatim as the option description');
   h.assertEq(t.tv.map.options._mode.cfgvalue(), 'All traffic via proxy except exclusions (follows the DNS settings of your YAML)', 'mode value without a subscription');
   const rowText = Object.values(t.tv.map.options).map(o => o.cfgvalue?.()).filter(v => typeof v === 'string');
   h.assert(rowText.includes('Addresses via proxy: 3 saved entries, used in the other mode.'), 'inactive list summary');

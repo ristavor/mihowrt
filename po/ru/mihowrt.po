@@ -65,7 +65,7 @@ msgid "MihoWRT version"
 msgstr "Версия MihoWRT"
 
 msgid "Traffic mode"
-msgstr "Режим"
+msgstr "Режим маршрутизации"
 
 msgid "Client interfaces"
 msgstr "Интерфейсы клиентов"
@@ -80,7 +80,7 @@ msgid "not active"
 msgstr "не активна"
 
 msgid "Starts at boot"
-msgstr "Запуск при загрузке"
+msgstr "Запускается при включении роутера"
 
 msgid "yes"
 msgstr "да"
@@ -101,7 +101,7 @@ msgid "No MihoWRT log lines yet."
 msgstr "В журнале пока нет записей MihoWRT."
 
 msgid "System log is not available."
-msgstr "Системный журнал недоступен."
+msgstr "Журнал недоступен."
 
 msgid "Cannot read the log: %s"
 msgstr "Не удалось прочитать журнал: %s"
@@ -251,7 +251,7 @@ msgid "Measure latency of every server in this group"
 msgstr "Измерить задержку каждого сервера этой группы"
 
 msgid "Test"
-msgstr "Замерить"
+msgstr "Проверить отклик"
 
 msgid "Open dashboard"
 msgstr "Открыть панель Mihomo"
@@ -281,7 +281,7 @@ msgid "Save"
 msgstr "Сохранить"
 
 msgid "Update now"
-msgstr "Обновить сейчас"
+msgstr "Обновить подписку"
 
 msgid "Enter the subscription link, or press Save to stop using a subscription."
 msgstr "Введите ссылку на подписку или нажмите «Сохранить», чтобы отказаться от подписки."
@@ -335,10 +335,10 @@ msgid "Addresses always direct"
 msgstr "Адреса всегда напрямую"
 
 msgid "Update remote lists every (hours)"
-msgstr "Обновлять удалённые списки каждые (часов)"
+msgstr "Обновлять списки по ссылкам каждые (часов)"
 
 msgid "0: only when you press \"Update remote lists\"."
-msgstr "0 — только по кнопке «Обновить удалённые списки»."
+msgstr "0 — только по кнопке «Обновить списки по ссылкам»."
 
 msgid "Traffic from these interfaces is handled. Usually br-lan."
 msgstr "Обрабатывается трафик с этих интерфейсов. Обычно br-lan."
@@ -383,16 +383,16 @@ msgid "Outbound NetBird traffic goes via proxy."
 msgstr "Исходящий трафик NetBird идёт через прокси."
 
 msgid "Remote lists"
-msgstr "Удалённые списки"
+msgstr "Списки по ссылкам"
 
 msgid "Update remote lists"
-msgstr "Обновить удалённые списки"
+msgstr "Обновить списки по ссылкам"
 
 msgid "Remote lists updated."
-msgstr "Удалённые списки обновлены."
+msgstr "Списки по ссылкам обновлены."
 
 msgid "Remote lists are up to date."
-msgstr "Удалённые списки актуальны."
+msgstr "Списки по ссылкам актуальны."
 
 msgid "Add a device"
 msgstr "Добавить устройство"
@@ -452,7 +452,7 @@ msgid "Only mine"
 msgstr "Только мой список"
 
 msgid "Only when you press Update now."
-msgstr "Только по кнопке «Обновить сейчас»."
+msgstr "Только по кнопке «Обновить подписку»."
 
 msgid "Paste the Clash/Mihomo (YAML) subscription link from your VPN provider. MihoWRT downloads the configuration, checks it and starts routing."
 msgstr "Вставьте ссылку на подписку Clash/Mihomo (YAML) от VPN-сервиса. MihoWRT скачает конфигурацию, проверит её и включит маршрутизацию."
@@ -485,7 +485,7 @@ msgid "Your provider decides how often (now every %d h)."
 msgstr "Частоту задаёт подписка (сейчас каждые %d ч)."
 
 msgid "Your provider does not set an update period, so the subscription is updated only when you press Update now."
-msgstr "Подписка не задаёт период обновления, поэтому она обновляется только по кнопке «Обновить сейчас»."
+msgstr "VPN-сервис не задал период обновления, поэтому подписка обновляется только по кнопке «Обновить подписку»."
 
 msgid "direct %d"
 msgstr "напрямую %d"
@@ -505,8 +505,8 @@ msgstr "%s (приоритет %s)"
 msgid "(chosen by your subscription)"
 msgstr "(выбрано подпиской)"
 
-msgid "(could not read the YAML profile)"
-msgstr "(не удалось прочитать профиль YAML)"
+msgid "(could not read the configuration)"
+msgstr "(не удалось прочитать конфигурацию)"
 
 msgid "(follows the DNS settings of your YAML)"
 msgstr "(по настройкам DNS в вашем YAML)"
@@ -533,10 +533,10 @@ msgid "My value"
 msgstr "Моё значение"
 
 msgid "No subscription: MihoWRT uses the YAML entered on the Subscription page."
-msgstr "Подписки нет: MihoWRT использует YAML со страницы «Подписка»."
+msgstr "Подписки нет: MihoWRT использует конфигурацию со страницы «Подписка»."
 
 msgid "Not saved yet: press Save or Update now."
-msgstr "Ещё не сохранено: нажмите «Сохранить» или «Обновить сейчас»."
+msgstr "Ещё не сохранено: нажмите «Сохранить» или «Обновить подписку»."
 
 msgid "Over 90% of the subscription traffic is used."
 msgstr "Израсходовано больше 90% трафика подписки."
@@ -639,9 +639,9 @@ msgstr "Mihomo запущен, но правила маршрутизации п
 
 msgid "Could not update %d of %d remote list: %s"
 msgid_plural "Could not update %d of %d remote lists: %s"
-msgstr[0] "Не удалось обновить %d из %d удалённого списка: %s"
-msgstr[1] "Не удалось обновить %d из %d удалённых списков: %s"
-msgstr[2] "Не удалось обновить %d из %d удалённых списков: %s"
+msgstr[0] "Не удалось обновить %d из %d списка по ссылкам: %s"
+msgstr[1] "Не удалось обновить %d из %d списков по ссылкам: %s"
+msgstr[2] "Не удалось обновить %d из %d списков по ссылкам: %s"
 
 msgid "Another operation is running: \"%s\". Wait until it finishes."
 msgstr "Уже выполняется другая операция: «%s». Дождитесь её завершения."
@@ -659,7 +659,7 @@ msgid "The subscription returned an empty configuration."
 msgstr "Подписка вернула пустую конфигурацию."
 
 msgid "The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists."
-msgstr "Удалённые списки вместе больше 8 МБ. Уберите часть ссылок на списки или выберите списки поменьше."
+msgstr "Списки по ссылкам занимают больше 8 МБ суммарно. Уберите часть ссылок на списки или используйте меньшие списки."
 
 msgid "Restore the previous YAML"
 msgstr "Восстановить предыдущий YAML"
@@ -725,10 +725,10 @@ msgid "Mihomo DNS does not answer: traffic goes direct until it recovers"
 msgstr "DNS Mihomo не отвечает: до восстановления трафик идёт напрямую"
 
 msgid "Cannot load the proxy groups: %s"
-msgstr "Не удалось загрузить группы прокси: %s"
+msgstr "Не удалось загрузить группы серверов: %s"
 
 msgid "Mihomo is starting. The proxy groups appear here by themselves."
-msgstr "Mihomo запускается. Группы прокси появятся здесь сами."
+msgstr "Mihomo запускается. Группы серверов появятся здесь сами."
 
 msgid "Cannot load the YAML: %s"
 msgstr "Не удалось загрузить YAML: %s"
@@ -745,8 +745,8 @@ msgstr "Автоматическое обновление снова замен�
 msgid "Mihomo YAML"
 msgstr "YAML Mihomo"
 
-msgid "Choose which traffic goes through Mihomo. Save & Apply applies the changes."
-msgstr "Выберите, какой трафик пойдёт через Mihomo. Кнопка «Сохранить и применить» применяет изменения."
+msgid "Choose which addresses and devices go via proxy and which go direct. Save & Apply applies the changes."
+msgstr "Выберите, какие адреса и устройства идут через прокси, а какие — напрямую. Изменения вступают в силу после «Сохранить и применить»."
 
 msgid "Everything goes via proxy except the addresses and devices below."
 msgstr "Через прокси идёт всё, кроме адресов и устройств ниже."
@@ -754,8 +754,8 @@ msgstr "Через прокси идёт всё, кроме адресов и у
 msgid "Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct."
 msgstr "Через прокси идут только адреса и устройства ниже и сайты, выбранные подпиской; остальное — напрямую."
 
-msgid "The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it."
-msgstr "Режим задают настройки DNS вашей подписки (YAML); чтобы сменить его, обратитесь к VPN-сервису."
+msgid "Your subscription chooses the mode; it cannot be changed here."
+msgstr "Режим выбирает подписка, здесь его не изменить."
 
 msgid "%s: %d saved entry, used in the other mode."
 msgid_plural "%s: %d saved entries, used in the other mode."
@@ -815,7 +815,7 @@ msgid "Little free memory: %d MiB"
 msgstr "Мало свободной памяти: %d МБ"
 
 msgid "Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration."
-msgstr "Когда память закончится, система может остановить Mihomo. Остановите другие сервисы или используйте меньшую конфигурацию."
+msgstr "Когда память закончится, система может остановить Mihomo. Остановите другие службы или используйте меньшую конфигурацию."
 
 msgid "Mihomo proxy ports %s accept any device in your network without a password"
 msgstr "Прокси-порты Mihomo %s принимают подключения от любого устройства в вашей сети без пароля"
@@ -875,7 +875,7 @@ msgid "Automatic update"
 msgstr "Автоматическое обновление"
 
 msgid "Mihomo temporary files (rulesets, providers, cache)"
-msgstr "Временные файлы Mihomo (наборы правил, провайдеры, кеш)"
+msgstr "Временные файлы Mihomo (наборы правил, файлы подписок, кеш)"
 
 msgid "Free temporary storage"
 msgstr "Свободно во временном хранилище"
@@ -884,7 +884,7 @@ msgid "Install dashboard"
 msgstr "Установить панель Mihomo"
 
 msgid "Downloads the Mihomo web panel (about %s MB) to the router."
-msgstr "Скачает веб-панель Mihomo (около %s МБ) на роутер."
+msgstr "Скачает панель Mihomo (около %s МБ) на роутер."
 
 msgid "Maintenance"
 msgstr "Обслуживание"

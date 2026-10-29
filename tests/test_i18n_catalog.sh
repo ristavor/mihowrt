@@ -31,8 +31,24 @@ assert(po.includes('Plural-Forms: nplurals=3;'), 'Russian plural header');
 for (const [id, translated] of [
  ['Service is running', 'Служба MihoWRT работает'],
  ['Install dashboard', 'Установить панель Mihomo'],
- ['Remove dashboard', 'Удалить панель Mihomo']
+ ['Remove dashboard', 'Удалить панель Mihomo'],
+ ['Test', 'Проверить отклик'],
+ ['Remote lists', 'Списки по ссылкам'],
+ ['Update remote lists', 'Обновить списки по ссылкам'],
+ ['Starts at boot', 'Запускается при включении роутера'],
+ ['System log is not available.', 'Журнал недоступен.'],
+ ['Traffic mode', 'Режим маршрутизации'],
+ ['Update now', 'Обновить подписку']
 ]) assert(po.includes('msgid ' + JSON.stringify(id) + '\nmsgstr ' + JSON.stringify(translated)), 'glossary: ' + id);
+
+const msgstrs = [...po.matchAll(/msgstr(?:\[\d+\])?\s+(".*"(?:\s*\n".*")*)/g)].map(m => m[1]);
+for (const str of msgstrs) {
+ const text = JSON.parse('[' + str.replace(/\n/g, ',') + ']').join('');
+ assert(!/(?:GiB|MiB|KiB)/.test(text), 'forbidden GiB/MiB/KiB in Russian translation: ' + text);
+ assert(!/удалённ\S*\s+списк/i.test(text), 'forbidden удалённые списки in Russian translation: ' + text);
+ const serviceMatches = [...text.matchAll(/(?<!VPN-)[Сс]ервис\S*/gi)];
+ assert.strictEqual(serviceMatches.length, 0, 'forbidden сервис (as MihoWRT) in Russian translation: ' + text);
+}
 
 console.log('ok - exact JS translation catalog including plurals');
 NODE

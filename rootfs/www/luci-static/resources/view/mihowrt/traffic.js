@@ -142,7 +142,7 @@ return view.extend({
 		const proxyFirst = this.profile.mode === 'proxy-first';
 		// profile-json failed: do not guess the mode or call lists inactive.
 		const modeKnown = proxyFirst || this.profile.mode === 'direct-first';
-		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which traffic goes through Mihomo. Save & Apply applies the changes.'));
+		const m = new form.Map('mihowrt', _('Traffic'), _('Choose which addresses and devices go via proxy and which go direct. Save & Apply applies the changes.'));
 		const s = m.section(form.NamedSection, 'settings', 'settings');
 		s.tab('basic', _('Basic'));
 		s.tab('advanced', _('Advanced'));
@@ -151,8 +151,8 @@ return view.extend({
 		const modeMeaning = proxyFirst ? _('Everything goes via proxy except the addresses and devices below.')
 			: modeKnown ? _('Only the addresses and devices below, plus the sites your subscription selects, go via proxy; everything else goes direct.') : '';
 		let o = s.taboption('basic', form.DummyValue, '_mode', _('Traffic mode'),
-			[ modeMeaning, _('The mode comes from the DNS settings of your subscription (YAML); ask your provider to change it.') ].filter(Boolean).join(' '));
-		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' + (!modeKnown ? _('(could not read the YAML profile)') :
+			[ modeMeaning, _('Your subscription chooses the mode; it cannot be changed here.') ].filter(Boolean).join(' '));
+		o.cfgvalue = () => api.modeLabel(this.profile.mode) + ' ' + (!modeKnown ? _('(could not read the configuration)') :
 			uci.get('mihowrt', 'settings', 'subscription_url') ? _('(chosen by your subscription)') : _('(follows the DNS settings of your YAML)'));
 
 		this.titles = { dst: _('Addresses via proxy'), src: _('Devices via proxy'), direct: _('Addresses always direct'), direct_src: _('Devices always direct') };

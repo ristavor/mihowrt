@@ -245,7 +245,7 @@ settings_ensure_generated() {
 		;;
 	esac
 
-	if [ "$(stat -c %a "$API_SECRET_FILE" 2>/dev/null)" != 600 ]; then
+	if [ -z "$(find "$API_SECRET_FILE" -perm 0600 2>/dev/null)" ]; then
 		chmod 600 "$API_SECRET_FILE" || return 1
 	fi
 

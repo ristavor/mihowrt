@@ -57,10 +57,10 @@ function checks(st, diagnostics) {
 		list.push([ false, _('Other proxy packages are installed: %s').format(conflicts.join(', ')),
 			_('They change DNS and firewall too. Use only one of them at a time.') ]);
 	if (flash != null && flash < 5120)
-		list.push([ false, _('Little free flash: %d MiB').format(Math.floor(flash / 1024)),
+		list.push([ false, _('Little free flash: %d MB').format(Math.floor(flash / 1024)),
 			_('Free some space or the core update may fail.') ]);
 	if (ram != null && ram < 20480)
-		list.push([ false, _('Little free memory: %d MiB').format(Math.floor(ram / 1024)),
+		list.push([ false, _('Little free memory: %d MB').format(Math.floor(ram / 1024)),
 			_('Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration.') ]);
 	const ports = diagnostics?.open_proxy_ports || [];
 	if (ports.length)
@@ -111,13 +111,13 @@ function details(st, profile, diagnostics) {
 		[ _('Routing table'), st.route?.table ? _('%s (priority %s)').format(st.route.table, st.route.priority) : _('not active') ],
 		[ _('Starts at boot'), st.enabled ? _('yes') : _('no') ]
 	];
-	// RSS is shown as the nearest MiB; free flash/RAM floor so a warning never overstates what is left.
+	// RSS is shown as the nearest MB; free flash/RAM floor so a warning never overstates what is left.
 	if (typeof diagnostics?.mihomo_rss_kb === 'number')
-		rows.push([ _('Mihomo memory'), _('%d MiB').format(Math.round(diagnostics.mihomo_rss_kb / 1024)) ]);
+		rows.push([ _('Mihomo memory'), _('%d MB').format(Math.round(diagnostics.mihomo_rss_kb / 1024)) ]);
 	if (typeof diagnostics?.tmp_clash_kb === 'number')
-		rows.push([ _('Mihomo temporary files (rulesets, providers, cache)'), _('%d MiB').format(Math.round(diagnostics.tmp_clash_kb / 1024)) ]);
+		rows.push([ _('Mihomo temporary files (rulesets, providers, cache)'), _('%d MB').format(Math.round(diagnostics.tmp_clash_kb / 1024)) ]);
 	if (typeof diagnostics?.tmp_free_kb === 'number')
-		rows.push([ _('Free temporary storage'), _('%d MiB').format(Math.floor(diagnostics.tmp_free_kb / 1024)) ]);
+		rows.push([ _('Free temporary storage'), _('%d MB').format(Math.floor(diagnostics.tmp_free_kb / 1024)) ]);
 	return api.infoGrid(rows);
 }
 

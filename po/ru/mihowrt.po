@@ -805,13 +805,13 @@ msgstr "Установлены другие прокси-пакеты: %s"
 msgid "They change DNS and firewall too. Use only one of them at a time."
 msgstr "Они тоже меняют DNS и межсетевой экран. Одновременно используйте только один из них."
 
-msgid "Little free flash: %d MiB"
+msgid "Little free flash: %d MB"
 msgstr "Мало свободной флеш-памяти: %d МБ"
 
 msgid "Free some space or the core update may fail."
 msgstr "Освободите место, иначе обновление ядра может не удаться."
 
-msgid "Little free memory: %d MiB"
+msgid "Little free memory: %d MB"
 msgstr "Мало свободной памяти: %d МБ"
 
 msgid "Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration."
@@ -841,7 +841,7 @@ msgstr "ГБ"
 msgid "TB"
 msgstr "ТБ"
 
-msgid "%d MiB"
+msgid "%d MB"
 msgstr "%d МБ"
 
 msgid "Cannot load diagnostics: %s"

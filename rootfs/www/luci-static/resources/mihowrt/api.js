@@ -325,7 +325,7 @@ function formatBytes(value) {
 
 	if (!Number.isFinite(n) || n < 0)
 		return '';
-	while (n >= 1024 && i < units.length - 1) {
+	while ((i ? Math.round(n * 10) / 10 : n) >= 1024 && i < units.length - 1) {
 		n /= 1024;
 		i++;
 	}

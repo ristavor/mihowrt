@@ -79,7 +79,10 @@ h.assertEq(api.trafficSummary({ total: 1073741824 }), '1.0 GB', 'total only');
 {
 	const ruApi = h.evaluateLuCIModule('rootfs/www/luci-static/resources/mihowrt/api.js', { E, ui, fs: {}, document: { documentElement: { lang: 'ru' } } }).module;
 	h.assertEq(ruApi.formatBytes(2048), '2,0 KB', 'Russian decimal comma');
+	h.assertEq(ruApi.formatBytes(1048575), '1,0 MB', 'Russian rounded KB promotes to MB');
 }
+h.assertEq(api.formatBytes(1048575), '1.0 MB', 'rounded KB promotes to MB');
+h.assertEq(api.formatBytes(1073741823), '1.0 GB', 'rounded MB promotes to GB');
 h.assert(api.safeLink('javascript:alert(1)', 'x') === null, 'non-http links are dropped');
 h.assertEq(api.safeLink('https://example.com', 'x').attrs.rel, 'noopener noreferrer', 'external links isolated');
 h.assertEq(api.subscriptionError, undefined, 'redundant subscription error alias removed');
@@ -1982,29 +1985,29 @@ seq(async () => {
  });
  await check('resources', () => {
   const p = render(healthy, { ...resources, flash_free_kb: 4000, ram_available_kb: 15000 });
-  h.assert(texts(p).includes('Little free flash: 3 MiB'), 'flash floor MiB');
-  h.assert(texts(p).includes('Little free memory: 14 MiB'), 'memory floor MiB');
+  h.assert(texts(p).includes('Little free flash: 3 MB'), 'flash floor MB');
+  h.assert(texts(p).includes('Little free memory: 14 MB'), 'memory floor MB');
   h.assert(texts(p).includes('Mihomo may be stopped by the system when memory runs out. Stop other services or use a smaller configuration.'), 'memory hint');
-  h.assert(texts(p).includes('Mihomo memory') && texts(p).includes('44 MiB'), 'RSS detail rounds to MiB');
+  h.assert(texts(p).includes('Mihomo memory') && texts(p).includes('44 MB'), 'RSS detail rounds to MB');
  });
  await check('resource thresholds and unknowns', () => {
   for (const value of [null, undefined, 5120]) {
    const p = render(healthy, { ...resources, flash_free_kb: value, ram_available_kb: value == 5120 ? 20480 : value, mihomo_rss_kb: null });
    h.assert(!texts(p).some(t => t.startsWith('Little free')), 'no false low resource warning');
-   h.assert(!texts(p).includes('0 MiB'), 'unknown RSS not zero');
+   h.assert(!texts(p).includes('0 MB'), 'unknown RSS not zero');
   }
-  h.assert(texts(render(healthy, { ...resources, flash_free_kb: 0 })).includes('Little free flash: 0 MiB'), 'zero flash is low');
+  h.assert(texts(render(healthy, { ...resources, flash_free_kb: 0 })).includes('Little free flash: 0 MB'), 'zero flash is low');
  });
  await check('temporary storage', () => {
   const values = texts(render(healthy, { ...resources, tmp_clash_kb: 2560, tmp_free_kb: 6399 }));
   const size = 'Mihomo temporary files (rulesets, providers, cache)';
   const free = 'Free temporary storage';
-  h.assertEq(values[values.indexOf(size) + 1], '3 MiB', 'temporary files nearest MiB');
-  h.assertEq(values[values.indexOf(free) + 1], '6 MiB', 'free tmpfs floors MiB');
+  h.assertEq(values[values.indexOf(size) + 1], '3 MB', 'temporary files nearest MB');
+  h.assertEq(values[values.indexOf(free) + 1], '6 MB', 'free tmpfs floors MB');
   h.assert(!texts(render(healthy, { ...resources, tmp_clash_kb: null, tmp_free_kb: null })).includes(size), 'unknown sizes absent');
   const zero = texts(render(healthy, { ...resources, tmp_clash_kb: 0, tmp_free_kb: 0 }));
-  h.assertEq(zero[zero.indexOf(size) + 1], '0 MiB', 'empty directory is zero');
-  h.assertEq(zero[zero.indexOf(free) + 1], '0 MiB', 'full tmpfs is zero');
+  h.assertEq(zero[zero.indexOf(size) + 1], '0 MB', 'empty directory is zero');
+  h.assertEq(zero[zero.indexOf(free) + 1], '0 MB', 'full tmpfs is zero');
  });
  await check('open ports', () => {
   const row = item(render(healthy, { ...resources, open_proxy_ports: [7890] }), 'Mihomo proxy ports 7890 accept any device in your network without a password');

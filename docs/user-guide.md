@@ -7,13 +7,13 @@
 | Page | What it does |
 |---|---|
 | Overview | First-run *Connect a subscription* card, status, traffic and expiry, proxy group selection with latency test, start/stop, dashboard, core update |
-| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MiB) and *Restore the previous YAML* |
+| Subscription | Subscription link and *Update automatically*; *Advanced* holds the YAML editor (*Check and apply*, up to 8 MB) and *Restore the previous YAML* |
 | Traffic | Mode (read-only), lists of the active mode, devices from DHCP leases (by MAC or IP), provider settings with *Use my own value*; *Advanced* holds interfaces, DNS redirect, QUIC block, *Block external IPv6 from clients*, NTP and subscription DNS bypass, NetBird, *Mihomo log detail* and *Mihomo dashboard*. One *Save & Apply* button applies lists and settings together |
 | Diagnostics | Checklist with fixes (core, config, service state and last error, DNS answers, rules, conflicting dnsmasq servers, conflicting proxy packages, free flash and RAM, open proxy ports), details (including Mihomo memory) and log |
 
 ### Dashboard
 
-The optional Mihomo web panel (zashboard) is off on fresh installs. Start MihoWRT, then press *Install dashboard* on Overview; the download restarts the running service. After installation press *Open dashboard* (it does not open automatically). Remove it under Traffic → Advanced → Mihomo dashboard. The measured installed size was 5284 KiB; it is not needed for MihoWRT. Existing installations with a non-empty dashboard directory retain it during migration. Installation while stopped is refused immediately.
+The optional Mihomo web panel (zashboard) is off on fresh installs. Start MihoWRT, then press *Install dashboard* on Overview; the download restarts the running service. After installation press *Open dashboard* (it does not open automatically). Remove it under Traffic → Advanced → Mihomo dashboard. The measured installed size was 5284 KB; it is not needed for MihoWRT. Existing installations with a non-empty dashboard directory retain it during migration. Installation while stopped is refused immediately.
 
 ### Background jobs
 
@@ -27,7 +27,7 @@ to run again. The status block of Overview refreshes every 10 seconds while the 
 
 ### Editing the YAML
 
-The editor on the *Subscription* page takes a YAML up to 8 MiB. This is an upload limit, not a RAM guarantee: on 128–256 MiB keep the YAML small. The 8 MiB VM fixture ran out of memory on 128 MiB (including older builds) and on 256 MiB; 512 MiB succeeded. An empty YAML is
+The editor on the *Subscription* page takes a YAML up to 8 MB. This is an upload limit, not a RAM guarantee: on 128–256 MB keep the YAML small. The 8 MB VM fixture ran out of memory on 128 MB (including older builds) and on 256 MB; 512 MB succeeded. An empty YAML is
 refused and nothing is changed. *Restore the previous YAML* puts
 `config.yaml.bak` back (the current one becomes the new backup, so restore can
 be undone). A subscription update or an automatic update replaces the YAML
@@ -138,7 +138,7 @@ https://example.com/list.txt;443   # remote list, cached on flash
 # comment
 ```
 
-Remote lists (up to 1 MiB each, 32 URLs, 8 MiB total cache) are refreshed every *Update remote lists
+Remote lists (up to 1 MB each, 32 URLs, 8 MB total cache) are refreshed every *Update remote lists
 every (hours)* (24 for new installs; existing installs keep their value) or
 with the button. Applying policy never waits for the network: it uses the cache.
 A failed refresh reports an error even if some lists updated successfully; old caches are kept for the failed downloads. A semicolon must be followed by ports (`1.2.3.4;` is invalid).

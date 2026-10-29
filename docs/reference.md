@@ -201,7 +201,7 @@ save-config <tmp> | restore-config | core-update | auto-update
 dashboard-install | dashboard-remove | service <start|stop|restart>
 ```
 
-For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it with `mihowrt job-status <id>`. Install requires a running service; `dashboard-remove` disables and removes the panel. `dashboard-json` includes `enabled`, `installed`, `size` (bytes), controller connection data and secret: keep its output private. Jobs serialize LuCI/cron operations; their output/error logs keep at most 64 KiB each. Temporary upload paths for `save-config` and `apply-lists` must use `/tmp/mihowrt-config.*` and `/tmp/mihowrt-policy-list.*` respectively.
+For example, `mihowrt job-start dashboard-install` returns a job ID; inspect it with `mihowrt job-status <id>`. Install requires a running service; `dashboard-remove` disables and removes the panel. `dashboard-json` includes `enabled`, `installed`, `size` (bytes), controller connection data and secret: keep its output private. Jobs serialize LuCI/cron operations; their output/error logs keep at most 64 KB each. Temporary upload paths for `save-config` and `apply-lists` must use `/tmp/mihowrt-config.*` and `/tmp/mihowrt-policy-list.*` respectively.
 
 `update-subscription [url]` saves a new URL only after a successful download and validation. `core-update --file` accepts an architecture-compatible local gzip or executable, only as a regular non-symlink file named `/tmp/mihomo`, `/tmp/mihomo.gz` or `/tmp/mihomo-linux-*` (the release asset name), so no file a LuCI user can write runs as root. It skips the release digest check with a warning, then uses the normal version/config test and atomic replacement. Verify local files yourself. Online update checks the GitHub release digest when available; API fallback via the latest-release redirect has no digest and logs a warning. Download stalls are bounded (below 2048 bytes/s for 60 s, two retries), not a fixed five-minute total.
 
@@ -232,9 +232,9 @@ Other architecture names are not automatically supported. A local `--file` bypas
 
 ### Flash budget and checks
 
-100 MiB+ free flash is a safe budget, not the installer's hard minimum. The core is about 12 MiB compressed and up to about 55 MiB unpacked, architecture/version dependent; updates need old and new cores side by side. Compressing overlays (UBIFS/JFFS2) can store it near its compressed size and need less physical flash. Geodata and the optional dashboard are extra.
+100 MB+ free flash is a safe budget, not the installer's hard minimum. The core is about 20 MB compressed and up to about 55 MB unpacked, architecture/version dependent; updates need old and new cores side by side. Compressing overlays (UBIFS/JFFS2) can store it near its compressed size and need less physical flash. Geodata and the optional dashboard are extra.
 
-`install.sh` checks for 2048 KiB free on `/opt/clash` for packages. `core.sh` checks free space beside the core ≥ source/download size + 4194304 bytes (4 MiB); on an uncompressed filesystem that estimate may be insufficient, so an unpack/copy failure aborts without replacing the installed core. The compressed online download is in tmpfs and is deleted after unpacking, before candidate validation; an offline source file stays until you remove it.
+`install.sh` checks for 2048 KB free on `/opt/clash` for packages. `core.sh` checks free space beside the core ≥ source/download size + 4194304 bytes (4 MB); on an uncompressed filesystem that estimate may be insufficient, so an unpack/copy failure aborts without replacing the installed core. The compressed online download is in tmpfs and is deleted after unpacking, before candidate validation; an offline source file stays until you remove it.
 
 ## Files
 
@@ -258,7 +258,7 @@ Other architecture names are not automatically supported. A local `--file` bypas
 ## Known limits
 
 - Dumb AP mode: if the default route is via the LAN bridge, MihoWRT treats that bridge as WAN and does not exclude its non-RFC1918 connected subnets. This follows the connected-network algorithm; do not assume AP mode has the same exclusions as routed LAN mode.
-- RAM: 128–256 MiB is for small YAML. An 8 MiB fixture OOMed on 128 MiB in all tested builds, including 0.10, and on 256 MiB; 512 MiB passed. Sizes between were not measured. The 8 MiB upload limit is not a capacity guarantee. Core updates succeeded on 128 MiB in the VM with only about 6–8 MiB MemAvailable at the low point; this is not a physical-router guarantee.
+- RAM: 128–256 MB is for small YAML. An 8 MB fixture OOMed on 128 MB in all tested builds, including 0.10, and on 256 MB; 512 MB passed. Sizes between were not measured. The 8 MB upload limit is not a capacity guarantee. Core updates succeeded on 128 MB in the VM with only about 6–8 MB MemAvailable at the low point; this is not a physical-router guarantee.
 - The read-only LuCI access (`mihowrt-read`) exposes the Mihomo YAML (which holds
   provider credentials), the YAML passed to Mihomo (*Show the YAML passed to
   Mihomo*, controller secret hidden) and the subscription link to every LuCI

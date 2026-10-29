@@ -546,10 +546,10 @@ test('damaged stored notice is dropped silently and the page renders', async () 
 		assert.equal(shown.length, 0); assert.equal(notice.tag, 'div'); assert.equal(store['mihowrt-notice'], undefined);
 	}
 });
-test('overview shows notices only through reloadWithNotice', () => {
+test('views keep action notices across reloads except plain load-error retry', () => {
 	for (const name of [ 'overview.js', 'subscription.js' ]) {
 		const source = h.readSource('rootfs/www/luci-static/resources/view/mihowrt/' + name);
-		assert(!/location\.reload/.test(source), name + ': raw reload loses the notice');
+		assert(!/location\.reload/.test(source.replace("again.addEventListener('click', () => location.reload());", '')), name + ': raw action reload loses the notice');
 	}
 });
 test('no shared helper copies in views', () => {

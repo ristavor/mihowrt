@@ -1780,6 +1780,38 @@ seq(async () => {
  console.log('ok - subscription read-only hides actions');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+seq(async () => {
+ const check = async (name, fn) => {
+  try { await fn(); console.log('ok - subscription ' + name); }
+  catch (e) { console.error('not ok - subscription ' + name + ': ' + e.message); process.exitCode = 1; }
+ };
+ await check('read-only Enter prevents submit without mutations', async () => {
+  const calls = [];
+  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E, ui, Blob, view: { extend: v => v },
+   api: { ...api, readOnly: () => true, busy: async (button, fn) => fn(),
+    write: async (...args) => { calls.push(args); return {}; }, job: async (...args) => { calls.push(args); return {}; }, reloadWithNotice() {} }
+  }).module;
+  const page = sv.render({ url: 'https://p.example/sub' });
+  const input = collect(page).find(n => n.attrs.id === 'mw-url'); input.value = 'https://p.example/sub';
+  let prevented = false;
+  collect(page).find(n => n.tag === 'form').listeners.submit({ preventDefault() { prevented = true; } });
+  await settle();
+  h.assert(prevented, 'read-only form prevents navigation');
+  h.assertEq(calls.length, 0, 'Enter sends no write/job in read-only mode');
+ });
+ await check('load-error retry directly reloads without saving an empty notice', async () => {
+  let reloads = 0, noticeReloads = 0;
+  const sv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/subscription.js', {
+   E, ui, view: { extend: v => v }, location: { reload() { reloads++; } },
+   api: { ...api, reloadWithNotice() { noticeReloads++; } }
+  }).module;
+  findButton(sv.render({ error: Error('read failed') }), 'Try again').listeners.click();
+  h.assertEq(reloads, 1, 'retry directly reloads');
+  h.assertEq(noticeReloads, 0, 'retry does not save an empty notice');
+ });
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // C16: Overview uses the same read-only check as the other views.
 seq(async () => {
  for (const readOnly of [false, true]) {

@@ -14,7 +14,7 @@ return view.extend({
 	render: function(sub) {
 		if (sub?.error) {
 			const again = E('button', { class: 'cbi-button', type: 'button' }, text(_('Try again')));
-			again.addEventListener('click', () => api.reloadWithNotice(''));
+			again.addEventListener('click', () => location.reload());
 			return E('div', { class: 'mw-page' }, [
 				api.style(),
 				E('h2', text(_('Subscription'))),
@@ -33,6 +33,8 @@ return view.extend({
 		const urlForm = E('form', { action: '', style: 'width: 100%' }, [ url ]);
 		urlForm.addEventListener('submit', e => {
 			e.preventDefault();
+			if (readOnly)
+				return;
 			(url.value.trim() ? update : save).click();
 		});
 		const auto = E('input', { id: 'mw-auto', type: 'checkbox', checked: sub.auto_update !== false ? '' : null });

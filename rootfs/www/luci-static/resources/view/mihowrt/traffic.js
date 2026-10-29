@@ -10,20 +10,6 @@
 const text = api.text;
 const LIST_KINDS = [ 'dst', 'src', 'direct', 'direct_src' ];
 
-function confirmModal(title, message, confirmLabel, destructive) {
-	return new Promise((resolve) => {
-		const btnClass = 'cbi-button ' + (destructive ? 'cbi-button-negative' : 'cbi-button-action');
-		const cancel = E('button', { class: 'cbi-button', type: 'button' }, [ _('Cancel') ]);
-		const confirm = E('button', { class: btnClass, type: 'button' }, [ confirmLabel ]);
-		cancel.addEventListener('click', () => { ui.hideModal(); resolve(false); });
-		confirm.addEventListener('click', () => { ui.hideModal(); resolve(true); });
-		ui.showModal(title, [
-			E('p', {}, [ message ]),
-			E('div', { class: 'mw-row right', style: 'justify-content: flex-end;' }, [ cancel, ' ', confirm ])
-		]);
-	});
-}
-
 const callLeases = rpc.declare({ object: 'luci-rpc', method: 'getDHCPLeases', expect: { '': {} } });
 
 const LIST_HELP = _('One entry per line: IPv4 or IPv6 address or subnet, optionally with ports (1.1.1.1;443, 2001:db8::/32). A line with a list URL (https://…) adds a remote list. Lines starting with # are comments.');
@@ -231,12 +217,6 @@ return view.extend({
 		o.default = '0';
 		o.rmempty = false;
 
-		if (!api.readOnly()) {
-			o = s.taboption('advanced', form.DummyValue, '_dashboard', _('Mihomo dashboard'),
-				_('Web panel of Mihomo itself. Not needed for MihoWRT; it only takes space on the router.'));
-			o.renderWidget = () => this.dashboardWidget({ installed: !!this.profile.dashboard_installed });
-		}
-
 		this.map = m;
 		return m.render().then((node) => {
 			// Right after the heading and description, like on the other pages.
@@ -272,30 +252,6 @@ return view.extend({
 		o.renderWidget = function() {
 			return extra(render.apply(this, arguments));
 		};
-	},
-
-	dashboardWidget: function(state) {
-		const row = E('div', { class: 'mw-row', 'aria-live': 'polite' });
-		const show = () => {
-			const status = E('span', {}, text(state.installed ? (state.size != null ? _('Installed, %s').format(api.formatBytes(state.size)) : _('Installed')) : _('Not installed')));
-			const action = E('button', { type: 'button', class: 'cbi-button' + (state.installed ? ' cbi-button-negative' : ''), 'data-mw-job': '', disabled: api.jobRunning || null },
-				text(state.installed ? _('Remove') : _('Install')));
-			action.addEventListener('click', async () => {
-				if (state.installed) {
-					const ok = await confirmModal(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), true);
-					if (!ok)
-						return;
-				}
-				return api.busy(action, async () => {
-					await api.job('dashboard-remove');
-					state = await api.write('dashboard-json');
-					show();
-				});
-			});
-			row.replaceChildren(status, ...(state.installed ? [ action ] : []));
-		};
-		show();
-		return row;
 	},
 
 	refreshButton: function() {

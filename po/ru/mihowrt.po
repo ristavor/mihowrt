@@ -856,23 +856,17 @@ msgstr "Установить панель"
 msgid "Downloads the Mihomo web panel (about %s MB) to the router."
 msgstr "Скачает веб-панель Mihomo (около %s МБ) на роутер."
 
-msgid "Mihomo dashboard"
-msgstr "Панель Mihomo"
+msgid "Show maintenance"
+msgstr "Показать обслуживание"
 
-msgid "Installed"
-msgstr "Установлена"
-
-msgid "Installed, %s"
-msgstr "Установлена, %s"
+msgid "Hide maintenance"
+msgstr "Скрыть обслуживание"
 
 msgid "Remove"
 msgstr "Удалить"
 
 msgid "Install"
 msgstr "Установить"
-
-msgid "Not installed"
-msgstr "Не установлена"
 
 msgid "Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds."
 msgstr "Удалить панель? Её можно будет снова установить на странице «Обзор». Интернет пропадёт на несколько секунд."
@@ -897,9 +891,6 @@ msgstr "Скачать панель Mihomo (около 5 МБ)? MihoWRT пере
 
 msgid "Without a subscription MihoWRT starts with the current configuration; by default all traffic goes direct."
 msgstr "Без подписки MihoWRT запустится с текущей конфигурацией: по умолчанию весь трафик идёт напрямую."
-
-msgid "Web panel of Mihomo itself. Not needed for MihoWRT; it only takes space on the router."
-msgstr "Собственная веб-панель Mihomo. Для работы MihoWRT не нужна, только занимает место на роутере."
 
 msgid "Install Mihomo dashboard"
 msgstr "Установка панели Mihomo"

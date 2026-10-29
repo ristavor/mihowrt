@@ -271,9 +271,9 @@ seq(async () => {
  h.assert(findButton(installed, 'Open dashboard').hidden, 'loopback installed status hides Open');
  h.assert(!collect(installed).find(n => n.tag === 'span' && texts(n).includes('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.')).hidden, 'loopback installed status shows LAN hint');
  h.assertEq(calls.join(','), 'dashboard-install,dashboard-json', 'install job then refresh status, no popup');
- h.assert(!findButton(p, 'Remove'), 'no remove on Overview');
+ h.assert(findButton(installed, 'Remove dashboard'), 'remove is on Overview in maintenance');
  p = ov.render([{ ...running, running: false }, {}, [], { installed: false, running: false }]);
- h.assert(!findButton(p, 'Install dashboard'), 'stopped Overview has no Install');
+ h.assert(!findButton(p, 'Install dashboard') || findButton(p, 'Install dashboard').hidden, 'stopped Overview has no Install');
  readonly = true; calls.length = 0;
  await ov.load();
  h.assertEq(calls.length, 0, 'read-only Overview skips secret-bearing dashboard RPC');
@@ -978,6 +978,17 @@ seq(async () => {
  console.log('ok - overview R43 R44 R46');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
+// Lane F2: R47 Maintenance section on Overview and removal from Traffic
+seq(async () => {
+ const ov = overview;
+ const p = ov.render([{ ...base, running: true, subscription_configured: true, dashboard_installed: true }, {}, []]);
+ h.assert(findButton(p, 'Show maintenance'), 'Show maintenance toggle button present');
+ h.assert(findButton(p, 'Update Mihomo core'), 'core update in maintenance');
+ h.assert(findButton(p, 'Remove dashboard'), 'remove dashboard in maintenance');
+
+ console.log('ok - overview R47 maintenance');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
 // Task 18: safe editor, large uploads, restore and shared job controls.
 seq(async () => {
  function DOM(tag, attrs, children) {
@@ -1375,29 +1386,11 @@ seq(async () => {
   h.assertEq(o.default, 'error', 'quiet default');
   h.assertEq(o.values.map(v => v[0]).join(' '), 'silent error warning info debug', 'allowed log levels');
  });
- await check('dashboard lazy status and removal', async () => {
-  const t = setup({ write: async cmd => { t.calls.push(['write', cmd]); return { installed: false }; } });
+ await check('dashboard lazy status and removal moved from Traffic', async () => {
+  const t = setup();
   await t.tv.load();
-  h.assert(!t.calls.some(c => c[0] === 'write'), 'Traffic load skips dashboard RPC');
   await t.render(undefined, {}, { installed: false });
-  const o = t.tv.map.options._dashboard;
-  h.assert(o && o.tab === 'advanced', 'dashboard standalone Advanced row');
-  h.assertEq(Object.keys(t.tv.map.options).at(-1), '_dashboard', 'dashboard row last');
-  let widget = o.renderWidget();
-  h.assert(texts(widget).includes('Not installed'), 'uninstalled status');
-  h.assert(!findButton(widget, 'Install'), 'Install lives on Overview only');
-  await t.render(undefined, {}, { installed: true });
-  widget = t.tv.map.options._dashboard.renderWidget();
-  h.assert(texts(widget).includes('Installed'), 'initial installed status needs no size RPC');
-  await findButton(widget, 'Remove').listeners.click();
-  await new Promise(r => setTimeout(r, 0));
-  h.assertEq(t.calls.filter(c => c[0] === 'modal').at(-1)[1], 'Remove dashboard', 'exact removal modal title');
-  h.assertEq(t.calls.filter(c => c[0] === 'job').at(-1)[1], 'dashboard-remove', 'Advanced removal job');
-  h.assert(texts(widget).includes('Not installed') && !findButton(widget, 'Install'), 'removed panel stays status-only');
-  h.assertEq(t.calls.filter(c => c[0] === 'write').at(-1)[1], 'dashboard-json', 'refresh only after action');
-  const ro = setup({ readOnly: () => true, write: async () => { throw new Error('secret RPC for read-only'); } });
-  await ro.tv.load(); await ro.render();
-  h.assert(!ro.tv.map.options._dashboard, 'read-only Advanced hides row');
+  h.assert(!t.tv.map.options._dashboard, 'dashboard removed from Traffic Advanced');
  });
  // Plan task 20: Advanced client IPv6 policy uses the existing provider controls.
  const ipv6Flag = t => {

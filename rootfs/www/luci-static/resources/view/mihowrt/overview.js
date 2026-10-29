@@ -432,53 +432,60 @@ const DASHBOARD_DOWNLOAD_MB = 5;
 function toolsSection(status) {
 	let dashboardState = { installed: status.dashboard_installed, host: status.dashboard_host };
 	const dashboardHint = E('span', { class: 'mw-muted' }, text(_('No LAN IPv4 address found. Check the LAN interface settings to open the dashboard.')));
-	const dashboard = E('button', { class: 'cbi-button', type: 'button' });
+	const dashboard = E('button', { class: 'cbi-button', type: 'button' }, text(_('Open dashboard')));
+	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
+	const installDashboard = E('button', {
+		'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button', type: 'button',
+		title: _('Downloads the Mihomo web panel (about %s MB) to the router.').format(DASHBOARD_DOWNLOAD_MB)
+	}, text(_('Install dashboard')));
+	const removeDashboard = E('button', {
+		'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-negative', type: 'button'
+	}, text(_('Remove dashboard')));
+	const dashboardSlot = E('span', {}, [ dashboardState?.installed ? removeDashboard : installDashboard ]);
+
 	const updateDashboard = () => {
-		dashboard.hidden = dashboardState?.installed && dashboardState?.host === '127.0.0.1';
-		dashboardHint.hidden = !dashboard.hidden;
-		dashboard.textContent = dashboardState?.installed ? _('Open dashboard') : _('Install dashboard');
-		if (dashboardState?.installed) {
-			dashboard.removeAttribute('title');
-			dashboard.removeAttribute('data-mw-job');
-		}
-		else {
-			dashboard.setAttribute('title', _('Downloads the Mihomo web panel (about %s MB) to the router.').format(DASHBOARD_DOWNLOAD_MB));
-			dashboard.setAttribute('data-mw-job', '');
-			dashboard.disabled = api.jobRunning || false;
-		}
+		dashboard.hidden = !dashboardState?.installed || dashboardState?.host === '127.0.0.1';
+		dashboardHint.hidden = !dashboardState?.installed || dashboardState?.host !== '127.0.0.1';
+		installDashboard.hidden = !status.running;
+		dashboardSlot.replaceChildren(dashboardState?.installed ? removeDashboard : installDashboard);
 	};
 	updateDashboard();
-	const core = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button' }, text(_('Update Mihomo core')));
 
-	dashboard.addEventListener('click', async () => {
-		if (!dashboardState?.installed) {
-			const ok = await confirmModal(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'), false);
-			if (!ok)
-				return;
-			return api.busy(dashboard, async () => {
-				await api.job('dashboard-install');
-				dashboardState = await api.write('dashboard-json');
-				updateDashboard();
-			});
+	dashboard.addEventListener('click', () => api.busy(dashboard, async () => {
+		const d = await api.write('dashboard-json');
+		if (d.host === '127.0.0.1') {
+			dashboardState = d;
+			updateDashboard();
+			return;
 		}
-		// Opened after the short RPC, still within the click's user activation.
-		// No pre-opened about:blank: sending it from HTTPS LuCI to the http://
-		// dashboard failed in a user's browser ("The operation is insecure").
-		return api.busy(dashboard, async () => {
-			const d = await api.write('dashboard-json');
-			if (d.host === '127.0.0.1') {
-				dashboardState = d;
-				updateDashboard();
-				return;
-			}
-			if (!d.running)
-				throw new Error(_('Start MihoWRT to use the dashboard.'));
-			// The setup route applies these values even when the browser keeps an
-			// older backend (e.g. without a secret) for the same host and port.
-			const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
-			window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
+		if (!d.running)
+			throw new Error(_('Start MihoWRT to use the dashboard.'));
+		const qs = 'hostname=%s&port=%s&secret=%s'.format(encodeURIComponent(d.host), d.port, encodeURIComponent(d.secret));
+		window.open('http://%s:%s/ui/#/setup?%s'.format(d.host, d.port, qs), '_blank', 'noopener');
+	}));
+
+	installDashboard.addEventListener('click', async () => {
+		const ok = await confirmModal(_('Install dashboard'), _('Download the Mihomo dashboard (about 5 MB)? MihoWRT restarts; the internet drops for a few seconds.'), _('Install'), false);
+		if (!ok)
+			return;
+		return api.busy(installDashboard, async () => {
+			await api.job('dashboard-install');
+			dashboardState = await api.write('dashboard-json');
+			updateDashboard();
 		});
 	});
+
+	removeDashboard.addEventListener('click', async () => {
+		const ok = await confirmModal(_('Remove dashboard'), _('Remove the dashboard? You can install it again from the Overview page. The internet drops for a few seconds.'), _('Remove'), true);
+		if (!ok)
+			return;
+		return api.busy(removeDashboard, async () => {
+			await api.job('dashboard-remove');
+			dashboardState = await api.write('dashboard-json');
+			updateDashboard();
+		});
+	});
+
 	core.addEventListener('click', async () => {
 		const ok = await confirmModal(_('Update Mihomo core'), _('MihoWRT restarts after the update; the internet drops for a few seconds.'), _('Update'), false);
 		if (!ok)
@@ -489,10 +496,16 @@ function toolsSection(status) {
 		});
 	});
 
+	const maintenanceContent = E('div', { class: 'mw-row' }, [ core, dashboardSlot ]);
+	const openRow = E('div', { class: 'mw-row' }, [
+		!api.readOnly() && status.running ? dashboard : '',
+		!api.readOnly() && status.running ? dashboardHint : '',
+		E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—')))
+	]);
+
 	return E('div', { class: 'cbi-section' }, [
-		E('div', { class: 'mw-row' }, [ !api.readOnly() && status.running && dashboardState ? dashboard : '',
-			!api.readOnly() && status.running ? dashboardHint : '', !api.readOnly() ? core : '',
-			E('span', { class: 'mw-muted' }, text(_('MihoWRT %s, Mihomo %s').format(status.version, status.core || '—'))) ])
+		openRow,
+		!api.readOnly() ? api.toggle(_('Show maintenance'), _('Hide maintenance'), maintenanceContent) : ''
 	]);
 }
 

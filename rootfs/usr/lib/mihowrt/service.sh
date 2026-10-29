@@ -3,12 +3,38 @@
 # Service lifecycle: layout, policy apply/cleanup, the procd payload with its
 # DNS watchdog, reload and scheduled updates.
 
+# True when a directory holds only Mihomo provider cache files (32 hex digits, md5 of the provider name).
+layout_cache_only() {
+	local entry="" name=""
+
+	for entry in "$1"/* "$1"/.[!.]* "$1"/..?*; do
+		[ -e "$entry" ] || [ -L "$entry" ] || continue
+		name="${entry##*/}"
+		case "$name" in
+		*[!0-9a-f]*) return 1 ;;
+		????????????????????????????????) [ -f "$entry" ] && [ ! -L "$entry" ] || return 1 ;;
+		*) return 1 ;;
+		esac
+	done
+}
+
+# Remove a link only when it points at our tmpfs target; never a real directory.
+layout_unlink() {
+	[ -L "$1" ] && [ "$(readlink "$1")" = "$2" ] || return 0
+	rm -f "$1"
+}
+
 # Keep Mihomo's frequently written data in tmpfs; links stay in /opt/clash.
+# kind cache: a real directory with files that are not Mihomo cache stays on flash.
 layout_link() {
 	local link="$1" target="$2" kind="$3"
 
 	if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
 		[ "$kind" = file ] || ensure_dir "$target"
+		return 0
+	fi
+	if [ "$kind" = cache ] && [ -d "$link" ] && [ ! -L "$link" ] && ! layout_cache_only "$link"; then
+		warn "$link holds files that are not Mihomo cache; left on flash, not moved to RAM"
 		return 0
 	fi
 	ensure_dir "$(dirname "$target")" || return 1
@@ -27,8 +53,8 @@ layout_init() {
 	chmod 700 "$PKG_STATE_DIR" "$PKG_TMP_DIR" || return 1
 	layout_link "$RULESET_LINK" "$RULESET_TMPFS" dir || return 1
 	layout_link "$PROXY_PROVIDERS_LINK" "$PROXY_PROVIDERS_TMPFS" dir || return 1
-	layout_link "$PROXIES_LINK" "$PROXIES_TMPFS" dir || return 1
-	layout_link "$RULES_LINK" "$RULES_TMPFS" dir || return 1
+	layout_link "$PROXIES_LINK" "$PROXIES_TMPFS" cache || return 1
+	layout_link "$RULES_LINK" "$RULES_TMPFS" cache || return 1
 	if [ ! -e "$CACHE_DB_TMPFS" ] && [ -f "$PKG_PERSIST_DIR/cache.db" ]; then
 		cp "$PKG_PERSIST_DIR/cache.db" "$CACHE_DB_TMPFS"
 	fi
@@ -122,7 +148,10 @@ uninstall_cleanup() {
 	rm -f "$RUNNING_MARKER" "$SERVICE_PID_FILE" || rc=1
 	nft_fw4_input_cleanup || rc=1
 	cron_sync "$CRON_MARKER" 0 "" || rc=1
-	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$PROXIES_LINK" "$RULES_LINK" "$CACHE_DB_LINK" || rc=1
+	rm -rf "$RULESET_LINK" "$PROXY_PROVIDERS_LINK" "$CACHE_DB_LINK" || rc=1
+	layout_unlink "$PROXIES_LINK" "$PROXIES_TMPFS" || rc=1
+	layout_unlink "$RULES_LINK" "$RULES_TMPFS" || rc=1
+	rm -rf "$PROXIES_TMPFS" "$RULES_TMPFS" || rc=1
 	rm -f "$CLASH_DIR/mihomo.sock" "$CLASH_BIN" || rc=1
 	rm -rf "$CLASH_DIR/ui" || rc=1
 	for name in GeoIP.dat GeoSite.dat geoip.dat geosite.dat geoip.metadb Country.mmdb country.mmdb GeoLite2-ASN.mmdb ASN.mmdb; do

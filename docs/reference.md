@@ -252,6 +252,7 @@ Other architecture names are not automatically supported. A local `--file` bypas
 | `/etc/mihowrt/policy-cache/` | Remote-list cache on flash; removed by uninstall/package removal |
 | `/opt/clash/ui/` | Optional dashboard on flash |
 | `/tmp/clash/` | Runtime rulesets, providers, cache.db and controller socket |
+| `/opt/clash/proxies`, `/opt/clash/rules` | Links to `/tmp/clash/` (RAM): cache of providers without `path`. Keep your own `type: file` provider files elsewhere, e.g. `/opt/clash/my/`. An existing folder with any file other than a Mihomo cache file (32 hex digits) is left on flash, unlinked, with a log warning; uninstall removes only the links |
 | `/var/run/mihowrt/` | Health, job state, locks, network fingerprint and config test stamp (tmpfs) |
 | `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft` | fw4 input include admitting intercepted TPROXY and redirected DNS from guest/isolated zones |
 | `/tmp/mihowrt/config.yaml` | Generated runtime config (`.profile`: mode and provider settings) |

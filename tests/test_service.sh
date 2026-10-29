@@ -44,12 +44,12 @@ pass 'full recovery removes fw4 input include without recursive reload'
  source "$tmpdir/layout-constants.sh"
  for name in proxies rules; do
   mkdir -p "$root/opt/clash/$name"
-  printf 'provider cache\n' >"$root/opt/clash/$name/provider"
+  printf 'provider cache\n' >"$root/opt/clash/$name/0123456789abcdef0123456789abcdef"
  done
  layout_init
  for name in proxies rules; do
   assert_symlink_target "$root/opt/clash/$name" "$root/tmp/clash/$name" "$name provider directory uses tmpfs"
-  assert_file_contains "$root/tmp/clash/$name/provider" 'provider cache' "$name existing provider cache migrated"
+  assert_file_contains "$root/tmp/clash/$name/0123456789abcdef0123456789abcdef" 'provider cache' "$name existing provider cache migrated"
  done
  rm -rf "$root/tmp/clash/proxies" "$root/tmp/clash/rules"
  layout_init
@@ -58,6 +58,75 @@ pass 'full recovery removes fw4 input include without recursive reload'
  done
 )
 pass 'default provider caches migrate to tmpfs links and recover after reboot'
+
+# R11 keeps user files: only empty or Mihomo hash-named dirs move to tmpfs.
+(
+ root="$tmpdir/layout-user"
+ sed -e 's|/opt/clash|@ROOT@/opt/clash|g' \
+  -e 's|/tmp/|@ROOT@/tmp/|g' -e 's|/var/run/|@ROOT@/run/|g' \
+  -e 's|/etc/|@ROOT@/etc/|g' -e "s|@ROOT@|$root|g" \
+  "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/layout-user-constants.sh"
+ # shellcheck disable=SC1090
+ source "$tmpdir/layout-user-constants.sh"
+ hash=0123456789abcdef0123456789abcdef
+ logger() { printf '%s\n' "$*" >>"$tmpdir/layout-user.warnings"; }
+ mkdir -p "$root/opt/clash/proxies" "$root/opt/clash/rules"
+ printf 'cache\n' >"$root/opt/clash/proxies/$hash"
+ printf 'mine\n' >"$root/opt/clash/rules/my.yaml"
+ printf 'cache\n' >"$root/opt/clash/rules/$hash"
+ layout_init
+ assert_symlink_target "$root/opt/clash/proxies" "$root/tmp/clash/proxies" 'hash-only dir migrates to tmpfs'
+ assert_file_contains "$root/tmp/clash/proxies/$hash" cache 'hash-named cache file migrated'
+ assert_false 'mixed dir is not linked' test -L "$root/opt/clash/rules"
+ assert_file_contains "$root/opt/clash/rules/my.yaml" mine 'user file stays on flash'
+ assert_file_contains "$root/opt/clash/rules/$hash" cache 'cache file next to user file stays on flash'
+ assert_eq 1 "$(wc -l <"$tmpdir/layout-user.warnings" | tr -d ' ')" 'one warning for the kept directory'
+ assert_file_contains "$tmpdir/layout-user.warnings" "$root/opt/clash/rules" 'warning names the directory'
+ for name in short UPPERCASE0123456789ABCDEF01234567 "${hash}0"; do
+  rm -rf "$root/opt/clash/rules"; mkdir -p "$root/opt/clash/rules"
+  : >"$root/opt/clash/rules/$name"
+  layout_init
+  assert_false "$name is not a Mihomo cache name" test -L "$root/opt/clash/rules"
+ done
+ rm -rf "$root/opt/clash/rules"; mkdir -p "$root/opt/clash/rules/$hash" "$root/opt/clash/rules"
+ layout_init
+ assert_false 'directory named like a hash is user data' test -L "$root/opt/clash/rules"
+ rm -rf "$root/opt/clash/rules"; mkdir -p "$root/opt/clash/rules"; : >"$root/opt/clash/rules/.hidden"
+ layout_init
+ assert_false 'dotfile is user data' test -L "$root/opt/clash/rules"
+ rm -rf "$root/opt/clash/rules"; mkdir -p "$root/opt/clash/rules"
+ layout_init
+ assert_symlink_target "$root/opt/clash/rules" "$root/tmp/clash/rules" 'empty dir migrates to tmpfs'
+)
+pass 'provider cache dirs migrate only when they hold nothing but Mihomo cache files'
+
+# Uninstall removes only our links to tmpfs, never a real directory with user files.
+(
+ root="$tmpdir/uninstall-user"
+ sed -e 's|/opt/clash|@ROOT@/opt/clash|g' \
+  -e 's|/tmp/|@ROOT@/tmp/|g' -e 's|/var/run/|@ROOT@/run/|g' \
+  -e 's|/etc/|@ROOT@/etc/|g' -e "s|@ROOT@|$root|g" \
+  "$MIHOWRT_LIB_DIR/constants.sh" >"$tmpdir/uninstall-user-constants.sh"
+ # shellcheck disable=SC1090
+ source "$tmpdir/uninstall-user-constants.sh"
+ service_recover() { :; }
+ policy_cleanup() { :; }
+ nft_fw4_input_cleanup() { :; }
+ cron_sync() { :; }
+ mkdir -p "$root/opt/clash/proxies" "$root/tmp/clash/rules"
+ printf 'mine\n' >"$root/opt/clash/proxies/my.yaml"
+ ln -s "$root/tmp/clash/rules" "$root/opt/clash/rules"
+ printf 'cache\n' >"$root/tmp/clash/rules/0123456789abcdef0123456789abcdef"
+ uninstall_cleanup
+ assert_file_contains "$root/opt/clash/proxies/my.yaml" mine 'uninstall keeps a real directory with user files'
+ assert_false 'uninstall removes our symlink' test -e "$root/opt/clash/rules"
+ assert_false 'uninstall removes our symlink itself' test -L "$root/opt/clash/rules"
+ assert_false 'uninstall removes the tmpfs target' test -e "$root/tmp/clash/rules"
+ ln -s "$root/elsewhere" "$root/opt/clash/rules"
+ uninstall_cleanup
+ assert_true 'uninstall keeps a symlink that is not ours' test -L "$root/opt/clash/rules"
+)
+pass 'uninstall removes only the provider cache links it created'
 
 
 PKG_STATE_DIR="$tmpdir/run"

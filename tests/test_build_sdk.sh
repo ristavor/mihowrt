@@ -317,6 +317,8 @@ assert_contains "release.yml lists versioned i18n IPK" "luci-i18n-mihowrt-ru_[0-
 assert_contains "release.yml inspects built IPKs" "Inspect built IPKs" "$release_yml"
 assert_contains "release.yml asserts IPK Architecture: all" "Architecture: all" "$release_yml"
 assert_contains "release.yml asserts IPK conffiles" "conffiles" "$release_yml"
+assert_contains "release.yml verifies release tags are on main" "git merge-base --is-ancestor" "$release_yml"
+assert_contains "release.yml fetches main with depth for ancestry check" "origin main" "$release_yml"
 for wf in "$TEST_YML" "$RELEASE_YML"; do
 	if [[ -f "$wf" ]] && ! grep -P '\t' "$wf" >/dev/null && ! grep -q '@master\|@main' "$wf"; then
 		printf 'ok - %s has no tabs and no floating action refs\n' "${wf##*/}"
@@ -580,6 +582,44 @@ for ext in apk ipk; do
 	assert_contains "SHA256SUMS step lists installer $ext app package" "${pkg_name}.${ext}" "$staging_step"
 	assert_contains "SHA256SUMS step lists installer $ext i18n package" "${i18n_pkg_name}.${ext}" "$staging_step"
 done
+
+# Test 14g: extract and test tag ancestry verification step from release.yml
+ancestry_script="$(awk '/- name: Verify release commit is on main/{f=1;next} f&&/run: \|/{r=1;next} r&&/^      - /{exit} r{sub(/^          /,"");print}' "$RELEASE_YML")"
+assert_contains "ancestry-check block extracted from release.yml" "git merge-base --is-ancestor" "$ancestry_script"
+ancestry_dir="$(mktemp -d)"
+mkdir -p "$ancestry_dir/bin"
+cat >"$ancestry_dir/bin/git" <<'EOF'
+#!/bin/sh
+if [ "$1" = "rev-parse" ]; then
+	echo "fake-sha"
+	exit 0
+fi
+if [ "$1" = "fetch" ]; then
+	exit 0
+fi
+if [ "$1" = "merge-base" ]; then
+	[ "${MOCK_ANCESTOR:-1}" = "1" ] && exit 0 || exit 1
+fi
+exit 0
+EOF
+chmod +x "$ancestry_dir/bin/git"
+
+# Case 1: rc tag skips ancestry check (exits 0 even if MOCK_ANCESTOR=0)
+rc_status=0
+(PATH="$ancestry_dir/bin:$PATH" MOCK_ANCESTOR=0 GITHUB_REF_NAME="v0.11.0-rc1" bash -c "$ancestry_script") >/dev/null 2>&1 || rc_status=$?
+assert_eq "ancestry check skips rc tag" 0 "$rc_status"
+
+# Case 2: non-rc tag fails when not an ancestor
+non_rc_fail=0
+(PATH="$ancestry_dir/bin:$PATH" MOCK_ANCESTOR=0 GITHUB_REF_NAME="v0.11.0" bash -c "$ancestry_script") >/dev/null 2>&1 || non_rc_fail=$?
+assert_eq "ancestry check rejects release tag not on main" 1 "$non_rc_fail"
+
+# Case 3: non-rc tag succeeds when commit is an ancestor
+non_rc_ok=0
+(PATH="$ancestry_dir/bin:$PATH" MOCK_ANCESTOR=1 GITHUB_REF_NAME="v0.11.0" bash -c "$ancestry_script") >/dev/null 2>&1 || non_rc_ok=$?
+assert_eq "ancestry check accepts release tag on main" 0 "$non_rc_ok"
+
+rm -rf "$ancestry_dir"
 
 # Test 15: license and package metadata
 BUG_YML="${ROOT_DIR}/.github/ISSUE_TEMPLATE/bug.yml"

@@ -56,6 +56,19 @@ jobs:
           echo "PRERELEASE=$prerelease" >> "$GITHUB_ENV"
           echo "prerelease=$prerelease" >> "${GITHUB_OUTPUT:-/dev/null}"
 
+      - name: Verify release commit is on main
+        if: startsWith(github.ref, 'refs/tags/') && steps.version.outputs.prerelease == '0'
+        run: |
+          set -eu
+          case "$GITHUB_REF_NAME" in
+            *-rc*) exit 0 ;;
+          esac
+          git fetch --depth=100 origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD origin/main; then
+            echo "Tag $GITHUB_REF_NAME commit $(git rev-parse HEAD) is not an ancestor of origin/main" >&2
+            exit 1
+          fi
+
       - name: Cache SDK archive
         uses: actions/cache@d4323d4df104b026a6aa633fdb11d772115f676a # v4
         with:

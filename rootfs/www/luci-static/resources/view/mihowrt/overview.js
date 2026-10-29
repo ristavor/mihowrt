@@ -244,12 +244,16 @@ function subscriptionWarning(sub) {
 
 function subscriptionSection(sub) {
 	const update = E('button', { 'data-mw-job': '', disabled: api.jobRunning || null, class: 'cbi-button cbi-button-action' }, text(_('Update subscription')));
+	const hasTrafficData = sub?.upload != null || sub?.download != null || sub?.total != null;
+	const trafficText = hasTrafficData ? api.trafficSummary(sub) : '—';
+	const expireText = sub?.expire != null ? (Number(sub.expire) === 0 ? _('Never') : api.formatDate(sub.expire)) : '—';
+	const autoUpdateText = sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval)
+		: sub.auto_update !== false ? _('Manual only: the provider does not set an update period') : _('Off');
 	const rows = [
-		[ _('Data used'), api.trafficSummary(sub) ],
-		[ _('Expires'), sub.expire ? api.formatDate(sub.expire) : _('Never') ],
+		[ _('Data used'), trafficText ],
+		[ _('Expires'), expireText ],
 		[ _('Last update'), sub.last_update ? api.formatDate(sub.last_update) : _('Not yet') ],
-		[ _('Auto-update'), sub.effective_interval > 0 ? _('every %d h').format(sub.effective_interval)
-			: sub.auto_update !== false ? _('On, but the subscription does not send an update period') : _('Off') ]
+		[ _('Auto-update'), autoUpdateText ]
 	];
 	const links = [ api.linkButton(sub.support_url, _('Support')), api.linkButton(sub.web_page_url, _('Website')) ].filter(Boolean);
 	const warning = subscriptionWarning(sub);
@@ -285,6 +289,12 @@ function pingText(group) {
 	return delayText(delays, group.now);
 }
 
+function serverLabel(name) {
+	if (name === 'DIRECT') return _('DIRECT — no proxy');
+	if (name === 'REJECT') return _('REJECT — block');
+	return name;
+}
+
 // Options of one group select. URLTest/Fallback start with "Auto — <now>"
 // (value "", unpins); a pinned server shows as selected.
 function groupOptions(select, group) {
@@ -292,12 +302,13 @@ function groupOptions(select, group) {
 	const current = auto ? (group.fixed || '') : group.now;
 	// The disabled LoadBalance select cannot be opened: no per-server latency.
 	const label = (name) => {
+		const sName = serverLabel(name);
 		const ms = group.type === 'LoadBalance' ? '' : delayText(group.delays, name);
-		return ms ? '%s — %s'.format(name, ms) : name;
+		return ms ? '%s — %s'.format(sName, ms) : sName;
 	};
 	// LoadBalance has no current server: it uses all of them in turn.
 	const first = group.type === 'LoadBalance' ? _('All servers in turn')
-		: auto ? _('Auto — %s').format(group.now || '…') : null;
+		: auto ? _('Auto — %s').format(serverLabel(group.now) || '…') : null;
 	const options = (first != null ? [ E('option', { value: '' }, text(first)) ] : [])
 		.concat(group.all.map((name) => E('option', { value: name }, text(label(name)))));
 
@@ -315,7 +326,8 @@ function groupsSection(groups) {
 	// One live region for the section: a freshly filled ping is not announced reliably.
 	const live = E('p', { class: 'mw-sr', 'aria-live': 'polite' });
 	return E('div', { class: 'cbi-section mw-groups' }, [
-		E('h3', text(_('Proxy servers'))),
+		E('h3', text(_('Server selection'))),
+		E('div', { class: 'cbi-section-descr' }, text(_('Pick a server for each group. The choice applies immediately.'))),
 		live,
 		E('div', { class: 'mw-grid' }, groups.flatMap((group, index) => {
 			// Position, not name: Cyrillic/emoji names would collide.
@@ -376,6 +388,8 @@ function groupsSection(groups) {
 					group.fixed = value;
 				}
 				show();
+				live.textContent = '';
+				live.textContent = _('%s: %s selected').format(group.name, serverLabel(value) || (group.type === 'LoadBalance' ? _('All servers in turn') : (serverLabel(group.now) || '…')));
 				if (newer !== null)
 					select.value = newer;
 			};
@@ -397,7 +411,7 @@ function groupsSection(groups) {
 					group.delays = Object.fromEntries(group.all.map((name) => [ name, result[name] || 0 ]));
 					show();
 					live.textContent = '';
-					live.textContent = '%s: %s — %s'.format(group.name, fixedOnly ? _('All servers in turn') : group.now, status.textContent);
+					live.textContent = '%s: %s — %s'.format(group.name, fixedOnly ? _('All servers in turn') : serverLabel(group.now), status.textContent);
 					return true;
 				});
 				select.disabled = fixedOnly || api.readOnly();

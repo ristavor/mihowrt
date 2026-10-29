@@ -214,8 +214,8 @@ msgstr "каждые %d ч"
 msgid "Off"
 msgstr "Выключено"
 
-msgid "On, but the subscription does not send an update period"
-msgstr "Включено, но подписка не передаёт период обновления"
+msgid "Manual only: the provider does not set an update period"
+msgstr "Только вручную: VPN-сервис не задал период обновления"
 
 msgid "Support"
 msgstr "Поддержка"
@@ -232,8 +232,20 @@ msgstr "Подписка обновлена."
 msgid "Subscription"
 msgstr "Подписка"
 
-msgid "Proxy servers"
-msgstr "Прокси-серверы"
+msgid "Server selection"
+msgstr "Выбор сервера"
+
+msgid "Pick a server for each group. The choice applies immediately."
+msgstr "Выберите сервер для каждой группы. Выбор применяется сразу."
+
+msgid "%s: %s selected"
+msgstr "%s: выбран %s"
+
+msgid "DIRECT — no proxy"
+msgstr "DIRECT — напрямую, без прокси"
+
+msgid "REJECT — block"
+msgstr "REJECT — блокировать"
 
 msgid "Measure latency of every server in this group"
 msgstr "Измерить задержку каждого сервера этой группы"
@@ -631,14 +643,38 @@ msgstr "Подписка вернула пустую конфигурацию."
 msgid "The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists."
 msgstr "Удалённые списки вместе больше 8 МБ. Уберите часть ссылок на списки или выберите списки поменьше."
 
-msgid "Save & Apply"
-msgstr "Сохранить и применить"
-
 msgid "Restore the previous YAML"
 msgstr "Восстановить предыдущий YAML"
 
-msgid "Start or stop MihoWRT"
-msgstr "Запуск или остановка MihoWRT"
+msgid "Connecting the subscription"
+msgstr "Подключение подписки"
+
+msgid "Mihomo core update"
+msgstr "Обновление ядра Mihomo"
+
+msgid "Subscription update"
+msgstr "Обновление подписки"
+
+msgid "Remote list update"
+msgstr "Обновление списков по ссылкам"
+
+msgid "Applying lists and settings"
+msgstr "Применение списков и настроек"
+
+msgid "Checking and applying the YAML"
+msgstr "Проверка и применение YAML"
+
+msgid "Restoring the previous YAML"
+msgstr "Восстановление предыдущего YAML"
+
+msgid "Starting, stopping or restarting MihoWRT"
+msgstr "Запуск, остановка или перезапуск MihoWRT"
+
+msgid "You can close the page — the operation continues on the router."
+msgstr "Можно закрыть страницу — операция продолжится на роутере."
+
+msgid "No devices in the DHCP list yet. Type a MAC address by hand, e.g. aa:bb:cc:dd:ee:ff."
+msgstr "Роутер пока не видит устройств в списке DHCP. Введите MAC-адрес вручную, например aa:bb:cc:dd:ee:ff."
 
 msgid "Lost connection to the router while waiting for the result."
 msgstr "Во время ожидания результата потеряна связь с роутером."

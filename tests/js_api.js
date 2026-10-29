@@ -47,7 +47,7 @@ test('job buttons lock together through busy preparation and job completion', as
 });
 test('jobLabel reuses known labels and falls back to operation', () => {
  const { api } = setup();
- assert.equal(api.jobLabel('apply-lists'), 'Save & Apply');
+ assert.equal(api.jobLabel('apply-lists'), 'Applying lists and settings');
  assert.equal(api.jobLabel('auto-update'), 'Automatic update');
  assert.equal(api.jobLabel('custom-op'), 'custom-op');
 });
@@ -74,8 +74,8 @@ for (const outcome of ['ok', 'error']) test('jobNotice keeps unsaved edits when 
  assert.equal(reloads, 0, 'no reload over edits');
  assert.equal(store['mihowrt-notice'], undefined, 'nothing kept for a reload');
  assert.equal(notice.children[0].textContent, outcome === 'ok'
-  ? '"Update remote lists" finished. Reload the page to see the result; your unsaved edits are still here.'
-  : '"Update remote lists" failed: The operation was interrupted (for example, by a router reboot). You can run it again.');
+  ? '"Remote list update" finished. Reload the page to see the result; your unsaved edits are still here.'
+  : '"Remote list update" failed: The operation was interrupted (for example, by a router reboot). You can run it again.');
  assert.equal(api.jobRunning, false, 'job no longer running');
  assert.equal(buttons[0].disabled, false, 'buttons usable to save the edits');
  assert.equal(store['mihowrt-seen-job'], '9-1', 'result shown once');
@@ -200,7 +200,7 @@ test('transport mapping never rewrites backend output or generic error text', as
 const BACKEND_ERRORS = [
 	["The provider returned something that is not a Clash/Mihomo config (V2Ray links, base64, sing-box JSON or a web page). Use the Clash/Mihomo link from your provider's account.",
 		"The link does not give a Clash/Mihomo config (it looks like V2Ray links, base64, sing-box JSON or a web page). Take the Clash/Mihomo link from your provider's account."],
-	['Another operation is running: update-lists', 'Another operation is running: "Update remote lists". Wait until it finishes.'],
+	['Another operation is running: update-lists', 'Another operation is running: "Remote list update". Wait until it finishes.'],
 	['Another operation is running: custom-op', 'Another operation is running: "custom-op". Wait until it finishes.'],
 	['Interrupted: the operation was stopped before it finished.', 'The operation was interrupted (for example, by a router reboot). You can run it again.'],
 	['Subscription returned an empty config', 'The subscription returned an empty configuration.'],
@@ -268,7 +268,7 @@ test('public error path maps status strings and summarizes Mihomo rejection', ()
 });
 test('command errors carry the plain backend text', async () => {
 	const { api } = setup({ fs: { exec: async () => ({ code: 1, stderr: 'Error: Another operation is running: core-update\n' }) } });
-	await assert.rejects(api.job('update-lists'), { name: 'CommandError', message: 'Another operation is running: "Update Mihomo core". Wait until it finishes.' });
+	await assert.rejects(api.job('update-lists'), { name: 'CommandError', message: 'Another operation is running: "Mihomo core update". Wait until it finishes.' });
 	assert.equal(api.jobRunning, false);
 });
 test('background job errors of any operation use the plain backend text', async () => {
@@ -276,7 +276,7 @@ test('background job errors of any operation use the plain backend text', async 
 	const { api } = setup({ sessionStorage, ui });
 	api.read = async () => ({ state: 'error', id: '6-1', op: 'update-lists', finished: 1000, now: 1001, error: 'Interrupted: the operation was stopped before it finished.' });
 	api.jobNotice(); await flush();
-	assert.deepEqual(shown, [[ '"Update remote lists" failed: The operation was interrupted (for example, by a router reboot). You can run it again.', 'error' ]]);
+	assert.deepEqual(shown, [[ '"Remote list update" failed: The operation was interrupted (for example, by a router reboot). You can run it again.', 'error' ]]);
 });
 test('readOnly follows the LuCI view permission', () => {
 	assert.equal(setup().api.readOnly(), false, 'no permission info: actions stay');
@@ -358,7 +358,7 @@ test('jobNotice fills live notice and reloads after completion', async () => {
 	assert.equal(notice.attrs.hidden, undefined); assert.equal(notice.hidden, undefined);
 	assert.equal(notice.children.length, 0);
 	await flush(); assert.equal(notice.children[0].attrs.class, 'alert-message notice');
-	assert.equal(notice.children[0].children[0], '"Update Mihomo core" is running…');
+	assert.equal(notice.children[0].children[0], '"Mihomo core update" is running…');
 	assert.equal(notice.hidden, undefined);
 	await tick(timers); assert.equal(reloads, 1);
 });
@@ -390,7 +390,7 @@ test('running job error reloads with notice', async () => {
 	api.jobNotice(); await flush();
 	await tick(timers);
 	assert.equal(reloads, 1);
-	assert.deepEqual(JSON.parse(store['mihowrt-notice']), { text: '"Update subscription" failed: boom', type: 'error' });
+	assert.deepEqual(JSON.parse(store['mihowrt-notice']), { text: '"Subscription update" failed: boom', type: 'error' });
 });
 test('running job ok still reloads without a notice', async () => {
 	const { store, sessionStorage } = storage(); let reloads = 0, count = 0;
@@ -405,7 +405,7 @@ test('finished error shown once', async () => {
 	const { api } = setup({ sessionStorage, ui });
 	api.read = async () => ({ state: 'error', id: '5-1', op: 'core-update', finished: nowSeconds() - 100, error: 'x' });
 	api.jobNotice(); await flush();
-	assert.deepEqual(shown, [[ '"Update Mihomo core" failed: x', 'error' ]]);
+	assert.deepEqual(shown, [[ '"Mihomo core update" failed: x', 'error' ]]);
 	api.jobNotice(); await flush();
 	assert.equal(shown.length, 1, 'second page load shows nothing');
 });
@@ -414,7 +414,7 @@ test('background subscription error is the plain text, announced as alert', asyn
 	const { api } = setup({ sessionStorage, ui });
 	api.read = async () => ({ state: 'error', id: '5-8', op: 'update-subscription', finished: 1000, now: 1001, error: 'Subscription download failed: http_404' });
 	api.jobNotice(); await flush();
-	assert.deepEqual(shown, [[ '"Update subscription" failed: The subscription link was not found (HTTP 404). Check the link with your provider.', 'error' ]]);
+	assert.deepEqual(shown, [[ '"Subscription update" failed: The subscription link was not found (HTTP 404). Check the link with your provider.', 'error' ]]);
 	assert.deepEqual(roles, [ 'alert' ]);
 });
 test('error window uses the router clock', async () => {

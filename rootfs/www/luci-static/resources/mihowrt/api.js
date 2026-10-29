@@ -42,17 +42,17 @@ const CSS = `
 `;
 
 const JOB_LABELS = {
-	'connect': _('Connect'),
-	'core-update': _('Update Mihomo core'),
+	'connect': _('Connecting the subscription'),
+	'core-update': _('Mihomo core update'),
 	'dashboard-install': _('Install Mihomo dashboard'),
 	'dashboard-remove': _('Remove Mihomo dashboard'),
 	'auto-update': _('Automatic update'),
-	'update-subscription': _('Update subscription'),
-	'update-lists': _('Update remote lists'),
-	'apply-lists': _('Save & Apply'),
-	'save-config': _('Check and apply'),
-	'restore-config': _('Restore the previous YAML'),
-	'service': _('Start or stop MihoWRT')
+	'update-subscription': _('Subscription update'),
+	'update-lists': _('Remote list update'),
+	'apply-lists': _('Applying lists and settings'),
+	'save-config': _('Checking and applying the YAML'),
+	'restore-config': _('Restoring the previous YAML'),
+	'service': _('Starting, stopping or restarting MihoWRT')
 };
 
 const ACCESS_DENIED = _('Access denied. Log in to LuCI again, or ask for write access.');
@@ -435,9 +435,18 @@ return baseclass.extend({
 	// C16: the LuCI ACL gives this user read access only.
 	readOnly: () => L.hasViewPermission?.() === false,
 	job: async function(op, ...args) {
+		for (const el of document.querySelectorAll?.('.mw-job') || [])
+			el.replaceChildren ? el.replaceChildren() : (el.innerHTML = '');
 		waitingJobs++;
 		this.jobRunning = true;
 		lockJobButtons();
+		for (const el of document.querySelectorAll?.('.mw-job') || []) {
+			const alert = E('div', { class: 'alert-message notice' }, [
+				_('"%s" is running…').format(this.jobLabel(op)), ' ',
+				E('span', { class: 'mw-muted' }, text(_('You can close the page — the operation continues on the router.')))
+			]);
+			el.replaceChildren ? el.replaceChildren(alert) : el.appendChild?.(alert);
+		}
 		try {
 			const started = await this.write('job-start', op, ...args);
 			let result;
@@ -491,7 +500,10 @@ return baseclass.extend({
 				return;
 			this.jobRunning = true;
 			lockJobButtons();
-			alert = E('div', { class: 'alert-message notice' }, text(_('"%s" is running…').format(this.jobLabel(status.op))));
+			alert = E('div', { class: 'alert-message notice' }, [
+				_('"%s" is running…').format(this.jobLabel(status.op)), ' ',
+				E('span', { class: 'mw-muted' }, text(_('You can close the page — the operation continues on the router.')))
+			]);
 			notice.appendChild(alert);
 			try {
 				await waitJob(this, status.id);

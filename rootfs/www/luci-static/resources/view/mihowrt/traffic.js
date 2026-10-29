@@ -356,7 +356,10 @@ return view.extend({
 			area.value = (area.value.replace(/\s*$/, '') + '\n' + entry + (hostname ? ' # ' + hostname : '')).replace(/^\n/, '') + '\n';
 			area.dispatchEvent(new Event('change', { bubbles: true }));
 		});
-		return E('div', {}, [ node, all.length ? E('div', { class: 'mw-row mw-picker' }, [ select, addAs ]) : '',
+		const pickerRow = all.length
+			? E('div', { class: 'mw-row mw-picker' }, [ select, addAs ])
+			: E('div', { class: 'cbi-value-description' }, text(_('No devices in the DHCP list yet. Type a MAC address by hand, e.g. aa:bb:cc:dd:ee:ff.')));
+		return E('div', {}, [ node, pickerRow,
 			description ? E('div', { class: 'cbi-value-description' }, text(description + (all.some(isPrivate)
 				? ' ' + _('A device with a private Wi-Fi address must keep it for your network: choose "Fixed" (iPhone, iPad, Mac) or the per-network randomized MAC (Android) for this Wi-Fi, not a rotating one; otherwise the entry stops matching.') : ''))) : '', missing ]);
 	},

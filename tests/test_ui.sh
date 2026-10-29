@@ -140,7 +140,7 @@ const base = { core_installed: true, subscription_configured: false, running: fa
 {
 	const running = { ...base, subscription_configured: true, running: true };
 	const rowValue = (sub) => { const nodes = collect(overview.render([ running, sub, [] ])); return nodes.map(n => n.children.filter(c => typeof c === 'string')).flat(); };
-	h.assert(rowValue({ auto_update: true, effective_interval: 0 }).includes('On, but the subscription does not send an update period'), 'auto-update on without a period');
+	h.assert(rowValue({ auto_update: true, effective_interval: 0 }).includes('Manual only: the provider does not set an update period'), 'auto-update on without a period');
 	h.assert(rowValue({ auto_update: false, effective_interval: 0 }).includes('Off'), 'auto-update off');
 	h.assert(rowValue({ auto_update: true, effective_interval: 6 }).includes('every 6 h'), 'auto-update period');
 }
@@ -873,7 +873,8 @@ seq(async () => {
  }).module;
  for (const status of [base, { ...base, core_installed: false }]) {
   const p = noticeView.render([status, {}, []]); await Promise.resolve(); await Promise.resolve();
-  h.assert(texts(p).includes('"Update Mihomo core" is running…'), 'job notice shown on page');
+  h.assert(texts(p).includes('"Mihomo core update" is running…'), 'job notice shown on page');
+  h.assert(texts(p).includes('You can close the page — the operation continues on the router.'), 'muted note in job notice');
  }
  console.log('ok - overview job notice');
 }).catch(err => { console.error(err); process.exitCode = 1; });
@@ -944,6 +945,37 @@ seq(async () => {
  h.assert(texts(bootDisabled).includes('Does not start when the router boots'), 'autostart disabled wording');
 
  console.log('ok - overview R41 R42 R48');
+}).catch(err => { console.error(err); process.exitCode = 1; });
+
+// Lane F2: R43 + R44 + R46
+seq(async () => {
+ const ov = overview;
+ // R43: subscription panel shows '—' when no data, and manual-only auto-update
+ const emptySub = ov.render([{ ...base, subscription_configured: true, running: true }, {}, []]);
+ const emptySubTexts = texts(emptySub);
+ h.assert(emptySubTexts.includes('—'), 'subscription shows dash when no data');
+ h.assert(!emptySubTexts.includes('Unlimited') && !emptySubTexts.includes('Never'), 'empty sub omits Unlimited/Never');
+ h.assert(emptySubTexts.includes('Manual only: the provider does not set an update period'), 'no interval shows manual only');
+
+ // R46: proxy selector title, descr, DIRECT/REJECT labels, live feedback
+ const groups = [{ name: 'Group1', type: 'Selector', now: 'DIRECT', all: ['DIRECT', 'REJECT', 'Node1'] }];
+ const groupsPage = ov.render([{ ...base, subscription_configured: true, running: true }, {}, groups]);
+ const groupsTexts = texts(groupsPage);
+ h.assert(groupsTexts.includes('Server selection'), 'Server selection title');
+ h.assert(groupsTexts.includes('Pick a server for each group. The choice applies immediately.'), 'section description');
+ h.assert(groupsTexts.includes('DIRECT — no proxy'), 'DIRECT label');
+ h.assert(groupsTexts.includes('REJECT — block'), 'REJECT label');
+
+ // R46: empty DHCP device list shows hint
+ const tv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/traffic.js', {
+  E, api, form: { Map: class { section() { return { tab() {}, taboption() { return { renderWidget() { return E('div'); } }; } }; } } },
+  uci: { get: () => null, set() {}, unset() {} }, ui, widgets: { DeviceSelect: class {} }, rpc: { declare: () => async () => ({ dhcp_leases: [], dhcp6_leases: [] }) }, view: { extend: v => v }
+ }).module;
+ const node = E('div'); const area = E('textarea'); area.value = ''; node.querySelector = s => s === 'textarea' ? area : null;
+ const emptyLeasesPicker = tv.addLeasePicker(node, { dhcp_leases: [], dhcp6_leases: [] }, 'Device note');
+ h.assert(texts(emptyLeasesPicker).includes('No devices in the DHCP list yet. Type a MAC address by hand, e.g. aa:bb:cc:dd:ee:ff.'), 'empty DHCP hint shown');
+
+ console.log('ok - overview R43 R44 R46');
 }).catch(err => { console.error(err); process.exitCode = 1; });
 
 // Task 18: safe editor, large uploads, restore and shared job controls.
@@ -1665,7 +1697,7 @@ seq(async () => {
   t.bridge.jobRunning = true; h.assertEq(t.tv.refreshButton().attrs.disabled, true, 'running job disables refresh at render');
   await t.render(); t.saving(); t.bridge.read = async cmd => { h.assertEq(cmd, 'job-status', 'read running operation'); return { op: 'update-lists' }; };
   await t.tv.handleSaveApply(null, '0'); h.assertEq(t.calls.length, 0, 'running jobs do not save');
-  h.assertEq(t.notices.at(-1)[0], '"Update remote lists" is running…', 'running job label shown');
+  h.assertEq(t.notices.at(-1)[0], '"Remote list update" is running…', 'running job label shown');
   t.bridge.read = async () => { throw Error('status unavailable'); };
   await t.tv.handleSaveApply(null, '0'); h.assertEq(t.notices.at(-1)[0], 'status unavailable', 'status read errors visible');
  });

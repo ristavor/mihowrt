@@ -156,7 +156,7 @@ const diag = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt
 page = diag.render([Object.assign({}, base, { running: true, dns_ok: false, policy_active: true, config_valid: true,
 	custom_dns_servers: [ '9.9.9.9' ], lists: { dst: 1, src: 0, direct: 0 }, route: {}, errors: [] }), {}]);
 const all = texts(page);
-h.assert(all.includes('Mihomo answers DNS queries'), 'DNS check listed');
+h.assert(all.includes('Mihomo does not answer DNS queries'), 'DNS check listed');
 h.assert(all.some((t) => t.includes('9.9.9.9')), 'custom dnsmasq server warning');
 h.assert(all.includes('Problem:'), 'failures are announced in text, not only by symbol');
 console.log('ok - diagnostics checklist');
@@ -1658,16 +1658,16 @@ seq(async () => {
   h.assertEq(value({ ...healthy, mode: 'direct-first' }), 'no', 'old backend without the field');
  });
  await check('failed state', () => {
-  const row = item(render({ ...healthy, state: 'failed', last_error: 'x' }), 'Service is running');
+  const row = item(render({ ...healthy, state: 'failed', last_error: 'x' }), 'MihoWRT is not running');
   h.assert(texts(row).includes('Problem:'), 'failed state overrides stale running boolean');
   h.assert(texts(row).some(t => t.split('\n').includes('Last error: x')), 'last_error in failed hint');
-  const stopped = item(render({ ...healthy, state: 'stopped', running: false, last_error: 'x' }), 'Service is running');
+  const stopped = item(render({ ...healthy, state: 'stopped', running: false, last_error: 'x' }), 'MihoWRT is not running');
   h.assert(!texts(stopped).some(t => t.includes('Last error:')), 'no last_error unless failed');
  });
  await check('unknown DNS answer', () => {
   const row = item(render({ ...healthy, dns_ok: null }), 'Mihomo answers DNS queries');
   h.assert(row && texts(row).includes('Unknown:') && !texts(row).includes('Problem:'), 'null dns_ok is unknown, not a problem');
-  h.assert(texts(item(render({ ...healthy, dns_ok: false }), 'Mihomo answers DNS queries')).includes('Problem:'), 'false dns_ok is a problem');
+  h.assert(texts(item(render({ ...healthy, dns_ok: false }), 'Mihomo does not answer DNS queries')).includes('Problem:'), 'false dns_ok is a problem');
  });
  await check('log read error', async () => {
   const dv = h.evaluateLuCIModule('rootfs/www/luci-static/resources/view/mihowrt/diagnostics.js', { E, view: { extend: v => v }, api: { ...api,
@@ -1683,7 +1683,7 @@ seq(async () => {
  });
  await check('starting and stopped states', () => {
   h.assert(texts(render({ ...healthy, state: 'starting' })).includes('Starting…'), 'starting state has neutral wording');
-  h.assert(texts(item(render({ ...healthy, state: 'stopped' }), 'Service is running')).includes('Problem:'), 'stopped state is not running');
+  h.assert(texts(item(render({ ...healthy, state: 'stopped' }), 'MihoWRT is not running')).includes('Problem:'), 'stopped state is not running');
  });
  await check('conflicts', () => {
   const row = item(render(healthy, { ...resources, conflicts: ['podkop'] }), 'Other proxy packages are installed: podkop');
@@ -1747,6 +1747,37 @@ seq(async () => {
   await Promise.resolve();
   h.assertEq(calls.map(c => c.join(',')).join(';'), 'logs-json,300', 'log through readLarge');
   h.assert(texts(p).includes('hello'), 'loaded log shown');
+ });
+ await check('R14 summary line and negative labels and hints', () => {
+  const pHealthy = render(healthy);
+  h.assert(texts(pHealthy).includes('No problems found.'), 'summary shows no problems when healthy');
+
+  const pStopped = render({ ...healthy, state: 'stopped', running: false });
+  h.assert(texts(pStopped).includes('1 problem found. Start with the first one.'), 'summary shows 1 problem');
+  const pMultiple = render({ ...healthy, state: 'stopped', running: false, core_installed: false });
+  h.assert(texts(pMultiple).includes('2 problems found. Start with the first one.'), 'summary shows multiple problems');
+
+  const coreMissing = item(pMultiple, 'Mihomo core is not installed');
+  h.assert(coreMissing && texts(coreMissing).includes('Problem:'), 'negative label for core missing');
+  const configRowWithoutCore = item(pMultiple, 'Configuration not checked yet (it is checked at start)');
+  h.assert(configRowWithoutCore && texts(configRowWithoutCore).includes('Unknown:'), 'config unknown without core');
+
+  const stoppedRow = item(pStopped, 'MihoWRT is not running');
+  h.assert(stoppedRow && texts(stoppedRow).includes('Problem:'), 'negative label for stopped service');
+
+  const pDnsFail = render({ ...healthy, dns_ok: false });
+  const dnsRow = item(pDnsFail, 'Mihomo does not answer DNS queries');
+  h.assert(dnsRow && texts(dnsRow).includes('Problem:'), 'negative label for failed DNS');
+
+  const pPolicyFail = render({ ...healthy, policy_active: false });
+  const policyRow = item(pPolicyFail, 'Traffic rules are not active');
+  h.assert(policyRow && texts(policyRow).includes('Problem:'), 'negative label for inactive policy');
+
+  h.assert(texts(stoppedRow).includes('Press Start on Overview.'), 'stopped hint is press start');
+  const pCoreMissing = render({ ...healthy, state: 'stopped', running: false, core_installed: false });
+  h.assert(texts(item(pCoreMissing, 'MihoWRT is not running')).includes('Install the Mihomo core first (Overview page).'), 'core missing hint');
+  const pConfigBad = render({ ...healthy, state: 'failed', core_installed: true, config_valid: false });
+  h.assert(texts(item(pConfigBad, 'MihoWRT is not running')).includes('Fix the configuration first (see the item above), then press Start on Overview.'), 'config invalid hint');
  });
 }).catch(err => { console.error(err); process.exitCode = 1; });
 

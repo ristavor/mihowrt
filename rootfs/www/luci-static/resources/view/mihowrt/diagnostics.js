@@ -15,22 +15,31 @@ function coreError(raw) {
 function checks(st, diagnostics) {
 	const state = st.state || (st.running ? 'running' : 'stopped');
 	const up = state === 'running' || state === 'degraded';
-	const serviceHint = _('Press Start on Overview. If it stops again, check the log below.') +
-		(state === 'failed' && st.last_error ? '\n' + _('Last error: %s').format(api.errorText(st.last_error)) : '');
+	let serviceHint;
+	if (!st.core_installed)
+		serviceHint = _('Install the Mihomo core first (Overview page).');
+	else if (st.config_valid === false)
+		serviceHint = _('Fix the configuration first (see the item above), then press Start on Overview.');
+	else if (state === 'failed')
+		serviceHint = _('Press Start on Overview. If it stops again, check the log below.') +
+			(st.last_error ? '\n' + _('Last error: %s').format(api.errorText(st.last_error)) : '');
+	else
+		serviceHint = _('Press Start on Overview.');
 	const kb = (value) => typeof value === 'number' && isFinite(value) ? value : null;
 	const flash = kb(diagnostics?.flash_free_kb);
 	const ram = kb(diagnostics?.ram_available_kb);
+	const coreOk = !!st.core_installed;
 	const list = [
-		[ st.core_installed, _('Mihomo core installed') + (st.core ? ' (%s)'.format(st.core) : ''),
+		[ coreOk, coreOk ? _('Mihomo core installed') + (st.core ? ' (%s)'.format(st.core) : '') : _('Mihomo core is not installed'),
 			_('Open Overview and install the core.') ],
-		st.config_valid == null
+		(!coreOk || st.config_valid == null)
 			? [ null, _('Configuration not checked yet (it is checked at start)'), '' ]
 			: [ st.config_valid, st.config_valid ? _('Configuration is valid') : _('Configuration has errors'),
 				_('Update the subscription or fix the YAML on the Subscription page.') +
 				(st.config_error ? '\n' + _('Mihomo says: %s').format(coreError(st.config_error)) : '') ],
 		[ st.subscription_configured || null, _('Subscription configured'),
 			_('Without a subscription only the YAML you entered is used.') ],
-		state === 'starting' ? [ null, _('Starting…'), '' ] : [ up, _('Service is running'), serviceHint ]
+		state === 'starting' ? [ null, _('Starting…'), '' ] : [ up, up ? _('Service is running') : _('MihoWRT is not running'), serviceHint ]
 	];
 	if (st.subscription_insecure)
 		list.push([ false, _('The subscription link uses plain http'),
@@ -39,10 +48,13 @@ function checks(st, diagnostics) {
 		list.push([ false, _('Mihomo DNS does not answer: traffic goes direct until it recovers'),
 			_('Mihomo cannot resolve names: check that the proxy servers and DNS servers in the config are reachable.') ]);
 	if (up) {
-		if (state !== 'degraded')
-			list.push([ st.dns_ok == null ? null : st.dns_ok === true, _('Mihomo answers DNS queries'),
+		if (state !== 'degraded') {
+			const dnsOk = st.dns_ok == null ? null : st.dns_ok === true;
+			list.push([ dnsOk, dnsOk === false ? _('Mihomo does not answer DNS queries') : _('Mihomo answers DNS queries'),
 				_('Mihomo cannot resolve names: check that the proxy servers and DNS servers in the config are reachable.') ]);
-		list.push([ st.policy_active, _('Traffic rules are active'), _('Restart the service; if it persists, see the log.') ]);
+		}
+		const policyOk = !!st.policy_active;
+		list.push([ policyOk, policyOk ? _('Traffic rules are active') : _('Traffic rules are not active'), _('Restart the service; if it persists, see the log.') ]);
 	}
 	if ((st.custom_dns_servers || []).length)
 		list.push([ false, _('dnsmasq has its own upstream servers: %s').format(st.custom_dns_servers.join(', ')),
@@ -65,13 +77,21 @@ function checks(st, diagnostics) {
 }
 
 function checklist(st, diagnostics) {
-	// Plain blocks, not a list: some themes draw bullets next to the marks.
-	return E('div', { class: 'mw-check' }, checks(st, diagnostics).map(([ ok, label, hint ]) => E('div', [
-		E('span', { class: 'mw-mark', 'aria-hidden': 'true' }, text(ok == null ? '–' : ok ? '✓' : '✗')),
-		E('span', { class: 'mw-sr' }, text(ok == null ? _('Unknown:') : ok ? _('OK:') : _('Problem:'))),
-		E('strong', text(label)),
-		(ok || ok == null) ? '' : E('div', { class: 'mw-muted', style: 'margin-left:1.6em; white-space:pre-wrap' }, text(hint))
-	])));
+	const items = checks(st, diagnostics);
+	const problems = items.filter(([ ok ]) => ok === false).length;
+	const summary = problems === 0
+		? E('p', [ E('strong', text(_('No problems found.'))) ])
+		: E('div', { class: 'alert-message warning' },
+			text(N_(problems, '%d problem found. Start with the first one.', '%d problems found. Start with the first one.').format(problems)));
+	return E('div', [
+		summary,
+		E('div', { class: 'mw-check' }, items.map(([ ok, label, hint ]) => E('div', [
+			E('span', { class: 'mw-mark', 'aria-hidden': 'true' }, text(ok == null ? '–' : ok ? '✓' : '✗')),
+			E('span', { class: 'mw-sr' }, text(ok == null ? _('Unknown:') : ok ? _('OK:') : _('Problem:'))),
+			E('strong', text(label)),
+			(ok || ok == null) ? '' : E('div', { class: 'mw-muted', style: 'margin-left:1.6em; white-space:pre-wrap' }, text(hint))
+		])))
+	]);
 }
 
 function providerLists(profile) {

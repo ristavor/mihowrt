@@ -925,3 +925,31 @@ msgstr "Файл конфигурации Mihomo не найден: %s"
 msgid "Failed to apply nftables policy: see %s"
 msgstr "Не удалось применить правила nftables: см. %s"
 
+msgid "Install the Mihomo core first (Overview page)."
+msgstr "Сначала установите ядро Mihomo на странице «Обзор»."
+
+msgid "Fix the configuration first (see the item above), then press Start on Overview."
+msgstr "Сначала исправьте конфигурацию (пункт выше), затем нажмите «Запустить» на странице «Обзор»."
+
+msgid "Press Start on Overview."
+msgstr "Нажмите «Запустить» на странице «Обзор»."
+
+msgid "MihoWRT is not running"
+msgstr "Служба MihoWRT не работает"
+
+msgid "Mihomo does not answer DNS queries"
+msgstr "Mihomo не отвечает на DNS-запросы"
+
+msgid "Traffic rules are not active"
+msgstr "Правила трафика не применены"
+
+msgid "No problems found."
+msgstr "Проблем не найдено."
+
+msgid "%d problem found. Start with the first one."
+msgid_plural "%d problems found. Start with the first one."
+msgstr[0] "Найдена %d проблема. Начните с первой."
+msgstr[1] "Найдено %d проблемы. Начните с первой."
+msgstr[2] "Найдено %d проблем. Начните с первой."
+
+

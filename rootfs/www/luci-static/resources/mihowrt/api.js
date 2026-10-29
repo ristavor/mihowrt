@@ -83,9 +83,63 @@ function backendErrorText(message) {
 	if (/Mihomo rejected the configuration$/.test(raw)) {
 		const headline = _('Mihomo rejected the configuration.');
 		const messages = [ ...raw.matchAll(/level=(?:error|fatal) msg="((?:[^"\\]|\\.)*)"/g) ]
-			.map(m => m[1].replace(/\\"/g, '"').replace(/\/tmp\/[^\s"'<>]+/g, '…'));
-		return messages.length ? headline + ' ' + messages.join('\n') : headline;
+			.map(m => {
+				const text = m[1].replace(/\\"/g, '"').replace(/\/tmp\/[^\s"'<>]+/g, '…');
+				let sub;
+				if ((sub = /yaml:(?:\s+unmarshal errors:)?\s+line (\d+): (.*)/s.exec(text)))
+					return _('YAML error on line %s: %s').format(sub[1], sub[2]);
+				if ((sub = /^proxy group\[\d+\]: (.*?): '(.*?)' not found$/.exec(text)))
+					return _('Group "%s" refers to a server "%s" that does not exist.').format(sub[1], sub[2]);
+				return text;
+			});
+		const note = _('Nothing was changed, the previous configuration is still running.');
+		return (messages.length ? headline + ' ' + messages.join('\n') : headline) + ' ' + note;
 	}
+	if (/^Core update: (?:cannot reach GitHub|download failed|no downloadable asset|no asset for)/.test(raw))
+		return _('Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").');
+	if ((m = /^Core update: not enough flash: need (\d+) MiB, free (\d+) MiB/.exec(raw)))
+		return _('Not enough free flash for the Mihomo core: %s MiB needed, %s MiB free.').format(m[1], m[2]);
+	if (/^Core update: not enough flash/.test(raw))
+		return _('Not enough free flash for the Mihomo core. The current core is kept.');
+	if (/^Core update: unsupported architecture/.test(raw))
+		return _('This router\'s CPU is not supported by the Mihomo core.');
+	if (/^Core update: new binary does not run on this router/.test(raw))
+		return _('The downloaded core does not run on this router. The current core is kept.');
+	if (/^Core update: new core rejects the current config/.test(raw))
+		return _('The new core does not accept your current configuration; the core was not updated.');
+	if (/^Core update: (?:sha256 mismatch|downloaded size does not match release)/.test(raw))
+		return _('The downloaded core file is damaged. Try again.');
+	if (raw === 'Another core update is running')
+		return _('The core is already being updated.');
+	if ((m = /^Mihomo core updated, but the service restart failed: (.*)$/.exec(raw)))
+		return _('The Mihomo core was updated, but MihoWRT could not restart: %s. Press Start on Overview.').format(m[1]);
+	if (raw === 'Mihomo core updated, but the service restart failed')
+		return _('The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview.');
+	if (raw === 'The YAML is empty: nothing was changed.')
+		return _('The YAML is empty: nothing was changed.');
+	if (raw === 'There is no previous configuration.')
+		return _('There is no previous configuration.');
+	if ((m = /^List (\S+) is larger than 1 MiB\.$/.exec(raw))) {
+		const titles = {
+			dst: _('Addresses via proxy'),
+			src: _('Devices via proxy'),
+			direct: _('Addresses always direct'),
+			direct_src: _('Devices always direct')
+		};
+		return _('The "%s" list is larger than 1 MiB.').format(titles[m[1]] || m[1]);
+	}
+	if (/^Runtime is busy \(process \d+\)$/.test(raw))
+		return _('The router is busy with another task. Try again in a minute.');
+	if (raw === 'Mihomo hot reload failed')
+		return _('Mihomo could not apply the new configuration; the previous one is kept.');
+	if (raw === 'MihoWRT could not start. See the system log.')
+		return _('MihoWRT could not start. See the log on the Diagnostics page.');
+	if (raw === 'Invalid MihoWRT settings')
+		return _('MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.');
+	if ((m = /^Mihomo config not found: (\S+)$/.exec(raw)))
+		return _('Mihomo configuration file not found: %s').format(m[1]);
+	if ((m = /^Failed to apply nftables policy \(see (\S+)\)$/.exec(raw)))
+		return _('Failed to apply nftables policy: see %s').format(m[1]);
 	if (raw === 'Could not download the dashboard. Check that GitHub is reachable from the router.')
 		return _('Could not download the dashboard. Check that GitHub is reachable from the router.');
 	if (raw === 'Start MihoWRT before installing the dashboard.')

@@ -215,7 +215,31 @@ const BACKEND_ERRORS = [
 	['Failed to update 1 of 3 remote lists: Remote lists exceed 8 MiB in total',
 		'Could not update 1 of 3 remote lists: The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.'],
 	['Failed to update 1 of 1 remote lists: Remote list download failed: example.org', 'Could not update 1 of 1 remote list: Remote list download failed: example.org'],
-	['Remote lists exceed 8 MiB in total', 'The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.']
+	['Remote lists exceed 8 MiB in total', 'The remote lists are larger than 8 MiB in total. Remove some list links or use smaller lists.'],
+	// R13: core update
+	['Core update: cannot reach GitHub', 'Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").'],
+	['Core update: download failed (http_403)', 'Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").'],
+	['Core update: no asset for mipsle in v1.19.0', 'Could not download the Mihomo core from GitHub. Check the router\'s internet connection. If GitHub is blocked, install the core manually (README, "If GitHub is unavailable").'],
+	['Core update: not enough flash: need 24 MiB, free 10 MiB', 'Not enough free flash for the Mihomo core: 24 MiB needed, 10 MiB free.'],
+	['Core update: not enough flash: free 5 MiB before unpacking', 'Not enough free flash for the Mihomo core. The current core is kept.'],
+	['Core update: unsupported architecture', 'This router\'s CPU is not supported by the Mihomo core.'],
+	['Core update: new binary does not run on this router', 'The downloaded core does not run on this router. The current core is kept.'],
+	['Core update: new core rejects the current config', 'The new core does not accept your current configuration; the core was not updated.'],
+	['Core update: sha256 mismatch', 'The downloaded core file is damaged. Try again.'],
+	['Another core update is running', 'The core is already being updated.'],
+	['Mihomo core updated, but the service restart failed: config test failed', 'The Mihomo core was updated, but MihoWRT could not restart: config test failed. Press Start on Overview.'],
+	['Mihomo core updated, but the service restart failed', 'The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview.'],
+	// R13: backend errors
+	['The YAML is empty: nothing was changed.', 'The YAML is empty: nothing was changed.'],
+	['There is no previous configuration.', 'There is no previous configuration.'],
+	['List dst is larger than 1 MiB.', 'The "Addresses via proxy" list is larger than 1 MiB.'],
+	['List custom is larger than 1 MiB.', 'The "custom" list is larger than 1 MiB.'],
+	['Runtime is busy (process 1234)', 'The router is busy with another task. Try again in a minute.'],
+	['Mihomo hot reload failed', 'Mihomo could not apply the new configuration; the previous one is kept.'],
+	['MihoWRT could not start. See the system log.', 'MihoWRT could not start. See the log on the Diagnostics page.'],
+	['Invalid MihoWRT settings', 'MihoWRT settings are damaged. Save the Traffic page again or reinstall the package.'],
+	['Mihomo config not found: /etc/mihowrt/clash.yaml', 'Mihomo configuration file not found: /etc/mihowrt/clash.yaml'],
+	['Failed to apply nftables policy (see /tmp/ruleset.nft)', 'Failed to apply nftables policy: see /tmp/ruleset.nft']
 ];
 test('errorText maps backend errors to plain words and is idempotent', () => {
 	const { api } = setup();
@@ -231,12 +255,16 @@ test('public error path maps status strings and summarizes Mihomo rejection', ()
  assert.equal(api.errorText('Unsupported dns form: use a block mapping'), plain);
  for (const level of ['error', 'fatal']) {
   const raw = `time="2026-10-27" level=info msg="noise"\ntime="2026-10-27" level=${level} msg="yaml: bad configuration /tmp/mihowrt-config.123"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration`;
-  const expected = 'Mihomo rejected the configuration. yaml: bad configuration …';
+  const expected = 'Mihomo rejected the configuration. yaml: bad configuration … Nothing was changed, the previous configuration is still running.';
   for (const value of [raw, { name: 'JobError', message: raw }, { stderr: raw }])
    assert.equal(api.errorText(value), expected);
   assert.equal(api.errorText(expected), expected, 'already mapped text stays unchanged');
  }
- assert.equal(api.errorText('Mihomo rejected the configuration'), 'Mihomo rejected the configuration.');
+ assert.equal(api.errorText('Mihomo rejected the configuration'), 'Mihomo rejected the configuration. Nothing was changed, the previous configuration is still running.');
+ const yamlSyntax = 'time="2026-10-27" level=error msg="yaml: line 3: did not find expected key"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration';
+ assert.equal(api.errorText(yamlSyntax), 'Mihomo rejected the configuration. YAML error on line 3: did not find expected key Nothing was changed, the previous configuration is still running.');
+ const groupMissing = 'time="2026-10-27" level=error msg="proxy group[0]: G: \'NOPE-MISSING\' not found"\nconfiguration file /tmp/mihowrt/runtime.candidate.yaml test failed\nMihomo rejected the configuration';
+ assert.equal(api.errorText(groupMissing), 'Mihomo rejected the configuration. Group "G" refers to a server "NOPE-MISSING" that does not exist. Nothing was changed, the previous configuration is still running.');
 });
 test('command errors carry the plain backend text', async () => {
 	const { api } = setup({ fs: { exec: async () => ({ code: 1, stderr: 'Error: Another operation is running: core-update\n' }) } });

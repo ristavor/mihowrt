@@ -858,3 +858,70 @@ msgstr "IPv4-адрес локальной сети не найден. Чтоб�
 
 msgid "checksum not verified"
 msgstr "Контрольная сумма не проверена"
+
+msgid "Nothing was changed, the previous configuration is still running."
+msgstr "Ничего не изменено, работает прежняя конфигурация."
+
+msgid "YAML error on line %s: %s"
+msgstr "Ошибка в YAML, строка %s: %s"
+
+msgid "Group \"%s\" refers to a server \"%s\" that does not exist."
+msgstr "Группа «%s» ссылается на несуществующий сервер «%s»."
+
+msgid "Could not download the Mihomo core from GitHub. Check the router's internet connection. If GitHub is blocked, install the core manually (README, \"If GitHub is unavailable\")."
+msgstr "Не удалось скачать ядро Mihomo с GitHub. Проверьте интернет на роутере. Если GitHub заблокирован, установите ядро вручную (README, раздел «Если GitHub недоступен»)."
+
+msgid "Not enough free flash for the Mihomo core: %s MiB needed, %s MiB free."
+msgstr "Не хватает флеш-памяти для ядра Mihomo: нужно %s МБ, свободно %s МБ. Удалите ненужные пакеты или панель Mihomo."
+
+msgid "Not enough free flash for the Mihomo core. The current core is kept."
+msgstr "Не хватает флеш-памяти для ядра Mihomo. Текущее ядро сохранено."
+
+msgid "This router's CPU is not supported by the Mihomo core."
+msgstr "Процессор этого роутера не поддерживается ядром Mihomo."
+
+msgid "The downloaded core does not run on this router. The current core is kept."
+msgstr "Скачанное ядро не запускается на этом роутере. Текущее ядро сохранено."
+
+msgid "The new core does not accept your current configuration; the core was not updated."
+msgstr "Новое ядро не принимает текущую конфигурацию, поэтому ядро не обновлено."
+
+msgid "The downloaded core file is damaged. Try again."
+msgstr "Скачанный файл ядра повреждён. Попробуйте ещё раз."
+
+msgid "The core is already being updated."
+msgstr "Обновление ядра уже выполняется."
+
+msgid "The Mihomo core was updated, but MihoWRT could not restart: %s. Press Start on Overview."
+msgstr "Ядро Mihomo обновлено, но MihoWRT не смог перезапуститься: %s. Нажмите «Запустить» на странице «Обзор»."
+
+msgid "The Mihomo core was updated, but MihoWRT could not restart. Press Start on Overview."
+msgstr "Ядро Mihomo обновлено, но MihoWRT не смог перезапуститься. Нажмите «Запустить» на странице «Обзор»."
+
+msgid "The YAML is empty: nothing was changed."
+msgstr "YAML пустой — ничего не изменено."
+
+msgid "There is no previous configuration."
+msgstr "Предыдущей конфигурации нет."
+
+msgid "The \"%s\" list is larger than 1 MiB."
+msgstr "Список «%s» больше 1 МБ."
+
+msgid "The router is busy with another task. Try again in a minute."
+msgstr "Роутер занят другой задачей. Повторите через минуту."
+
+msgid "Mihomo could not apply the new configuration; the previous one is kept."
+msgstr "Mihomo не смог применить новую конфигурацию; работает прежняя."
+
+msgid "MihoWRT could not start. See the log on the Diagnostics page."
+msgstr "MihoWRT не запустился. Подробности — в журнале на странице «Диагностика»."
+
+msgid "MihoWRT settings are damaged. Save the Traffic page again or reinstall the package."
+msgstr "Настройки MihoWRT повреждены. Сохраните страницу «Трафик» заново или переустановите пакет."
+
+msgid "Mihomo configuration file not found: %s"
+msgstr "Файл конфигурации Mihomo не найден: %s"
+
+msgid "Failed to apply nftables policy: see %s"
+msgstr "Не удалось применить правила nftables: см. %s"
+

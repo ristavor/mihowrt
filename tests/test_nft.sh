@@ -230,12 +230,12 @@ render() {
 # The matched interception bit must not leak into ICMP's reverse route lookup.
 (
  DISABLE_QUIC=1
- for NFT_INTERCEPT_MARK in 0x08000000 0x10000000; do
+ for test_intercept_mark in 0x08000000 0x10000000; do
   for POLICY_MODE in direct-first proxy-first; do
    for DNS_MODE in redir-host fake-ip; do
-    render
+    NFT_INTERCEPT_MARK="$test_intercept_mark" render
     for chain in prerouting_policy mangle_output; do
-     expected="add rule inet mihowrt $chain meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 meta mark set meta mark ^ $NFT_INTERCEPT_MARK reject"
+     expected="add rule inet mihowrt $chain meta mark & $test_intercept_mark == $test_intercept_mark udp dport 443 meta mark set meta mark ^ $test_intercept_mark reject"
      assert_file_contains "$out" "$expected" "$POLICY_MODE/$DNS_MODE/$chain clears only the matched interception bit before QUIC rejection"
     done
    done

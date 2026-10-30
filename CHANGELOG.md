@@ -15,6 +15,8 @@ Added
 - Guest and isolated zones with fw4 `input REJECT` are admitted for redirected DNS and TPROXY via fw4 include `/usr/share/nftables.d/chain-pre/input/30-mihowrt.nft`.
 
 Fixes
+- QUIC rejection clears only the matched interception mark before generating ICMP, preventing reverse-route LOCAL warnings while preserving other marks and the fast rejection response.
+- Maintenance headings and the YAML editor label have consistent spacing in LuCI.
 - Replies to inbound connections (port forwards and router WAN services) are no longer intercepted. Routing rules use priorities 50–99 ahead of typical NetBird/mwan3 rules, and reject overlapping NetBird marks. Kernel-disabled IPv6 permits IPv4-only startup.
 - Failed subscription policy applies restore the previous YAML, runtime config and profile; the older backup is retained until success. Persistent list caches and subscription metadata are published atomically even across filesystems.
 - DNS and `x-mihowrt` block forms are checked consistently, including quoted/spaced keys. Empty port scopes are rejected. A partial remote-list update now reports failure while retaining old caches for failed downloads.

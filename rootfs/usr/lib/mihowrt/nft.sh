@@ -305,7 +305,8 @@ nft_render() {
 		nft_render_fakeip prerouting_policy
 	fi
 
-	[ "$DISABLE_QUIC" = "1" ] && nft_rule prerouting_policy "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
+	# Clear the matched bit so ICMP's reverse lookup cannot select our LOCAL route.
+	[ "$DISABLE_QUIC" = "1" ] && nft_rule prerouting_policy "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 meta mark set meta mark ^ $NFT_INTERCEPT_MARK reject"
 
 	# TPROXY marked packets (client traffic and rerouted router traffic).
 	nft_rule proxy_redirect "iifname \"$NETBIRD_INTERFACE\" return"
@@ -334,7 +335,7 @@ nft_render() {
 		nft_render_list_marks mangle_output "$dir/dst.4" "$dir/dst.6" daddr proxy_dst
 		nft_render_fakeip mangle_output
 	fi
-	[ "$DISABLE_QUIC" = "1" ] && nft_rule mangle_output "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
+	[ "$DISABLE_QUIC" = "1" ] && nft_rule mangle_output "meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 meta mark set meta mark ^ $NFT_INTERCEPT_MARK reject"
 	return 0
 }
 

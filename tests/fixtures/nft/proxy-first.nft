@@ -53,7 +53,7 @@ add rule inet mihowrt prerouting_policy ip6 daddr @direct_dst6 return
 add rule inet mihowrt prerouting_policy ip saddr @direct_src return
 add rule inet mihowrt prerouting_policy ip6 saddr @direct_src6 return
 add rule inet mihowrt prerouting_policy meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
-add rule inet mihowrt prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject
+add rule inet mihowrt prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 meta mark set meta mark ^ 0x08000000 reject
 add rule inet mihowrt proxy_redirect iifname "wt0" return
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv4 meta l4proto { tcp, udp } tproxy ip to 127.0.0.1:7894
 add rule inet mihowrt proxy_redirect meta mark & 0x08000000 == 0x08000000 meta nfproto ipv6 meta l4proto { tcp, udp } tproxy ip6 to [::1]:7894
@@ -75,4 +75,4 @@ add rule inet mihowrt mangle_output meta mark { 0x1bd00, 0x1bd10, 0x1bd11, 0x1bd
 add rule inet mihowrt mangle_output ip daddr @direct_dst return
 add rule inet mihowrt mangle_output ip6 daddr @direct_dst6 return
 add rule inet mihowrt mangle_output meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000
-add rule inet mihowrt mangle_output meta mark & 0x08000000 == 0x08000000 udp dport 443 reject
+add rule inet mihowrt mangle_output meta mark & 0x08000000 == 0x08000000 udp dport 443 meta mark set meta mark ^ 0x08000000 reject

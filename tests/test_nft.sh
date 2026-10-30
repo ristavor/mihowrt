@@ -227,6 +227,23 @@ render() {
  pass 'masked Mihomo self-bypass'
 )
 
+# The matched interception bit must not leak into ICMP's reverse route lookup.
+(
+ DISABLE_QUIC=1
+ for NFT_INTERCEPT_MARK in 0x08000000 0x10000000; do
+  for POLICY_MODE in direct-first proxy-first; do
+   for DNS_MODE in redir-host fake-ip; do
+    render
+    for chain in prerouting_policy mangle_output; do
+     expected="add rule inet mihowrt $chain meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 meta mark set meta mark ^ $NFT_INTERCEPT_MARK reject"
+     assert_file_contains "$out" "$expected" "$POLICY_MODE/$DNS_MODE/$chain clears only the matched interception bit before QUIC rejection"
+    done
+   done
+  done
+ done
+ pass 'QUIC rejection clears only the matched interception bit before ICMP generation'
+)
+
 # Only newly intercepted traffic reaches the terminal QUIC reject. Earlier
 # returns/goto and NetBird's accept keep their existing bypass semantics.
 (
@@ -238,9 +255,9 @@ render() {
   for DNS_MODE in redir-host fake-ip; do
    render
    for chain in prerouting_policy mangle_output; do
-    expected="add rule inet mihowrt $chain meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 reject"
+    expected="add rule inet mihowrt $chain meta mark & $NFT_INTERCEPT_MARK == $NFT_INTERCEPT_MARK udp dport 443 meta mark set meta mark ^ $NFT_INTERCEPT_MARK reject"
     assert_eq "$expected" "$(grep "^add rule inet mihowrt $chain " "$out" | tail -n1)" "$POLICY_MODE/$DNS_MODE/$chain terminal QUIC reject"
-    assert_eq 1 "$(grep -c "^add rule inet mihowrt $chain .*udp dport 443 reject$" "$out")" 'one QUIC reject per intercept chain'
+    assert_eq 1 "$(grep -c "^add rule inet mihowrt $chain .*udp dport 443 .*reject$" "$out")" 'one QUIC reject per intercept chain'
    done
    assert_file_contains "$out" 'ct direction original meta mark 0x1bd00 meta l4proto { tcp, udp } meta mark set meta mark | 0x08000000 accept' 'NetBird control-plane accept still bypasses QUIC rejection'
    if [ "$POLICY_MODE:$DNS_MODE" = proxy-first:fake-ip ]; then
@@ -251,7 +268,7 @@ render() {
  done
  DISABLE_QUIC=0
  render
- assert_file_not_contains "$out" 'udp dport 443 reject' 'QUIC toggle removes all QUIC rejects'
+ assert_file_not_contains "$out" 'udp dport 443 ' 'QUIC toggle removes all QUIC rejects'
  pass 'terminal QUIC rejects preserve bypass and direct-device paths'
 )
 
@@ -342,7 +359,7 @@ assert_file_contains "$out" "add element inet mihowrt proxy_src6 { fd00::10 }" "
 assert_file_contains "$out" "ip daddr { 9.9.9.9 } meta l4proto { tcp, udp } th dport { 443 } meta mark set" "v4 port rule"
 assert_file_contains "$out" "ip6 daddr { 2606:4700::1 } meta l4proto { tcp, udp } th dport { 80-90 } meta mark set" "v6 port rule"
 assert_file_contains "$out" "meta nfproto ipv6 meta l4proto { tcp, udp } th dport { 53 }" "port-only v6 rule"
-assert_file_contains "$out" "prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject" "QUIC reject after port entry marking"
+assert_file_contains "$out" "prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 meta mark set meta mark ^ 0x08000000 reject" "QUIC reject after port entry marking"
 assert_file_contains "$out" "tproxy ip6 to [::1]:7894" "IPv6 TPROXY"
 assert_file_contains "$out" "fib daddr type local return" "local addresses excluded"
 assert_file_contains "$out" "ip6 daddr != @localv6 meta l4proto { tcp, udp } th dport 53 redirect to :7874" "IPv6 DNS hijack"
@@ -467,7 +484,7 @@ assert_file_contains "$out" 'add set inet mihowrt proxy_src_mac { type ether_add
 assert_file_contains "$out" 'add set inet mihowrt direct_src_mac { type ether_addr; }' 'direct MAC set'
 assert_file_contains "$out" 'add element inet mihowrt proxy_src_mac { aa:bb:cc:dd:ee:ff }' 'MAC element'
 a=$(grep -n 'prerouting_policy ether saddr @proxy_src_mac meta l4proto' "$out" | cut -d: -f1)
-b=$(grep -n 'prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 reject' "$out" | cut -d: -f1)
+b=$(grep -n 'prerouting_policy meta mark & 0x08000000 == 0x08000000 udp dport 443 meta mark set meta mark \^ 0x08000000 reject' "$out" | cut -d: -f1)
 assert_true 'MAC mark precedes terminal QUIC reject' test "$a" -lt "$b"
 assert_file_not_contains "$out" 'mangle_output ether saddr' 'no Ethernet source matching for router output'
 DISABLE_QUIC=0

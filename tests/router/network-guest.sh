@@ -341,6 +341,8 @@ profile() {
 	[ "$mode" != direct-first ] || filter=whitelist
 	uci set "mihowrt.settings.dns_hijack=$hijack"
 	uci set mihowrt.settings.disable_quic=0
+	# Since 0.11 MihoWRT owns log-level; rows read per-connection core logs.
+	uci set mihowrt.settings.mihomo_log_level=debug
 	uci set mihowrt.settings.block_client_ipv6=0
 	uci -q delete mihowrt.settings.provider_override || true
 	uci -q delete mihowrt.settings.source_network_interfaces || true
